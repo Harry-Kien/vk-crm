@@ -107,7 +107,7 @@ riêng sau M10).
 
 | Biến `.env` | Mặc định | Ý nghĩa |
 |---|---|---|
-| `PROSPECT_RETENTION_MONTHS` | `24` | Số tháng giữ dữ liệu của người KHÔNG thành khách (tính từ lúc bị từ chối, không theo tiếp hay bị gộp), rồi tác vụ `prospects.anonymise` (03:30 hằng ngày) tự ẩn danh. Số nguyên dương; trống, 0, âm hay chữ thì dùng 24. Con số chờ luật sư của văn phòng xác nhận. |
+| `PROSPECT_RETENTION_MONTHS` | `24` | Số tháng giữ dữ liệu của người KHÔNG thành khách (tính từ lúc bị từ chối, không theo tiếp hay bị gộp), rồi tác vụ `prospects.anonymise` (03:30 hằng ngày) tự ẩn danh. Số nguyên dương, tối đa 1200; trống, 0, âm, chữ hay quá 1200 thì dùng 24. Con số chờ luật sư của văn phòng xác nhận. |
 | `INTAKE_RESPONSE_HOURS` | `4` | Ngưỡng phản hồi lần đầu, tính bằng GIỜ LÀM VIỆC. Bản ghi còn "Mới" quá ngưỡng thì tác vụ `intakes.remind-unanswered` (mỗi 15 phút) báo người được giao — không có thì trưởng phòng/quản trị, cuối cùng là admin — bằng chuông và thư (thư chỉ mang mã, nguồn, thời gian chờ và liên kết; không tên, SĐT hay câu chuyện), và bản ghi hiện ở widget "Liên hệ chưa ai gọi lại". Trống, 0, âm hay chữ thì dùng 4. |
 
 **Giờ làm việc** viết thẳng trong `config/vkcrm.php` (khoá `business_hours`), không qua `.env`:

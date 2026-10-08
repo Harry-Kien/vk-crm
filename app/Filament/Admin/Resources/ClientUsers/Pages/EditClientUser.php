@@ -194,6 +194,11 @@ class EditClientUser extends EditRecord
             ->color('gray')
             ->requiresConfirmation()
             ->modalHeading(__('client_users.actions.reissue_access_heading'))
+            // Lượt quét trước bản 1.0: nói thư sẽ đi tới đâu TRƯỚC khi bấm — địa chỉ ĐÃ LƯU của bản ghi,
+            // đúng địa chỉ `IssuePortalAccess` gửi tới (không phải chữ đang gõ dở trong form chưa lưu).
+            ->modalDescription(fn (): string => __('client_users.actions.reissue_access_description', [
+                'email' => $this->record->email,
+            ]))
             ->visible(fn (): bool => Gate::allows('reissueAccess', $this->record))
             ->disabled(fn (): bool => ! $this->canReissueAccess($this->record))
             ->tooltip(fn (): ?string => $this->canReissueAccess($this->record)

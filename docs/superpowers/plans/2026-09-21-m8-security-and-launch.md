@@ -176,12 +176,15 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - Phán quyết có loại tài liệu gói bàn giao của M7 khỏi bản sao hay không (nó là bản sao thứ hai của tệp đã có).
 - Một lần khôi phục thật theo R3, có số đo và có bước giải mã `id_number`.
 
-### - [ ] Task 6 — Quét lại §10 mục 9 và 10 trên toàn hệ thống (R5)
+### - [x] Task 6 — Quét lại §10 mục 9 và 10 trên toàn hệ thống (R5)
 
 - Tài khoản bị vô hiệu mất phiên ở request kế tiếp, gồm đường Livewire và đường vô hiệu hoá tự động của `ExpireClientAccess` (M7 Task 5).
 - Mục 10: không tồn tại và không có quyền phải **không phân biệt được**, ở mọi màn hình đã có sau M0–M7 và M6.5, không chỉ ở portal.
   - Danh sách màn hình dựng từ router, không từ trí nhớ.
   - Ghi rõ ngoại lệ có chủ đích: chữ ký URL sai trả 403 (`routes/web.php`).
+- **Làm ở làn v1 (2026-10-08, trước bản 1.0):** `tests/Feature/Security/SessionCutSpec109Test.php`,
+  `tests/Feature/Security/NotFoundSpec1010Test.php`; kết quả và mọi việc mang sang ở `docs/PROGRESS.md`, Ghi chú M8,
+  "Lượt quét toàn hệ thống trước bản 1.0".
 
 ### - [x] Task 7 — `README.md` và hướng dẫn triển khai (§14 mục 8, R6)
 

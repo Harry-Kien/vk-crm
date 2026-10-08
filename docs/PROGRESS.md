@@ -2893,6 +2893,151 @@ test mới của bốn điểm trên: 5+1+2). `pint --test` sạch 599 tệp. Ba
     số test mới 2+3+3+1); `test:mariadb` năm tệp đụng tới → 191 passed; `pint --test` sạch 639 tệp.
     Chi tiết ở `.superpowers/sdd/m8b/final-fix-report.md`, mục "## Fix round 1".
 
+### Lượt quét toàn hệ thống trước bản 1.0 (làn v1, Task 1 — M8 Task 6 và mọi việc mang sang, 2026-10-08)
+
+Chủ văn phòng chốt ngày 2026-10-08: **bản 1.0 = M0–M10 + M12 + M13** (M11 MCP và M14 Google Drive gắn sau). Làn
+`v1-acceptance` (worktree `D:\vkwt\lane-v1`), gốc `d54c445` (đỉnh làn M13 sau rà soát cuối, đã chứa `main`
+`7632242`). Brief: `.superpowers/sdd/v1/task-1-brief.md` (ngoài repo). Mỗi mục dưới đây: **sửa** (có test đỏ trước,
+xanh sau, mutation probe), **đã đóng trước** (kiểm lại, chỉ tên test), hoặc **ghi nhận** (lý do; việc của chủ văn
+phòng/luật sư nằm ở "Cần chủ văn phòng quyết" cuối mục).
+
+#### A1. §10.9 — tài khoản bị vô hiệu mất phiên ở request kế tiếp (R5), đo lại trên toàn hệ thống
+
+`tests/Feature/Security/SessionCutSpec109Test.php`: ba đường vô hiệu hoá tài khoản cổng (nút "Hoạt động" trên trang
+sửa tài khoản — qua Livewire; khách hàng bị xoá mềm; tác vụ đêm `client-access.expire` của M7 chạy bằng
+`schedule:test`) nhân bốn loại request kế tiếp của trình duyệt đang đăng nhập (tải trang hồ sơ trên cổng, request
+cập nhật Livewire của trang đang mở, `POST /portal/push/subscriptions` của M12, tải tài liệu bằng đường dẫn ký TRƯỚC
+lúc bị vô hiệu); và nhân sự bị vô hiệu trên trang sửa nhân sự với năm request (trang Tiếp nhận M10, "Theo dõi đội
+ngũ" M13, request Livewire của trang "Hiệu suất theo kỳ" M13, thiết bị M12, tải tài liệu). Mỗi ca khẳng định câu
+trả lời KHÔNG mang dữ liệu và phiên không còn đăng nhập; hai cặp dương (tài khoản còn hoạt động đi qua cùng các
+request, phiên còn nguyên).
+
+Hai lỗ, đã sửa:
+- **Route tải tài liệu** nằm ngoài panel nên `EnsurePortalAccountIsActive` không đứng trước nó: khách bị vô hiệu bấm
+  một đường dẫn ký từ trước nhận 404 nhưng phiên VẪN đăng nhập (3 ca đỏ). `DocumentDownloadController` gọi
+  `EnsurePortalAccountIsActive::endSession()` (tách ra từ middleware, cùng việc: đăng xuất guard `client`, huỷ phiên,
+  thay token, thông báo "tài khoản đã bị khoá"); câu trả lời vẫn 404.
+- **Nhân sự bị vô hiệu** nhận 404 ở mọi trang (`canAccessPanel()` sai) nhưng phiên vẫn đăng nhập — không tới được cả
+  trang đăng nhập, và bật lại tài khoản trả lại đúng phiên cũ (5 ca đỏ). Middleware mới `EndDisabledStaffSessions`
+  (đăng ký hai nơi như `RejectStaffSessionsFromBeforeReset`: nhóm `web` và middleware panel admin, sau
+  `StartSession`, trước `Authenticate`) đăng xuất guard `web` — không `invalidate()` cả phiên (cookie dùng chung với
+  cổng). Trang panel chuyển về `/admin/login`; request JSON (Livewire, thiết bị) nhận 401. `AdminPanelTest` "blocks
+  an inactive staff user" đổi thành "signs an inactive staff user out…" — đúng điều docblock cũ của chính test đó đã
+  hẹn ("câu trả lời tử tế cho họ là màn hình đăng nhập, thuộc về việc cài §10.9"). Ba test cũ ghim câu trả lời
+  404 cho request Livewire của nhân sự vừa bị vô hiệu (phiên vẫn còn) đỏ ở lần chạy cả bộ và được đổi theo phán
+  quyết này: `DenialCodeTest` (nay "signs a deactivated account out … answers like any guest": 401, không dữ liệu,
+  guard `web` trống; phần §10.10 của `isPersistent` vẫn đo bằng ca "wrong panel"), `SearchPageTest` (vế `inactive`
+  401 và đăng xuất, vế `role` giữ 404), `ErrorPageHomeLinkTest` (lần từ chối đổi sang "sai panel" để vẫn ra trang
+  lỗi 404 có nút về `/admin`). 401/302 ở đây là câu trả lời của mọi người chưa đăng nhập, không phụ thuộc bản ghi
+  nào — §10.10 không bị chạm.
+
+Không thuộc phiên: `manifest.webmanifest`, `sw.js`, trang ngoại tuyến (không đọc phiên), tệp tĩnh của Livewire.
+
+#### A2. §10.10 — "không tồn tại" và "không có quyền" không phân biệt được, danh sách dựng từ router
+
+`tests/Feature/Security/NotFoundSpec1010Test.php`. Test đầu đọc `Route::getRoutes()` và đòi MỌI route (gồm route
+Filament tự đăng ký, cổng khách, M10/M12/M13) nằm ở đúng một nhóm; một route mới chưa xếp nhóm làm test đỏ,
+và mọi route có tham số phải ở nhóm 1 hoặc là ngoại lệ có lý do.
+1. **Bản ghi theo id (13 route):** người không được xem mở id có thật và id bịa — cả hai 404, thân trang giống nhau
+   từng byte (sau khi bỏ token CSRF/nonce); cặp dương: người có quyền mở được đúng URL đó (13 ca). Thêm vụ
+   `restricted` với trưởng phòng.
+2. **Trang đóng với một vai (18 route):** người bị từ chối nhận đúng trang 404 của một đường dẫn không tồn tại dưới
+   `/admin`; admin mở được cả 18.
+3. **Mở cho mọi tài khoản đã đăng nhập của panel** (bảng tin, hồ sơ cá nhân, tìm kiếm, "Hiệu suất theo kỳ", "Theo dõi
+   đội ngũ" — tự lọc theo người xem —, danh sách vụ việc, danh mục loại vụ việc, trang thiết bị, đổi mật khẩu, đăng
+   nhập/đăng xuất, ba route thiết bị M12 — gỡ thiết bị của người khác và thiết bị không có trả cùng 404, có test).
+4. **Ngoại lệ có chủ đích, liệt kê trong test (`spec1010Exceptions()`):** chữ ký URL sai trả **403** trên
+   `documents.download` và hai bí danh M12 (`routes/web.php` — nói về đường dẫn, không về bản ghi; test khẳng định 403
+   giống nhau cho id có thật và id bịa, và chữ ký đúng mà không được tải thì 404 như id không có); request cập nhật
+   Livewire (từ chối bên trong vòng đời component giữ 403, snapshot niêm HMAC — `AnswerDeniedPanelRequestsWithNotFound`,
+   `DenialCodeTest`); tải/xem trước tệp tạm của Livewire (URL ký do component cấp); tệp công khai PWA của M12; `/up`;
+   `/` chuyển hướng; tài nguyên JS/CSS của Livewire.
+
+Một lỗ, đã sửa: **`filament/exports/{export}/download` và `filament/imports/{import}/failed-rows/download`** (Filament
+đăng ký vô điều kiện; ứng dụng không dùng xuất/nhập và không có bảng `exports`/`imports`) trả **500** cho mọi id, kể cả
+khách vãng lai (2 ca đỏ). `routes/web.php` đè đúng hai URI đó, cùng tên route, bằng `App\Http\Controllers\RespondNotFound`
+(404, không chạm CSDL; lớp invokable để `route:cache` tuần tự hoá được).
+
+#### B. Việc mang sang — từng mục
+
+| Mục (nguồn) | Kết quả |
+|---|---|
+| Lịch 08:00: `backup.monitor` (hỏi rclone) giữ chân `instalments.remind`, `missing-documents.remind` (brief) | **Sửa.** `backup.monitor` `->runInBackground()`; `->then()` vẫn chạy qua `schedule:finish`. `BackupScheduleTest` ghim: chạy nền, và không tác vụ tiền cảnh nào đứng trước hai lượt nhắc thư lúc 08:00 thứ Hai là `backup.monitor`. |
+| Thư `client.missing_documents` đòi "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" khi hợp đồng còn nháp/chưa có (làn fu) | **Sửa.** `ChecklistProgress::itemsToRemindClientOf()` (thư khách) bỏ đầu mục đó khi vụ chưa có hợp đồng rời `draft` — cùng điều kiện dòng nhắc của tab tiền; `RemindMissingDocuments` không xếp thư khi tập đó rỗng, `SendMissingDocumentsMail` đọc lại đúng hàm đó lúc gửi. Thanh tiến độ, widget và thông báo 14 ngày cho luật sư giữ định nghĩa cũ. Tên đầu mục chuyển thành `Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME` (Action không được phụ thuộc Filament), `BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME` là bí danh. 5 ca mới ở `RemindMissingDocumentsTest`. |
+| Hộp xác nhận "Cấp lại mật khẩu" không nói gửi tới địa chỉ nào (brief) | **Sửa.** `modalDescription` nêu email ĐÃ LƯU (địa chỉ `IssuePortalAccess` gửi tới), không chữ đang gõ dở; `ClientUserResourceTest` "names the saved email address…". |
+| `SendPortalActivationMail::$reissue` với job xếp hàng bằng mã cũ (brief) | **Sửa** (job chịu được) **và tài liệu.** Thuộc tính khai riêng với mặc định của lớp `false` (thuộc tính constructor `readonly` không có giá trị khi hàng đợi giải tuần tự payload cũ → lỗi ở cả 5 lần thử, khách không nhận thư). Test dựng payload đúng hình dạng cũ. CAI-DAT "Nâng cấp lên bản mới" có gạch đầu dòng "Hàng đợi qua lần nâng cấp". |
+| M9 Task 10 m4 — `payments.reference`, `instalments.trigger_stage_key` chưa trong danh sách ẩn khi serialize dưới phiên cổng | **Sửa.** Thêm vào `internalAttributes()`; `PortalClosureTest`. |
+| M9 Task 10 m1 — nhánh khách của `PaymentPolicy::view`/`InstalmentPolicy::view` mở với dòng nạp thiếu cột (select hẹp) | **Sửa** (đo được: khoản thu đã huỷ và đợt đã huỷ nạp hẹp đều qua cổng). `ReadsPortalParents::ownColumnForGate()` đọc lại cột thiếu, không đọc được thì từ chối; `PortalClosureTest` có cặp dương. |
+| M10 — câu thông báo tiếp nhận viết cứng "24 tháng" | **Sửa (phần mã).** `App\Support\Intake\PrivacyNotice`: câu đọc `IntakeRequest::retentionMonths()`; phiên bản ghi kèm mang số tháng khi khác 24 (`2026-09-nhap-36t`; 24 giữ `2026-09-nhap` vì câu trùng từng chữ câu cũ) — đổi biến thì nút "Ghi nhận thông báo" hiện lại. Bốn nơi đọc qua lớp này. CAI-DAT bỏ lời dặn sửa tệp ngôn ngữ trên máy chủ (fu3 Task 2 m6) và nói đúng việc tính lại hạn khi gộp (m1). Câu chữ còn lại là việc luật sư (dưới). |
+| M10 — `PROSPECT_RETENTION_MONTHS` không có trần (tìm thấy trong lượt quét: phiên bản câu thông báo nay mang số tháng) | **Sửa.** Một chữ số gõ thừa (ví dụ `100000000`) làm phiên bản `2026-09-nhap-100000000t` dài 22 ký tự — cột `privacy_notice_version` 20 ký tự, MariaDB strict từ chối lần "Ghi nhận thông báo" — và ngày hạn lưu ra năm vô nghĩa. `IntakeRequest::MAX_RETENTION_MONTHS = 1200` (100 năm): quá trần về mặc định 24 như 0, số âm, chữ; 1200 đúng trần được nhận và phiên bản dài 18. `IntakeRetentionTest` (hai ca dữ liệu mới đỏ trước, ca 1200); `.env.example` và CAI-DAT nói trần. |
+| M10 — bản ghi còn mở không bao giờ có `retention_until` | **Ghi nhận → chủ văn phòng/luật sư.** Đây là quyết định nghiệp vụ (bản ghi còn mở có tự ẩn danh sau một thời gian không?), không phải lỗi mã; câu thông báo hiện hứa "tối đa :months tháng nếu không trở thành khách hàng". |
+| fu3 — modal xoá theo yêu cầu "KHÔNG khôi phục được" so với bản sao lưu | **Đã đóng ở fu3 Task 2 (m1)**: "KHÔNG hoàn tác được" + câu bản sao lưu; `CopyPromisesTest` ghim. |
+| fu3 m2/m7 — làm sạch sổ tra khách chạm dấu băm của bản ghi khác cùng số | **Ghi nhận, giữ hành vi.** Phán quyết: giữ "ẩn danh xoá hết, kể cả dấu băm" (mặc định R7b của kế hoạch M10, test `AnonymiseProspectTest` của fu3 ghim chính hành vi này). Cái giá: dòng tra khách của một khách hiện tại cùng số mất dấu băm (dòng trúng còn `matched_client_id`); câu modal nói đúng điều bị xoá ("dấu mã hoá số … trong nhật ký tra khách"). Đảo được nếu luật sư muốn giữ dấu băm cho số còn thuộc hồ sơ khác — cùng câu hỏi "giữ dấu băm" đang chờ luật sư. |
+| fu3 m4 — "ít nhất 30 ngày" / "giữ khoảng 30 ngày" | **Đã đóng ở fu3 Task 2**: "30 bản sao lưu đêm gần nhất, cộng khoảng 30 ngày trong Thùng rác"; không còn câu "giữ khoảng 30 ngày" nào ngoài kế hoạch M14 (ngoài phạm vi). |
+| fu3 Task 2 m2 — bảng kê gói bàn giao "sau ngày này" | **Sửa.** `handover.pdf.billing.as_of`: "Tính đến lúc lập gói (ngày …)", "sau lúc lập gói", kể cả miễn, huỷ, phụ lục; `BillingOnPortalTest`; SPEC §6.12 dòng sửa câu 2026-10-08. |
+| fu3 Task 2 m3 — tên test M10 nói mốc cũ, chỉ ghim chữ "luật sư" | **Sửa.** `InstallGuideM10UpgradeTest` đổi tên, ghim "TRƯỚC khi nhân sự bắt đầu dùng màn hình Tiếp nhận". |
+| fu4 minor 1 — `Gate::authorize()` trong action `forgetPushDevices` chưa có test riêng | **Ghi nhận.** Phòng thủ chiều sâu: Filament từ chối action đang ẩn, và `visible()` hỏi cùng Gate; cùng cách M8 đã ghi cho `unlockLogin`. |
+| fu4 minor 2 — `tools/pwa/*.cjs` bỏ `PHP_INI_SCAN_DIR` của khảo sát CSP | **Ghi nhận.** Công cụ khảo sát của nhà phát triển, không chạy trên máy chủ; `tools/csp` ngoài phạm vi (đã ghi ở làn fu4). |
+| fu4 minor 3 — mã lý do `push_device_removed` tiếng Anh trong modal nhật ký | **Sửa.** Nhãn `activity.reasons.push_device_removed.*` cho ba hằng `ForgetPushDevice::REASON_*`; `ActivityReasonLabelsTest` liệt kê chúng bằng phản chiếu (không có hậu tố `_REASON`) và đi qua modal thật. |
+| fu4 rà soát lại minor 1 — khe mili giây giữa lần đổi email và một request đổi mật khẩu đã qua kiểm băm | **Ghi nhận, chấp nhận.** Khe là thời gian của một transaction; đóng hẳn cần khoá dòng trong `changePassword()`. Lần "Cấp lại mật khẩu" kế tiếp hay lượt `queue.drain` ghi mật khẩu tạm đều cắt phiên đó. |
+| `EnvExampleTest` — test "risky" duy nhất (không khẳng định gì) | **Sửa.** Đọc tập `BRAND_*` có mặc định từ `config/vkcrm.php`; đòi không dòng trống nào đè mặc định và mỗi biến có dòng mẫu mang giá trị. Bộ test không còn test risky. |
+| M10 fr-m2 — phép quét §10.5 chưa có dữ liệu ở bảng tiếp nhận | **Sửa.** `SensitiveDataFlows` thêm một lần ghi tiếp nhận qua màn hình (CCCD người gọi và bên đối lập); `PersonalDataSpec105Test` và `BackupPersonalDataScanTest` quét hai số đó và khẳng định dạng lưu duy nhất là dấu băm. |
+| M13 rà soát cuối T5 m2, m3 — cột khách hàng và câu giải thích ba danh sách trên trang của một người | **Sửa.** Cột khách hàng theo cổng `matter.view` như cột tiêu đề; câu "Ba danh sách việc" chỉ khi trang có danh sách; `TeamMemberPageTest`. |
+| Rà soát gộp M13 vào `main` (controller, 2026-10-08) — `TeamPerformanceSeeder` bàn giao qua `ReassignMatters`, mà `finally{}` của nó luôn xếp `SendReassignmentDigest`: chạy dữ liệu mẫu xếp một thư `staff.matter_reassigned` thật | **Sửa.** Seeder gọi `ReassignMatter` (đúng lời gọi màn hình hàng loạt làm cho từng vụ, kể cả `expectedLeadId`) với `sendDigest: false` như `BillingSeeder`; `ReassignMatters` không đổi. `TeamPerformanceSeederTest` "hands over … without queueing a real reassignment mail": dòng `matter_reassigned` tới người nhận có, dòng nhật ký thư `staff.matter_reassigned` không có (hàng đợi test là `sync`; đỏ trước: 1). |
+| Rà soát gộp M13 vào `main` — câu "Kỳ đã đóng" (`performance.explain.closed_period`) hứa "mọi con số … kể cả ở kỳ đã qua" chỉ tính vụ người xem đang được xem, trái với P8, xu hướng 90 ngày và câu phạm vi: ba chỗ đó đọc `performance_snapshots` | **Sửa câu chữ, giữ mô hình ảnh chụp.** "Kỳ đã đóng" và câu xu hướng của trang một người thêm: cột "Xu hướng (đầu kỳ → cuối kỳ)" và hai biểu đồ đọc ảnh chụp hằng ngày, số của một ngày đã qua giữ nguyên như lúc chụp, nên vẫn gồm vụ đã bàn giao, đã huỷ hay người xem nay không còn được xem (cùng ý câu P8 đã có). SPEC R19 cùng câu (sửa câu 2026-10-08). Câu phạm vi R4 (`scope_note`) giữ nguyên — nó là câu cố định cho mọi người xem, và "Cách tính các con số" nói phần ảnh chụp. `ClosedPeriodStabilityTest` "says in the closed-period, trend and R19 sentences …" (đỏ trước). |
+| M9 N3 — `RegroupDocument` dời bằng chứng tiền khỏi nhóm D | **Đã đóng ở fu3 (mục D)**: `documents.regroup.billing_reference`, `DocumentsRelationManagerTest`. |
+| M9 N6 = r2 — "gõ mã rồi bấm Áp dụng bộ lọc" | **Đã đóng ở fu3 Task 2 (mục C)**: QUY-TRINH và `ReceivablesPageTest`. |
+| M9 N4 = Task 6 R1 — đợt thêm bằng phụ lục cho giai đoạn chưa chạm, rồi lần chuyển ghi lùi | **Ghi nhận.** Hiếm (cần cả phụ lục lẫn chuyển giai đoạn ghi lùi ngày), không đổi số tiền, chỉ làm đợt quá hạn từ lúc sinh; chủ văn phòng muốn thì thêm "sàn theo ngày phụ lục" cho từng dòng. |
+| M9 N5 — thứ tự listener `MatterStageChanged` | **Ghi nhận.** Lưới an toàn có sẵn (đối soát 07:00 `instalments.reconcile-stage`); câu "nuốt lỗi" chỉ nói về chính listener tiền. |
+| M9 Task 6 M1–M7 (sổ m9f) | **Ghi nhận** như lúc rà soát: giá thấp hoặc chỉ câu chữ, không đổi tiền, không lộ dữ liệu. |
+| M9 — `MatterChecklistItem` chưa `LogsActivity` | **Ghi nhận, giữ.** Các thay đổi quan trọng đã có `Audit::record` tường minh; thêm `LogsActivity` mở một loại `subject_type` mới phải ánh xạ ở `ActivityOwningMatter` — không có lợi cho bản 1.0. |
+| M6.5 — dòng `conflict_check_run` cho trưởng phòng đọc mã và tên bên của vụ `restricted` | **Ghi nhận, là ngoại lệ có chủ đích của SPEC §6.10** ("chỉ mã hồ sơ, loại vụ việc và vai … kể cả khi người dùng không có quyền trên vụ đó", đính chính 2026-09-16 thêm tên bên trùng và tầng khớp). Dòng nhật ký mang đúng năm trường đó, không tiêu đề, không tên khách của vụ kia ngoài tên bên trùng; trưởng phòng là người ghi đè Đỏ. Muốn siết (che khớp của vụ `restricted` trong modal nhật ký với người không xem được vụ đó) là quyết định của chủ văn phòng — dưới. |
+| M6.5 — ba đường có thể ra 500 khi đụng 1020 (`UploadStaffDocument`, `SubmitClientDocument`, pha lưu `OpenMatter`) | **Đã kiểm, đóng phần 1020.** Từ M7 Task 3 hai Action đầu mở transaction bằng `lockForUpdate()` trên `matters` (luật "câu đầu tiên là một lần đọc có khoá"), nên 1020 không xảy ra ở đó. Pha lưu của `OpenMatter` và deadlock 1213 dưới tải đồng thời chưa có test hai phiên: nếu xảy ra, transaction quay lui (không hỏng dữ liệu) và người dùng thấy trang lỗi, bấm lại; chấp nhận cho bản 1.0 (thứ tự khoá toàn cục giảm khả năng). |
+| M6.5 — câu "thử lại" của đồng bộ định danh khách không hiện và nói "chưa được lưu" | **Ghi nhận.** Đường chỉ chạy khi 1020/1213 xảy ra trong lúc sửa định danh khách (`ConcurrentChange::guard`); dữ liệu không hỏng, người dùng bấm lại. |
+| M6.5 — cuộc đua hẹp giữa `failed()` của job nhắc hạn và `CheckDeadlines`; khách mới tạo khi hộp cảnh báo xung đột đang mở không được dò trùng lại | **Ghi nhận.** Cả hai hẹp về thời gian; mốc vẫn được `deadlines.check` 30 phút sau thấy lại; khách trùng là trùng hồ sơ khách (không phải xung đột lợi ích), gộp tay được. |
+| M6.5 "Việc nhỏ hoãn lại" (Task 1–20) | **Đã đọc lại, không mục nào là lỗ §10 hay rò rỉ vụ `restricted`**; giữ làm việc dọn sau bản 1.0. Một mục chạm §10.9: `invalidate()` của `EnsurePortalAccountIsActive` cũng huỷ phiên nhân sự dùng chung cookie trên cùng trình duyệt — chấp nhận (nhân sự và khách hiếm khi dùng chung một trình duyệt; đăng nhập lại là đủ). |
+| M12 "chờ controller chốt" (Ghi chú M12) | **Ghi nhận.** `CurrentDeviceLogout` khi chính chủ đổi mật khẩu ở máy khác — giữ (máy cũ là máy có thể đã mất); "Gửi lại" của nhật ký thư cũng đẩy — giữ (push đi cùng thư); trang 429/500 mặc định trong cửa sổ app, câu `portal.inactive` không hiện trên đường Livewire — câu chữ, sau bản 1.0. M12 rà soát cuối (14 minor, sổ làn m12): (1), (2), (13), (14) đã đóng ở fu4, (3) một phần (gỡ do văn phòng ghi người bấm; gỡ lúc cắt phiên §10.9 vẫn ghi chủ máy); còn lại là hardening, giữ sau bản 1.0. |
+| M13 rà soát cuối m1 (lần mở lạnh vượt ngân sách R11), m2 (khoá bộ nhớ tạm không theo vai người xem), m3–m7 | **Ghi nhận.** m1 chờ chủ văn phòng chấp nhận số đo (dưới). m2: một admin bị hạ xuống trưởng phòng đọc số (không mã, tiêu đề, tên khách) của phạm vi cũ tối đa 5 phút — chấp nhận theo TTL. m3–m7 như ghi ở sổ M13. |
+| M7 (Ghi chú M7) — huỷ hồ sơ bỏ qua công nợ; đầu mục chờ duyệt kẹt khi đóng vụ; gói bàn giao nhân đôi bản sao lưu | **Chuyển chủ văn phòng** (dưới), không đổi hành vi. |
+
+#### Cần chủ văn phòng quyết (lượt quét trước bản 1.0)
+
+Không mục nào dưới đây chặn bản 1.0 về kỹ thuật; mỗi mục là một lựa chọn nghiệp vụ hay pháp lý mà mã đang theo một
+mặc định đã ghi.
+1. **Câu thông báo tiếp nhận (luật sư):** câu chữ bản nháp `2026-09-nhap`; con số `PROSPECT_RETENTION_MONTHS` (mặc định
+   24) — xác nhận TRƯỚC khi nhân sự dùng màn hình Tiếp nhận; "tối đa N tháng" tính từ ngày bản ghi ĐÓNG (từ chối, mất
+   liên lạc, gộp), không từ lần gọi đầu, và lượt 03:30 ẩn danh từ ngày sau hạn — người gọi để mở N tháng được giữ
+   khoảng N + thời gian mở; bản ghi còn mở không có hạn nào (có muốn tự đóng/ẩn danh bản ghi mở quá lâu không?); "yêu
+   cầu xoá bất cứ lúc nào" không đúng với bản ghi đã thành vụ việc (dữ liệu đi theo hồ sơ khách).
+2. **Giữ dấu băm sau ẩn danh (luật sư, câu hỏi #2 của R7b):** hôm nay ẩn danh và xoá theo yêu cầu xoá dấu băm SĐT/CCCD
+   khỏi sổ tra khách, kể cả dòng tra của hồ sơ khác cùng số (mục fu3 m2 ở bảng trên).
+3. **Huỷ hồ sơ (`RecordMatterDestruction`) không xét công nợ** (Ghi chú M7): có chặn huỷ khi còn khoản phải thu không?
+4. **Đầu mục "chờ duyệt" kẹt khi vụ đóng** (Ghi chú M7): danh mục vụ đã đóng là chỉ đọc; đầu mục khách đã nộp mà văn
+   phòng chưa duyệt ở lại "chờ duyệt" mãi. Duyệt nốt trước khi đóng, hay cho duyệt trên vụ đã đóng?
+5. **Gói bàn giao nhân đôi bản sao lưu** (Ghi chú M7, M8 Task 5): gói là bản sao thứ hai của tệp đã có; có loại gói khỏi
+   bản sao lưu đêm không (tiết kiệm dung lượng; gói sinh lại được)?
+6. **Nhật ký kiểm tra xung đột với vụ `restricted`** (bảng trên): giữ ngoại lệ §6.10 cho trưởng phòng, hay che mã và tên
+   bên của vụ `restricted` trong modal nhật ký với người không xem được vụ đó?
+7. **Thư "còn thiếu giấy tờ" khi chưa có hợp đồng** (bảng trên): mã không đòi bản hợp đồng đã ký khi vụ chưa có hợp đồng
+   nào rời nháp. Vụ không dùng module hợp đồng (hợp đồng giấy ngoài hệ thống) vì vậy không bao giờ được nhắc đầu mục đó
+   qua thư — đảo được nếu chủ văn phòng muốn nhắc cả khi chưa có hợp đồng.
+8. **Số đo R11 của M13** (rà soát cuối M13 m1): lần mở lạnh "Hiệu suất theo kỳ" theo quý khoảng 1,2–1,3 s (ngân sách 500
+   ms), trang của một người khoảng 0,3 s (200 ms); mở lại trong 5 phút nhanh nhờ bộ nhớ tạm. Chấp nhận, hay đổi R11?
+9. **Hai thư nhân sự không đẩy** (`staff.matter_reassigned`, `staff.intake_unanswered` — Ghi chú M12): giữ đề xuất của
+   làn M12 (không đẩy), hay đẩy?
+
+#### Số đo
+
+- Mutation probe cho từng điều kiện mới (bỏ điều kiện → đỏ → trả lại), 17 lần thử, cộng ba lần đỏ trước của
+  seeder, câu ảnh chụp và trần số tháng, ghi ở
+  `.superpowers/sdd/v1/task-1-report.md` (ngoài repo). Mỗi điều kiện đỏ riêng, kể cả hai cặp gộp chung một
+  test (`trigger_stage_key`/`reference`, cột khách hàng/câu danh sách) — đã thử tách từng vế.
+- Cả bộ lần 1 (`test --parallel --processes=2`, SQLite): 6377 passed, 33 skipped, 3 failed (63,5 phút). Ba ca đỏ
+  là ba test cũ ghim 404 cho nhân sự vừa bị vô hiệu (mục A1), đã đổi theo phán quyết §10.9.
+- `test:mariadb` 23 tệp test đụng tới: 524 passed, 1 skipped (ca §10.5 sao lưu thật, cần công cụ ngoài; đã bỏ
+  qua từ trước), 685 giây.
+- `pint --test`: sạch, 1178 tệp.
+
 ## Ghi chú M7
 
 Worktree `D:\vkwt\lane-m7`, nhánh `m7-handover`, cắt từ `origin/m6-5-lane-d` @ `d2de674` (M6.5 đã

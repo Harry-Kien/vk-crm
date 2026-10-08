@@ -6,6 +6,7 @@ use App\Enums\Confidentiality;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\OutboundMessage;
 use App\Models\PerformanceSnapshot;
 use App\Models\StageLog;
 use App\Models\User;
@@ -21,7 +22,7 @@ use Spatie\Activitylog\Models\Activity;
 /**
  * M13 Task 8 — dữ liệu mẫu theo dõi đội ngũ (`TeamPerformanceSeeder`, gọi từ `DemoDataSeeder`, không bao
  * giờ ở production). Mỗi tình huống của kế hoạch (Task 8, "Dữ liệu mẫu") một khẳng định: luật sư nghỉ việc
- * bàn giao qua `ReassignMatters` thật (dòng lịch sử cho từng mốc và từng vụ), một vụ `restricted` của
+ * bàn giao qua `ReassignMatter` thật, không thư (dòng lịch sử cho từng mốc và từng vụ), một vụ `restricted` của
  * luật sư A quá hạn cập nhật và có mốc quá hạn, yêu cầu nhanh/chậm/đóng không trả lời, dòng tiến độ trải
  * ba tháng, 90 ngày ảnh chụp giả. Số của từng trang trên dữ liệu này đo ở
  * `tests/Feature/Performance/DemoWalkthroughTest.php`. Hàm toàn cục mang tiền tố `m13t8Seed`.
@@ -38,7 +39,7 @@ function m13t8SeedUser(string $email): User
     return User::query()->where('email', $email)->firstOrFail();
 }
 
-it('hands the matters of a lawyer who left after last month to another lawyer through ReassignMatters, then deactivates the account', function () {
+it('hands the matters of a lawyer who left after last month to another lawyer through ReassignMatter, then deactivates the account', function () {
     $departed = m13t8SeedUser(TeamPerformanceSeeder::DEPARTED_EMAIL);
     $receiver = m13t8SeedUser(TeamPerformanceSeeder::RECEIVER_EMAIL);
 
@@ -60,6 +61,17 @@ it('hands the matters of a lawyer who left after last month to another lawyer th
             ->where('event', 'updated')->where('properties->attributes->is_active', false)->count())->toBe(1)
         ->and(TeamRoster::subjectsForPeriod(m13t8SeedUser('quanly@luatvukhang.com'), PerformancePeriod::fromFilters(['period' => 'last_month']))
             ->pluck('id'))->toContain($departed->id);
+});
+
+// Lượt quét trước bản 1.0 (rà soát gộp M13 vào main): dữ liệu mẫu không gửi thư thật. Bàn giao qua
+// `ReassignMatters` (cách cũ của seeder) luôn xếp `SendReassignmentDigest` ở `finally{}`; hàng đợi của bộ
+// test là `sync`, nên job chạy ngay trong lúc seed và để lại dòng nhật ký thư `staff.matter_reassigned`
+// (cùng điều `BillingSeeder` tránh bằng `sendDigest: false`).
+it('hands over the departed lawyer\'s matter without queueing a real reassignment mail', function () {
+    $receiver = m13t8SeedUser(TeamPerformanceSeeder::RECEIVER_EMAIL);
+
+    expect(Activity::query()->where('event', 'matter_reassigned')->where('properties->to_user_id', $receiver->id)->exists())->toBeTrue()
+        ->and(OutboundMessage::query()->withoutGlobalScopes()->where('template', 'staff.matter_reassigned')->count())->toBe(0);
 });
 
 it('leaves the departed lawyer one missed deadline of last month, now held by the receiver, and unassigned threads he answered', function () {

@@ -103,6 +103,22 @@ class EnsurePortalAccountIsActive
             return $next($request);
         }
 
+        self::endSession($request);
+
+        return redirect()->to(Filament::getPanel('portal')->getLoginUrl());
+    }
+
+    /**
+     * Kết thúc phiên cổng của một tài khoản không còn hiệu lực — đăng xuất guard `client`, huỷ phiên,
+     * thay token CSRF, để lại thông báo "tài khoản đã bị khoá" cho lần mở trang đăng nhập sau.
+     *
+     * Công khai vì có MỘT nơi thứ hai cần đúng việc này: route tải tài liệu
+     * (`DocumentDownloadController`) nằm ngoài panel nên middleware này không đứng trước nó — lượt quét
+     * §10 trước bản 1.0 (SPEC §10.9) cho nó gọi hàm này, để một đường dẫn tải ký trước lúc bị vô hiệu
+     * cũng là "request kế tiếp" làm mất phiên, không chỉ trả 404.
+     */
+    public static function endSession(Request $request): void
+    {
         Auth::guard('client')->logout();
 
         // Trên đường ống bền của Livewire, `$request` là một request GIẢ dựng từ request thật
@@ -117,7 +133,5 @@ class EnsurePortalAccountIsActive
             ->danger()
             ->persistent()
             ->send();
-
-        return redirect()->to(Filament::getPanel('portal')->getLoginUrl());
     }
 }

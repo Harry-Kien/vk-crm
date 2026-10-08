@@ -254,3 +254,24 @@ it('drops a handed-over restricted matter from the old lead\'s own closed period
         ->and(__('performance.explain.closed_period'))->toContain('không còn được xem')
         ->and(__('performance.explain.closed_period'))->not->toContain('bàn giao vụ sau khi hết kỳ không làm đổi số');
 });
+
+/**
+ * Lượt quét trước bản 1.0 (rà soát gộp M13 vào main): câu "Kỳ đã đóng" nói "mọi con số chỉ tính trên các vụ
+ * việc anh/chị đang được xem … kể cả ở kỳ đã qua", nhưng cột "Xu hướng (đầu kỳ → cuối kỳ)" (P8) và hai biểu
+ * đồ 90 ngày đọc `performance_snapshots` — số đã chụp lúc 23:50, chỉ tách theo mức bảo mật lúc chụp. Một vụ
+ * đã bàn giao, đã huỷ hay người xem nay không còn được xem vẫn nằm trong số của những ngày đã chụp (câu P8 đã
+ * nói vậy). Ba câu (Kỳ đã đóng, xu hướng của trang một người, SPEC R19) phải nói cùng một điều, không đổi mô
+ * hình ảnh chụp.
+ */
+it('says in the closed-period, trend and R19 sentences that snapshot numbers stay as captured, matching P8', function () {
+    $closed = __('performance.explain.closed_period');
+    $trend = __('performance.trend.explain', ['days' => 90]);
+    $spec = preg_replace('/\s+/u', ' ', (string) file_get_contents(base_path('docs/SPEC.md')));
+
+    expect(__('performance.explain.p8'))->toContain('giữ nguyên như lúc chụp')
+        ->and($closed)->toContain('ảnh chụp')
+        ->and($closed)->toContain('giữ nguyên như lúc chụp')
+        ->and($trend)->toContain('giữ nguyên như lúc chụp')
+        ->and($trend)->toContain('không còn được xem')
+        ->and($spec)->toContain('Riêng P8 và hai biểu đồ xu hướng đọc ảnh chụp');
+});

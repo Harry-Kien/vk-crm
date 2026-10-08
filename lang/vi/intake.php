@@ -13,10 +13,13 @@ return [
      * ĐÂY LÀ BẢN NHÁP: nội dung câu thông báo và căn cứ pháp lý lưu phần danh tính khi người gọi chưa
      * đồng ý là mục CHỜ LUẬT SƯ XÁC NHẬN (kế hoạch M10, "Còn cần chủ văn phòng hoặc luật sư xác
      * nhận", mục 1). Hậu tố `-nhap` trong `version` nhắc điều đó; bỏ hậu tố khi luật sư đã duyệt.
+     *
+     * `:months` là `IntakeRequest::retentionMonths()` (`PROSPECT_RETENTION_MONTHS`) — lượt quét trước
+     * bản 1.0. Đọc câu và phiên bản qua `App\Support\Intake\PrivacyNotice`, không gọi `__()` thẳng.
      */
     'privacy_notice' => [
         'version' => '2026-09-nhap',
-        'text' => 'Văn phòng sẽ ghi lại họ tên, số điện thoại và nội dung anh/chị trình bày để tư vấn và để kiểm tra xung đột lợi ích trước khi nhận vụ việc. Thông tin này được bảo mật theo quy định của Luật Luật sư, được lưu tối đa 24 tháng nếu anh/chị không trở thành khách hàng, sau đó được ẩn danh. Anh/chị có quyền yêu cầu xoá thông tin bất cứ lúc nào.',
+        'text' => 'Văn phòng sẽ ghi lại họ tên, số điện thoại và nội dung anh/chị trình bày để tư vấn và để kiểm tra xung đột lợi ích trước khi nhận vụ việc. Thông tin này được bảo mật theo quy định của Luật Luật sư, được lưu tối đa :months tháng nếu anh/chị không trở thành khách hàng, sau đó được ẩn danh. Anh/chị có quyền yêu cầu xoá thông tin bất cứ lúc nào.',
     ],
 
     'attributes' => [

@@ -887,8 +887,14 @@ it('dates the payment statement as of the day the package is generated, while th
     $asOf = fn (string $date): string => PdfText::squash(__('handover.pdf.billing.as_of', ['date' => $date]));
 
     expect(__('handover.pdf.billing.as_of', ['date' => '20/10/2026']))
-        ->toContain('ngày lập gói')
-        ->toContain('cổng khách hàng');
+        ->toContain('lập gói')
+        ->toContain('cổng khách hàng')
+        // Lượt quét trước bản 1.0 (minor m2 rà soát Task 2 làn fu3): bảng kê đóng băng LÚC lập gói, không
+        // phải cuối ngày đó — một khoản ghi chiều cùng ngày cũng không có; và không chỉ khoản thanh toán
+        // mà cả miễn, huỷ, phụ lục ghi sau đó (SPEC §6.12 kể cả bốn).
+        ->toContain('sau lúc lập gói')
+        ->toContain('thay đổi khác về thanh toán')
+        ->not->toContain('sau ngày này');
 
     $index = PdfText::squash(bopIndexText($this->matterA));
 

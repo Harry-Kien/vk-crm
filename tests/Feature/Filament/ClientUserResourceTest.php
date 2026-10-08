@@ -607,6 +607,27 @@ it('turns must_change_password back on and emails a new temporary password via "
     Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo($account->email) && $mail->reissue);
 });
 
+/**
+ * Lượt quét trước bản 1.0 (việc mang sang M8 Task 6): hộp xác nhận "Cấp lại mật khẩu" nói thư sẽ đi
+ * tới ĐỊA CHỈ nào — địa chỉ ĐÃ LƯU của tài khoản (thứ `IssuePortalAccess` dùng), không phải chữ đang
+ * gõ dở trong ô email của form chưa lưu. Nhân sự nhìn thấy địa chỉ sai trước khi bấm, không phải sau.
+ */
+it('names the saved email address in the "reissue access" confirmation', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['email' => 'chu.tai.khoan@example.vn']);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm(['email' => 'dang.go.do@example.vn'])
+        ->mountAction('reissueAccess')
+        ->assertMountedActionModalSee(__('client_users.actions.reissue_access_description', ['email' => 'chu.tai.khoan@example.vn']))
+        ->assertMountedActionModalDontSee('dang.go.do@example.vn');
+});
+
 // =========================================================================================
 // Fix round 1, finding Important 1: "Cấp lại mật khẩu" trên một tài khoản KHÔNG đủ điều kiện
 // (is_active = false, hoặc khách đã xoá mềm) không được phép hiện toast thành công giả.

@@ -186,7 +186,7 @@ class BillingRelationManager extends RelationManager
     use ScopesToVisibleMatters;
 
     /** SPEC §4.9 — nhận diện CHỈ bằng tên, xem docblock lớp. */
-    public const REQUIRED_CHECKLIST_ITEM_NAME = 'Hợp đồng dịch vụ pháp lý và giấy uỷ quyền';
+    public const REQUIRED_CHECKLIST_ITEM_NAME = Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME;
 
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {

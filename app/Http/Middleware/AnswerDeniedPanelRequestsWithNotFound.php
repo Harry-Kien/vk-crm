@@ -34,9 +34,11 @@ use Throwable;
  *
  * - PHỦ: mọi từ chối do middleware của route panel ném ra, kể cả trên request cập nhật
  *   Livewire. `isPersistent: true` đưa middleware này vào danh sách middleware bền của
- *   Livewire, nơi nó đứng trước `Filament\Http\Middleware\Authenticate` — vì thế một tài khoản
- *   vừa bị vô hiệu hoá, hay một người gõ nhầm panel, nhận 404 trên cả trang lẫn request cập
- *   nhật. Có test hành vi bằng request `/livewire/update` thật ở `DenialCodeTest`.
+ *   Livewire, nơi nó đứng trước `Filament\Http\Middleware\Authenticate` — vì thế một người gõ
+ *   nhầm panel nhận 404 trên cả trang lẫn request cập nhật. Có test hành vi bằng request
+ *   `/livewire/update` thật ở `DenialCodeTest`. (Một tài khoản vừa bị vô hiệu hoá thì từ lượt
+ *   quét §10 trước bản 1.0 bị `EndDisabledStaffSessions` đăng xuất trước đó và nhận câu trả lời
+ *   của người chưa đăng nhập — SPEC §10.9.)
  * - KHÔNG PHỦ, và không thể phủ: từ chối phát sinh BÊN TRONG vòng đời một component Livewire —
  *   `hydrateCanAuthorizeAccess()` của Filament. Livewire chạy middleware bền qua
  *   `Utils::applyMiddleware()`, mà đích của đường ống đó là `fn () => new Response()`, tức một

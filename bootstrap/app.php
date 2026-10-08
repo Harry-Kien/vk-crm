@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EndDisabledStaffSessions;
 use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\SendSecurityHeaders;
@@ -52,7 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // trước lần "Đặt lại 2FA" gần nhất bị đăng xuất. Nhóm này phủ request cập nhật Livewire và
         // các route ngoài panel; route trang của panel `admin` (không dùng nhóm `web`) đăng ký
         // riêng ở `AdminPanelProvider`. Lý do tồn tại: docblock của middleware.
-        $middleware->web(append: [RejectStaffSessionsFromBeforeReset::class]);
+        $middleware->web(append: [RejectStaffSessionsFromBeforeReset::class, EndDisabledStaffSessions::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

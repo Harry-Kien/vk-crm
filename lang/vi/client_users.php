@@ -28,6 +28,8 @@ return [
         // đường DUY NHẤT nhân sự cấp lại quyền truy cập trên trang sửa.
         'reissue_access' => 'Cấp lại mật khẩu',
         'reissue_access_heading' => 'Cấp một mật khẩu tạm mới và gửi qua email cho khách',
+        // Lượt quét trước bản 1.0: hộp xác nhận nêu địa chỉ nhận thư (địa chỉ đã lưu của tài khoản).
+        'reissue_access_description' => 'Mật khẩu tạm mới sẽ được gửi tới :email, và mật khẩu khách đang dùng sẽ không còn dùng được. Kiểm tra địa chỉ này trước khi bấm; nếu sai, sửa email và lưu trước.',
         // Fix round 1 (finding Important 1): "đã gửi" là một lời hứa QUÁ SỚM — thư đi qua hàng
         // đợi (R2), nằm chờ tới lượt `queue:work` (routes/console.php), không rời máy chủ ngay
         // lúc bấm nút. "Sẽ được gửi trong ít phút" nói đúng những gì vừa THẬT SỰ xảy ra: một job

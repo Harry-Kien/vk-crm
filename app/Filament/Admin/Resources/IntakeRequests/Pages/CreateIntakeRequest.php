@@ -9,6 +9,7 @@ use App\Filament\Admin\Resources\IntakeRequests\IntakeRequestResource;
 use App\Filament\Admin\Resources\IntakeRequests\Schemas\IntakeRequestForm;
 use App\Models\IntakeRequest;
 use App\Models\User;
+use App\Support\Intake\PrivacyNotice;
 use Filament\Forms\Components\Checkbox;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Schemas\Components\Section;
@@ -62,7 +63,7 @@ class CreateIntakeRequest extends CreateRecord
             Section::make(__('intake.sections.privacy'))
                 ->columnSpanFull()
                 ->schema([
-                    Text::make(__('intake.privacy_notice.text')),
+                    Text::make(PrivacyNotice::text()),
                     Checkbox::make('privacy_notice')
                         ->label(__('intake.fields.privacy_notice'))
                         ->helperText(__('intake.fields.privacy_notice_help'))

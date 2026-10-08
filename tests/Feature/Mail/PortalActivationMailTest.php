@@ -283,3 +283,23 @@ it('carries the re-issue flag from IssuePortalAccess through the queued job to t
     'first issue' => [false],
     're-issue' => [true],
 ]);
+
+/**
+ * Lượt quét trước bản 1.0 (việc mang sang M8 Task 6): cờ `$reissue` ra đời SAU bản đầu của job này
+ * (việc sau gộp M6, làn fu, N1). Một job xếp hàng bằng mã CŨ — trước lần nâng cấp, còn nằm trong
+ * bảng `jobs` lúc `php artisan up` — được mã MỚI giải tuần tự mà không gọi constructor, nên một thuộc
+ * tính khởi tạo qua constructor không có giá trị. Job phải vẫn chạy, coi như lần cấp đầu (thư không
+ * nói gì về mật khẩu cũ), thay vì ném lỗi rồi hỏng hẳn sau năm lần thử — khách không nhận thư nào.
+ */
+it('still sends the activation mail for a job queued before the reissue flag existed', function () {
+    Mail::fake();
+    $account = ClientUser::factory()->create(['activated_at' => null]);
+
+    // Payload như mã TRƯỚC khi có cờ ghi vào `jobs.payload`: cùng lớp, hai thuộc tính, không `reissue`.
+    $class = SendPortalActivationMail::class;
+    $legacy = sprintf('O:%d:"%s":2:{s:12:"clientUserId";i:%d;s:7:"actorId";N;}', strlen($class), $class, $account->id);
+
+    unserialize($legacy)->handle();
+
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo($account->email) && $mail->reissue === false);
+});

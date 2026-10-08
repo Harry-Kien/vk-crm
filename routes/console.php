@@ -163,11 +163,20 @@ Schedule::command('backup:clean')
  * tác vụ trên): một lượt 08:00 bị giết giữa chừng không được chặn luôn lượt giám sát của NGÀY SAU.
  * `tests/Feature/Schedule/BackupScheduleTest.php` ghim con số này, và ghim luôn rằng không tác vụ
  * lịch nào còn giữ khoá 1440 phút.
+ *
+ * `runInBackground()` (lượt quét §10 trước bản 1.0, việc mang sang "M8 Task 6"): `schedule:run` chạy
+ * các mục của một phút LẦN LƯỢT, theo thứ tự khai báo, và mục này đứng TRƯỚC `instalments.remind`
+ * (08:00 hằng ngày) và `missing-documents.remind` (08:00 thứ Hai/Tư/Sáu). Lượt `->then()` hỏi đích
+ * rclone qua mạng; chạy tiền cảnh thì một lần Google Drive chậm dời cả hai lượt nhắc thư. Chạy nền thì
+ * vị trí trong tệp không còn giữ chân ai, và `->then()` vẫn chạy — Laravel gọi nó qua
+ * `schedule:finish` khi tiến trình nền kết thúc, kèm mã thoát (nên "chạy cả khi `backup:monitor` thất
+ * bại" giữ nguyên). Test ghim cả hai điều.
  */
 Schedule::command('backup:monitor')
     ->dailyAt('08:00')
     ->name('backup.monitor')
     ->withoutOverlapping(60)
+    ->runInBackground()
     ->then(fn () => app()->call('App\Actions\Backup\CheckRcloneRemoteFreshness@handle'));
 
 /**

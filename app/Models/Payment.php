@@ -113,6 +113,8 @@ class Payment extends Model
      */
     protected function internalAttributes(): array
     {
-        return ['note', 'void_reason', 'voided_by', 'receipt_document_id', 'attributed_lawyer_id', 'created_by', 'updated_by'];
+        // `reference` (mã giao dịch, số biên lai): SPEC §8.3 — khối tiền trên cổng không hiện mã giao
+        // dịch (lượt quét §10 trước bản 1.0, minor m4 của M9 Task 10).
+        return ['note', 'reference', 'void_reason', 'voided_by', 'receipt_document_id', 'attributed_lawyer_id', 'created_by', 'updated_by'];
     }
 }

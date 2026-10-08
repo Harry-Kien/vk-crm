@@ -32,8 +32,10 @@ use Throwable;
  *
  *  1. đọc lại hồ sơ VÀ hỏi lại đúng tập §6.9 ({@see ChecklistProgress::mattersAwaitingClient()} —
  *     chưa xoá mềm, còn mở, còn công bố portal, còn đầu mục bắt buộc thiếu);
- *  2. tính lại DANH SÁCH đầu mục còn thiếu ({@see ChecklistProgress::outstandingRequiredItems()}) —
- *     thư liệt kê đúng những gì còn thiếu LÚC GỬI, không phải lúc lên lịch; rỗng thì không gửi;
+ *  2. tính lại DANH SÁCH đầu mục còn thiếu mà thư được đòi
+ *     ({@see ChecklistProgress::itemsToRemindClientOf()} — mọi đầu mục bắt buộc còn thiếu, trừ bản hợp
+ *     đồng đã ký khi hợp đồng còn nháp hoặc chưa có) — thư liệt kê đúng những gì còn thiếu LÚC GỬI,
+ *     không phải lúc lên lịch; rỗng thì không gửi;
  *  3. tính lại NGƯỜI NHẬN qua {@see ResolveClientRecipients} (R12), rồi chỉ giữ người mà vụ còn
  *     trên cổng của CHÍNH họ ({@see ResolveClientRecipients::onPortal()} — việc sau gộp M7, làn
  *     fu2: cùng bước hai với bốn thư khách còn lại, nên một dòng lưu trữ đã quá
@@ -126,7 +128,7 @@ class SendMissingDocumentsMail implements ShouldQueue
             return null;
         }
 
-        $items = ChecklistProgress::outstandingRequiredItems($matter);
+        $items = ChecklistProgress::itemsToRemindClientOf($matter);
 
         if ($items->isEmpty()) {
             return null;

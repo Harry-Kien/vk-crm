@@ -5,6 +5,7 @@ namespace App\Actions\Intake;
 use App\Models\IntakeRequest;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Intake\PrivacyNotice;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -12,7 +13,8 @@ use Illuminate\Validation\ValidationException;
 /**
  * Ghi nhận người liên hệ đã nghe câu thông báo xử lý dữ liệu cá nhân và đồng ý (M10 R7a; Nghị định
  * 356/2025/NĐ-CP: đồng ý phải lưu lại và kiểm chứng được, cấm đánh dấu sẵn). Lưu PHIÊN BẢN của câu
- * thông báo (`lang/vi/intake.php`, `privacy_notice.version`), thời điểm, và người ghi nhận.
+ * thông báo ({@see PrivacyNotice::version()} — `privacy_notice.version` của `lang/vi/intake.php`, cộng số
+ * tháng lưu khi nó khác số của bản gốc), thời điểm, và người ghi nhận.
  *
  * **`$heardAndAgreed` phải là `true` do người nhập chủ động chọn**: `false` bị từ chối (không có "ghi
  * nhận việc chưa đồng ý"), để không ai gọi Action này theo đường mặc định. Ô câu chuyện chỉ mở khi đã
@@ -37,7 +39,7 @@ class RecordPrivacyNotice
             throw ValidationException::withMessages(['privacy_notice' => [__('intake.errors.privacy_notice_not_agreed')]]);
         }
 
-        $version = (string) __('intake.privacy_notice.version');
+        $version = PrivacyNotice::version();
 
         return DB::transaction(function () use ($actor, $intake, $version): IntakeRequest {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();

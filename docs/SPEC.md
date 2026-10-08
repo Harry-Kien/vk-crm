@@ -1292,6 +1292,11 @@ còn xem được vụ trên cổng (vụ đang công bố, chưa quá `client_a
 tải về. Thư công bố gói không thêm câu nào về tiền: thư đi cho mọi gói, kể cả gói của vụ không có hợp
 đồng nào.
 
+**Sửa câu 2026-10-08 (lượt quét toàn hệ thống trước bản 1.0).** Dòng dưới tiêu đề nay là "Tính đến LÚC
+lập gói (ngày dd/mm/yyyy)" và nói rõ khoản thanh toán cùng mọi thay đổi khác về thanh toán (miễn đợt,
+huỷ khoản thu, phụ lục) ghi nhận sau LÚC lập gói không có trong bảng kê — bảng kê đóng băng lúc lập,
+không phải cuối ngày đó, nên một khoản ghi chiều cùng ngày cũng không có (`handover.pdf.billing.as_of`).
+
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào
 thì tự đặt `is_active = false`. Dữ liệu vẫn nguyên trong hệ thống nội bộ.
@@ -1558,9 +1563,12 @@ P2), dời ngày đến hạn của một mốc (P1 dùng ngày đến hạn hi�
 một yêu cầu chưa trả lời (mẫu số P3 → P10), huỷ một vụ việc (việc của vụ đã huỷ rời mọi con số, vì
 `listableBy` không chứa vụ đã xoá mềm). Ngoài ra, mọi con số chỉ tính trên các vụ người xem đang được
 xem: khi người xem không còn được xem một vụ (ví dụ một vụ `restricted` đã bàn giao cho người khác),
-việc trên vụ đó không còn trong số người xem đọc, kể cả ở kỳ đã qua. Câu "Kỳ đã đóng" trên màn hình
-(`performance.explain.closed_period`) kể đúng bảy việc này; test `SpecM13ParityTest` giữ hai nơi khớp
-nhau.
+việc trên vụ đó không còn trong số người xem đọc, kể cả ở kỳ đã qua. Riêng P8 và hai biểu đồ xu hướng đọc ảnh chụp
+hằng ngày (`performance_snapshots`, chỉ tách theo mức bảo mật lúc chụp): số của một ngày đã qua giữ
+nguyên như lúc chụp, nên vẫn gồm vụ đã bàn giao, đã huỷ hay người xem nay không còn được xem (sửa câu
+2026-10-08, lượt quét trước bản 1.0 — câu "Kỳ đã đóng" và câu xu hướng của trang một người nói theo).
+Câu "Kỳ đã đóng" trên màn hình (`performance.explain.closed_period`) kể đúng bảy việc này; test
+`SpecM13ParityTest` giữ hai nơi khớp nhau.
 
 **Mốc tạo qua AI (R20).** Khi M11 có mốc "Tạo qua AI, chưa xác nhận", mốc đó tính như mốc thường ở
 mọi con số (N5, N6, P1, P9), đúng như `CheckDeadlines` nhắc nó như mốc thường — "một mốc hạn thật

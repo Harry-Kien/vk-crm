@@ -544,14 +544,17 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
 - Hai biến `.env` tuỳ chọn — không đặt thì dùng mặc định, nên bản nâng cấp không bắt buộc sửa `.env`
   (sửa thì chạy lại `optimize:clear`, `vkcrm:preflight`, `optimize` như Bước 7):
   - `PROSPECT_RETENTION_MONTHS` — số tháng giữ dữ liệu người liên hệ không thành khách, mặc định 24
-    (`.env.example` ghi sẵn 24; trống, 0, số âm hay chữ cũng về 24). Hạn của mỗi bản ghi tính MỘT
-    lần, ngày bản ghi vào một trong ba trạng thái trên (hôm đó cộng số tháng này); đổi biến sau đó
-    không dời hạn của bản ghi đã có. Bản ghi còn mở hoặc đã thành vụ việc không có hạn. Con số 24 là
-    mặc định của kế hoạch M10, **chưa được luật sư xác nhận**: xác nhận với luật sư TRƯỚC khi nhân sự
-    bắt đầu dùng màn hình Tiếp nhận, không đợi tới lúc bản ghi đầu tiên tới hạn — bản ghi đã đóng trước
-    khi đổi biến giữ hạn cũ, và lượt 03:30 ẩn danh nó đúng hạn đó mà không hỏi ai. Câu thông báo đọc
-    cho người gọi (bản nháp `2026-09-nhap`, `lang/vi/intake.php`, khoá `privacy_notice.text`) viết
-    cứng "24 tháng": đổi biến thì sửa cả câu đó, và đổi `privacy_notice.version` theo.
+    (`.env.example` ghi sẵn 24; trống, 0, số âm, chữ hay quá 1200 cũng về 24). Hạn của mỗi bản ghi tính lúc
+    bản ghi vào một trong ba trạng thái trên (hôm đó cộng số tháng này; gộp đi một bản đã từ chối hay
+    đã mất liên lạc thì tính lại từ ngày gộp, theo con số đang đặt hôm đó); đổi biến sau đó không dời
+    hạn của bản ghi đã có. Bản ghi còn mở hoặc đã thành vụ việc không có hạn. Con số 24 là mặc định
+    của kế hoạch M10, **chưa được luật sư xác nhận**: xác nhận với luật sư TRƯỚC khi nhân sự bắt đầu
+    dùng màn hình Tiếp nhận, không đợi tới lúc bản ghi đầu tiên tới hạn — bản ghi đã đóng trước khi
+    đổi biến giữ hạn cũ, và lượt 03:30 ẩn danh nó đúng hạn đó mà không hỏi ai. Câu thông báo đọc cho
+    người gọi (bản nháp `2026-09-nhap`) đọc chính con số này — đổi biến thì câu tự đổi theo, và phiên
+    bản ghi kèm mỗi lần ghi nhận mang thêm số tháng (ví dụ `2026-09-nhap-36t`), nên nút "Ghi nhận
+    thông báo" hiện lại trên bản ghi chưa đóng. KHÔNG sửa tệp ngôn ngữ trên máy chủ: lần `git pull`
+    sau xung đột hoặc ghi đè chỗ sửa; câu chữ đổi qua kho mã.
   - `INTAKE_RESPONSE_HOURS` — ngưỡng phản hồi lần đầu, tính bằng giờ làm việc, mặc định 4
     (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4).
 
@@ -863,6 +866,11 @@ php artisan up
   kèm việc phải làm tay (ví dụ một biến `.env` mới — so `.env.example` mới với `.env` đang chạy).
 - **Đêm đầu sau nâng cấp, theo dõi hộp thư báo lỗi**: lượt sao lưu 02:00 và lượt giám sát 08:00 là
   lần đầu bản mới chạy những việc đó. Sáng hôm sau chạy `php artisan vkcrm:backup-check`.
+- **Hàng đợi qua lần nâng cấp:** thư và việc nền đã xếp hàng TRƯỚC `php artisan down` nằm nguyên
+  trong bảng `jobs` và được mã MỚI chạy sau `php artisan up` (lịch không chạy trong lúc bảo trì).
+  Không cần rút hàng đợi bằng tay: mã của các việc nền được viết để đọc được việc do bản cũ xếp (ví
+  dụ thư kích hoạt cổng xếp trước khi có cờ "cấp lại" chạy như lần cấp đầu). Muốn chắc, trước
+  `php artisan down` chạy `php artisan queue:work --stop-when-empty` một lần cho hàng đợi trống.
 - Khi nghi ngờ: bản sao lưu đêm trước là điểm quay lại, và `APP_KEY` không đổi qua các bản nâng cấp.
 
 ### Bản cập nhật M12 (app trên điện thoại và thông báo đẩy)

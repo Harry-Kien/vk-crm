@@ -169,9 +169,22 @@ it('đủ mười lăm biến BRAND_* trong .env.example', function () {
 it('không biến BRAND_* có mặc định nào bị khai trống (chuỗi rỗng đè mặc định)', function () {
     $example = (string) file_get_contents(base_path('.env.example'));
 
+    // Lượt quét trước bản 1.0: bản cũ chỉ khẳng định trên các dòng trống ĐANG CÓ (`->each`), mà
+    // `.env.example` không có dòng trống nào — test không khẳng định gì (test "risky" duy nhất của bộ).
+    // Nay đọc tập biến CÓ mặc định thẳng từ `config/vkcrm.php` (`env('BRAND_X', mặc định)`) rồi đòi: tập
+    // đó không rỗng, không biến nào trong đó là một dòng trống đang hiệu lực, và mỗi biến có một dòng
+    // mẫu mang giá trị (thường là dòng chú thích `# BRAND_X=giá trị mặc định`).
+    preg_match_all("/env\\('(BRAND_[A-Z_]+)',\\s*[^)\\s]/", (string) file_get_contents(config_path('vkcrm.php')), $defaults);
+    $withDefault = array_values(array_unique($defaults[1]));
+
     preg_match_all('/^(BRAND_[A-Z_]+)=[ \t]*$/m', $example, $blank);
 
-    expect($blank[1])->each->toBeIn(['BRAND_TAX_CODE', 'BRAND_BAR_ASSOCIATION', 'BRAND_LICENCE_NUMBER', 'BRAND_OFFICE_ADDRESS']);
+    expect($withDefault)->toContain('BRAND_LEGAL_NAME', 'BRAND_SHORT_NAME', 'BRAND_HOTLINE')
+        ->and(array_values(array_intersect($blank[1], $withDefault)))->toBe([]);
+
+    foreach ($withDefault as $key) {
+        expect(preg_match('/^(# )?'.$key.'=\S/m', $example))->toBe(1, "{$key} có mặc định nhưng không có dòng mẫu mang giá trị");
+    }
 });
 
 /**

@@ -191,7 +191,7 @@ it('lists the two new scheduled tasks with the times the scheduler really uses, 
         ->toContain('không thêm dòng cron nào');
 });
 
-it('gives the two optional env vars with the defaults the code falls back to, and asks for the lawyer before the first record ages out', function () {
+it('gives the two optional env vars with the defaults the code falls back to, and asks for the lawyer before staff start using the intake screen', function () {
     $paragraph = m10UpgradeParagraph();
 
     config(['vkcrm.prospect_retention_months' => null]);
@@ -202,7 +202,13 @@ it('gives the two optional env vars with the defaults the code falls back to, an
         ->toContain('mặc định 24')
         ->toContain('`INTAKE_RESPONSE_HOURS`')
         ->toContain('mặc định 4')
-        ->toContain('luật sư');
+        ->toContain('luật sư')
+        // Lượt quét trước bản 1.0 (minor m3 rà soát Task 2 làn fu3): ghim đúng mốc thời gian mà tài liệu
+        // cố ý chọn (`stampRetention()` đặt hạn MỘT lần), không chỉ chữ "luật sư"; và câu thông báo nay
+        // đọc chính con số (`PrivacyNotice`), nên tài liệu không còn dặn sửa tệp ngôn ngữ trên máy chủ.
+        ->toContain('TRƯỚC khi nhân sự bắt đầu')
+        ->toContain('dùng màn hình Tiếp nhận')
+        ->not->toContain('đổi biến thì sửa cả câu đó');
 });
 
 it('names the three intake permissions next to the four money ones in both upgrade runbooks', function () {

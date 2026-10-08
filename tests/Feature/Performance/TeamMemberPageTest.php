@@ -710,6 +710,29 @@ it('shows the lists and the title column only to a viewer who may read them on t
         ->toContain('Tiêu đề không cho nhân chứng');
 });
 
+/**
+ * Lượt quét trước bản 1.0 (minor T5 m2, m3 của rà soát cuối M13): cột khách hàng là nội dung hồ sơ cùng
+ * lý lẽ R2 với cột tiêu đề — người có `performance.viewAny` mà không có `matter.view` không đọc tên khách;
+ * và khối "Cách tính" không giải thích ba danh sách mà trang không có.
+ */
+it('hides the client column and the lists explanation from a viewer without matter.view', function () {
+    $witness = User::factory()->create();
+    $witness->givePermissionTo([Permission::PerformanceViewAny->value, Permission::MatterViewAny->value]);
+
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $listsSentence = __('performance.team_member.lists.explain', ['limit' => TeamMember::LIST_LIMIT]);
+
+    $witnessPage = m13t5Open($witness, $this->lawyer)
+        ->assertCanSeeTableRecords([$matter])
+        ->assertTableColumnHidden('client.name');
+    $managerPage = m13t5Open($this->manager, $this->lawyer)->assertTableColumnVisible('client.name');
+
+    expect($witnessPage->html())->not->toContain(e($matter->client->name))
+        ->not->toContain(e($listsSentence))
+        ->and($managerPage->html())->toContain(e($matter->client->name))
+        ->toContain(e($listsSentence));
+});
+
 /** Mỗi danh sách tách riêng: chỉ có `matter.view` thì thấy mốc và yêu cầu, không thấy hàng chờ duyệt. */
 it('decides each list by the permission of its own homepage widget', function () {
     $witness = User::factory()->create();

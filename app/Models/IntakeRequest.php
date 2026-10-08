@@ -77,6 +77,9 @@ class IntakeRequest extends Model
     /** Hạn lưu mặc định (tháng) khi `PROSPECT_RETENTION_MONTHS` thiếu hoặc vô nghĩa — kế hoạch M10 R7b. */
     public const DEFAULT_RETENTION_MONTHS = 24;
 
+    /** Trần của `PROSPECT_RETENTION_MONTHS` (100 năm); quá trần thì về mặc định — {@see self::retentionMonths()}. */
+    public const MAX_RETENTION_MONTHS = 1200;
+
     /**
      * Dạng chuẩn hoá của một SĐT gõ vào có vừa cột không (M10 Task 3; rà soát Task 2, m2). Dạng chuẩn
      * hoá có thể DÀI hơn dạng gõ: số 0 đầu thành `84` (`09123456780987654321`, 20 ký tự → 21), nên luật
@@ -154,10 +157,14 @@ class IntakeRequest extends Model
      * `config('vkcrm.prospect_retention_months')`. Chỉ một số nguyên dương được nhận; thiếu, rỗng, 0,
      * số âm, chữ hay số lẻ thì về {@see self::DEFAULT_RETENTION_MONTHS} — một lỗi gõ trong `.env` không
      * được biến thành "ẩn danh từ ngày mai" (`(int) 'abc'` là 0).
+     *
+     * Trần {@see self::MAX_RETENTION_MONTHS} (lượt quét trước bản 1.0): quá trần cũng về mặc định — một
+     * chữ số gõ thừa không được làm vỡ phiên bản câu thông báo (`PrivacyNotice::version()` mang số tháng,
+     * cột `privacy_notice_version` 20 ký tự) hay ngày hạn lưu.
      */
     public static function retentionMonths(): int
     {
-        $months = filter_var(config('vkcrm.prospect_retention_months'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $months = filter_var(config('vkcrm.prospect_retention_months'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::MAX_RETENTION_MONTHS]]);
 
         return $months === false ? self::DEFAULT_RETENTION_MONTHS : $months;
     }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\EnsurePortalAccountIsActive;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\DocumentDownload;
@@ -113,6 +114,8 @@ final class DocumentDownloadController extends Controller
      */
     public function __invoke(Request $request, string $document): Response
     {
+        $this->endSessionOfDisabledClient($request);
+
         $actor = $this->actor();
         $record = $this->resolve($document);
 
@@ -173,6 +176,23 @@ final class DocumentDownloadController extends Controller
         $this->recordDownload($record, $actor, $request);
 
         return $this->fileResponse($record, $actor, $disk, $media);
+    }
+
+    /**
+     * SPEC §10.9 trên route này (lượt quét §10 trước bản 1.0): route nằm ngoài panel cổng, nên
+     * `EnsurePortalAccountIsActive` không đứng trước nó — một tài khoản cổng bị vô hiệu (hay khách hàng
+     * cha đã xoá mềm) bấm một đường dẫn tải ký từ trước nhận 404 ở {@see self::actor()}, nhưng phiên
+     * của nó vẫn đăng nhập. Hàm này kết thúc phiên đó bằng đúng việc middleware làm
+     * ({@see EnsurePortalAccountIsActive::endSession()}); câu trả lời vẫn là 404 như mọi từ chối khác
+     * của route. Nhân sự bị vô hiệu do `EndDisabledStaffSessions` (nhóm `web`) lo, trước controller.
+     */
+    private function endSessionOfDisabledClient(Request $request): void
+    {
+        $client = auth('client')->user();
+
+        if ($client instanceof ClientUser && ($client->is_active !== true || $client->client === null)) {
+            EnsurePortalAccountIsActive::endSession($request);
+        }
     }
 
     /**

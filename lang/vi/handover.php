@@ -140,10 +140,12 @@ return [
          * `as_of` (làn fu3): dòng ngay dưới tiêu đề. Khách tải gói về và cất giữ (thư công bố gói), còn
          * bảng kê đóng băng lúc lập gói — dòng này nói ngày "tính đến" (cùng ngày với `generated_at`) và
          * chỉ sang cổng, nơi khối tiền đọc dữ liệu lúc mở trang. SPEC §6.12, bổ sung 2026-10-04.
+         * Lượt quét trước bản 1.0: "sau LÚC lập gói" (bảng kê đóng băng lúc lập, không phải cuối ngày —
+         * một khoản ghi chiều cùng ngày cũng không có) và kể cả miễn, huỷ, phụ lục như SPEC §6.12.
          */
         'billing' => [
             'heading' => 'Bảng kê thanh toán',
-            'as_of' => 'Tính đến ngày lập gói (:date). Khoản thanh toán văn phòng ghi nhận sau ngày này không có trong bảng kê; tình hình thanh toán mới nhất xem trên cổng khách hàng, trong thời gian hồ sơ còn trên cổng.',
+            'as_of' => 'Tính đến lúc lập gói (ngày :date). Khoản thanh toán và mọi thay đổi khác về thanh toán (miễn đợt, huỷ khoản thu, phụ lục hợp đồng) văn phòng ghi nhận sau lúc lập gói không có trong bảng kê; tình hình thanh toán mới nhất xem trên cổng khách hàng, trong thời gian hồ sơ còn trên cổng.',
             'contract_code' => 'Số hợp đồng',
             'signed_on' => 'Ngày ký',
             'total' => 'Tổng giá trị hợp đồng',

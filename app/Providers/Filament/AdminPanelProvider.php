@@ -9,6 +9,7 @@ use App\Filament\Admin\Pages\PushDevices;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Controllers\Pwa\PushSubscriptionController;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
+use App\Http\Middleware\EndDisabledStaffSessions;
 use App\Http\Middleware\RefuseStaffWithoutTwoFactor;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
@@ -169,6 +170,9 @@ class AdminPanelProvider extends PanelProvider
                 // R2, vòng sửa 1: route trang panel không dùng nhóm `web`, nên đăng ký riêng ở đây —
                 // SAU StartSession, TRƯỚC Authenticate (đăng xuất trước khi cổng 2FA kịp chạy).
                 RejectStaffSessionsFromBeforeReset::class,
+                // Lượt quét §10 trước bản 1.0 (SPEC §10.9): nhân sự bị vô hiệu mất phiên ở request kế tiếp —
+                // cùng chỗ đứng, cùng lý do đăng ký hai nơi, xem docblock middleware.
+                EndDisabledStaffSessions::class,
                 AuthenticateSession::class,
                 ShareErrorsFromSession::class,
                 PreventRequestForgery::class,

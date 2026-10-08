@@ -4,12 +4,14 @@ namespace Tests\Support;
 
 use App\Enums\ClientType;
 use App\Enums\DocumentGroup;
+use App\Enums\IntakeSource;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\Auth\Login as StaffLogin;
 use App\Filament\Admin\Resources\Clients\Pages\CreateClient as CreateClientPage;
 use App\Filament\Admin\Resources\Clients\Pages\EditClient;
 use App\Filament\Admin\Resources\ClientUsers\Pages\CreateClientUser;
+use App\Filament\Admin\Resources\IntakeRequests\Pages\CreateIntakeRequest;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
@@ -18,6 +20,7 @@ use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Portal\Pages\Auth\Login as PortalLogin;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
@@ -85,6 +88,15 @@ final class SensitiveDataFlows
     /** Số CCCD của bên ĐỐI LẬP: dạng lưu duy nhất của nó là `matter_parties.id_number_hash`. */
     public const OPPOSING_ID_NUMBER_TYPED = '001 199 007 788';
 
+    /**
+     * Lượt quét trước bản 1.0 (minor fr-m2 rà soát cuối M10): số CCCD của NGƯỜI LIÊN HỆ gõ ở màn hình
+     * Tiếp nhận (M10), và của bên đối lập họ khai. Dạng lưu duy nhất là dấu băm
+     * (`intake_requests.contact_id_number_hash`, `intake_parties.id_number_hash`).
+     */
+    public const INTAKE_CONTACT_ID_NUMBER_TYPED = '038 177 246 813';
+
+    public const INTAKE_OPPOSING_ID_NUMBER_TYPED = '036 155 864 209';
+
     public const STAFF_PASSWORD = 'mat-khau-nhan-su-lk7q2m';
 
     public const WRONG_STAFF_PASSWORD = 'mat-khau-sai-o-o-mat-khau-q2w9e';
@@ -106,6 +118,8 @@ final class SensitiveDataFlows
     public ?Client $client = null;
 
     public ?Matter $matter = null;
+
+    public ?IntakeRequest $intake = null;
 
     public ?User $enrolledStaff = null;
 
@@ -171,6 +185,7 @@ final class SensitiveDataFlows
         $this->uploadAndDownloadDocument($lawyer);
         $this->createPortalAccountThroughScreen($assistant);
         $this->editClientIdentityThroughScreen($admin);
+        $this->recordIntakeThroughScreen($assistant);
         $this->drainQueue();
         $this->publishStageUpdate($lawyer, 'Văn phòng đã nộp đơn khởi kiện tới toà án có thẩm quyền.');
         $this->drainQueue();
@@ -202,6 +217,33 @@ final class SensitiveDataFlows
             ->assertHasNoFormErrors();
 
         $this->client = Client::query()->where('name', 'Khách hàng lính canh mục 10.5')->sole();
+    }
+
+    /** M10: một lần liên hệ ghi qua màn hình Tiếp nhận, có CCCD của người gọi và của bên đối lập. */
+    private function recordIntakeThroughScreen(User $assistant): void
+    {
+        Filament::setCurrentPanel('admin');
+        $this->test->actingAs($assistant, 'web');
+
+        Livewire::test(CreateIntakeRequest::class)
+            ->fillForm([
+                'contact_name' => 'Người liên hệ lính canh mục 10.5',
+                'contact_phone' => '0909 333 444',
+                'contact_id_number' => self::INTAKE_CONTACT_ID_NUMBER_TYPED,
+                'contact_role' => PartyRole::Plaintiff->value,
+                'source' => IntakeSource::Phone->value,
+                'privacy_notice' => true,
+                'parties' => [[
+                    'role' => PartyRole::Defendant->value,
+                    'name' => 'Bên đối lập lính canh tiếp nhận',
+                    'phone' => null,
+                    'id_number' => self::INTAKE_OPPOSING_ID_NUMBER_TYPED,
+                ]],
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $this->intake = IntakeRequest::query()->where('contact_name', 'Người liên hệ lính canh mục 10.5')->sole();
     }
 
     private function openMatterThroughLookup(User $lawyer, MatterType $type): void

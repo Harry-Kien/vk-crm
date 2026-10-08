@@ -5,7 +5,7 @@ namespace Database\Seeders;
 use App\Actions\Billing\ActivateContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
-use App\Actions\Matter\ReassignMatters;
+use App\Actions\Matter\ReassignMatter;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
 use App\Enums\InstalmentTrigger;
@@ -28,7 +28,6 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
-use RuntimeException;
 
 /**
  * M13 Task 8 — dữ liệu MẪU cho "Theo dõi đội ngũ", "Trang của một người" và "Hiệu suất theo kỳ": đủ để ba
@@ -56,8 +55,9 @@ use RuntimeException;
  *    trợ lý Lan giữ 2 mốc đúng hạn của vụ đó, trợ lý Tùng được giao một yêu cầu và trả lời nó.
  *  - **Luật sư nghỉ việc** ({@see self::DEPARTED_EMAIL}) — tháng trước có 1 mốc đúng hạn, 1 mốc LỠ, trả lời 2
  *    luồng CHƯA GIAO AI, để 1 luồng chưa trả lời tới hết tháng; đầu tháng này bàn giao vụ sang **luật sư Bảo**
- *    ({@see self::RECEIVER_EMAIL}) qua {@see ReassignMatters} — ĐÚNG đường thật của màn hình "Bàn giao hàng
- *    loạt", nên dòng `matter_reassigned` và một dòng `deadline_responsible_changed` cho TỪNG mốc đã chuyển
+ *    ({@see self::RECEIVER_EMAIL}) qua {@see ReassignMatter} — đúng Action mà màn hình "Bàn giao hàng loạt" gọi cho từng vụ,
+ *    với `sendDigest: false` như `BillingSeeder` (dữ liệu mẫu không xếp thư `staff.matter_reassigned` nào),
+ *    nên dòng `matter_reassigned` và một dòng `deadline_responsible_changed` cho TỪNG mốc đã chuyển
  *    (R9) do chính mã thật ghi — rồi tài khoản bị vô hiệu hoá (dòng nhật ký `updated` của `User`, R3). Vì vậy
  *    trên "Hiệu suất" kỳ "tháng trước": người nghỉ việc vẫn có dòng của mình (cả mốc lỡ và ba luồng), Bảo
  *    không bị tính mốc lỡ hay luồng nào của người trước (R9, R18); trên "Theo dõi đội ngũ" (bây giờ) mốc lỡ đó
@@ -67,7 +67,7 @@ use RuntimeException;
  *
  * # Đường đi
  *
- * Bàn giao, hợp đồng và khoản thu đi qua Action thật ({@see ReassignMatters}, {@see DraftContract},
+ * Bàn giao, hợp đồng và khoản thu đi qua Action thật ({@see ReassignMatter}, {@see DraftContract},
  * {@see ActivateContract}, {@see RecordPayment}). Mốc, yêu cầu và dòng tiến độ của THÁNG TRƯỚC thì dựng bằng
  * factory với ngày giờ tường minh, như `MatterSeeder`: Action ghi `now()` (`SetDeadlineCompletion`,
  * `ReplyToClientRequest`), và seeder không `travelTo()`. Hình dạng giữ đúng hình dạng Action ghi: mốc xong
@@ -142,21 +142,19 @@ class TeamPerformanceSeeder extends Seeder
         $this->onTime($onTime, $lan, $tung, $clients->get(8));
         $handedOver = $this->departed($departed, $clients->get(9));
 
-        // Đầu tháng này: quản trị viên bàn giao vụ của người nghỉ việc qua màn hình "Bàn giao hàng loạt".
-        $results = app(ReassignMatters::class)->handle(
-            [$handedOver->getKey()],
-            $this->admin,
-            $receiver,
-            'Luật sư Trịnh Minh Đức nghỉ việc — bàn giao toàn bộ hồ sơ (dữ liệu mẫu M13).',
-            false,
-            $departed->getKey(),
+        // Đầu tháng này: quản trị viên bàn giao vụ của người nghỉ việc — đúng lời gọi mà màn hình "Bàn giao
+        // hàng loạt" (`ReassignMatters`) làm cho từng vụ, kể cả `expectedLeadId`, nhưng KHÔNG xếp thư tổng hợp
+        // (`sendDigest: false`, lượt quét trước bản 1.0): `ReassignMatters` luôn xếp `SendReassignmentDigest`
+        // ở `finally{}`, và dữ liệu mẫu không gửi thư thật cho ai. Lỗi thì Action ném, seed dừng ngay.
+        app(ReassignMatter::class)->handle(
+            matter: $handedOver,
+            actor: $this->admin,
+            newLead: $receiver,
+            reason: 'Luật sư Trịnh Minh Đức nghỉ việc — bàn giao toàn bộ hồ sơ (dữ liệu mẫu M13).',
+            keepOldLeadAsAssociate: false,
+            sendDigest: false,
+            expectedLeadId: $departed->getKey(),
         );
-
-        foreach ($results as $result) {
-            if (! $result->success) {
-                throw new RuntimeException("TeamPerformanceSeeder: bàn giao vụ {$result->matterId} thất bại — {$result->message}");
-            }
-        }
 
         // Người nhận ghi dòng tiến độ đầu tiên của mình trên vụ vừa nhận (tháng này).
         $this->entry($handedOver->fresh(), $receiver, 2, 3, now());

@@ -52,18 +52,32 @@ class SendPortalActivationMail implements ShouldQueue
     public int $tries = 5;
 
     /**
+     * Lần CẤP LẠI hay lần tạo đầu tiên — nơi gọi `IssuePortalAccess` quyết định, job chỉ chuyển nguyên
+     * vào `Activation` (việc sau gộp M6, làn fu, N1: thư cấp lại nói mật khẩu trước không còn dùng
+     * được).
+     *
+     * Khai báo RIÊNG với giá trị mặc định của lớp, KHÔNG là thuộc tính khởi tạo qua constructor (lượt
+     * quét trước bản 1.0): hàng đợi giải tuần tự job mà không gọi constructor, nên một job xếp hàng bằng
+     * mã cũ (trước khi cờ này có) — còn nằm trong bảng `jobs` qua một lần nâng cấp — chỉ nhận giá trị
+     * mặc định của lớp. Là thuộc tính constructor `readonly` thì nó KHÔNG có giá trị nào, `handle()` ném
+     * lỗi "must not be accessed before initialization" ở cả năm lần thử, và khách không nhận thư.
+     * `false` là cách đọc an toàn: thư lần đầu không hứa gì về mật khẩu cũ.
+     */
+    public bool $reissue = false;
+
+    /**
      * @param  int|null  $actorId  Người vừa bấm "Cấp quyền truy cập" — chỉ dùng để BÁO nếu job
      *                             này hỏng hẳn (xem {@see self::failed()}); `null` khi không xác
      *                             định được người thực hiện (không nên xảy ra qua UI thật).
-     * @param  bool  $reissue  Lần CẤP LẠI hay lần tạo đầu tiên — nơi gọi `IssuePortalAccess` quyết
-     *                         định, job chỉ chuyển nguyên vào `Activation` (việc sau gộp M6, làn fu,
-     *                         N1: thư cấp lại nói mật khẩu trước không còn dùng được).
+     * @param  bool  $reissue  Xem {@see self::$reissue}.
      */
     public function __construct(
         public readonly int $clientUserId,
         public readonly ?int $actorId = null,
-        public readonly bool $reissue = false,
-    ) {}
+        bool $reissue = false,
+    ) {
+        $this->reissue = $reissue;
+    }
 
     /** @return array<int, int> */
     public function backoff(): array

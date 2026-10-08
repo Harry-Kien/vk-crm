@@ -21,10 +21,12 @@ use Illuminate\Support\Facades\Gate;
  *
  * # Cổng: nhân sự đang hoạt động có `MatterPolicy::viewAny`, hỏi ở MỌI request
  *
- * "Đang hoạt động" là việc của panel: `Filament\Http\Middleware\Authenticate` hỏi `canAccessPanel()`
- * (đọc `is_active`) ở cả lần tải trang lẫn request cập nhật Livewire (Livewire giữ middleware xác
- * thực làm middleware bền), và `AnswerDeniedPanelRequestsWithNotFound` đổi lời từ chối đó thành 404
- * — đo ở `SearchPageTest` bằng request cập nhật thật của một tài khoản vừa bị vô hiệu hoá. Trang
+ * "Đang hoạt động" là việc của panel: `EndDisabledStaffSessions` (nhóm `web` và middleware panel, lượt
+ * quét §10 trước bản 1.0) đăng xuất tài khoản đã bị vô hiệu ở request kế tiếp, trước
+ * `Filament\Http\Middleware\Authenticate` — vốn cũng hỏi `canAccessPanel()` (đọc `is_active`) ở cả lần
+ * tải trang lẫn request cập nhật Livewire. Người đó nhận câu trả lời của người chưa đăng nhập (401
+ * cho request cập nhật) — đo ở `SearchPageTest` bằng request cập nhật thật của một tài khoản vừa bị
+ * vô hiệu hoá. Trang
  * không hỏi lại `is_active` (một điều kiện không có đường nào tới được là một điều kiện không probe
  * nào chứng minh được).
  *

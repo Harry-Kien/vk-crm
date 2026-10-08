@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Controllers\RespondNotFound;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Support\Pwa\PwaPanels;
 use Filament\Facades\Filament;
@@ -78,3 +79,19 @@ foreach (PwaPanels::IDS as $panelId) {
             });
     }
 }
+
+/*
+ * Lượt quét §10 trước bản 1.0 (M8 Task 6, SPEC §10.10): `filament/actions` đăng ký vô điều kiện hai
+ * route tải của tính năng xuất/nhập (`filament/exports/{export}/download`,
+ * `filament/imports/{import}/failed-rows/download`). Ứng dụng không dùng xuất/nhập của Filament và
+ * không có bảng `exports`/`imports`, nên route model binding của chúng chạm một bảng không tồn tại
+ * và trả 500 cho MỌI id, kể cả với khách vãng lai. Đè đúng hai URI đó (cùng tên route — gói nạp route
+ * của nó trước `routes/web.php`, và `RouteCollection` giữ định nghĩa sau cùng cho cùng phương thức +
+ * URI + tên) bằng một 404 không chạm cơ sở dữ liệu. Ghim ở
+ * `tests/Feature/Security/NotFoundSpec1010Test.php`. Ngày nào văn phòng dùng xuất/nhập của Filament
+ * thì gỡ khối này cùng lúc tạo hai bảng của gói.
+ */
+Route::prefix(config('filament.system_route_prefix', 'filament'))->group(function (): void {
+    Route::get('exports/{export}/download', RespondNotFound::class)->name('filament.exports.download');
+    Route::get('imports/{import}/failed-rows/download', RespondNotFound::class)->name('filament.imports.failed-rows.download');
+});

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Actions\Document\ChecklistProgress;
 use App\Enums\BillingModel;
 use App\Enums\ContractStatus;
 use App\Exceptions\ContractNotDestroyable;
@@ -37,6 +38,17 @@ class Contract extends Model
 
     use HidesInternalAttributesFromPortal;
     use RestrictedToClientPortal;
+
+    /**
+     * Tên đầu mục danh mục hồ sơ giữ bản hợp đồng đã ký (SPEC §4.9 — nhận diện CHỈ bằng tên, SPEC
+     * không cho cách khác). Ba nơi đọc: dòng nhắc của tab tiền
+     * (`BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME` là bí danh của hằng này), mẫu danh mục
+     * của `ChecklistTemplateSeeder`, và thư nhắc khách nộp giấy tờ
+     * ({@see ChecklistProgress::itemsToRemindClientOf()} — không đòi đầu mục
+     * này khi hợp đồng còn nháp hoặc chưa có). Đặt ở model vì Action không được phụ thuộc Filament
+     * (`ArchitectureTest`), lượt quét §10 trước bản 1.0.
+     */
+    public const SIGNED_CONTRACT_CHECKLIST_ITEM_NAME = 'Hợp đồng dịch vụ pháp lý và giấy uỷ quyền';
 
     protected $fillable = [
         'matter_id', 'code', 'status', 'billing_model', 'total_amount', 'vat_rate_percent',
