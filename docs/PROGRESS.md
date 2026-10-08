@@ -2941,11 +2941,15 @@ và mọi route có tham số phải ở nhóm 1 hoặc là ngoại lệ có lý
 1. **Bản ghi theo id (13 route):** người không được xem mở id có thật và id bịa — cả hai 404, thân trang giống nhau
    từng byte (sau khi bỏ token CSRF/nonce); cặp dương: người có quyền mở được đúng URL đó (13 ca). Thêm vụ
    `restricted` với trưởng phòng.
-2. **Trang đóng với một vai (18 route):** người bị từ chối nhận đúng trang 404 của một đường dẫn không tồn tại dưới
-   `/admin`; admin mở được cả 18.
-3. **Mở cho mọi tài khoản đã đăng nhập của panel** (bảng tin, hồ sơ cá nhân, tìm kiếm, "Hiệu suất theo kỳ", "Theo dõi
-   đội ngũ" — tự lọc theo người xem —, danh sách vụ việc, danh mục loại vụ việc, trang thiết bị, đổi mật khẩu, đăng
-   nhập/đăng xuất, ba route thiết bị M12 — gỡ thiết bị của người khác và thiết bị không có trả cùng 404, có test).
+2. **Trang đóng với một vai (19 route):** người bị từ chối nhận đúng trang 404 của một đường dẫn không tồn tại dưới
+   `/admin`; admin mở được cả 19. Trong đó hai trang M13 (vòng sửa 1): "Hiệu suất theo kỳ" (`matter.view` hoặc
+   `performance.viewAny` — kế toán bị từ chối) và "Theo dõi đội ngũ" (chỉ `performance.viewAny`, tức admin và quản lý
+   — luật sư bị từ chối); cả hai `abort_unless(canAccess(), 404)` trong `boot()`.
+3. **Mở cho mọi vai nhân sự của panel (20 route)** (bảng tin, hồ sơ cá nhân, tìm kiếm, danh sách vụ việc, danh mục
+   loại vụ việc, trang thiết bị, đổi mật khẩu, đăng nhập/đăng xuất, ba route thiết bị M12 mỗi panel — gỡ thiết bị của
+   người khác và thiết bị không có trả cùng 404, có test). Lời "mở" được kiểm chứ không chỉ ghi: mọi route GET của
+   panel admin trong nhóm này trả 200 cho từng vai trong năm vai (trừ trang đăng nhập và trang buộc cài 2FA, vốn
+   chuyển hướng người đã đăng nhập) — một trang có cổng xếp nhầm vào đây làm test đỏ.
 4. **Ngoại lệ có chủ đích, liệt kê trong test (`spec1010Exceptions()`):** chữ ký URL sai trả **403** trên
    `documents.download` và hai bí danh M12 (`routes/web.php` — nói về đường dẫn, không về bản ghi; test khẳng định 403
    giống nhau cho id có thật và id bịa, và chữ ký đúng mà không được tải thì 404 như id không có); request cập nhật

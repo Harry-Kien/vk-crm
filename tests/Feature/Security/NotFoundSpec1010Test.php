@@ -33,8 +33,9 @@ use Tests\Support\WebPushTestKeys;
 |     và đều là 404.
 |  2. GATED — trang không mang id, đóng với một vai: người không có quyền nhận đúng trang 404 của một
 |     đường dẫn không tồn tại trong cùng panel.
-|  3. OPEN — trang mọi tài khoản đã đăng nhập của panel đó đều mở (bảng tin, hồ sơ cá nhân, tìm
-|     kiếm, trang thiết bị nhận thông báo, đổi mật khẩu…): không nói gì về sự tồn tại của bản ghi.
+|  3. OPEN — trang mọi vai nhân sự (cổng khách: mọi tài khoản khách) của panel đó đều mở (bảng tin,
+|     hồ sơ cá nhân, tìm kiếm, trang thiết bị nhận thông báo, đổi mật khẩu…): không nói gì về sự tồn
+|     tại của bản ghi. Phía admin có test kiểm 200 cho từng vai.
 |  4. EXCEPTION — ngoại lệ có chủ đích, mỗi cái một lý do (xem `spec1010Exceptions()`): chữ ký URL
 |     sai trả 403 (`routes/web.php`, nói về ĐƯỜNG DẪN chứ không về bản ghi — test riêng dưới đây
 |     khẳng định 403 đó giống nhau cho id có thật và id bịa), tài nguyên tĩnh và công khai của PWA,
@@ -79,6 +80,10 @@ function spec1010GatedPages(): array
         'filament.admin.pages.bulk-reassign' => Role::Lawyer,
         'filament.admin.pages.intake-report' => Role::Lawyer,
         'filament.admin.pages.office-profile' => Role::Lawyer,
+        // M13 — "Hiệu suất theo kỳ": `matter.view` hoặc `performance.viewAny`, kế toán không có cả hai.
+        'filament.admin.pages.performance' => Role::Accountant,
+        // M13 — "Theo dõi đội ngũ": chỉ `performance.viewAny` (admin, quản lý).
+        'filament.admin.pages.team' => Role::Lawyer,
         'filament.admin.pages.receivables' => Role::Assistant,
         'filament.admin.pages.revenue-dashboard' => Role::Assistant,
         'filament.admin.resources.client-users.index' => Role::Accountant,
@@ -96,8 +101,9 @@ function spec1010GatedPages(): array
 }
 
 /**
- * Nhóm 3 — mở cho mọi tài khoản đã đăng nhập của panel (và trang đăng nhập/đăng xuất, cài 2FA).
- * Không trang nào ở đây đọc một bản ghi theo id trên URL.
+ * Nhóm 3 — mở cho mọi vai nhân sự (cổng khách: mọi tài khoản khách) của panel, cùng trang đăng
+ * nhập/đăng xuất và cài 2FA. Không trang nào ở đây đọc một bản ghi theo id trên URL. Phía admin được
+ * kiểm cho từng vai ở test "mở được mọi trang GET của panel admin trong nhóm OPEN".
  *
  * @return list<string>
  */
@@ -110,8 +116,6 @@ function spec1010OpenPages(): array
         'filament.admin.auth.profile',
         'filament.admin.auth.multi-factor-authentication.set-up-required',
         'filament.admin.pages.search',
-        'filament.admin.pages.performance',
-        'filament.admin.pages.team',
         'filament.admin.pages.thong-bao-dien-thoai',
         'filament.admin.resources.matters.index',
         // Danh mục loại vụ việc: mọi nhân sự đọc được (`MatterTypePolicy::viewAny`), chỉ admin sửa.
@@ -322,6 +326,33 @@ it('trả cho người không có quyền đúng trang 404 của một đường
 it('mở được mọi trang của nhóm GATED cho quản trị viên', function (string $name) {
     $this->actingAs($this->admin, 'web')->get(route($name))->assertOk();
 })->with(array_keys(spec1010GatedPages()));
+
+/*
+ * Lời khẳng định của nhóm OPEN được kiểm, không chỉ được ghi: mọi route GET của panel admin trong
+ * nhóm đó mở được (200) cho TỪNG vai nhân sự. Bỏ qua hai route GET chuyển hướng người ĐÃ đăng nhập
+ * (trang đăng nhập, trang buộc cài 2FA khi không bị buộc); đăng xuất và ba route thiết bị M12 không
+ * phải GET nên lọc theo phương thức.
+ * Một trang có cổng mà bị xếp nhầm vào OPEN — như "Hiệu suất theo kỳ" và "Theo dõi đội ngũ" trước
+ * vòng sửa 1 — làm test này đỏ thay vì lọt khỏi phép so với trang 404 của nhóm GATED.
+ */
+it('mở được mọi trang GET của panel admin trong nhóm OPEN cho từng vai nhân sự', function (Role $role) {
+    $actor = User::factory()->withRole($role)->create();
+
+    $pages = collect(spec1010OpenPages())
+        ->filter(fn (string $name): bool => str_starts_with($name, 'filament.admin.')
+            && ! in_array($name, ['filament.admin.auth.login', 'filament.admin.auth.multi-factor-authentication.set-up-required'], true)
+            && in_array('GET', Route::getRoutes()->getByName($name)->methods(), true))
+        ->values();
+
+    expect($pages)->not->toBeEmpty();
+
+    $refused = $pages
+        ->filter(fn (string $name): bool => $this->actingAs($actor, 'web')->get(route($name))->getStatusCode() !== 200)
+        ->values()
+        ->all();
+
+    expect($refused)->toBe([], 'trang của nhóm OPEN đóng với vai '.$role->value);
+})->with(Role::cases());
 
 /*
  * Ngoại lệ có chủ đích: chữ ký URL sai trả 403. Nó nói về ĐƯỜNG DẪN, không về bản ghi — nên phải
