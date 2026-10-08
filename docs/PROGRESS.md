@@ -11,14 +11,14 @@
 | M6 Thông báo + tác vụ định kỳ + heartbeat | ✅ Xong | 2026-10-01 | Task 1, 2, 5, 6 và một phần Task 3 có từ trước; phần còn lại (Task 3, 4, 7, 8, 9, 10) gộp từ làn `m6-rest` tại f491a2a. Suite 3438 xanh, CI xanh (SQLite + MariaDB). Thư cho khách (công bố tài liệu, từ chối giấy tờ, kích hoạt cổng, đã trả lời yêu cầu), báo nhân sự (yêu cầu/tệp mới, khách hỏi tiếp), CheckStaleMatters, RemindMissingDocuments, RemindUnseenUpdates, nút "Gửi lại" thư lỗi. Chi tiết và việc hoãn ở "Ghi chú M6" |
 | M6.5 Sửa lỗi quy trình | ✅ Xong | 2026-09-28 | Sửa 102 phát hiện của đợt kiểm tra 2026-09-24 (`docs/audits/2026-09-24-quy-trinh.md`: 90 xác nhận, 12 tranh chấp; bảng mã → task ở "Ghi chú M6.5") và CI đỏ từ 2026-09-22. 21 task, mỗi task qua rà soát Opus; rà soát toàn nhánh chia 3 vùng (1 Critical: nhật ký hệ thống lộ vụ restricted cho trưởng phòng) → 2 đợt sửa. Cổng merge: `test:mariadb` 2234/2234 xanh (2 bài đỏ do chạy chồng một CSDL test, chạy lại riêng 26/26 xanh), full suite 2228 xanh, pint sạch. Việc mang sang M8 Task 6: xem cuối "Ghi chú M6.5" |
 | M7 Bàn giao + lưu trữ + liên lạc + tìm kiếm | ✅ Xong | 2026-10-03 | Gộp 35ec313 (làn `m7-handover` + làn song song `m7-extras`), CI xanh (SQLite + MariaDB); suite 4317 xanh, MariaDB 636 xanh. Bàn giao một vụ và hàng loạt, lưu trữ khi kết thúc, gói bàn giao hồ sơ (MUC-LUC.pdf + zip), hết hạn tra cứu của khách, cảnh báo hạn lưu + ghi quyết định tiêu huỷ, rút tài liệu đã công bố, nhật ký liên lạc + nhật ký riêng của vụ, tìm kiếm, trang "Thông tin văn phòng". Việc sau gộp (thư gói bàn giao cho khách, pcntl trong preflight) đã gộp 75f1d40. Chi tiết ở "Ghi chú M7" |
-| M8 Bảo mật + backup + README triển khai | ✅ Xong | 2026-10-08 | M8a (a879d33) và làn `m8b-security` (035c4d3): sao lưu mã hoá + diễn tập khôi phục (Task 5, đối chiếu lại ngày 2026-10-08), CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Task 8 (nghiệm thu SPEC §14) xong ở làn `v1-acceptance-b`: độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,96 %, bảng truy vết §11, tám tiêu chí có bằng chứng, lượt cài thật từ máy trống. Task 6 (rà soát §10 toàn hệ thống) ở làn `v1-acceptance`. Chi tiết ở "Nghiệm thu bản 1.0" |
+| M8 Bảo mật + backup + README triển khai | 🟡 Còn §14 mục 8 và Task 6 | 2026-10-08 | M8a (a879d33) và làn `m8b-security` (035c4d3): sao lưu mã hoá + diễn tập khôi phục (Task 5, đối chiếu lại ngày 2026-10-08), CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Task 8 (nghiệm thu SPEC §14) ở làn `v1-acceptance-b`: độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,96 %, bảng truy vết §11, tiêu chí 1–7 có bằng chứng; tiêu chí 8 mới có một lượt đi theo kịch bản do chính người làm viết (đã đọc kho, bỏ qua Bước 1, 4, 9, 11 và phần nâng cấp), còn CHỜ một lượt đọc của agent chưa từng đọc kho (R6 của kế hoạch M8) nên Task 8 chưa tick. Task 6 (rà soát §10 toàn hệ thống) ở làn `v1-acceptance`. Chi tiết ở "Nghiệm thu bản 1.0" |
 | M11 Máy chủ MCP (ChatGPT, Claude) | 🟡 Đang làm | | Làn `m11-mcp-server` cắt từ `main` sau M8 (chủ văn phòng yêu cầu làm ngay); nhận bảng `settings` và nhật ký liên lạc từ làn `m7-extras` khi các task đó đạt. Phán quyết của chủ văn phòng ngày 2026-09-24 ở kế hoạch `docs/superpowers/plans/2026-09-24-m11-mcp.md` |
 | M9 Hợp đồng dịch vụ + đợt thanh toán | ✅ Xong | 2026-10-04 | Gộp a65ba4c (Task 2–5, 7–9, 12), 4280a4c (làn `m9-rest`: Task 1, 11) và lần gộp làn `m9-final` (Task 6 đợt thu theo giai đoạn + đối soát 07:00, Task 10 khối thanh toán trên cổng khách + bảng kê trong gói bàn giao, Task 13 nghiệm thu toàn M9: dữ liệu mẫu, `billing:check-invariants` trong preflight, kịch bản nhập liệu khi đưa vào dùng); suite sau gộp 4519 xanh (32 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Việc nhỏ để lại (người nhận thư "gói sẵn sàng" theo quyền tải gói; ghi rõ bảng kê là ảnh chụp tại ngày lập gói) chuyển sang lượt quét M8 Task 6. Chi tiết ở "Ghi chú M9 → Làn m9f" |
 | M10 Tiếp nhận khách | ✅ Xong | 2026-10-04 | Gộp làn `m10-intake` (Task 1–8; Task 6, 7 làm song song ở làn `m10-t6`, `m10-t7`): phiếu tiếp nhận, kiểm tra xung đột lợi ích (Đỏ/Vàng/Xanh, khoá gọi lặp, nguồn thứ hai), thông báo bảo vệ dữ liệu (bản nháp chờ luật sư), chuyển thành khách + vụ việc (phí đã báo gợi ý vào hợp đồng), gộp/từ chối/xoá theo yêu cầu, đồng hồ phản hồi theo giờ làm việc, nhắc nội bộ mỗi 15 phút, ẩn danh tự động 03:30 theo hạn lưu, bảng điều khiển tiếp nhận, dữ liệu mẫu. Suite sau gộp 5242 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; bốn việc nhỏ (câu chữ hộp thoại xoá dữ liệu, khối hợp đồng trong bài nghiệm thu, đoạn nâng cấp M10 trong CAI-DAT, ghi chú §12) ở làn việc sau gộp `fu3`. Chi tiết ở "Ghi chú M10" |
 | M12 Ứng dụng điện thoại (PWA) + thông báo đẩy | ✅ Xong | 2026-10-07 | Gộp làn `m12-pwa-push` (Task 1–10 + vòng sửa của rà soát cuối làn): cài lên màn hình điện thoại (manifest, biểu tượng, service worker, trang ngoại tuyến, hướng dẫn cài), thông báo đẩy Web Push (khoá VAPID, đăng ký theo thiết bị, trang "Thông báo trên điện thoại", gỡ máy khi đăng xuất/cắt phiên, hàng đợi `push` + nhật ký gửi), nối vào bốn sự kiện của khách và bốn sự kiện của nhân sự (kể cả nhắc hạn, đợt thu quá hạn), "Gửi thử". Suite sau gộp 5790 xanh (33 bỏ qua, 1 risky có sẵn); composer audit sạch. Rà soát gộp ba góc nhìn: 2 lỗi xác nhận (đổi email cổng khách và "Đặt lại 2FA" chưa gỡ máy nhận thông báo) cùng các việc nhỏ chuyển sang làn việc sau gộp `fu4`. Kiểm tra trên máy thật (Android, iPhone): CHỜ CHỦ VĂN PHÒNG theo danh sách trong tài liệu |
 | M13 Theo dõi đội ngũ + hiệu suất | 🟡 Đang làm | | Chủ văn phòng yêu cầu 2026-10-04 (cấp trên theo dõi tiến độ vụ việc của luật sư/chuyên viên; tỉ lệ hoàn thành công việc). Kế hoạch `docs/superpowers/plans/2026-10-04-m13-team-performance.md` (đã qua một vòng rà soát Opus). Trang "Theo dõi đội ngũ", trang từng người, trang "Hiệu suất theo kỳ", ảnh chụp số liệu hằng ngày; quyền mới `performance.viewAny` (admin, quản lý); luật sư/chuyên viên chỉ thấy số của mình; không xếp hạng; không lộ vụ mật. Làn `m13-team-performance` (`D:\vkwt\lane-m13`) cắt từ đầu làn M9 cuối (558f0b5) + commit kế hoạch; làn A làm Task 1, 2, 4, 5, làn m13b tách sau Task 2 làm Task 3, 6 |
 | M14 Google Drive làm kho tài liệu | 🟡 Đang làm | | Chủ văn phòng quyết 2026-10-04: Shared Drive của văn phòng làm kho phía sau CRM, chỉ CRM đọc/ghi qua tài khoản dịch vụ; quyền theo vụ, vụ mật, nhật ký tải giữ nguyên. Kế hoạch `docs/superpowers/plans/2026-10-04-m14-google-drive-storage.md` (đã qua một vòng rà soát Opus). Adapter Drive REST v3 của dự án + `google/auth`; tải về luôn đi qua CRM; bản sao thứ hai ở máy chủ văn phòng; preflight ĐỎ khi bật Drive trên production mà chưa ghi ngày hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025). Việc của chủ văn phòng: tạo Shared Drive + tài khoản dịch vụ theo hướng dẫn trong kế hoạch |
-| **Bản 1.0** (M0–M10 + M12 + M13) | ✅ Nghiệm thu trong kho | 2026-10-08 | Chủ văn phòng chốt 2026-10-08; M11, M14 gắn sau, không thuộc bản 1.0. Tám tiêu chí SPEC §14 có bằng chứng; cả bộ 6288 xanh dưới `pcov`; vòng migration thật trên MariaDB; cài thật từ máy trống theo README + CAI-DAT (ba chỗ vấp đã sửa). Chờ chủ văn phòng trước ngày mở cổng: máy chủ thật, ba thông tin pháp lý, đi tay trên Android/iPhone, luật sư duyệt thông báo bảo vệ dữ liệu và các hạn lưu, khôi phục thử trên máy chủ thật, gói bàn giao trong bản sao lưu. Chi tiết ở "Nghiệm thu bản 1.0" |
+| **Bản 1.0** (M0–M10 + M12 + M13) | 🟡 Còn §14 mục 8 | 2026-10-08 | Chủ văn phòng chốt 2026-10-08; M11, M14 gắn sau, không thuộc bản 1.0. Tiêu chí SPEC §14 mục 1–7 có bằng chứng; cả bộ 6288 xanh dưới `pcov`; vòng migration thật trên MariaDB. Mục 8 (README + CAI-DAT): một lượt đi theo kịch bản do chính người làm viết, trong container bỏ đi (ba chỗ vấp đã sửa; Bước 1, 4, 9, 11 và phần nâng cấp chưa đi); CHỜ một lượt đọc của agent chưa từng đọc kho, việc của người điều phối. Chờ chủ văn phòng trước ngày mở cổng: máy chủ thật, ba thông tin pháp lý, đi tay trên Android/iPhone, luật sư duyệt thông báo bảo vệ dữ liệu và các hạn lưu, khôi phục thử trên máy chủ thật, gói bàn giao trong bản sao lưu. Chi tiết ở "Nghiệm thu bản 1.0" |
 
 **Thứ tự làm đã chốt với chủ văn phòng: M6.5 → phần còn lại của M6 → M7 → M8 → M11 → M9 → M10
 → M12** (ghi trong sổ tay điều phối M6.5 ngày 2026-09-25). Bảng trên xếp theo thứ tự này, không
@@ -6125,8 +6125,8 @@ trên cây đã gộp.
    production cài được trên PHP 8.3.0; không predis/horizon/octane/reverb/pulse/scout; hàng đợi, cache, phiên
    đều `database`; ba hàng (`default`, `push`, `handover`) được chính lịch rút mỗi phút với
    `--stop-when-empty`; hướng dẫn đòi ĐÚNG MỘT dòng crontab `* * * * * cd … && php artisan schedule:run`.
-   Lượt cài thật (mục 8) chạy `schedule:list` (19 tác vụ) và một `schedule:run` (rút ba hàng, ghi
-   `system_health.last_schedule_run_at`).
+   Lượt đi theo kịch bản (mục 8) chạy `schedule:list` (19 tác vụ) và một `schedule:run` bằng tay (rút ba
+   hàng, ghi `system_health.last_schedule_run_at`); nó không cài dòng crontab thật.
 3. **Luật sư chuyển giai đoạn → khách nhận thư, thấy trên cổng (và trên điện thoại).**
    `tests/Feature/Acceptance/V1AcceptanceWalkTest.php` "§14.3 — one stage change by the lawyer mails the
    client, reaches the phone, and shows on the portal, with no extra step": trên dữ liệu mẫu, `luatsu1@` bấm
@@ -6163,8 +6163,11 @@ trên cây đã gộp.
    `Jobs/GenerateHandoverPackageTest`, `Http/HandoverPackageDownloadTest` (`data_exported`),
    `Portal/BillingOnPortalTest` "prints the payment statement into the handover index, with only what the
    portal shows", `Http/HandoverPackageMoneyAccessTest`.
-8. **`README.md` + `docs/CAI-DAT.md` đã nghiệm thu.** Mục "Người đọc chưa từng thấy kho" bên dưới: một lượt
-   cài thật từ máy trống, ba chỗ vấp đã sửa, mỗi chỗ một test.
+8. **`README.md` + `docs/CAI-DAT.md` đã nghiệm thu — CHỜ.** R6 của kế hoạch M8 chỉ nhận một cách nghiệm thu:
+   một agent chưa từng đọc kho làm theo `README.md` + `docs/CAI-DAT.md` từ máy trống. Việc đó CHƯA làm. Đã có:
+   mục "Lượt đi theo kịch bản của người làm" bên dưới — một kịch bản do chính người làm Task 8 viết (người đã
+   đọc kho), đi một phần các bước trong container bỏ đi; ba chỗ vấp đã sửa, mỗi chỗ một test. Tiêu chí này chỉ
+   tick sau lượt đọc của agent chưa từng đọc kho (người điều phối giao, xem "Cần chủ văn phòng quyết / làm").
 
 ### Độ phủ (SPEC §11, §14 mục 1)
 
@@ -6236,36 +6239,64 @@ migration, 17,8 s, thoát 0) → `db:artisan db:seed --force` (dữ liệu mẫu
 lượt cuối: 27 vụ, 12 khách, 9 nhân sự, 12 lần tiếp nhận, 25 hợp đồng, 720 ảnh chụp hiệu suất, 58 dòng
 `migrations`.
 
-### Người đọc chưa từng thấy kho: cài từ máy trống theo `README.md` + `docs/CAI-DAT.md`
+### Lượt đi theo kịch bản của người làm (KHÔNG phải người đọc chưa từng thấy kho)
 
-Một lượt đi thật ngày 2026-10-08: bản sao sạch của `d54c445` (git bundle) trong một container
-`webdevops/php:8.3-alpine` bỏ đi sau đó, CSDL tạm `vk_crm_lane_v1b_install` (đã xoá). Đúng chuỗi lệnh của
-"Cài lên máy chủ thật": `git clone` → `cp .env.example .env` → `composer install --no-dev
---optimize-autoloader` → `key:generate` → điền `.env` theo bảng Bước 3 → `config:clear` + `webpush:vapid` →
-`migrate --force` → `db:seed --force` → `vkcrm:create-admin` (tương tác; `--no-interaction` từ chối đúng như
-tài liệu nói) → `vkcrm:preflight` → `optimize` → `schedule:list` → `schedule:run` → `vkcrm:backup-check`.
-Preflight: mọi dòng XANH trừ hai dòng do chính container thử (không phải do tài liệu): VÀNG không gọi được
-`APP_URL` giả để thử đĩa `private`, ĐỎ thiếu `mariadb-dump` (Bước 1 đã bảo cài `mariadb-client`; container
-thử không cài). Ba chỗ người đọc phải đoán, đã sửa, mỗi chỗ một test trong
-`Acceptance/InstallGuideColdReadTest.php`:
+Ngày 2026-10-08, người làm Task 8 — đã đọc kho, đã đọc cả hai tài liệu — viết một kịch bản shell
+(`install-walk.sh`, trong scratchpad của phiên, không vào kho) chép lại chuỗi lệnh của "Cài lên máy chủ thật",
+rồi chạy nó trong một container `webdevops/php:8.3-alpine` bỏ đi sau đó, trên bản sao của `d54c445` lấy từ một
+git bundle, với CSDL tạm `vk_crm_lane_v1b_install` (đã xoá). Đây là lượt kiểm chữ có chạy lệnh, KHÔNG phải
+nghiệm thu theo R6: người viết kịch bản biết sẵn câu trả lời ở những chỗ một người lạ phải đoán.
 
-1. **Giá trị có dấu cách cần ngoặc kép.** `BRAND_BAR_ASSOCIATION=Đoàn Luật sư tỉnh Đồng Nai` không ngoặc kép
-   làm MỌI lệnh `php artisan` chết với "The environment file is invalid!" (lượt đi đầu dừng ở đây). Bước 3 nay
-   nói luật ngoặc kép kèm một dòng ví dụ Dotenv đọc được; dòng chú thích của `BRAND_BAR_ASSOCIATION` trong
-   `.env.example` nói cùng luật.
-2. **Kho là kho riêng tư.** `git clone https://github.com/Harry-Kien/vk-crm.git` của người ngoài trả
-   "Repository not found". Bước 2 nay nói cách lấy quyền đọc: deploy key chỉ đọc (lệnh `ssh-keygen`, người giữ
-   kho thêm khoá ở Settings → Deploy keys, clone qua SSH với `core.sshCommand` để `git pull` lúc nâng cấp dùng
-   lại); Bước 0 có thêm dòng hỏi người giữ kho.
-3. **README thiếu quyền M13 khi nâng cấp.** Gạch "Nâng cấp" của README kể bảy quyền M9/M10, quên
-   `performance.viewAny` — bỏ `db:seed --force` thì trang "Theo dõi đội ngũ" không hiện với ai. Nay kể đủ tám
-   quyền và nói M12 không thêm quyền nào, khớp CAI-DAT.
+Đã đi (theo kịch bản):
+
+- Bước 1, chỉ phần kiểm: `php -m`, có `git`/`composer`/`mariadb-dump` không, các hàm `pcntl`.
+- Bước 2: `git clone` (từ git bundle, không từ GitHub) → `cp .env.example .env` → `composer install --no-dev
+  --optimize-autoloader`.
+- Bước 3: `key:generate`, điền `.env` theo bảng (giá trị giả: `APP_URL` `.test`, `MAIL_MAILER=log`, heartbeat
+  giả), `config:clear` + `webpush:vapid`.
+- Bước 5: `migrate --force` → `db:seed --force`.
+- Bước 6: `vkcrm:create-admin` với câu trả lời đưa vào bằng ống; `--no-interaction` từ chối đúng như tài liệu
+  nói.
+- Bước 7: `vkcrm:preflight` → `optimize`. Preflight: mọi dòng XANH trừ hai dòng do chính container thử: VÀNG
+  không gọi được `APP_URL` giả để thử đĩa `private`, ĐỎ thiếu `mariadb-dump` (Bước 1 bảo cài `mariadb-client`;
+  container thử không cài).
+- Bước 8: `schedule:list` (19 tác vụ) và một `schedule:run` gõ tay; không cài crontab, không đăng ký giám sát.
+- Bước 10: chỉ `vkcrm:backup-check` trên đĩa `local_backups`; không rclone/Google Drive, không khôi phục thử.
+
+Chưa đi:
+
+- Bước 1 phần chuẩn bị máy (cài gói, extension, `mariadb-client`, người dùng, tường lửa, gọi ra máy chủ push).
+- Bước 2 phần lấy quyền đọc kho riêng tư: deploy key, clone qua SSH, `core.sshCommand`.
+- Bước 4 (máy chủ web, HTTPS, hai mẫu trong `tools/deploy/`).
+- Bước 9 (đăng nhập lần đầu, cài 2FA, nhập thông tin văn phòng).
+- Bước 11 (mở cổng).
+- "Nâng cấp lên bản mới" (cả các đoạn nâng cấp M10, M12, M13).
+
+Ba chỗ người đọc phải đoán, đã sửa, mỗi chỗ một test trong `Acceptance/InstallGuideColdReadTest.php`:
+
+1. **Giá trị có dấu cách cần ngoặc kép** (quan sát được khi chạy). `BRAND_BAR_ASSOCIATION=Đoàn Luật sư tỉnh Đồng
+   Nai` không ngoặc kép làm MỌI lệnh `php artisan` chết với "The environment file is invalid!" (lượt chạy đầu
+   dừng ở đây). Bước 3 nay nói luật ngoặc kép kèm một dòng ví dụ Dotenv đọc được; dòng chú thích của
+   `BRAND_BAR_ASSOCIATION` trong `.env.example` nói cùng luật.
+2. **Kho là kho riêng tư** (tìm ra khi đọc, không quan sát được: lượt chạy clone từ git bundle, container không
+   có quyền GitHub). Đọc Bước 2 thấy `git clone https://github.com/Harry-Kien/vk-crm.git` mà không nói kho là
+   riêng tư; người ngoài chạy đúng dòng đó sẽ nhận "Repository not found" hoặc bị hỏi mật khẩu. Bước 2 nay nói
+   cách lấy quyền đọc: deploy key chỉ đọc (lệnh `ssh-keygen`, người giữ kho thêm khoá ở Settings → Deploy keys,
+   clone qua SSH với `core.sshCommand` để `git pull` lúc nâng cấp dùng lại); Bước 0 có thêm dòng hỏi người giữ
+   kho. Các lệnh mới này chưa chạy thử.
+3. **README thiếu quyền M13 khi nâng cấp** (tìm ra khi đối chiếu README với CAI-DAT). Gạch "Nâng cấp" của README
+   kể bảy quyền M9/M10, quên `performance.viewAny` — bỏ `db:seed --force` thì trang "Theo dõi đội ngũ" không hiện
+   với ai. Nay kể đủ tám quyền và nói M12 không thêm quyền nào, khớp CAI-DAT.
 
 Cùng lượt: dọn ba dòng Sail cũ không nơi nào đọc (`WWWUSER`, `WWWGROUP`, `VITE_APP_NAME`) khỏi `.env.example`
 (M8 Task 7 hứa dọn ở Task 8); `Deployment/EnvExampleTest` bỏ mục ngoại lệ "chưa dọn".
 
 ### Cần chủ văn phòng quyết / làm (không chặn bản 1.0 trong kho; chặn ngày mở cổng thật)
 
+- **Việc của người điều phối, trước khi tick §14 mục 8 và Task 8 của kế hoạch M8**: giao một
+  agent chưa từng đọc kho làm theo `README.md` + `docs/CAI-DAT.md` từ máy trống (container sạch, clone thật từ
+  GitHub bằng deploy key), đi đủ các bước kể cả Bước 1, 4, 9, 11 và "Nâng cấp lên bản mới", ghi mọi chỗ nó phải
+  đoán. Mỗi chỗ vấp là một lỗi tài liệu cần sửa kèm test như ba chỗ ở trên.
 - **Máy chủ thật**: thuê VPS/hosting, tên miền `khachhang.luatvukhang.com`, HTTPS, SMTP có SPF/DKIM, chạy đúng
   `docs/CAI-DAT.md` (Bước 0 là danh sách việc cần chuẩn bị, gồm thêm deploy key của máy chủ vào kho).
 - **Ba thông tin pháp lý còn trống**: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động (địa chỉ trụ sở đã
@@ -6301,3 +6332,10 @@ Cùng lượt: dọn ba dòng Sail cũ không nơi nào đọc (`WWWUSER`, `WWWG
 - Tập trung (SQLite): `tests/Feature/Acceptance` + `EnvExampleTest` + bốn test đọc hướng dẫn cài (M10, M12, M13,
   dữ liệu mẫu): 47 passed, 1 risky có sẵn. MariaDB tuần tự (`test:mariadb`, `tests/Feature/Acceptance` +
   `EnvExampleTest`): 21 passed, 1 risky có sẵn. `pint --test`: PASS 1178 tệp.
+- Vòng sửa 1 của rà soát (I1, 2026-10-08): hồ sơ §14 mục 8 nay gọi đúng tên lượt đi (kịch bản của người làm, đã
+  đọc kho; bước đã đi, bước chưa đi; chỗ vấp 2 tìm ra khi đọc), tiêu chí 8 và Task 8 của kế hoạch M8 ở trạng thái
+  CHỜ lượt đọc của agent chưa từng đọc kho; dòng M8 và dòng "Bản 1.0" của bảng thôi ✅. Test mới
+  `InstallGuideColdReadTest` "§14.8 records the install walk as a scripted walk…": ĐỎ trên hồ sơ cũ, xanh sau sửa;
+  tám mutation probe (dòng Bản 1.0 / M8 trở lại ✅, tick lại Task 8, bỏ Bước 9 khỏi danh sách chưa đi, bỏ việc
+  của người điều phối, bỏ "CHỜ" ở tiêu chí 8, bỏ "tìm ra khi đọc", trả tiêu đề cũ) đều đỏ. Cả bộ 6289 passed,
+  33 skipped, 1 risky có sẵn (3 666 s); MariaDB `InstallGuideColdReadTest` 4 passed; `pint --test` PASS.

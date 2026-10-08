@@ -206,10 +206,12 @@ Mở rộng `README.md` và `docs/CAI-DAT.md`. Nội dung:
 
 Nghiệm thu bằng một agent chưa đọc repo.
 
-### - [x] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
+### - [ ] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
 
-> **Xong ở làn `v1-acceptance-b` (2026-10-08)**, bản 1.0 = M0–M10 + M12 + M13 (M11, M14 gắn sau). Bằng chứng ở
-> PROGRESS, mục "Nghiệm thu bản 1.0". `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
+> **Làm ở làn `v1-acceptance-b` (2026-10-08), còn tiêu chí 8**, bản 1.0 = M0–M10 + M12 + M13 (M11, M14 gắn sau).
+> Bằng chứng ở PROGRESS, mục "Nghiệm thu bản 1.0". Tiêu chí 1–7 có bằng chứng. Tiêu chí 8 mới có một lượt đi theo
+> kịch bản do chính người làm viết (đã đọc kho); theo R6 chỉ tick khi một agent chưa từng đọc kho đã làm theo
+> `README.md` + `docs/CAI-DAT.md` — việc của người điều phối. `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
 > `bin/coverage` — một container `docker run --rm` bỏ đi, cài `pcov` bên trong, không đổi image, không đổi máy;
 > tóm tắt bằng `tools/coverage/summary.php`. CI giữ `coverage: none`.
 
