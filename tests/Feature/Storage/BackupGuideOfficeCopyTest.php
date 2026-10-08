@@ -111,3 +111,17 @@ it('gỡ biên nhận bị từ chối, đang chờ hay bị bỏ qua: mục D.9
         ->and(__('office_copy.import.deferred'))->toContain('receipted.txt')
         ->and(__('office_copy.import.deferred'))->toContain('D.9');
 });
+
+/*
+ * Rà soát cuối M14 vòng sửa 1 (I8): bảng "Bản nào còn lại khi có sự cố" là thứ chủ văn phòng dùng để
+ * cân rủi ro. Tài khoản dịch vụ có vai "Người quản lý nội dung": không xoá vĩnh viễn được, nhưng TẢI
+ * ĐƯỢC phiên bản mới đè nội dung và cho tệp vào thùng rác — máy chủ web bị chiếm thì Kho không phải bản
+ * an toàn. Chỉ bản ở văn phòng (chép thêm với `--immutable`) là an toàn.
+ */
+it('bảng sự cố: máy chủ web bị chiếm thì chỉ bản ở văn phòng an toàn; Kho có thể bị ghi đè hay cho vào thùng rác', function () {
+    preg_match('/^\| Máy chủ web bị chiếm, mã độc tống tiền \|(.*)\|$/mu', t7Guide(), $row);
+
+    expect($row)->toHaveCount(2)
+        ->and(trim($row[1]))->toBe('Bản ở văn phòng; Kho có thể bị ghi đè nội dung hay cho vào thùng rác')
+        ->and($row[1])->not->toContain('không xoá vĩnh viễn được');
+});

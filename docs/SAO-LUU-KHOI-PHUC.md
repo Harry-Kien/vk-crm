@@ -68,7 +68,7 @@ Bản nào còn lại khi có sự cố:
 |---|---|
 | Lỗi của CRM xoá hoặc ghi sai | Bản ở văn phòng (chỉ chép thêm, không bao giờ xoá); vùng đệm trong thời gian ân hạn |
 | Lộ khoá tài khoản dịch vụ của Kho | Khoá đó chỉ cho tệp vào thùng rác, không chạm được máy văn phòng. Tệp bị sửa trên Kho làm lượt kéo của máy văn phòng báo lỗi, và lỗi đó tới CRM qua biên nhận |
-| Máy chủ web bị chiếm, mã độc tống tiền | Kho (tài khoản dịch vụ không xoá vĩnh viễn được) và bản ở văn phòng |
+| Máy chủ web bị chiếm, mã độc tống tiền | Bản ở văn phòng; Kho có thể bị ghi đè nội dung hay cho vào thùng rác |
 | Google khoá Workspace, hay quản trị viên Workspace bị chiếm | Bản ở văn phòng. Trước khi có máy văn phòng: vùng đệm trên máy chủ, vì nó chưa bao giờ được dọn |
 | Máy văn phòng hỏng, cháy, mất | Kho, cộng vùng đệm của tệp chưa dọn. Kéo lại toàn bộ sang máy mới (Phụ lục D) |
 | Mất **cùng lúc** Workspace và máy văn phòng | **Không đỡ được.** Văn phòng đã chấp nhận rủi ro này |
