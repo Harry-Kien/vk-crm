@@ -6133,6 +6133,7 @@ và 8), §11, §13 ngày 2026-10-04.
 | gộp | `5cf2acf`, `31e0b7a`, `a39a89a` | `main` 8b0dbf9 → làn; làn `m14b` → làn; `main` `7632242` (M12 và việc sau gộp fu4) → làn |
 | 6 | `7832927` | `enable`, `migrate`, `verify`, `rollback`, `reindex`, `orphans`, `destruction-list` |
 | 8 | commit `docs: M14 Task 8 — …` (SHA trong sổ cái làn) | Nghiệm thu trên Drive giả, tài liệu, ghi chú này |
+| rà soát cuối, vòng sửa 1 | `8c94eae`, `e22a9c0` (gộp `main` `e1fe88e`, M13), `5ec2d60`, `bb2a4b1`, `3938199`, `c254954`, `e8fec0b`, `0d2384f`, cùng commit ghi chú này | I1–I9 của rà soát cuối cả làn: mục "Rà soát cuối — vòng sửa 1" dưới |
 
 ### Phán quyết của chủ nhiệm (R1–R15)
 
@@ -6289,7 +6290,9 @@ Mọi số đo dưới đây chạy trên nhánh đã gộp `main` `7632242` (co
   gộp chết giữa chừng với `WorkerCrashedException` ở `DriveUploadTest` (hết `memory_limit` 512M mặc định
   của image Docker: mỗi tiến trình song song để lại bộ nhớ dần qua khoảng 3.400 test trước đó, và các ca
   khối 8 MiB nằm gần cuối thứ tự tệp). Sửa: `DriveUploadTest` gỡ drive giả sau mỗi ca (`afterEach`), và
-  `phpunit.xml` đặt `<ini name="memory_limit" value="1024M"/>` — CI (setup-php) vốn chạy với `-1`.
+  `phpunit.xml` đặt `<ini name="memory_limit" value="-1"/>` — đúng giá trị CI (setup-php) có sẵn; PHPUnit
+  `ini_set()` mọi thẻ `<ini>` nên một trần hữu hạn sẽ đè cả CI (chạy tuần tự, một tiến trình mang cả bộ).
+  Lượt trước đặt `1024M`; vòng sửa 1 của rà soát cuối (I2) đổi về `-1`, ghim ở `tests/Unit/PhpunitMemoryLimitTest.php`.
 - **MariaDB thật, tuần tự** (`test:mariadb`, CSDL `vk_crm_test_lane_m14`), 62 tệp: mọi test chạm kho (danh sách độ
   phủ dưới) cộng `CredentialFileInspectorTest` và `PushTopicTest`: **1272 passed, 1 skipped, 0 failed** (6133 khẳng
   định, 824 s).
@@ -6400,6 +6403,75 @@ việc triển khai bản M14 với `local`. Mỗi câu có mặc định an to�
 Việc tay của chủ văn phòng: Phụ lục A (Workspace, Shared Drive, Google Cloud project, tài khoản dịch vụ,
 khoá JSON, thành viên, DPA, nhật ký Drive hằng tháng, xoay khoá), Phụ lục D (máy văn phòng). Production
 giữ `DOCUMENT_STORAGE=local` cho tới lúc đó.
+
+### Rà soát cuối — vòng sửa 1
+
+Rà soát cuối cả làn (2026-10-08, trên `737c272`) không thấy lỗi nghiêm trọng, nêu 9 lỗi quan trọng. Cả 9
+đã sửa ở vòng này. Mỗi lỗi có test đỏ trước khi sửa và probe đột biến cho mọi điều kiện mới (log ở
+`.superpowers/sdd/m14/ffix1/` trên máy dev).
+
+- **I1 — nút "Về trang chủ" của trang 503.** Nút trỏ `PwaPanels::startUrlFor(request())`: bí danh nội
+  bộ về `/admin`, bí danh của cổng về `/portal`. Trước đây nút trỏ `url('/')`, mở đăng nhập của khách,
+  nằm ngoài scope `/admin` của app đã cài. Ca 503 cho admin và cho portal nằm trong
+  `DocumentDownloadFromRemoteTest`, không trong `ErrorPageHomeLinkTest`: chỉ tệp đó có bộ dựng tài
+  liệu trên kho. Hai ca dùng cùng luật "mọi lối ra trừ `tel:`".
+- **I2 — `memory_limit`.** `phpunit.xml` đặt `-1`, đúng giá trị của CI, và
+  `tests/Unit/PhpunitMemoryLimitTest.php` ghim giá trị đó.
+- **I3 — gộp `main` `e1fe88e` (M13) vào làn.** Commit gộp là `e22a9c0`. Xung đột ở
+  `config/vkcrm.php`, `lang/vi/activity.php`, `routes/console.php`, `docs/SPEC.md` và
+  `docs/PROGRESS.md`; mọi chỗ giữ cả hai bên. Đính chính M13 đứng trước đính chính M14, và câu M14 nay
+  nói "bảng milestone đầu mục". Ghi chú M13 đứng trước Ghi chú M14. Các test chéo đều xanh:
+  `SpecM13ParityTest`, `InstallGuideM13UpgradeTest`, `PushInstallGuideTest`, `PreflightCommandTest`,
+  ba test lịch và `PerformanceCacheTest`, tổng 92 passed. `cache.serializable_classes` của M13 không
+  ảnh hưởng M14, vì M14 chỉ cache mảng và chuỗi.
+- **I4 — kho hỏng lâu từng làm đầy `failed_jobs`.**
+  - `PushDocumentFile` nay là `ShouldBeUnique` theo media. Khoá nằm ở store của khoá đẩy và sống tối đa
+    bằng `retry_after` (2400 giây).
+  - `App\Support\Storage\PushBackoff` dừng mọi lượt đẩy 60 phút sau `DocumentStorageMisconfigured` và
+    15 phút sau `DocumentStorageUnavailable`. Mốc dừng chỉ được kéo dài, không bị rút ngắn.
+  - Kế hoạch Task 3 ghi `fail()` cho lỗi cấu hình, nên job vẫn `fail()`.
+  - Trong lúc dừng, `storage.push-pending` không xếp job nào, còn job đã nằm trong hàng thì tự xoá mà
+    không chạm kho.
+  - Media vừa làm hỏng một lượt được xếp cuối lượt quét sau (dấu giữ 24 giờ). Nhờ vậy một tệp hỏng vì
+    chính nó không chặn các tệp khác.
+  - Đo bằng worker thật của hàng `storage` (`PushJobBackoffTest`): kho cấu hình sai suốt 2 giờ với 5
+    tệp chờ để lại 2 dòng `failed_jobs`, trước đây là 40; kho không trả lời để lại 0 dòng.
+  - Lượt cả bộ đầu tiên của vòng này đỏ 3 ca của tệp đó. Lý do: worker dừng sau một job khi tiến trình
+    vượt 128 MB, mà tiến trình chạy cả bộ đã vượt từ trước. Tái hiện bằng `--memory=1`; test nay chạy
+    worker với trần rất lớn.
+- **I5 — dòng chỉ mục còn sống trong khi tệp Drive đã vào thùng rác hay đã mất.**
+  `reusableRemoteCopy` coi `UnableToProvideChecksum` có gốc `StoredFileTrashed` hay `StoredFileMissing`
+  là lệch. Dòng đó được rút (`trashed`) và tệp được tải lại với thế hệ kế tiếp. Lỗi khác khi hỏi md5
+  vẫn ném ra như cũ. Luồng trong sổ tay (quay lui → dọn Shared Drive → bật lại → `migrate`) nay xong
+  với mã 0.
+- **I6 — cổng pháp lý R13 không chỉ được hỏi lúc `enable`.** Áp dụng trên production, khi không còn
+  ngày hồ sơ lẫn ý kiến luật sư:
+  - lượt đẩy trả `Disabled` và không chạm kho;
+  - `vkcrm:storage:migrate` trả mã 2 kèm câu `dossier_missing`;
+  - kiểm tra sức khoẻ báo sự cố `transfer_blocked` (mức `misconfigured`, mỗi ngày một thư
+    `staff.document_store_alert.transfer_blocked`).
+
+  Mẫu thư mới nằm trong danh sách "cố ý không đẩy" của `PushTopicTest`. Bước 6 của sổ tay kho dặn
+  không xoá hai ngày đó sau khi bật kho.
+- **I7 — câu chữ không còn hứa điều hệ thống không làm.**
+  - Trang 503 do kho cấu hình sai có câu riêng. Nhân sự được bảo báo quản trị; khách được biết văn
+    phòng đã được báo. Không câu nào còn nói "thử lại sau ít phút".
+  - Lớp mới `StoredFileChanged` (lớp con của `DocumentStorageUnavailable`) dành cho bản tải về đủ hay
+    thừa byte mà lệch md5 hoặc cỡ. Bản thiếu byte vẫn là lỗi tạm.
+  - Gói bàn giao có ba câu: kho sập (bấm sinh lại), cấu hình hỏng (báo quản trị), và bản trên kho bị
+    đổi (nêu tiêu đề, kiểm bằng `vkcrm:storage:verify`).
+  - Quay lui có thêm lý do `changed` và tách câu cuối làm hai: câu "chạy lại khi Drive tới được", và
+    câu chỉ tới `verify` cùng Phụ lục D cho các lý do `missing` và `changed`.
+  - `verify.problems` bỏ lời hứa "quay lui đúng media đó", vì không có lệnh khôi phục riêng từng tệp.
+- **I8 — bảng sự cố của `docs/SAO-LUU-KHOI-PHUC.md`.** Khi máy chủ web bị chiếm, chỉ bản ở văn phòng
+  là an toàn; Kho có thể bị ghi đè nội dung hay bị cho vào thùng rác. `BackupGuideOfficeCopyTest` ghim
+  dòng đó.
+- **I9 — số đo sau khi sửa I2 và gộp `main`.**
+  - **MariaDB thật, tuần tự**, 64 tệp: 62 tệp của Phần 1, cộng `PushJobBackoffTest`,
+    `PhpunitMemoryLimitTest` và `BackupGuideOfficeCopyTest`; trong đó có `PushTopicTest` và
+    `DriveUploadTest`. Kết quả **1304 passed, 1 skipped, 0 failed** (6278 khẳng định, 1437 s).
+  - **Cả bộ SQLite** (`test --parallel --processes=2`, `memory_limit -1`): **7349 passed, 36 skipped, 1 risky, 0 failed** (174077 khẳng định, 3383 s; ca risky có từ trước M14). Lượt đầu của vòng này có 3 ca đỏ, đều của `PushJobBackoffTest` (xem I4 ở trên).
+  - **`pint --test`**: PASS, 1320 tệp.
 
 ### Việc sau
 
