@@ -21,8 +21,10 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\UnableToProvideChecksum;
 use League\Flysystem\UnableToWriteFile;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Tests\Support\FakeGoogleDrive;
@@ -199,6 +201,58 @@ it('adapter thật: md5 Google báo sau khi tải lệch → bản thế hệ 1 
         ->and(StagingFixtures::row($media->id)->disk)->toBe(DocumentStore::REMOTE_DISK)
         ->and(StagingFixtures::row($media->id)->checksum_md5)->toBe($live->md5);
 });
+
+it('adapter thật: dòng chỉ mục sống mà tệp Drive đã vào thùng rác hay mất (404) → rút dòng, tải lại thế hệ 2 (rà soát cuối I5)', function (string $how) {
+    $drive = FakeGoogleDrive::install();
+    $drive->disk();
+
+    $media = StagingFixtures::media('%PDF-1.4 ban that');
+    $key = $media->getPathRelativeToRoot();
+    $old = $drive->seed($key, '%PDF-1.4 ban that');
+    StagingFixtures::enableRemote();
+
+    if ($how === 'trashed') {
+        $drive->files[$old->file_id]['trashed'] = true;
+    } else {
+        unset($drive->files[$old->file_id]);
+    }
+
+    expect(stgPush($media->id))->toBe(PushOutcome::Pushed);
+
+    $live = DriveObject::query()->where('object_key', $key)->sole();
+
+    expect($old->fresh()->object_key)->toBeNull()
+        ->and($old->fresh()->former_key)->toBe($key)
+        ->and($old->fresh()->retired_reason)->toBe(DriveObjectRetirement::Trashed)
+        ->and($live->generation)->toBe(2)
+        ->and($drive->files[$live->file_id]['content'])->toBe('%PDF-1.4 ban that')
+        ->and(StagingFixtures::row($media->id)->disk)->toBe(DocumentStore::REMOTE_DISK);
+})->with(['trashed', 'deleted']);
+
+it('adapter thật: lỗi khác khi hỏi md5 của bản đã có → ném ra, không rút dòng, không tải lại', function (string $how) {
+    $drive = FakeGoogleDrive::install();
+    $drive->disk();
+
+    $media = StagingFixtures::media('%PDF-1.4 ban that');
+    $key = $media->getPathRelativeToRoot();
+    $old = $drive->seed($key, '%PDF-1.4 ban that');
+    StagingFixtures::enableRemote();
+
+    if ($how === 'no_md5') {
+        // Google trả metadata thiếu md5Checksum: `UnableToProvideChecksum` KHÔNG có gốc thùng rác/404.
+        $drive->respondNext('GET', 'sha256Checksum', fn () => Http::response(['id' => $old->file_id, 'name' => 'x', 'trashed' => false, 'size' => '17']));
+        $expected = UnableToProvideChecksum::class;
+    } else {
+        $drive->failNext('GET', 'sha256Checksum', 500, 'backendError', times: 10);
+        $expected = DocumentStorageUnavailable::class;
+    }
+
+    expect(fn () => stgPush($media->id))->toThrow($expected);
+
+    expect($old->fresh()->object_key)->toBe($key)
+        ->and(DriveObject::query()->where('former_key', $key)->exists())->toBeFalse()
+        ->and(StagingFixtures::row($media->id)->disk)->toBe(DocumentStore::STAGING_DISK);
+})->with(['no_md5', 'google_500']);
 
 it('tệp đã lên kho ở lượt trước mà chưa kịp đổi đĩa: md5 khớp thì KHÔNG tải lần hai (R11)', function () {
     $media = StagingFixtures::media('%PDF-1.4 da len kho');

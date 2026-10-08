@@ -6,6 +6,7 @@ use App\Enums\PushOutcome;
 use App\Exceptions\DocumentStorageMisconfigured;
 use App\Exceptions\DocumentStorageUnavailable;
 use App\Exceptions\StoredFileMissing;
+use App\Exceptions\StoredFileTrashed;
 use App\Models\Setting;
 use App\Support\Storage\DocumentStore;
 use Carbon\CarbonImmutable;
@@ -13,6 +14,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use League\Flysystem\UnableToProvideChecksum;
 use League\Flysystem\UnableToWriteFile;
 use RuntimeException;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -191,6 +193,13 @@ class PushDocumentFileToRemote
      * Kho đã có bản của khoá này (một lượt trước tải xong mà chưa kịp đổi đĩa)? Khớp md5 và cỡ thì dùng
      * lại, không tải lần hai (R11). Lệch thì cho nó vào thùng rác ngay — kho bất biến, không ghi đè
      * được một khoá đang sống (R8) — và trả `false` để tải lại; adapter Drive đặt thế hệ kế tiếp.
+     *
+     * Dòng chỉ mục còn SỐNG mà tệp Drive của nó đã vào thùng rác hay đã mất (404) — quay lui giữ chỉ
+     * mục, rồi có người dọn Shared Drive — cũng là "lệch" (rà soát cuối vòng sửa 1, I5): adapter Drive
+     * báo `UnableToProvideChecksum` với gốc {@see StoredFileTrashed}/{@see StoredFileMissing}; `delete()`
+     * rút dòng đó (`trashed`; 404 khi cho vào thùng rác được bỏ qua) và lượt này tải thế hệ kế tiếp. Không
+     * vậy thì mọi lượt đều ném cùng lỗi, media báo "kho từ chối" mãi, và `reindex` không sửa được (nó chỉ
+     * đi qua tên có trên Drive). Mọi lỗi khác khi hỏi md5 (kho không trả lời, cấu hình sai) ném ra như cũ.
      */
     private function reusableRemoteCopy(FilesystemAdapter $remote, string $key, string $md5, int $size): bool
     {
@@ -198,8 +207,14 @@ class PushDocumentFileToRemote
             return false;
         }
 
-        if ($this->remoteMatches($remote, $key, $md5, $size)) {
-            return true;
+        try {
+            if ($this->remoteMatches($remote, $key, $md5, $size)) {
+                return true;
+            }
+        } catch (UnableToProvideChecksum $e) {
+            if (! $e->getPrevious() instanceof StoredFileTrashed && ! $e->getPrevious() instanceof StoredFileMissing) {
+                throw $e;
+            }
         }
 
         $remote->delete($key);

@@ -258,6 +258,40 @@ it('md5 trên kho lệch → bản cũ vào thùng rác, tải lại với thế
         ->and($drive->files[$live->file_id]['name'])->toBe(str_replace(['/', '.pdf'], ['~', '~g2.pdf'], $key));
 });
 
+/*
+ * Rà soát cuối vòng sửa 1 (I5) — luồng mà sổ tay hứa: quay lui (giữ chỉ mục) → có người dọn Shared Drive
+ * (cho tệp vào thùng rác, hay xoá hẳn khỏi thùng rác) → bật lại → migrate. Trước vòng sửa, dòng chỉ mục
+ * còn SỐNG của một tệp đã ở thùng rác hay đã mất làm `checksum()` ném `UnableToProvideChecksum` ở MỌI
+ * lượt: media báo "kho từ chối" mãi, không ai rút dòng đó, `reindex` cũng không (nó chỉ đi qua tên CÓ
+ * trên Drive). Sau vòng sửa: dòng cũ được rút (`trashed`), tệp được tải lại với thế hệ kế tiếp.
+ */
+it('dòng chỉ mục còn sống mà tệp trên Drive đã vào thùng rác hay đã mất → rút dòng, tải lại thế hệ 2, mã 0', function (string $how) {
+    $drive = t6EnableAndReady();
+    $drive->disk();
+    $media = $this->media[0];
+    $key = $media->getPathRelativeToRoot();
+    $content = (string) DocumentStore::staging()->get($key);
+    $old = $drive->seed($key, $content);
+
+    if ($how === 'trashed') {
+        $drive->files[$old->file_id]['trashed'] = true;
+    } else {
+        unset($drive->files[$old->file_id]);
+    }
+
+    [$exit] = t6Migrate(['--limit' => 1]);
+
+    $live = DriveObject::query()->where('object_key', $key)->sole();
+
+    expect($exit)->toBe(0)
+        ->and(Ops::disk($media->id))->toBe(DocumentStore::REMOTE_DISK)
+        ->and($old->fresh()->object_key)->toBeNull()
+        ->and($old->fresh()->retired_reason)->toBe(DriveObjectRetirement::Trashed)
+        ->and($live->generation)->toBe(2)
+        ->and($drive->files[$live->file_id]['content'])->toBe($content)
+        ->and($drive->files[$live->file_id]['trashed'])->toBeFalse();
+})->with(['trashed', 'deleted']);
+
 // ---------------------------------------------------------------------------------------------
 // Song song với lưu lượng thật
 // ---------------------------------------------------------------------------------------------
