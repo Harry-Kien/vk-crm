@@ -103,14 +103,33 @@ class HandoverPackageFailed extends RuntimeException
     }
 
     /**
-     * M14 (kế hoạch R9, R12): không tải được một tệp từ kho tài liệu về thư mục làm việc — kho tạm thời
-     * không trả lời (`DocumentStorageUnavailable`), cấu hình kho hỏng (`DocumentStorageMisconfigured`),
-     * hay bản tải về lệch cỡ/md5 của dòng `media`. Tệp vẫn ở kho; luật sư bấm sinh lại. Chi tiết kỹ
-     * thuật chỉ ở `getPrevious()` (vào log), không ở câu lưu cho luật sư.
+     * M14 (kế hoạch R9, R12): không tải được một tệp từ kho tài liệu về thư mục làm việc vì kho TẠM THỜI
+     * không trả lời (`DocumentStorageUnavailable`, kể cả bản tải về thiếu byte vì luồng đứt). Tệp vẫn ở
+     * kho; luật sư bấm sinh lại. Chi tiết kỹ thuật chỉ ở `getPrevious()` (vào log), không ở câu lưu cho
+     * luật sư.
      */
     public static function storageUnavailable(Throwable $previous): self
     {
         return new self(__('handover.storage_failures.unavailable'), 0, $previous);
+    }
+
+    /**
+     * Rà soát cuối M14 vòng sửa 1 (I7): cấu hình kho hỏng (`DocumentStorageMisconfigured`: khoá, quyền,
+     * hạn mức). Không tự hết, nên câu không hứa "sinh lại sau ít phút": báo quản trị sửa kho rồi sinh lại.
+     */
+    public static function storageMisconfigured(Throwable $previous): self
+    {
+        return new self(__('handover.storage_failures.misconfigured'), 0, $previous);
+    }
+
+    /**
+     * Rà soát cuối M14 vòng sửa 1 (I7): bản trên kho của tài liệu `$title` đã bị đổi
+     * ({@see StoredFileChanged}: đủ byte mà lệch md5, hay khác cỡ). Sinh lại lệch mãi: báo quản trị kiểm
+     * bằng `vkcrm:storage:verify`.
+     */
+    public static function storageChanged(string $title, Throwable $previous): self
+    {
+        return new self(__('handover.storage_failures.changed', ['title' => $title]), 0, $previous);
     }
 
     /** MB theo cách viết số tiếng Việt, một chữ số thập phân, bỏ ",0": `1,5`, `1`, `2.048`. */

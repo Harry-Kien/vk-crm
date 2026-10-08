@@ -5,6 +5,7 @@ namespace App\Actions\Storage;
 use App\Actions\Matter\BuildHandoverPackage;
 use App\Exceptions\DocumentStorageMisconfigured;
 use App\Exceptions\DocumentStorageUnavailable;
+use App\Exceptions\StoredFileChanged;
 use App\Exceptions\StoredFileMissing;
 use App\Support\Storage\DocumentStore;
 use Exception;
@@ -26,9 +27,11 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
  *    được STREAM về `$targetPath` (một lệnh `GET …alt=media`, từng khối 1 MiB, bộ nhớ tối đa một khối),
  *    vừa chép vừa tính md5, rồi so với dòng `media`: số byte phải bằng `media.size`, và md5 bằng
  *    `media.checksum_md5` khi cột đó có (cột do lượt đẩy ghi, R2). Lệch → xoá bản tải về, log `error`
- *    (mã media, khoá mờ — không tiêu đề, không mã tệp Drive), và ném
- *    {@see DocumentStorageUnavailable}: một lượt tải đứt giữa chừng là lỗi tạm, lần sinh lại sau đọc
- *    lại; một bản trên kho bị đổi thật sẽ lệch mãi, và `vkcrm:storage:verify` là nơi báo nó.
+ *    (mã media, khoá mờ — không tiêu đề, không mã tệp Drive), rồi ném theo số byte đọc được (rà soát
+ *    cuối vòng sửa 1, I7): THIẾU byte → {@see DocumentStorageUnavailable} (một lượt tải đứt hay đứng
+ *    giữa chừng là lỗi tạm, lần sau đọc lại); ĐỦ hay THỪA byte mà vẫn lệch → {@see StoredFileChanged}
+ *    (bản trên kho đã bị đổi, lệch mãi; `vkcrm:storage:verify` là nơi báo nó). {@see StoredFileChanged}
+ *    kế thừa {@see DocumentStorageUnavailable}, nên nơi bắt nào không phân biệt thì vẫn như cũ.
  *
  * Kho hỏng GIỮA lúc đọc thân tệp (vòng sửa 1 của Task 4): mọi ngoại lệ của `feof`/`fread` trên luồng
  * nguồn — cảnh báo của socket (TLS đứt) mà Laravel đổi thành `ErrorException`, hay ngoại lệ của một
@@ -139,7 +142,11 @@ final class MaterialiseStoredFile
                 'size' => $bytes,
             ]);
 
-            throw DocumentStorageUnavailable::temporarily(new RuntimeException(__('storage.read.checksum_mismatch', ['key' => $key])));
+            if ($bytes < (int) $media->size) {
+                throw DocumentStorageUnavailable::temporarily(new RuntimeException(__('storage.read.checksum_mismatch', ['key' => $key])));
+            }
+
+            throw StoredFileChanged::forKey($key);
         }
 
         return $targetPath;

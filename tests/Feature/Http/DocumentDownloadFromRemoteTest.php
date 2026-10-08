@@ -4,6 +4,7 @@ use App\Actions\Document\RetractDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\Role;
+use App\Exceptions\DocumentStorageMisconfigured;
 use App\Exceptions\DocumentStorageUnavailable;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -307,6 +308,30 @@ it('kho sập lúc mở luồng: nhân sự và khách đều nhận trang 503 t
         ->and(DocumentDownload::query()->withoutGlobalScope(ClientPortalScope::class)->count())->toBe(0)
         ->and(Activity::query()->where('event', 'document_downloaded')->count())->toBe(0)
         ->and(Activity::query()->where('event', 'data_exported')->count())->toBe(0);
+})->with(['client', 'staff']);
+
+/*
+ * Rà soát cuối M14 vòng sửa 1 (I7a): kho CẤU HÌNH sai (`DocumentStorageMisconfigured`: xoay khoá, hết dung
+ * lượng, mất quyền) cũng ra trang 503, nhưng lỗi đó không tự hết — câu "vui lòng thử lại sau ít phút" của
+ * kho sập là lời hứa sai. Nhân sự được bảo báo quản trị hệ thống; khách được bảo văn phòng đã biết và gọi
+ * văn phòng nếu cần gấp.
+ */
+it('kho cấu hình sai lúc mở luồng: trang 503 không hứa "thử lại sau ít phút", nhân sự được bảo báo quản trị, khách được bảo gọi văn phòng', function (string $who) {
+    $document = rfrDocument($this->matter);
+    RemoteDocuments::pushToRemote($document->getFirstMedia('file'));
+    SpyFilesystem::install(hooks: ['readStream' => fn () => throw DocumentStorageMisconfigured::credentialsMissing()]);
+    $actor = $who === 'client' ? $this->clientUser : $this->lawyer;
+
+    $response = $this->actingAs($actor, $who === 'client' ? 'client' : 'web')->get($document->downloadUrlFor($actor));
+
+    $response->assertStatus(503)
+        ->assertSee(__('storage.unavailable_page.misconfigured_'.$who))
+        ->assertDontSee(__('storage.exceptions.unavailable'))
+        ->assertDontSee('thử lại sau ít phút')
+        ->assertDontSee(__('storage.exceptions.credentials_missing'));
+
+    expect(__('storage.unavailable_page.misconfigured_staff'))->toContain('quản trị')
+        ->and(__('storage.unavailable_page.misconfigured_client'))->toContain('văn phòng');
 })->with(['client', 'staff']);
 
 it('trang 503 của khách mang số hotline văn phòng; của nhân sự thì không', function () {

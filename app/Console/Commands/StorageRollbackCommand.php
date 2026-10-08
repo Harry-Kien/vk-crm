@@ -18,6 +18,9 @@ class StorageRollbackCommand extends Command
 
     protected $description = 'Quay lui: kéo mọi tệp trên kho Google Drive về máy chủ (M14)';
 
+    /** Lý do hỏng mà chạy lại lệnh không sửa được (tệp mất hay bị đổi trên kho). */
+    private const MANUAL_REASONS = ['missing', 'changed'];
+
     public function handle(PullDocumentsToLocal $pull): int
     {
         $report = $pull->handle();
@@ -53,7 +56,24 @@ class StorageRollbackCommand extends Command
 
         $incomplete = $report['unreachable'] > 0 || $report['locked'] > 0 || $report['failed'] !== [];
 
-        $this->line($incomplete ? __('storage.commands.rollback.incomplete') : __('storage.commands.rollback.done'));
+        // Rà soát cuối vòng sửa 1 (I7): tệp không còn trên kho hay bản trên kho đã bị đổi thì chạy lại
+        // không bao giờ xong — chỉ tới verify và Phụ lục D. Những lỗi còn lại (Drive không tới được, khoá,
+        // tải về đứt) thì chạy lại được.
+        $manual = array_intersect($report['failed'], self::MANUAL_REASONS) !== [];
+        $retry = $report['unreachable'] > 0 || $report['locked'] > 0
+            || array_diff($report['failed'], self::MANUAL_REASONS) !== [];
+
+        if (! $incomplete) {
+            $this->line(__('storage.commands.rollback.done'));
+        }
+
+        if ($retry) {
+            $this->line(__('storage.commands.rollback.incomplete_retry'));
+        }
+
+        if ($manual) {
+            $this->line(__('storage.commands.rollback.incomplete_manual'));
+        }
 
         return $incomplete ? self::FAILURE : self::SUCCESS;
     }

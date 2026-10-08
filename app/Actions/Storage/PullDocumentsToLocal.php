@@ -5,6 +5,7 @@ namespace App\Actions\Storage;
 use App\Enums\PreflightLevel;
 use App\Exceptions\DocumentStorageMisconfigured;
 use App\Exceptions\DocumentStorageUnavailable;
+use App\Exceptions\StoredFileChanged;
 use App\Exceptions\StoredFileMissing;
 use App\Models\Setting;
 use App\Support\Audit;
@@ -189,6 +190,12 @@ final class PullDocumentsToLocal
             }
         } catch (StoredFileMissing) {
             $report['failed'][$mediaId] = 'missing';
+
+            return;
+        } catch (StoredFileChanged $e) {
+            // Bản trên kho đã bị đổi: chạy lại lệnh không bao giờ xong (rà soát cuối vòng sửa 1, I7).
+            $report['failed'][$mediaId] = 'changed';
+            Log::error(__('storage.commands.rollback.log.download_failed'), ['media_id' => $mediaId, 'key' => $key, 'exception' => $e::class]);
 
             return;
         } catch (DocumentStorageUnavailable|DocumentStorageMisconfigured|FilesystemException $e) {

@@ -114,11 +114,31 @@ it('bản tải về lệch md5 → không đổi đĩa, không để tệp ở 
 
     [$exit, $output] = t6Rollback();
 
+    // Rà soát cuối M14 vòng sửa 1 (I7d): bản trên kho đã bị đổi — chạy lại không bao giờ xong. Câu cuối
+    // chỉ tới verify và Phụ lục D, không bảo "chạy lại khi Drive tới được".
     expect($exit)->toBe(1)
-        ->and($output)->toContain('#'.$first->id)
+        ->and($output)->toContain('#'.$first->id.': '.__('storage.commands.reasons.changed'))
+        ->and($output)->toContain(__('storage.commands.rollback.incomplete_manual'))
+        ->and($output)->not->toContain(__('storage.commands.rollback.incomplete_retry'))
+        ->and(__('storage.commands.rollback.incomplete_manual'))->toContain('vkcrm:storage:verify')
+        ->toContain('Phụ lục D')
         ->and(Ops::disk($first->id))->toBe(DocumentStore::REMOTE_DISK)
         ->and(DocumentStore::staging()->exists($first->getPathRelativeToRoot()))->toBeFalse()
         ->and(Ops::disk($second->id))->toBe(DocumentStore::STAGING_DISK);
+});
+
+it('kho không còn tệp (bản cục bộ đã dọn) → lý do missing, câu cuối chỉ tới verify và Phụ lục D, không bảo chạy lại (rà soát cuối I7d)', function () {
+    [$first] = t6PushedPair();
+    StagedCopy::discard($first);
+    Ops::ready();
+    DocumentStore::remote()->delete($first->getPathRelativeToRoot());
+
+    [$exit, $output] = t6Rollback();
+
+    expect($exit)->toBe(1)
+        ->and($output)->toContain('#'.$first->id.': '.__('storage.commands.reasons.missing'))
+        ->and($output)->toContain(__('storage.commands.rollback.incomplete_manual'))
+        ->and($output)->not->toContain(__('storage.commands.rollback.incomplete_retry'));
 });
 
 it('bản cục bộ còn mà lệch md5 → tải bản trên kho về thay, rồi mới đổi', function () {
@@ -152,6 +172,8 @@ it('Drive không tới được → media có bản cục bộ vẫn quay lui, m
         ->and(Ops::disk($keep->id))->toBe(DocumentStore::STAGING_DISK)
         ->and(Ops::disk($gone->id))->toBe(DocumentStore::REMOTE_DISK)
         ->and($output)->toContain('drive_reachable:')
+        ->and($output)->toContain(__('storage.commands.rollback.incomplete_retry'))
+        ->and($output)->not->toContain(__('storage.commands.rollback.incomplete_manual'))
         ->and(Ops::requests('alt=media'))->toBe([]);
 });
 

@@ -91,6 +91,9 @@ return [
         'call_lead' => 'Nếu cần gấp, anh/chị gọi văn phòng:',
         'call' => 'Gọi :hotline',
         'home' => 'Về trang chủ',
+        // Rà soát cuối M14 vòng sửa 1 (I7): DocumentStorageMisconfigured — không tự hết, không "thử lại sau ít phút".
+        'misconfigured_staff' => 'Kho tài liệu Google Drive đang lỗi cấu hình nên chưa tải được tài liệu. Tài liệu không mất, nhưng lỗi này không tự hết: anh/chị báo quản trị hệ thống.',
+        'misconfigured_client' => 'Hệ thống lưu trữ tài liệu đang gặp sự cố nên chưa tải được tài liệu. Tài liệu không mất; văn phòng đã được báo để khắc phục.',
     ],
 
     // M14 Task 6: App\Exceptions\StoredFileTrashed — chỉ mục còn dòng sống mà Google báo tệp ở thùng rác.
@@ -112,7 +115,8 @@ return [
             'unavailable' => 'kho tạm thời không tới được — dừng lượt chạy',
             'misconfigured' => 'cấu hình kho hỏng (xem vkcrm:storage:check) — dừng lượt chạy',
             'missing' => 'kho không còn tệp',
-            'download_failed' => 'tải về hỏng: lệch md5 hoặc kích thước, hoặc kho đứt giữa chừng (chi tiết trong log); không đổi gì',
+            'download_failed' => 'tải về hỏng: kho đứt giữa chừng, hoặc cấu hình kho hỏng (chi tiết trong log); không đổi gì',
+            'changed' => 'bản trên kho khác bản đã lưu (lệch md5 hoặc kích thước): có thể đã bị sửa trên Google Drive; không đổi gì',
             'error' => 'lỗi không lường trước (chi tiết trong log)',
         ],
 
@@ -161,7 +165,8 @@ return [
             'unreachable' => 'Chưa kéo về được :count tệp cần tải từ kho vì Drive không dùng được:',
             'locked' => 'Đang bị job đẩy giữ khoá, chưa kéo về: :count tệp.',
             'failed' => 'Không kéo về được :count tệp (vẫn ở kho, không đổi gì):',
-            'incomplete' => 'Còn tệp ở kho. Mốc bật kho đã xoá; chạy lại lệnh này khi Drive tới được.',
+            'incomplete_retry' => 'Còn tệp ở kho chưa kéo về được vì Drive không tới được, đang bị khoá, hay tải về bị đứt. Mốc bật kho đã xoá; chạy lại lệnh này khi Drive tới được.',
+            'incomplete_manual' => 'Còn tệp ở kho mà chạy lại không giúp: kho không còn tệp, hoặc bản trên kho đã bị đổi (lý do ở từng dòng trên). Kiểm bằng php artisan vkcrm:storage:verify; tệp vào thùng rác thì Manager lấy lại từ thùng rác của Shared Drive, còn lại lấy bản ở máy văn phòng theo Phụ lục D của docs/SAO-LUU-KHOI-PHUC.md.',
             'done' => 'Xong: mọi tệp đã về máy chủ. Bản trên kho và chỉ mục còn nguyên; bật lại sau này không tải lên lần hai.',
             'rename_failed' => 'Không đặt được tệp vừa tải về vào chỗ của khoá :key.',
             'log' => [
@@ -177,7 +182,7 @@ return [
             'missing' => 'Tệp thiếu trên kho: :ids',
             'failed' => 'Không kiểm được (kho không tới được, hoặc media thiếu checksum_md5): :ids',
             'destroyed' => 'Tệp của vụ đã ghi quyết định huỷ (nhóm riêng, không tính là lỗi): :ids',
-            'problems' => 'Có tệp cần xem. Khôi phục: Manager lấy lại từ thùng rác của Drive, hoặc quay lui đúng media đó (bản ở máy chủ/văn phòng).',
+            'problems' => 'Có tệp cần xem. Tệp vào thùng rác: Manager lấy lại từ thùng rác của Shared Drive. Tệp thiếu hay bị đổi: không có lệnh khôi phục riêng từng tệp — lấy bản ở máy văn phòng theo Phụ lục D của docs/SAO-LUU-KHOI-PHUC.md và báo người cài đặt đặt lại đúng khoá trên kho.',
             'clean' => 'Sạch: mọi tệp đã kiểm đều khớp.',
         ],
 

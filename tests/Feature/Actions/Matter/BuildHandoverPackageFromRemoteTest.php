@@ -357,6 +357,19 @@ it('kho sập giữa lúc tải về: storageUnavailable tiếng Việt, thư m�
     expect(array_values(array_diff_key(hrZip($package), [BuildHandoverPackage::INDEX_ENTRY => true])))->toEqualCanonicalizing(['BAN-AN', 'DON']);
 });
 
+it('cấu hình kho hỏng lúc MỞ tệp để tải về: câu misconfigured, không câu kho sập', function () {
+    hrRemote(hrDocument($this->matter, DocumentGroup::Authority, DocumentStatus::SignedFiled, 'Bản án', 'BAN-AN'));
+    SpyFilesystem::install(hooks: ['readStream' => fn () => throw DocumentStorageMisconfigured::credentialsMissing()]);
+
+    expect(fn () => hrBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.storage_failures.misconfigured'));
+
+    expect(hrPackages())->toBe(0)->and(hrWorkRootIsEmpty())->toBeTrue();
+});
+
+it('câu kho sập của gói bàn giao chỉ nói kho tạm thời chưa truy cập được, không nhắc bản tải về lệch', function () {
+    expect(__('handover.storage_failures.unavailable'))->not->toContain('không khớp');
+});
+
 it('kho sập thật (Google trả 503 hết lượt thử) lúc tải về: storageUnavailable, không tài liệu', function () {
     $document = hrDocument($this->matter, DocumentGroup::Authority, DocumentStatus::SignedFiled, 'Bản án', 'BAN-AN');
     $drive = RemoteDocuments::bindRealDriveAdapter([$document->getFirstMedia('file')]);
@@ -474,6 +487,12 @@ it('kho nói không có tệp lúc tải về (chỉ mục còn ghi): missingFil
     expect(hrPackages())->toBe(0)->and(hrWorkRootIsEmpty())->toBeTrue();
 });
 
+/*
+ * Rà soát cuối M14 vòng sửa 1 (I7b): bản tải về ĐỦ byte mà lệch md5, hay dài hơn `media.size`, nghĩa là bản
+ * trên kho đã bị đổi — sinh lại lệch mãi. Câu cho luật sư không còn hứa "lưu an toàn… bấm sinh lại sau ít
+ * phút" mà bảo báo quản trị kiểm bằng `vkcrm:storage:verify`. (Bản tải về THIẾU byte vẫn là lỗi tạm: một
+ * luồng đứng vì `read_timeout` cũng cho ra như vậy — ca "luồng tải về đứng" ở trên.)
+ */
 it('md5 hay cỡ của bản tải về lệch dòng media: lỗi, không zip, không tài liệu', function (string $tamper) {
     $document = hrRemote(hrDocument($this->matter, DocumentGroup::Authority, DocumentStatus::SignedFiled, 'Bản án', 'BAN-AN-GOC'));
     $key = $document->getFirstMedia('file')->getPathRelativeToRoot();
@@ -488,11 +507,14 @@ it('md5 hay cỡ của bản tải về lệch dòng media: lỗi, không zip, k
 
     Log::spy();
 
-    expect(fn () => hrBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.storage_failures.unavailable'));
+    expect(fn () => hrBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.storage_failures.changed', ['title' => 'Bản án']));
 
     expect(hrPackages())->toBe(0)
         ->and(Media::query()->where('collection_name', 'file')->count())->toBe(1)
-        ->and(hrWorkRootIsEmpty())->toBeTrue();
+        ->and(hrWorkRootIsEmpty())->toBeTrue()
+        ->and(__('handover.storage_failures.changed'))->toContain('vkcrm:storage:verify')
+        ->not->toContain('sau ít phút')
+        ->not->toContain('lưu an toàn');
 
     Log::shouldHaveReceived('error')->withArgs(fn (string $message, array $context = []): bool => $message === __('storage.read.log.checksum_mismatch') && ($context['key'] ?? null) === $key)->once();
 })->with(['md5', 'size', 'cỡ, dòng không có md5']);
@@ -579,11 +601,13 @@ it('tên tải gói từ kho: tên gói là mã vụ, entry dùng đuôi của t
         ->and($package->getFirstMedia('file')->file_name)->toMatch('/^[0-9a-z]{26}\.zip$/');
 });
 
-it('cấu hình kho hỏng lộ ra ngay lúc chọn tệp (adapter dựng lười): storageUnavailable, không tài liệu', function () {
+it('cấu hình kho hỏng lộ ra ngay lúc chọn tệp (adapter dựng lười): câu "báo quản trị", không hứa sinh lại sau ít phút, không tài liệu', function () {
     hrRemote(hrDocument($this->matter, DocumentGroup::Authority, DocumentStatus::SignedFiled, 'Bản án', 'BAN-AN'));
     SpyFilesystem::install(hooks: ['fileExists' => fn () => throw DocumentStorageMisconfigured::credentialsMissing()]);
 
-    expect(fn () => hrBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.storage_failures.unavailable'));
+    expect(fn () => hrBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.storage_failures.misconfigured'));
+    expect(__('handover.storage_failures.misconfigured'))->toContain('quản trị')
+        ->not->toContain('sau ít phút');
 
     expect(hrPackages())->toBe(0)->and(hrWorkRootIsEmpty())->toBeTrue();
 });

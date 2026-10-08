@@ -6,7 +6,10 @@
     Chép khuôn `errors/404.blade.php` (không sửa nó — làn M12 cũng sửa tệp đó), cùng ba luật:
 
     1. **Không chi tiết kỹ thuật.** Không `$exception->getMessage()`, không mã tệp, không khoá: câu chữ cố
-       định từ `lang/vi/storage.php`, đúng câu R9 hứa ("Tài liệu vẫn được lưu an toàn").
+       định từ `lang/vi/storage.php`, do `bootstrap/app.php` chọn và truyền vào (`$message`). Kho sập: đúng
+       câu R9 hứa ("Tài liệu vẫn được lưu an toàn; vui lòng thử lại sau ít phút"). Cấu hình hỏng không tự
+       hết (rà soát cuối vòng sửa 1, I7): câu riêng cho nhân sự (báo quản trị) và cho khách (văn phòng đã
+       được báo, gọi văn phòng nếu cần gấp), không hứa "thử lại sau ít phút".
     2. **Một đường đi tiếp không qua một trang.** Với KHÁCH: số điện thoại văn phòng (`OfficeProfile`).
        Nhân sự (guard `web` có phiên) là người của chính văn phòng: không cần số tổng đài, chỉ cần quay
        lại sau ít phút.
@@ -40,7 +43,7 @@
     <main style="max-width:32rem;margin:0 auto;padding:1.5rem;border-radius:0.75rem;background-color:var(--gray-25, #ffffff);border:1px solid color-mix(in srgb, var(--gray-500, #6b7280) 30%, transparent);">
         <h1 style="margin:0;font-size:1.375rem;font-weight:700;">{{ __('storage.unavailable_page.heading') }}</h1>
 
-        <p style="margin-top:0.75rem;">{{ __('storage.exceptions.unavailable') }}</p>
+        <p style="margin-top:0.75rem;">{{ $message ?? __('storage.exceptions.unavailable') }}</p>
 
         @if (filled($hotline))
             <p style="margin-top:1.25rem;margin-bottom:0.25rem;color:color-mix(in srgb, var(--gray-500, #6b7280) 95%, transparent);">

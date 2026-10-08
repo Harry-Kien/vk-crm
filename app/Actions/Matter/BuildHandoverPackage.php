@@ -10,6 +10,7 @@ use App\Enums\HandoverPackageStatus;
 use App\Exceptions\DocumentStorageMisconfigured;
 use App\Exceptions\DocumentStorageUnavailable;
 use App\Exceptions\HandoverPackageFailed;
+use App\Exceptions\StoredFileChanged;
 use App\Exceptions\StoredFileMissing;
 use App\Jobs\GenerateHandoverPackage;
 use App\Jobs\SendHandoverPackageReady;
@@ -115,8 +116,10 @@ use ZipArchive;
  *  - medialibrary không lưu được zip (mọi `FileCannotBeAdded` khác, thường là
  *    `DiskCannotBeAccessed` khi đĩa từ chối ghi) → `storeFailed()`;
  *  - M14 (kế hoạch R12): máy chủ không đủ chỗ trống, khi đo được → `insufficientWorkSpace()`; kho tài
- *    liệu sập, cấu hình kho hỏng, hay bản tải về từ kho lệch cỡ/md5 → `storageUnavailable()` (tệp vẫn
- *    ở kho, luật sư bấm sinh lại). Xem {@see self::buildZip()}.
+ *    liệu sập (kể cả bản tải về thiếu byte) → `storageUnavailable()` (tệp vẫn ở kho, luật sư bấm sinh
+ *    lại); cấu hình kho hỏng → `storageMisconfigured()` và bản trên kho đã bị đổi →
+ *    `storageChanged()` (rà soát cuối vòng sửa 1, I7: sinh lại không giúp, câu bảo báo quản trị). Xem
+ *    {@see self::buildZip()}.
  *
  * # Dấu của lần yêu cầu
  *
@@ -179,9 +182,11 @@ class BuildHandoverPackage
 
             try {
                 $entries = $this->collect->handle($matter, $archive);
-            } catch (DocumentStorageUnavailable|DocumentStorageMisconfigured $exception) {
+            } catch (DocumentStorageMisconfigured $exception) {
                 // M14: `exists()` của kho đọc chỉ mục, không gọi mạng — nhưng adapter dựng lười, nên
-                // một cấu hình kho hỏng hiện ra ở đây. Cùng câu với kho sập lúc tải về (R12).
+                // một cấu hình kho hỏng hiện ra ở đây. Cùng câu với cấu hình hỏng lúc tải về.
+                throw HandoverPackageFailed::storageMisconfigured($exception);
+            } catch (DocumentStorageUnavailable $exception) {
                 throw HandoverPackageFailed::storageUnavailable($exception);
             }
 
@@ -359,7 +364,9 @@ class BuildHandoverPackage
      * (một lượt đẩy có thể vừa đổi nó sang kho; bản vùng đệm vẫn còn qua ân hạn, R2 — đọc lại thì dùng
      * đúng nơi dòng đang trỏ). Phân loại lỗi kho cho luật sư:
      *  - tệp không còn (dòng đã mất, kho 404, vùng đệm trống) → `missingFile()` nêu tiêu đề, như trước;
-     *  - kho sập, cấu hình kho hỏng, hay bản tải về lệch cỡ/md5 → `storageUnavailable()`: bấm sinh lại.
+     *  - kho sập, hay bản tải về THIẾU byte → `storageUnavailable()`: bấm sinh lại;
+     *  - cấu hình kho hỏng → `storageMisconfigured()`; bản tải về đủ byte mà lệch
+     *    ({@see StoredFileChanged}) → `storageChanged()` nêu tiêu đề: báo quản trị (I7).
      */
     private function materialise(HandoverEntry $entry, string $sourceDirectory): string
     {
@@ -376,7 +383,11 @@ class BuildHandoverPackage
             );
         } catch (StoredFileMissing) {
             throw HandoverPackageFailed::missingFile($entry->title);
-        } catch (DocumentStorageUnavailable|DocumentStorageMisconfigured $exception) {
+        } catch (StoredFileChanged $exception) {
+            throw HandoverPackageFailed::storageChanged($entry->title, $exception);
+        } catch (DocumentStorageMisconfigured $exception) {
+            throw HandoverPackageFailed::storageMisconfigured($exception);
+        } catch (DocumentStorageUnavailable $exception) {
             throw HandoverPackageFailed::storageUnavailable($exception);
         }
     }

@@ -69,7 +69,13 @@ it('--all trên đĩa giả có decorator: bắt tệp bị đổi nội dung, t
         ->and($output)->toMatch('/bị đổi[^\n]*#'.$changed->id.'/u')
         ->and($output)->toMatch('/thùng rác[^\n]*#'.$trashed->id.'/u')
         ->and($output)->toMatch('/thiếu[^\n]*#'.$missing->id.'/u')
-        ->and($output)->not->toContain('#'.$ok->id);
+        ->and($output)->not->toContain('#'.$ok->id)
+        // Rà soát cuối M14 vòng sửa 1 (I7c): không hứa "quay lui đúng media đó" — không có lệnh quay lui
+        // một media; chỉ tới Phụ lục D (bản ở văn phòng) và thùng rác của Shared Drive.
+        ->and($output)->toContain(__('storage.commands.verify.problems'))
+        ->and(__('storage.commands.verify.problems'))->not->toContain('quay lui đúng media')
+        ->toContain('Phụ lục D')
+        ->toContain('thùng rác');
 });
 
 it('cỡ trên kho khác media.size → bị đổi', function () {

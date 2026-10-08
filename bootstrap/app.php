@@ -67,9 +67,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // vào log như mọi ngoại lệ (render không thay report).
         $exceptions->render(function (DocumentStorageUnavailable|DocumentStorageMisconfigured $exception, Request $request) {
             $headers = ['Retry-After' => '120'];
+            // Rà soát cuối vòng sửa 1 (I7): cấu hình hỏng không tự hết — câu riêng, không "thử lại sau ít phút".
+            $misconfigured = $exception instanceof DocumentStorageMisconfigured;
+            $message = $misconfigured
+                ? __('storage.unavailable_page.misconfigured_'.(auth('web')->check() ? 'staff' : 'client'))
+                : __('storage.exceptions.unavailable');
 
             return $request->expectsJson()
-                ? response()->json(['message' => __('storage.exceptions.unavailable')], 503, $headers)
-                : response()->view('errors.storage-unavailable', [], 503, $headers);
+                ? response()->json(['message' => $message], 503, $headers)
+                : response()->view('errors.storage-unavailable', ['message' => $message], 503, $headers);
         });
     })->create();
