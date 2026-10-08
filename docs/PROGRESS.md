@@ -6220,11 +6220,25 @@ nhập tài khoản AI của ai). Các bước và bộ prompt vàng: `docs/audi
    đội — trong khi công bố cổng khách cần `stageLog.publish` và độ mật cần luật sư phụ trách/admin. Nếu chủ văn
    phòng muốn chặt hơn: một ability riêng (`update` và (phụ trách, admin hay `stageLog.publish`)).
 
-**Cho người merge.** `main` đã có M13 (e1fe88e) sau lần gộp `main` cuối của làn (1fbd991): xung đột dự kiến ở
-`docs/PROGRESS.md` (bảng và thứ tự "Ghi chú"), `docs/SPEC.md` (§5 bảng quyền 21 của M13; §16 là mục mới, `main`
-chưa có §16), `lang/vi/activity.php`, `app/Providers/AppServiceProvider.php` — cả hai phía chỉ thêm. Việc của M10
-cho M11 (thêm thư mục MCP vào `intakeMcpRoots()`) đã xong ở Task 14; danh sách nay ở
-`Tests\Support\McpSourceScan::roots()`.
+**Cho người merge.** Làn đã gộp `main` tới e1fe88e (M13, việc sau gộp M12 làn fu4) ở vòng sửa 1 của rà soát cuối
+(mục dưới), nên lần gộp làn vào `main` không còn xung đột nào nếu `main` chưa tiến thêm. `main` tiến thêm thì xung
+đột dự kiến chỉ ở các tệp dùng chung mà cả hai phía chỉ thêm: `docs/PROGRESS.md`, `docs/SPEC.md` (§15 đính chính của
+làn khác đứng TRƯỚC §16 của M11), `lang/vi/activity.php`, `routes/console.php`, `app/Providers/AppServiceProvider.php`.
+Ba việc `main` để lại cho "người gộp M11" đã làm trong làn, đừng làm lại:
+1. **Câu N5** (`lang/vi/performance.php`, `explain.n5`): đã trả lại "Gồm cả mốc tạo qua trợ lý AI chưa xác nhận."
+   — `TeamOverviewPageTest` ("mentions AI-created deadlines … only once deadlines record how they were created")
+   đòi chữ "trợ lý AI" đúng khi cột `deadlines.created_via` có; giữ câu này khi gộp.
+2. **Test R20** của M13: `tests/Feature/Performance/AiCreatedDeadlineCountTest.php` — mốc `created_via = mcp`, chưa
+   xác nhận, quá hạn là "lỡ" ở P1 trên trang "Hiệu suất theo kỳ", có mặt ở N5 trên trang "Theo dõi đội ngũ", và N5
+   bằng số mốc mà `CheckDeadlines::tierFor()` coi là quá hạn.
+3. **`ResetStaffTwoFactor`**: giữ CẢ bước 4 của làn (`RevokeAiConnections`, trong transaction) LẪN lượt gỡ máy nhận
+   thông báo đẩy của fu4 (`DB::afterCommit(... ForgetPushDevice::all ...)`) — test "R8 + fu4" trong
+   `tests/Feature/Mcp/AccessControlTest.php` đỏ nếu thiếu một trong hai. `McpAccess::consentRefusal()` nay hỏi
+   `User::hasAppAuthenticationSecret()` (một định nghĩa "đã có 2FA", SPEC §10.7); test quét "một định nghĩa" trong
+   cùng tệp đỏ nếu một tệp `app/` nào khác tự đọc `getAppAuthenticationSecret()`.
+Ngoài ra: dòng "Số liệu đội ngũ, hiệu suất (M13)" đã vào bảng R4 của kế hoạch M11 và SPEC §16.4;
+`PerformanceMcpBoundaryTest` nay quét qua `Tests\Support\McpSourceScan` (bảy thư mục và các tệp MCP đặt tên), không
+còn ba thư mục cũ. Việc của M10 cho M11 (thêm thư mục MCP vào `intakeMcpRoots()`) đã xong ở Task 14.
 
 **Kết quả nghiệm thu thật.** Chưa chạy. Khi chạy: điền Phần B và C của
 `docs/audits/2026-10-08-m11-golden-prompts.md`, chép tóm tắt vào đây (từng nền tảng: kết nối, đọc, ghi, thu hồi,
@@ -6258,6 +6272,26 @@ canh cũ (ef58d2e) XANH, bỏ kim dư nợ thì lượt quét xanh; presenter d�
 quét đỏ ở `list_matter_updates`, bỏ `triggered_by_stage_log_id` thì xanh. Cả bộ `--parallel --processes=2`: 7027
 passed, 33 skipped, 1 risky (`EnvExampleTest`, có từ trước), 0 failed, 3946 s. MariaDB tuần tự, hai tệp chạm tới: 9
 passed. `pint --test`: PASS.
+
+**Vòng sửa 1 của rà soát cuối (2026-10-08; I1, I2).** I1: gộp `main` e1fe88e (M13, việc sau gộp M12 làn fu4) vào
+làn; sáu xung đột đều giữ cả hai phía (`ResetStaffTwoFactor`, `ActivityLogPage`, `Deadline`, `routes/console.php`,
+`docs/SAO-LUU-KHOI-PHUC.md` bước 7 thêm cặp khoá Passport theo cách tách "khôi phục thật / khôi phục thử" của
+`main`, `docs/SPEC.md` đính chính M13 cuối §15 rồi §16). Ba việc `main` để cho người gộp M11 đã làm (kể ở "Cho
+người merge" trên): câu N5, test R20 (`AiCreatedDeadlineCountTest`), `ResetStaffTwoFactor` giữ cả hai bước cùng
+`McpAccess::consentRefusal()` hỏi `User::hasAppAuthenticationSecret()`; bảng R4 của kế hoạch và SPEC §16.4 thêm dòng
+số liệu M13; `PerformanceMcpBoundaryTest` quét qua `McpSourceScan`. I2: lời hứa ghi nhật ký ở chính sách
+(`ai_connections.policy.items.logged`), màn hình đồng ý (`mcp_consent.acts_as_you_detail`), câu giới thiệu trang
+"Kết nối AI" và bất biến §16 nay nói "mỗi lần dùng một chức năng (tool)" — đúng điều R8 ghi (`tools/call`, cùng kết
+nối, làm mới, thu hồi; không `initialize`, `tools/list`, `ping`). Phiên bản chính sách giữ `2026-10-04`: chưa ai cam
+kết trên máy thật. Kiểm chứng: RED trước khi sửa — `TeamOverviewPageTest` (câu N5) 1 đỏ trên cây vừa gộp, test R20
+1 đỏ, phép quét "một định nghĩa 2FA" đỏ ở `McpAccess.php`, hai test câu chữ đỏ. Mutation: `scopeOverdue()`, truy
+vấn P1, `tierFor()` bỏ mốc AI chưa xác nhận (mỗi lần đỏ), vế 2FA của màn hình đồng ý (4 đỏ), bỏ từng bước của
+`ResetStaffTwoFactor` (đỏ), một `use …\Performance\TeamRoster` trong `app/Http/Middleware/Mcp` (đỏ, phép quét cũ
+xanh). Cả bộ `--parallel --processes=2`: lượt đầu một worker chết vì hết 512 MB bộ nhớ (trong
+`ExpireClientAccessTest`; tệp đó chạy riêng 21 passed); chạy lại với `--passthru-php=-dmemory_limit=1536M`: 7516
+passed, 33 skipped, 1 risky (`EnvExampleTest`, có từ trước), 0 failed, 4270 s. MariaDB tuần tự
+(`tests/Feature/Performance`, `tests/Feature/Mcp`, các tệp đặt lại 2FA và gỡ máy, `MyAiConnectionsTest`): 1340
+passed. `pint --test`: PASS 1447 tệp.
 
 ## Ghi chú M12
 

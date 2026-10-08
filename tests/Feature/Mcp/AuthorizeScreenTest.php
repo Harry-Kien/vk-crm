@@ -246,6 +246,23 @@ it('R7 nền tảng chỉ suy từ host CHÍNH XÁC qua https (hoặc http loopb
     ['khong-phai-url', McpPlatform::Other],
 ]);
 
+/**
+ * Rà soát cuối M11, I2 (Task 4 m1): màn hình đồng ý chỉ hứa điều R8 làm — mỗi lần AI dùng một tool
+ * (`tools/call`) được ghi nhật ký; `initialize`, `tools/list`, `ping` thì không
+ * (`tests/Feature/Mcp/AuditTest.php`). Câu cũ "mọi lần gọi đều được ghi nhật ký" hứa nhiều hơn thế.
+ */
+it('R8 màn hình đồng ý hứa ghi nhật ký mỗi lần AI dùng một chức năng (tool), không hứa "mọi lần gọi"', function () {
+    $promise = 'Nó đọc được những vụ việc anh/chị xem được trên hệ thống (trừ vụ hạn chế, vụ chưa cho phép AI, tài liệu nhóm D, ghi chú nội bộ và số định danh), không gửi hay công bố gì cho khách, và mọi lần nó dùng một chức năng (tool) của hệ thống đều được ghi nhật ký.';
+
+    expect(__('mcp_consent.acts_as_you_detail'))->toBe($promise);
+
+    ['response' => $response] = consentScreen(consentLawyer(), McpOAuth::client());
+
+    $response->assertOk()
+        ->assertSeeText($promise)
+        ->assertDontSeeText('mọi lần gọi đều được ghi nhật ký');
+});
+
 it('R2 chế độ hiện tại: "Đọc và ghi" kèm lời nhắc khi quyền ghi qua AI đang tắt toàn văn phòng; công tắc ghi bật thì không nhắc', function () {
     $writer = consentLawyer(AiAccessMode::ReadWrite);
 

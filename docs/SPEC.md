@@ -2390,7 +2390,7 @@ phòng là luật sư và ký duyệt.
 
 Bốn bất biến: AI không bao giờ thấy nhiều hơn người đó thấy trên web; có những loại dữ liệu không
 bao giờ rời hệ thống, kể cả với người được xem trên web; không gì tới tay khách nếu không có một
-người bấm nút trong `/admin`; mọi lần gọi để lại dấu vết, và admin cắt được kết nối của một người
+người bấm nút trong `/admin`; mọi lần dùng một tool để lại dấu vết, và admin cắt được kết nối của một người
 ngay lập tức. **Công tắc `mcp.enabled` để TẮT trên production** cho tới khi chủ văn phòng xử lý danh
 sách ở §16.8.
 

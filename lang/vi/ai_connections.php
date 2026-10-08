@@ -15,7 +15,7 @@ return [
     'admin' => [
         'navigation_label' => 'Kết nối AI',
         'title' => 'Kết nối AI',
-        'intro' => 'Bật trợ lý AI cho từng nhân sự, xem và thu hồi các kết nối đang có, đọc nhật ký mọi lần trợ lý AI gọi vào hệ thống. Nhân sự dùng tài khoản AI của chính mình; trợ lý hành động với danh nghĩa và quyền của người đó.',
+        'intro' => 'Bật trợ lý AI cho từng nhân sự, xem và thu hồi các kết nối đang có, đọc nhật ký mọi lần trợ lý AI dùng một chức năng (tool) của hệ thống. Nhân sự dùng tài khoản AI của chính mình; trợ lý hành động với danh nghĩa và quyền của người đó.',
 
         'columns' => [
             'name' => 'Nhân sự',
@@ -139,7 +139,7 @@ return [
             'never_exposed' => 'Số CCCD/MST, số điện thoại đầy đủ, ghi chú nội bộ, tài liệu nhóm D, kết quả kiểm tra xung đột và nội dung tệp không bao giờ đi qua kênh này. Không tự dán chúng vào khung chat, không tải tệp hồ sơ lên ứng dụng AI.',
             'drafts_only' => 'Trợ lý AI chỉ tạo bản nháp và ghi chép nội bộ; không gì tới khách hàng nếu chưa có người duyệt trên web. Với các công cụ ghi, đặt chế độ "hỏi trước khi chạy" (Needs approval), không "luôn cho phép".',
             'verify' => 'Luôn kiểm tra lại kết quả của trợ lý AI trước khi dùng.',
-            'logged' => 'Mọi lần trợ lý AI gọi vào hệ thống đều được ghi nhật ký với tên anh/chị.',
+            'logged' => 'Mọi lần trợ lý AI dùng một chức năng (tool) của hệ thống đều được ghi nhật ký với tên anh/chị, cùng các lần kết nối, làm mới và thu hồi kết nối.',
             'incident' => 'Nghi lộ dữ liệu, mất máy, hay trợ lý AI làm điều lạ: báo quản trị ngay (văn phòng phải báo cơ quan có thẩm quyền trong 72 giờ).',
         ],
         'checkbox' => 'Tôi đã đọc và cam kết tuân thủ chính sách dùng AI phiên bản này.',

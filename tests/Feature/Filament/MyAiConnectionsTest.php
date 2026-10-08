@@ -177,6 +177,27 @@ it('máy chủ AI đang tắt: trang nói đúng lý do đó', function () {
 // Cam kết chính sách (R12 mục 1).
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Rà soát cuối M11, I2 (Task 15 m2): nhân sự cam kết ĐÚNG câu chữ này dưới một phiên bản chính sách —
+ * bản ghi "kiểm chứng được" mà Nghị định 356 đòi. Câu chỉ được hứa điều hệ thống làm: R8 ghi mỗi lần
+ * gọi một tool (`tools/call`, `ToolCallContext::isToolCall()`), cùng kết nối, làm mới và thu hồi kết
+ * nối; `tools/list`, `ping` và request không xác thực KHÔNG được ghi (`tests/Feature/Mcp/AuditTest.php`),
+ * `initialize` cũng không (không phải `tools/call`). Sửa câu sau khi đã có người cam kết thì phải tăng phiên bản và
+ * bắt mọi người cam kết lại, nên câu được ghim nguyên văn ở đây.
+ */
+it('chính sách chỉ hứa ghi nhật ký điều hệ thống thật sự ghi: mỗi lần dùng một chức năng (tool), không phải mọi lần gọi', function () {
+    $promise = 'Mọi lần trợ lý AI dùng một chức năng (tool) của hệ thống đều được ghi nhật ký với tên anh/chị, cùng các lần kết nối, làm mới và thu hồi kết nối.';
+
+    expect(__('ai_connections.policy.items.logged'))->toBe($promise)
+        // Câu giới thiệu của trang quản trị "Kết nối AI" kể khối "Nhật ký MCP" bằng cùng phạm vi.
+        ->and(__('ai_connections.admin.intro'))->toContain('đọc nhật ký mọi lần trợ lý AI dùng một chức năng (tool) của hệ thống')
+        ->and(__('ai_connections.admin.intro'))->not->toContain('gọi vào hệ thống');
+
+    myaiPage(User::factory()->withRole(Role::Lawyer)->create())
+        ->assertSee($promise)
+        ->assertDontSee('gọi vào hệ thống');
+});
+
 it('ô cam kết không đánh dấu sẵn; gửi khi chưa tích bị từ chối, không ghi gì', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
 

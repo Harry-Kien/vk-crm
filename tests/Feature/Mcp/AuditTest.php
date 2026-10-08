@@ -39,7 +39,7 @@ use Tests\Support\McpToolCalls;
 | không giá trị; outcome, thời gian, correlation id, IP.
 |
 | Đây cũng là bằng chứng cho câu của màn hình đồng ý OAuth (Task 4, `lang/vi/mcp_consent.php`,
-| `acts_as_you_detail`): "mọi lần gọi đều được ghi nhật ký". Test đầu tiên dưới đây đi qua HTTP
+| `acts_as_you_detail`): "mọi lần nó dùng một chức năng (tool) … đều được ghi nhật ký". Test đầu tiên dưới đây đi qua HTTP
 | thật với token thật và đọc dòng nhật ký mà lần gọi đó để lại (rà soát Task 4, m1).
 |
 | Tool ở đây là tool thử kế thừa `CrmTool`, đúng cách tool thật của Task 10/11/13 làm: audit gắn ở
