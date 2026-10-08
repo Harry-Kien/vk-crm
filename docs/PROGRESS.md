@@ -3034,6 +3034,7 @@ mặc định đã ghi.
   test (`trigger_stage_key`/`reference`, cột khách hàng/câu danh sách) — đã thử tách từng vế.
 - Cả bộ lần 1 (`test --parallel --processes=2`, SQLite): 6377 passed, 33 skipped, 3 failed (63,5 phút). Ba ca đỏ
   là ba test cũ ghim 404 cho nhân sự vừa bị vô hiệu (mục A1), đã đổi theo phán quyết §10.9.
+- Cả bộ lần 2 trên commit `1bb6acd`: **6380 passed, 33 skipped, 0 failed** (169735 khẳng định, 60,6 phút).
 - `test:mariadb` 23 tệp test đụng tới: 524 passed, 1 skipped (ca §10.5 sao lưu thật, cần công cụ ngoài; đã bỏ
   qua từ trước), 685 giây.
 - `pint --test`: sạch, 1178 tệp.
