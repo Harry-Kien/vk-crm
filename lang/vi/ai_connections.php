@@ -49,7 +49,7 @@ return [
 
         'switches' => [
             'heading' => 'Công tắc toàn hệ thống',
-            'description' => 'Tắt "Máy chủ AI" thì mọi trợ lý AI của mọi nhân sự bị từ chối ngay ở lần gọi kế tiếp; bật lại thì các kết nối cũ chạy tiếp. Tắt "Cho phép ghi" thì không ai ghi được gì qua AI, kể cả người ở chế độ "Đọc và ghi".',
+            'description' => 'Tắt "Máy chủ AI" thì mọi trợ lý AI của mọi nhân sự bị từ chối ngay ở lần gọi kế tiếp; tắt không thu hồi kết nối nào, nên bật lại thì kết nối cũ dùng tiếp được (có ứng dụng AI vẫn có thể đòi kết nối lại). Tắt "Cho phép ghi" thì không ai ghi được gì qua AI, kể cả người ở chế độ "Đọc và ghi".',
             'enabled' => 'Máy chủ AI (mcp.enabled)',
             'write_enabled' => 'Cho phép ghi qua AI (mcp.write_enabled)',
             'write_needs_enabled' => 'Quyền ghi chỉ có tác dụng khi máy chủ AI cũng bật.',
@@ -60,7 +60,7 @@ return [
 
         'audit' => [
             'heading' => 'Nhật ký MCP',
-            'description' => ':limit dòng gần nhất: mỗi lần trợ lý AI gọi công cụ, mỗi lần đồng ý hay từ chối kết nối, thu hồi, đổi chế độ, đổi công tắc. Không ghi câu hỏi hay nội dung trả về; văn bản tự do chỉ còn độ dài.',
+            'description' => ':limit dòng gần nhất: mỗi lần trợ lý AI gọi công cụ, mỗi lần đồng ý hay từ chối kết nối, làm mới kết nối, thu hồi, đổi chế độ, đổi công tắc. Không ghi câu hỏi hay nội dung trả về; văn bản tự do chỉ còn độ dài.',
             'filter_user' => 'Nhân sự',
             'filter_tool' => 'Công cụ',
             'filter_all' => 'Tất cả',

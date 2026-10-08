@@ -6,6 +6,7 @@ use App\Actions\Backup\GuardBackupEncryption;
 use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
+use App\Actions\Mcp\RecordMcpTokenRefresh;
 use App\Enums\Role;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Http\Controllers\Mcp\ApproveConsentController;
@@ -56,6 +57,7 @@ use Illuminate\Support\ServiceProvider;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader as PackageAddWwwAuthenticateHeader;
 use Laravel\Passport\Bridge\ClientRepository as PassportBridgeClientRepository;
 use Laravel\Passport\Contracts\AuthorizationViewResponse;
+use Laravel\Passport\Events\AccessTokenCreated;
 use Laravel\Passport\Http\Controllers\ApproveAuthorizationController as PassportApproveAuthorizationController;
 use Laravel\Passport\Http\Controllers\AuthorizationController as PassportAuthorizationController;
 use Laravel\Passport\Http\Controllers\DenyAuthorizationController as PassportDenyAuthorizationController;
@@ -225,6 +227,13 @@ class AppServiceProvider extends ServiceProvider
          * `PushBackupArchiveToRclone`.
          */
         Event::listen(BackupWasSuccessful::class, [PushBackupArchiveToRclone::class, 'handle']);
+
+        /*
+         * M11 R8 (Task 17): mỗi lần làm mới một kết nối AI ở `/oauth/token` để lại một dòng
+         * `mcp_token_refreshed`. Request hiện hành truyền TƯỜNG MINH vào Action (nó quyết theo
+         * `grant_type`); lý do và bộ lọc ở docblock của `RecordMcpTokenRefresh`.
+         */
+        Event::listen(AccessTokenCreated::class, fn (AccessTokenCreated $event) => app(RecordMcpTokenRefresh::class)->handle($event, request()));
 
         /*
          * M7 Task 2: trang tự viết `App\Filament\Admin\Pages\BulkReassign` (bàn giao hàng loạt) —

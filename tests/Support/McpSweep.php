@@ -10,14 +10,19 @@ use App\Mcp\Tools\Concerns\CrmTool;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
+use App\Models\Contract;
+use App\Models\ContractAmendment;
 use App\Models\Deadline;
 use App\Models\Document;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\OutboundMessage;
+use App\Models\Payment;
 use App\Models\StageLog;
 use App\Models\StageLogDraft;
+use App\Models\TimeEntry;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Mcp\McpIds;
@@ -151,6 +156,28 @@ final class McpSweep
 
         Audit::record('conflict_check_run', $open, ['query' => 'SWEEPX-CONFLICT-QUERY', 'matches' => ['SWEEPX-CONFLICT-MATCH']], $admin);
         $secrets['activity_log conflict_*: properties'] = ['SWEEPX-CONFLICT-QUERY', 'SWEEPX-CONFLICT-MATCH'];
+
+        // Tiền của vụ (SPEC §5, "Mang sang M11" của M9): hợp đồng đang hiệu lực, một đợt, một khoản
+        // thu, một phụ lục, một dòng giờ làm — admin thấy tiền của vụ mình trên web, MCP thì không bao
+        // giờ (cùng ranh giới với phép quét cấu trúc `MoneyMcpBoundaryTest`). Số tiền là kim ở ba dạng
+        // viết.
+        $contract = Contract::factory()->active()->create([
+            'matter_id' => $open->id, 'code' => 'SWEEPX-HD-CODE', 'total_amount' => 777_123_000, 'note' => 'SWEEPX-CONTRACT-NOTE',
+        ]);
+        $instalment = Instalment::factory()->for($contract)->create([
+            'name' => 'SWEEPX-INSTALMENT-NAME', 'amount' => 777_123_000, 'note' => 'SWEEPX-INSTALMENT-NOTE',
+        ]);
+        Payment::factory()->create([
+            'instalment_id' => $instalment->id, 'amount' => 111_789_000, 'reference' => 'SWEEPX-PAYMENT-REF',
+            'note' => 'SWEEPX-PAYMENT-NOTE', 'attributed_lawyer_id' => $admin->id,
+        ]);
+        ContractAmendment::factory()->for($contract)->create(['reason' => 'SWEEPX-AMENDMENT-REASON']);
+        TimeEntry::factory()->create(['matter_id' => $open->id, 'user_id' => $admin->id, 'description' => 'SWEEPX-TIME-ENTRY']);
+        $secrets['tiền của vụ: contracts, instalments, payments, contract_amendments, time_entries'] = [
+            'SWEEPX-HD-CODE', 'SWEEPX-CONTRACT-NOTE', 'SWEEPX-INSTALMENT-NAME', 'SWEEPX-INSTALMENT-NOTE',
+            'SWEEPX-PAYMENT-REF', 'SWEEPX-PAYMENT-NOTE', 'SWEEPX-AMENDMENT-REASON', 'SWEEPX-TIME-ENTRY',
+            '777123000', '777.123.000', '777,123,000', '111789000', '111.789.000',
+        ];
 
         $portalUser = ClientUser::factory()->activated()->create(['client_id' => $openClient->id, 'email' => 'sweepx-portal-sender@example.test']);
         $secrets['client_users.email (người gửi yêu cầu)'] = ['sweepx-portal-sender@example.test'];

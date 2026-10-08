@@ -20,7 +20,7 @@ use Spatie\Activitylog\Models\Activity;
  * # Dòng nào
  *
  * Đúng các sự kiện của {@see self::EVENTS}: mỗi lần gọi tool (`mcp_tool_called`, Task 8), đồng ý / từ
- * chối một kết nối (Task 4), thu hồi kết nối, đổi chế độ, cam kết chính sách (Task 6), đổi cấu hình
+ * chối một kết nối (Task 4), làm mới một kết nối (`mcp_token_refreshed`, Task 17), thu hồi kết nối, đổi chế độ, cam kết chính sách (Task 6), đổi cấu hình
  * toàn hệ thống ({@see UpdateAiSettings}). Không dòng nhật ký nào khác của hệ thống.
  *
  *  - Lọc theo người (`$userId`): dòng mà người đó là causer (người sở hữu token, người bấm) HOẶC chủ
@@ -47,6 +47,7 @@ final class ListMcpAuditEntries
         'mcp_tool_called',
         'mcp_connection_authorized',
         'mcp_connection_denied',
+        'mcp_token_refreshed',
         'ai_connections_revoked',
         'ai_access_changed',
         'ai_policy_acknowledged',

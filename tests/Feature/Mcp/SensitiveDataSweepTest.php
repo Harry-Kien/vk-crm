@@ -1,14 +1,18 @@
 <?php
 
+use App\Enums\MatterAiAccess;
+use App\Models\ClientRequest;
 use App\Models\ClientRequestReplyDraft;
 use App\Models\CommunicationLog;
 use App\Models\Deadline;
+use App\Models\Matter;
 use App\Models\StageLogDraft;
 use App\Support\Mcp\McpIds;
 use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\McpOAuth;
@@ -24,7 +28,8 @@ use Tests\Support\McpToolCall;
 |
 | 1. **Dữ liệu nhạy cảm** [DC:117]: một chuỗi đánh dấu ở từng chỗ R4/R3/R10 cấm (ghi chú nội bộ, CCCD,
 |    số điện thoại đủ số, ghi chú khách, các bên thứ ba, tài liệu nhóm D, tên tệp gốc, dòng nhật ký
-|    `conflict_*`, người nhận thư, và tiêu đề/ghi chú/con của vụ hạn chế, vụ `denied`, vụ đã xoá).
+|    `conflict_*`, người nhận thư, tiền của vụ (hợp đồng, đợt, khoản thu, phụ lục, giờ làm — SPEC §5, M9),
+|    và tiêu đề/ghi chú/con của vụ hạn chế, vụ `denied`, vụ đã xoá).
 |    Gọi mọi tool với mọi tham số hợp lệ trỏ vào các vụ đó, dưới admin `read_write` (luật sư phụ trách
 |    của cả bốn vụ). Không kim nào xuất hiện trong THÂN HTTP THÔ của bất kỳ phản hồi nào — thân thô gồm
 |    cả `_meta`, vì `_meta` vẫn tới host [DC:673].
@@ -65,7 +70,7 @@ it('lượt quét dữ liệu nhạy cảm: không kim nào trong thân HTTP th�
             'stage_logs.internal_note', 'matters.description_internal', 'clients.id_number', 'clients.note',
             'matter_parties.note', 'matter_parties.phone_normalized', 'matter_parties.name (bên thứ ba, pseudonym)',
             'documents.title nhóm D', 'tên tệp gốc của tài liệu', 'activity_log conflict_*: properties',
-            'outbound_messages.recipient',
+            'outbound_messages.recipient', 'tiền của vụ: contracts, instalments, payments, contract_amendments, time_entries',
             'vụ restricted: tiêu đề, mã, khách, ghi chú nội bộ, nội dung con',
             'vụ denied: tiêu đề, mã, khách, ghi chú nội bộ, nội dung con',
         );
@@ -114,9 +119,28 @@ it('máy dò rò rỉ thấy một kim ở dạng thô, dạng thoát \\u và d�
 it('mọi tool có tham số id: người read_write hợp lệ KHÔNG thấy vụ nhận "Không tìm thấy" và đúng một dòng audit not_found; cặp dương: cùng lời gọi trên vụ của chính người đó thì không', function () {
     $outsider = $this->sweep->outsider;
     $token = McpOAuth::accessToken($this, $outsider);
+    // Ba loại bản ghi ẩn của Review Focus 2 (rà soát Task 14, m1): vụ của đội khác (vụ mở của admin),
+    // vụ HẠN CHẾ của chính người gọi (họ là luật sư phụ trách — web cho họ xem), và vụ `denied` của
+    // chính người gọi — mỗi vụ một yêu cầu. Cả ba phải giống hệt id không tồn tại.
+    $ownRestricted = Matter::factory()->aiAccessAllowed()->restricted()->create(['lead_lawyer_id' => $outsider->id]);
+    $ownDenied = Matter::factory()->create(['lead_lawyer_id' => $outsider->id]);
+    $hiddenOwn = [$ownRestricted, $ownDenied];
+
+    expect($ownDenied->fresh()->ai_access)->toBe(MatterAiAccess::Denied);
+
+    foreach ($hiddenOwn as $matter) {
+        expect(Gate::forUser($outsider)->allows('view', $matter))->toBeTrue();
+    }
+
     $foreign = [
-        'matter' => [McpIds::encode(McpIds::MATTER, $this->sweep->open->id)],
-        'request' => [McpIds::encode(McpIds::REQUEST, $this->sweep->requests['open']->id)],
+        'matter' => [
+            McpIds::encode(McpIds::MATTER, $this->sweep->open->id),
+            ...array_map(fn (Matter $matter): string => McpIds::encode(McpIds::MATTER, $matter->id), $hiddenOwn),
+        ],
+        'request' => [
+            McpIds::encode(McpIds::REQUEST, $this->sweep->requests['open']->id),
+            ...array_map(fn (Matter $matter): string => McpIds::encode(McpIds::REQUEST, ClientRequest::factory()->create(['matter_id' => $matter->id])->id), $hiddenOwn),
+        ],
     ];
     $own = [
         'matter' => [McpIds::encode(McpIds::MATTER, $this->sweep->outsiderMatter->id)],

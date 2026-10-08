@@ -66,6 +66,9 @@ return [
         // `reason` (không đồng ý) — không tên client tự khai.
         'mcp_connection_authorized' => 'Đồng ý kết nối trợ lý AI',
         'mcp_connection_denied' => 'Không đồng ý kết nối trợ lý AI',
+        // M11 Task 17 (R8): App\Actions\Mcp\RecordMcpTokenRefresh — mỗi lần `/oauth/token` làm mới token
+        // của một client MCP; chủ thể và causer là nhân sự, mang client OAuth và nền tảng — không token.
+        'mcp_token_refreshed' => 'Làm mới kết nối trợ lý AI',
         // M11 Task 8 (R8): App\Actions\Mcp\RecordMcpToolCall — mỗi lần gọi tool qua MCP, kể cả bị từ
         // chối; `properties.channel = mcp`, tham số theo allowlist, id và tên trường đã trả, `outcome`.
         'mcp_tool_called' => 'Trợ lý AI gọi công cụ',

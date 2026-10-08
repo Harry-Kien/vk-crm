@@ -24,7 +24,9 @@ ChatGPT. Đọc `docs/CHINH-SACH-AI.md` trước: bạn phải cam kết với c
    trị. Với MỌI ứng dụng (Claude web, ChatGPT, Claude Code…), bước đăng nhập `/admin` và màn hình
    đồng ý mở trong trình duyệt của CHÍNH bạn, nên chịu cùng giới hạn đó: ở nhà hay ngoài văn phòng,
    trang đăng nhập báo "Không tìm thấy" (404) và kết nối không thành. Kết nối xong rồi thì dùng được
-   ở bất cứ đâu.
+   ở bất cứ đâu, cho tới lần phải kết nối lại (mã làm mới hết hạn sau 30 ngày, đổi mật khẩu, đặt lại
+   xác thực hai lớp, bị thu hồi) hay phải cam kết lại chính sách (văn phòng đổi phiên bản): cả hai đi
+   qua `/admin`, nên lại cần mạng của văn phòng.
 
 **Màn hình đồng ý.** Ở mọi ứng dụng, bước cuối là đăng nhập `/admin` của văn phòng (kèm mã xác thực
 hai lớp) rồi một trang hỏi bạn có đồng ý cho ứng dụng AI hành động với danh nghĩa và quyền của bạn

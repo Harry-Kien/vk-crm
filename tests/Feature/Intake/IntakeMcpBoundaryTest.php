@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Filesystem\Filesystem;
+use Tests\Support\McpSourceScan;
 
 /**
  * M10 Task 1, R7d — câu chuyện và danh tính của người CHƯA thành khách không bao giờ ra ngoài
@@ -16,7 +17,8 @@ use Illuminate\Filesystem\Filesystem;
  * OAuth/MCP, tệp route `routes/ai.php`, cấu hình `config/mcp.php`, hai trang "Kết nối AI" cùng view
  * của chúng, view khối nháp AI, và mọi tệp PHP khác trong `app/` có `Mcp` trong tên ({@see
  * intakeMcpFiles()}: tệp mới mang tên đó tự vào phép quét). Tiền đề không rỗng: phép quét phải thấy
- * tệp ở mọi chỗ trong danh sách.
+ * tệp ở mọi chỗ trong danh sách. M11 Task 17: danh sách và cách đọc tệp chuyển sang
+ * `Tests\Support\McpSourceScan`, dùng chung với phép quét tiền của vụ việc (`MoneyMcpBoundaryTest`).
  *
  * Quét bằng TOKEN chứ không bằng grep: tên nằm trong chú thích/docblock (như chính lời giải thích
  * này) không phải một tham chiếu; tên nằm trong tên lớp, `use` (kể cả `use` nhóm), hay chuỗi ký tự
@@ -25,77 +27,29 @@ use Illuminate\Filesystem\Filesystem;
  */
 const INTAKE_MCP_FORBIDDEN = ['IntakeRequest', 'IntakeParty', 'intake_request', 'intake_party', 'intake_requests', 'intake_parties'];
 
-/** @return list<string> Thư mục chứa mã MCP của M11 (tool, presenter, Action đọc/ghi, HTTP, view). */
+/**
+ * @return list<string> Thư mục chứa mã MCP của M11 — một danh sách chung với phép quét tiền của vụ
+ *                      việc ({@see McpSourceScan::roots()}).
+ */
 function intakeMcpRoots(): array
 {
-    return [
-        app_path('Mcp'),
-        app_path('Support/Mcp'),
-        app_path('Actions/Mcp'),
-        app_path('Http/Middleware/Mcp'),
-        app_path('Http/Controllers/Mcp'),
-        app_path('Http/Responses/Mcp'),
-        resource_path('views/mcp'),
-    ];
+    return McpSourceScan::roots();
 }
 
-/**
- * Tệp MCP nằm NGOÀI các thư mục trên: tệp đặt tên cụ thể, cộng mọi tệp PHP trong `app/` có `Mcp`
- * trong tên (enum, exception, model, policy, lệnh, thông báo…).
- *
- * @return list<string>
- */
+/** @return list<string> Tệp MCP ngoài các thư mục trên ({@see McpSourceScan::files()}). */
 function intakeMcpFiles(): array
 {
-    $files = [
-        base_path('routes/ai.php'),
-        config_path('mcp.php'),
-        app_path('Filament/Admin/Pages/AiConnections.php'),
-        app_path('Filament/Admin/Pages/MyAiConnections.php'),
-        resource_path('views/filament/admin/pages/ai-connections.blade.php'),
-        resource_path('views/filament/admin/pages/my-ai-connections.blade.php'),
-        resource_path('views/filament/admin/ai-drafts.blade.php'),
-    ];
-
-    foreach ((new Filesystem)->allFiles(app_path()) as $file) {
-        if ($file->getExtension() === 'php' && str_contains($file->getFilename(), 'Mcp')) {
-            $files[] = $file->getPathname();
-        }
-    }
-
-    return array_values(array_unique($files));
+    return McpSourceScan::files();
 }
 
 /**
- * Tệp được quét: mọi tệp `.php` (kể cả `.blade.php`) dưới các thư mục, cộng các tệp đặt tên.
- *
  * @param  list<string>  $roots
  * @param  list<string>  $files
  * @return list<string>
  */
 function intakeMcpScannedFiles(array $roots, array $files = []): array
 {
-    $scanned = [];
-
-    foreach ($roots as $root) {
-        if (! is_dir($root)) {
-            continue;
-        }
-
-        foreach ((new Filesystem)->allFiles($root) as $file) {
-            if ($file->getExtension() === 'php') {
-                $scanned[] = $file->getPathname();
-            }
-        }
-    }
-
-    foreach ($files as $file) {
-        if (is_file($file)) {
-            $scanned[] = $file;
-        }
-    }
-
-    return array_values(array_unique($scanned));
+    return McpSourceScan::scannedFiles($roots, $files);
 }
 
 /**
@@ -108,25 +62,10 @@ function intakeMcpReferences(array $roots, array $files = []): array
     $found = [];
 
     foreach (intakeMcpScannedFiles($roots, $files) as $path) {
-        $source = (string) file_get_contents($path);
-        $texts = [];
-
-        if (str_ends_with($path, '.blade.php')) {
-            $texts[] = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $source);
-        } else {
-            foreach (token_get_all($source) as $token) {
-                if (is_array($token) && ! in_array($token[0], [T_COMMENT, T_DOC_COMMENT, T_WHITESPACE], true)) {
-                    $texts[] = $token[1];
-                }
-            }
-        }
-
-        $shown = str_replace('\\', '/', str_replace(base_path().DIRECTORY_SEPARATOR, '', $path));
-
-        foreach ($texts as $text) {
+        foreach (McpSourceScan::texts($path) as [, $text]) {
             foreach (INTAKE_MCP_FORBIDDEN as $word) {
                 if (str_contains($text, $word)) {
-                    $found[] = $shown.': '.$word;
+                    $found[] = McpSourceScan::shown($path).': '.$word;
                 }
             }
         }
