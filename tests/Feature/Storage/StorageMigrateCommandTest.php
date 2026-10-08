@@ -11,8 +11,10 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManag
 use App\Models\Document;
 use App\Models\DriveObject;
 use App\Models\Matter;
+use App\Models\Setting;
 use App\Models\User;
 use App\Support\Storage\DocumentStore;
+use App\Support\Storage\TransferDossier;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -99,6 +101,28 @@ it('StorageReadiness chưa xanh → mã 2, không ghi gì', function () {
 // ---------------------------------------------------------------------------------------------
 // Chạy thử
 // ---------------------------------------------------------------------------------------------
+
+it('production, kho đang bật mà ngày hồ sơ và ý kiến luật sư đã bị xoá → mã 2, câu cổng pháp lý, không media nào đổi (rà soát cuối I6)', function () {
+    t6EnableAndReady();
+    config(['app.env' => 'production']);
+
+    [$exit, $output] = t6Migrate();
+
+    expect($exit)->toBe(2)
+        ->and($output)->toContain(__('storage.commands.migrate.dossier_missing'))
+        ->and(collect($this->media)->map(fn (Media $m) => Ops::disk($m->id))->unique()->all())->toBe([DocumentStore::STAGING_DISK]);
+});
+
+it('production có ngày hồ sơ hay ý kiến luật sư → chuyển bình thường, mã 0', function (string $field) {
+    t6EnableAndReady();
+    config(['app.env' => 'production']);
+    Setting::query()->create(['key' => TransferDossier::KEYS[$field], 'value' => '2026-08-01']);
+
+    [$exit] = t6Migrate(['--limit' => 1]);
+
+    expect($exit)->toBe(0)
+        ->and(Ops::disk($this->media[0]->id))->toBe(DocumentStore::REMOTE_DISK);
+})->with(['transfer_dossier_on', 'transfer_before_dossier_on']);
 
 it('--dry-run: không media nào đổi, đĩa kho rỗng, không dòng chỉ mục, không audit; in số tệp, byte, ước thời gian, chỗ trống, hạn mức', function () {
     $drive = Ops::ready();

@@ -101,6 +101,9 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
      "Kho tài liệu". Từ ngày 45 chưa có ngày hồ sơ thì có thư nhắc mỗi ngày; quá ngày 60 thì `data_transfer_dossier`
      ĐỎ.
    - Quên `enable` thì `document_storage_enabled` ĐỎ và có thư cảnh báo `not_enabled`: tệp mới vẫn nằm trên máy chủ.
+   - Sau khi bật, đừng xoá ngày hồ sơ lẫn ý kiến luật sư trên trang "Kho tài liệu". Production thiếu cả hai thì
+     lượt đẩy tệp mới dừng (tệp ở lại máy chủ), `vkcrm:storage:migrate` trả mã 2, và có thư cảnh báo
+     `transfer_blocked` mỗi ngày cho tới khi ghi lại một trong hai ngày đó.
 7. Ngoài giờ làm việc (từ 19:00): `php artisan vkcrm:storage:migrate --max-minutes=240`, lặp các đêm sau cho tới
    khi hết. Tải xuống vẫn chạy suốt.
    - Tuỳ chọn: `--limit=N` (dừng sau N media), `--max-minutes=M` (không bắt đầu media mới sau M phút),

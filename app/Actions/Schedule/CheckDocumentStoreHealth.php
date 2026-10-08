@@ -47,6 +47,7 @@ use Throwable;
  * | `office_copy_stale` | đã cấu hình máy văn phòng mà biên nhận gần nhất quá `office.max_age_hours` hay chưa từng có | `degraded` |
  * | `office_copy_error` | `system_health.last_office_receipt_error` khác rỗng | `degraded` |
  * | `transfer_dossier_due` | production, đồng hồ hồ sơ chạy và đã tới ngày 45 | `degraded` |
+ * | `transfer_blocked` | production, kho đang BẬT (`DocumentStore::pushesNewFiles()`) mà không còn ngày hồ sơ lẫn ý kiến luật sư — cổng R13 đóng sau lúc bật (rà soát cuối vòng sửa 1, I6); lượt đẩy và lệnh chuyển tệp cũ đã tự dừng, người vận hành phải biết | `misconfigured` |
  *
  * Trạng thái là loại nặng nhất (`misconfigured` > `unavailable` > `degraded` > `ok`). Hai điều không là
  * sự cố: chia sẻ chỉ VÀNG (`domainUsersOnly` tắt là cấu hình có chủ đích, R5) và chưa cấu hình máy văn
@@ -202,6 +203,11 @@ final class CheckDocumentStoreHealth
         }
 
         $dossier = TransferDossier::current();
+
+        if (DocumentStore::pushesNewFiles() && ! $dossier->allowsTransfer()) {
+            $this->raise($status, DocumentStoreStatus::Misconfigured, $incidents, DocumentStoreAlert::KIND_TRANSFER_BLOCKED);
+            $details[] = __('document_store.health.detail.transfer_blocked');
+        }
 
         if (! $dossier->isDueSoon()) {
             return;

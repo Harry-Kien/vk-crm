@@ -45,6 +45,9 @@ class DocumentStoreAlert extends BrandedMailable
 
     public const KIND_TRANSFER_DOSSIER_DUE = 'transfer_dossier_due';
 
+    /** Production, kho đang bật mà không còn ngày hồ sơ lẫn ý kiến luật sư (R13; rà soát cuối vòng sửa 1, I6). */
+    public const KIND_TRANSFER_BLOCKED = 'transfer_blocked';
+
     public const TEMPLATE_PREFIX = 'staff.document_store_alert.';
 
     /**

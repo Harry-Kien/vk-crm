@@ -131,6 +131,7 @@ return [
             'office_copy_error' => 'Biên nhận của máy văn phòng báo lỗi: :error',
             'transfer_dossier_due' => 'Hạn nộp hồ sơ chuyển dữ liệu cá nhân ra nước ngoài: còn :days_left ngày.',
             'transfer_dossier_overdue' => 'QUÁ HẠN nộp hồ sơ chuyển dữ liệu cá nhân ra nước ngoài :days ngày.',
+            'transfer_blocked' => 'Kho đang bật nhưng không còn ngày hồ sơ chuyển dữ liệu ra nước ngoài lẫn ý kiến luật sư cho chuyển trước: tệp mới không được đẩy lên kho, lệnh chuyển tệp cũ bị từ chối.',
         ],
         'log' => [
             'mail_failed' => 'Kiểm tra sức khoẻ kho: không xếp được thư cảnh báo.',
@@ -149,6 +150,7 @@ return [
             'office_copy_stale' => 'Kho tài liệu: máy văn phòng chưa gửi biên nhận',
             'office_copy_error' => 'Kho tài liệu: biên nhận của máy văn phòng báo lỗi',
             'transfer_dossier_due' => 'Kho tài liệu: sắp tới hạn nộp hồ sơ chuyển dữ liệu ra nước ngoài',
+            'transfer_blocked' => 'Kho tài liệu: đã dừng chuyển dữ liệu vì thiếu căn cứ pháp lý',
         ],
         'heading' => [
             'sharing_drift' => 'Chia sẻ của Shared Drive kho tài liệu lệch luật: :count điều cần sửa (thành viên, vai hoặc cài đặt chia sẻ).',
@@ -159,6 +161,7 @@ return [
             'office_copy_stale' => 'Máy văn phòng chưa gửi biên nhận bản thứ hai đúng hạn. :count tệp trên kho chưa có bản ngoài Google được xác nhận; vùng đệm trên máy chủ vẫn giữ chúng.',
             'office_copy_error' => 'Biên nhận gần nhất của máy văn phòng báo lỗi. :count tệp trên kho chưa có bản ngoài Google được xác nhận; vùng đệm trên máy chủ vẫn giữ chúng.',
             'transfer_dossier_due' => 'Hồ sơ chuyển dữ liệu cá nhân ra nước ngoài phải nộp trong 60 ngày kể từ lần chuyển đầu tiên. Số ngày còn lại: :days_left (số âm là đã quá hạn). Ghi ngày hồ sơ trên trang "Kho tài liệu" khi đã nộp.',
+            'transfer_blocked' => 'Kho tài liệu Google Drive đang bật, nhưng trang "Kho tài liệu" không còn ngày lập/nộp hồ sơ chuyển dữ liệu cá nhân ra nước ngoài lẫn ngày ý kiến luật sư cho chuyển trước. Hệ thống đã dừng đẩy tệp mới lên kho và từ chối lệnh chuyển tệp cũ; tệp mới vẫn được lưu trên máy chủ. Ghi lại một trong hai ngày đó trên trang "Kho tài liệu", hoặc quay lui kho theo sổ tay. Lỗi này không tự hết.',
         ],
         'action' => 'Chạy php artisan vkcrm:storage:check trên máy chủ để xem chi tiết, hoặc mở trang "Kho tài liệu" trong /admin.',
         'salutation' => 'Hệ thống VK-CRM — :office',

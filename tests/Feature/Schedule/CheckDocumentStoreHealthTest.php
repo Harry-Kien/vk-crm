@@ -277,6 +277,43 @@ it('đồng hồ hồ sơ chạy cả khi kho đã quay lui về local (dữ li�
     Http::assertNothingSent();
 });
 
+/*
+ * Rà soát cuối vòng sửa 1 (I6): cổng pháp lý R13 trước đây chỉ được hỏi lúc `enable`. Trang "Kho tài liệu"
+ * cho quản trị viên xoá ngày hồ sơ hay ngày ý kiến luật sư (chuỗi rỗng là xoá) khi kho đang bật, và kiểm
+ * tra sức khoẻ không thấy gì: production tiếp tục chuyển dữ liệu cá nhân ra nước ngoài mà không còn căn
+ * cứ ghi lại, không thư nào. Nay đó là sự cố `transfer_blocked` (nặng như lỗi cấu hình: không tự hết).
+ */
+it('production, kho đang bật mà không còn ngày hồ sơ lẫn ý kiến luật sư → transfer_blocked (misconfigured) + thư; ghi lại ý kiến thì hết', function () {
+    config(['app.env' => 'production']);
+    Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(3)->toIso8601String());
+
+    $result = t5Health();
+
+    expect($result['status'])->toBe(DocumentStoreStatus::Misconfigured)
+        ->and($result['incidents'])->toContain(DocumentStoreAlert::KIND_TRANSFER_BLOCKED)
+        ->and(SystemHealth::current()->fresh()->document_store_detail)->toContain(__('document_store.health.detail.transfer_blocked'))
+        ->and(t5AlertTemplates())->toBe(['staff.document_store_alert.transfer_blocked']);
+
+    Store::setting(TransferDossier::KEYS['transfer_before_dossier_on'], '2026-08-01');
+    $this->travel(1)->hours();
+    $result = t5Health();
+
+    expect($result['incidents'])->not->toContain(DocumentStoreAlert::KIND_TRANSFER_BLOCKED)
+        ->and($result['status'])->toBe(DocumentStoreStatus::Ok);
+});
+
+it('không transfer_blocked ngoài production, hay khi kho không còn bật (đã quay lui về local)', function (string $case) {
+    if ($case === 'rolled_back') {
+        config(['app.env' => 'production', 'vkcrm.storage.driver' => 'local']);
+        Setting::query()->where('key', DocumentStore::REMOTE_ENABLED_AT_KEY)->delete();
+    }
+
+    $result = t5Health();
+
+    expect($result['incidents'])->not->toContain(DocumentStoreAlert::KIND_TRANSFER_BLOCKED)
+        ->and(t5AlertTemplates())->not->toContain('staff.document_store_alert.transfer_blocked');
+})->with(['testing', 'rolled_back']);
+
 it('máy chủ thư hỏng → dòng failed, không ném lỗi ra scheduler; lượt sau thử gửi lại', function () {
     config(['mail.mailers.t5_closed' => ['transport' => 't5_closed'], 'mail.default' => 't5_closed']);
     Mail::extend('t5_closed', fn (): TransportInterface => new T5HealthClosedTransport);
@@ -375,7 +412,7 @@ it('thư có nhãn tiếng Việt và mẫu thư theo loại sự cố', functio
         ->and($rendered)->toContain('vkcrm:storage:check');
 })->with([
     'sharing_drift', 'unavailable', 'misconfigured', 'not_enabled',
-    'push_backlog', 'office_copy_stale', 'office_copy_error', 'transfer_dossier_due',
+    'push_backlog', 'office_copy_stale', 'office_copy_error', 'transfer_dossier_due', 'transfer_blocked',
 ]);
 
 it('thư unavailable gọi đúng tên trang 503 của Task 4 mà người tải tệp trên kho thấy (m6 của m14b, kiểm lại sau gộp)', function () {

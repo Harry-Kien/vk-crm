@@ -80,6 +80,8 @@ return [
         'staff.document_store_alert.office_copy_stale' => 'Báo nhân sự máy văn phòng chưa gửi biên nhận',
         'staff.document_store_alert.office_copy_error' => 'Báo nhân sự biên nhận của máy văn phòng báo lỗi',
         'staff.document_store_alert.transfer_dossier_due' => 'Báo nhân sự sắp tới hạn nộp hồ sơ chuyển dữ liệu ra nước ngoài',
+        // M14 rà soát cuối vòng sửa 1 (I6).
+        'staff.document_store_alert.transfer_blocked' => 'Báo nhân sự kho đã dừng chuyển dữ liệu vì thiếu căn cứ pháp lý',
     ],
 
     'matter_tab' => [

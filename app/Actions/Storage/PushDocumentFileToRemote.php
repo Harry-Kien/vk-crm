@@ -9,6 +9,7 @@ use App\Exceptions\StoredFileMissing;
 use App\Exceptions\StoredFileTrashed;
 use App\Models\Setting;
 use App\Support\Storage\DocumentStore;
+use App\Support\Storage\TransferDossier;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -31,7 +32,10 @@ use Throwable;
  *    (dòng `cache_locks` phải thấy được ngay với tiến trình khác).
  *    Dưới khoá, hỏi {@see DocumentStore::pushesNewFiles()}: lệnh quay lui xoá mốc bật kho TRƯỚC
  *    khi khoá từng media, nên một job đã xếp từ trước không đẩy lại media vừa được kéo về
- *    ({@see PushOutcome::Disabled}).
+ *    ({@see PushOutcome::Disabled}). Cũng {@see PushOutcome::Disabled} khi cổng pháp lý R13 đóng SAU
+ *    lúc bật (production, {@see TransferDossier::allowsTransfer()} sai: quản trị viên xoá ngày hồ sơ và
+ *    ý kiến luật sư trên trang "Kho tài liệu"; rà soát cuối vòng sửa 1, I6): tệp ở lại vùng đệm, kiểm
+ *    tra sức khoẻ báo `transfer_blocked`.
  *    Đọc lại dòng `media`: không còn → {@see PushOutcome::Gone}; đã ở kho →
  *    {@see PushOutcome::AlreadyRemote}, không chạm kho.
  * 2. **Khoá đường dẫn** phải đúng `<media_id>/<ULID viết thường>[.<đuôi a-z0-9, 1–8>]` (R4) và media
@@ -90,6 +94,10 @@ class PushDocumentFileToRemote
     private function push(int $mediaId, ?CarbonInterface $keepLocalUntil): PushOutcome
     {
         if (! DocumentStore::pushesNewFiles()) {
+            return PushOutcome::Disabled;
+        }
+
+        if (TransferDossier::appliesHere() && ! TransferDossier::current()->allowsTransfer()) {
             return PushOutcome::Disabled;
         }
 

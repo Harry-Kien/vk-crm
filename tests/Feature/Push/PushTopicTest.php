@@ -459,6 +459,7 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.document_store_alert.office_copy_stale',
         'staff.document_store_alert.push_backlog',
         'staff.document_store_alert.sharing_drift',
+        'staff.document_store_alert.transfer_blocked',
         'staff.document_store_alert.transfer_dossier_due',
         'staff.document_store_alert.unavailable',
         'staff.intake_unanswered',

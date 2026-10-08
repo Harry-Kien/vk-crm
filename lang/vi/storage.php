@@ -127,6 +127,7 @@ return [
         'migrate' => [
             'not_enabled' => 'Không chuyển: kho chưa bật. Đặt DOCUMENT_STORAGE=google_drive, chạy php artisan optimize và php artisan vkcrm:storage:enable trước. (Chạy thử --dry-run không cần bật.)',
             'not_ready' => 'Không chuyển: kiểm tra sẵn sàng của kho còn dòng ĐỎ:',
+            'dossier_missing' => 'Không chuyển: production không còn ngày lập/nộp hồ sơ chuyển dữ liệu ra nước ngoài, cũng không còn ý kiến luật sư cho chuyển trước. Ghi lại một trong hai trên trang "Kho tài liệu" (admin), rồi chạy lại.',
             'pushed' => 'Đã chuyển lên kho: :count tệp, :bytes.',
             'skipped' => 'Bỏ qua (đã ở kho, hoặc media đã bị xoá): :count.',
             'locked' => 'Đang được job khác đẩy (lượt sau sẽ thấy đã ở kho): :count.',

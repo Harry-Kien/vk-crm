@@ -17,6 +17,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Support\Storage\DocumentStore;
 use App\Support\Storage\GoogleDrive\DriveObjectName;
+use App\Support\Storage\TransferDossier;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -511,6 +512,30 @@ it('production, lượt Pushed thứ hai: mốc lần chuyển đầu tiên KHÔ
 
     expect(Setting::query()->where('key', PushDocumentFileToRemote::FIRST_TRANSFER_AT_KEY)->pluck('value')->all())->toBe([$first]);
 });
+
+/*
+ * Rà soát cuối vòng sửa 1 (I6): cổng pháp lý R13 cũng chặn từng lượt đẩy trên production, không chỉ lệnh
+ * bật — quản trị viên xoá ngày hồ sơ và ý kiến luật sư khi kho đang bật thì tệp mới ở lại máy chủ.
+ */
+it('production, cổng pháp lý đóng (không ngày hồ sơ, không ý kiến luật sư) → Disabled, không chạm kho, media ở vùng đệm', function () {
+    config(['app.env' => 'production']);
+    $media = StagingFixtures::media();
+    StagingFixtures::enableRemote();
+    $remote = StagingFixtures::hookRemote();
+
+    expect(stgPush($media->id))->toBe(PushOutcome::Disabled)
+        ->and($remote->calls)->toBe([])
+        ->and(StagingFixtures::row($media->id)->disk)->toBe(DocumentStore::STAGING_DISK);
+});
+
+it('production, cổng pháp lý mở (ngày hồ sơ hay ý kiến luật sư) → đẩy bình thường', function (string $field) {
+    config(['app.env' => 'production']);
+    Setting::query()->create(['key' => TransferDossier::KEYS[$field], 'value' => '2026-08-01']);
+    $media = StagingFixtures::media();
+    StagingFixtures::enableRemote();
+
+    expect(stgPush($media->id))->toBe(PushOutcome::Pushed);
+})->with(['transfer_dossier_on', 'transfer_before_dossier_on']);
 
 it('APP_ENV=testing: Pushed không ghi mốc lần chuyển đầu tiên', function () {
     $media = StagingFixtures::media();

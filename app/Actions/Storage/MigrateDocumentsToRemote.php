@@ -12,6 +12,7 @@ use App\Support\Files\FreeSpace;
 use App\Support\Storage\DocumentStore;
 use App\Support\Storage\GoogleDrive\DriveDiagnosticClient;
 use App\Support\Storage\GoogleDrive\DriveObjectName;
+use App\Support\Storage\TransferDossier;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -35,7 +36,9 @@ use Throwable;
  *
  * - Từ chối (`not_enabled`) khi kho chưa BẬT (`DocumentStore::pushesNewFiles()` sai: công tắc chưa là
  *   `google_drive`, hay `vkcrm:storage:enable` chưa chạy); từ chối (`not_ready`) khi
- *   {@see StorageReadiness::rows()} có dòng ĐỎ. Không ghi gì.
+ *   {@see StorageReadiness::rows()} có dòng ĐỎ; từ chối (`dossier_missing`) trên production khi cổng
+ *   pháp lý R13 đóng sau lúc bật ({@see TransferDossier::allowsTransfer()} sai — dòng hồ sơ thuộc
+ *   `stateRows()`, không thuộc `rows()`; rà soát cuối vòng sửa 1, I6). Không ghi gì.
  * - Media ở `private`, từ id nhỏ tới lớn (đọc theo trang 200 id, cursor là id cuối đã qua: một media
  *   vừa rời `private` không làm lệch trang).
  * - Trước MỖI media: đã đủ `--limit` media thì dừng (`limit`); đã quá `--max-minutes` kể từ lúc bắt đầu
@@ -109,7 +112,7 @@ final class MigrateDocumentsToRemote
 
     /**
      * @return array{
-     *     status: 'not_enabled'|'not_ready'|'done'|'limit'|'time'|'unavailable'|'disabled',
+     *     status: 'not_enabled'|'not_ready'|'dossier_missing'|'done'|'limit'|'time'|'unavailable'|'disabled',
      *     red_rows: list<array{key: string, level: PreflightLevel, message: string}>,
      *     pushed: int, bytes: int, skipped: int, locked: int, failed: array<int, string>,
      *     remaining: int, seconds: int
@@ -127,6 +130,10 @@ final class MigrateDocumentsToRemote
 
         if ($red !== []) {
             return ['status' => 'not_ready', 'red_rows' => $red] + $report;
+        }
+
+        if (TransferDossier::appliesHere() && ! TransferDossier::current()->allowsTransfer()) {
+            return ['status' => 'dossier_missing'] + $report;
         }
 
         $started = CarbonImmutable::now();

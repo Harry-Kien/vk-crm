@@ -48,6 +48,12 @@ class StorageMigrateCommand extends Command
             return 2;
         }
 
+        if ($report['status'] === 'dossier_missing') {
+            $this->error(__('storage.commands.migrate.dossier_missing'));
+
+            return 2;
+        }
+
         if ($report['status'] === 'not_ready') {
             $this->error(__('storage.commands.migrate.not_ready'));
 
