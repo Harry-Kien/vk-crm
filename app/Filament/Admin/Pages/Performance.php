@@ -7,6 +7,7 @@ use App\Enums\Permission;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Billing\Money;
+use App\Support\Performance\PerformanceCache;
 use App\Support\Performance\PerformancePeriod;
 use App\Support\Performance\PerformanceReport;
 use App\Support\Performance\PerformanceRow;
@@ -308,7 +309,7 @@ class Performance extends Page implements HasTable
             default => true,
         });
 
-        return array_values(array_map(fn (string $code): array => [
+        return [...array_values(array_map(fn (string $code): array => [
             'label' => match ($code) {
                 'not_applicable' => __('performance.not_applicable'),
                 'reference' => __('performance.period_page.reference_name'),
@@ -316,12 +317,15 @@ class Performance extends Page implements HasTable
                 default => __("performance.columns.{$code}"),
             },
             'sentence' => __("performance.explain.{$code}"),
-        ], $codes));
+        ], $codes)), ...PerformanceCache::explanations()];
     }
 
     /**
      * Báo cáo của kỳ đang hiện và công tắc đang bật — {@see BuildPerformanceReport} trên người của
-     * `TeamRoster::subjectsForPeriod()`, tính MỘT lần cho mỗi (kỳ, công tắc) trong một request.
+     * `TeamRoster::subjectsForPeriod()`, tính MỘT lần cho mỗi (kỳ, công tắc) trong một request, và giữ tạm
+     * theo người xem tối đa 5 phút qua {@see PerformanceCache} (R11, lối thoát cuối). Bộ lọc của mục: (kỳ,
+     * công tắc), id các người trên trang theo thứ tự, và cột doanh thu có hiện không — cả ba tính lại ở mỗi
+     * request, nên đổi vai trò hay mất quyền đọc tiền là đổi mục ngay, không đợi hết 5 phút.
      */
     public function report(): PerformanceReport
     {
@@ -330,8 +334,14 @@ class Performance extends Page implements HasTable
         if ($this->report === null || $this->reportKey !== $key) {
             /** @var User $viewer */
             $viewer = Auth::user();
+            $subjects = $this->subjects();
 
-            $this->report = app(BuildPerformanceReport::class)->handle($viewer, $this->subjects(), $this->period());
+            $this->report = PerformanceCache::remember(
+                'performance',
+                $viewer,
+                [$key, $subjects->modelKeys(), BuildPerformanceReport::revenueVisible($viewer, $subjects)],
+                fn (): PerformanceReport => app(BuildPerformanceReport::class)->handle($viewer, $subjects, $this->period()),
+            );
             $this->reportKey = $key;
         }
 

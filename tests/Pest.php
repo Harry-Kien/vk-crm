@@ -45,7 +45,15 @@ use Tests\TestCase;
 */
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
-    ->beforeEach(fn () => Storage::fake('private'))
+    // Một hook duy nhất: Pest giữ MỘT `beforeEach` toàn cục cho mỗi khối `extend()` (gọi lần hai là ghi đè).
+    // M13 R11: số của "Hiệu suất theo kỳ" và trang một người giữ tạm theo người xem tới 5 phút trên máy
+    // thật (`App\Support\Performance\PerformanceCache`). Trong test thì TẮT, để mọi test "đọc, đổi dữ liệu,
+    // đọc lại" (R19, các lượt quét rò rỉ, nghiệm thu) đo phép tính chứ không đo bộ nhớ tạm — bật thì lần đọc
+    // thứ hai trả lại số của lần đầu và các test đó xanh vô nghĩa. `PerformanceCacheTest` bật lại và đo nó.
+    ->beforeEach(function () {
+        Storage::fake('private');
+        config(['vkcrm.performance.cache_seconds' => 0]);
+    })
     ->in('Feature');
 
 pest()->extend(TestCase::class)

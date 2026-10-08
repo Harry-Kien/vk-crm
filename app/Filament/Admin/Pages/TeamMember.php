@@ -21,6 +21,7 @@ use App\Models\User;
 use App\Policies\UserPolicy;
 use App\Support\Audit;
 use App\Support\MatterStaleness;
+use App\Support\Performance\PerformanceCache;
 use App\Support\Performance\TeamRoster;
 use App\Support\Performance\TeamWorkloadRow;
 use BackedEnum;
@@ -383,16 +384,27 @@ class TeamMember extends Page implements HasTable
             ['label' => __('performance.team_member.mix.label'), 'sentence' => __('performance.team_member.mix.explain')],
             ['label' => __('performance.team_member.lists.label'), 'sentence' => __('performance.team_member.lists.explain', ['limit' => self::LIST_LIMIT])],
             ['label' => __('performance.trend.label'), 'sentence' => __('performance.trend.explain', ['days' => BuildPerformanceTrend::MEMBER_PAGE_DAYS])],
+            ...PerformanceCache::explanations(),
         ];
     }
 
-    /** Dòng của người này — {@see BuildTeamWorkload} với một người, có N11 (xem docblock lớp). */
+    /**
+     * Dòng của người này — {@see BuildTeamWorkload} với một người, có N11 (xem docblock lớp), giữ tạm theo
+     * (người xem, người được xem) tối đa 5 phút qua {@see PerformanceCache} (R11, lối thoát cuối). Chỉ con số
+     * được giữ: ba danh sách ngắn và bảng "Vụ việc" luôn đọc trực tiếp, và cổng người vẫn hỏi ở mọi request.
+     */
     private function workload(): TeamWorkloadRow
     {
         $subject = $this->subject();
+        $viewer = $this->viewer();
 
-        return $this->workload ??= app(BuildTeamWorkload::class)
-            ->handle($this->viewer(), collect([$subject]), withLastMatterActivity: true)[$subject->getKey()];
+        return $this->workload ??= PerformanceCache::remember(
+            'team-member',
+            $viewer,
+            [$subject->getKey()],
+            fn (): TeamWorkloadRow => app(BuildTeamWorkload::class)
+                ->handle($viewer, collect([$subject]), withLastMatterActivity: true)[$subject->getKey()],
+        );
     }
 
     /**

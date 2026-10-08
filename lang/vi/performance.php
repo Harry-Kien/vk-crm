@@ -14,6 +14,11 @@ return [
     // nó không mang tín hiệu nào về vụ `restricted`. Kế hoạch viết "bạn"; panel nội bộ xưng
     // "anh/chị" (cùng câu phạm vi của M9, `billing.receivables.scope_note`), nên câu theo panel.
     'scope_note' => 'Mọi con số tính trên các vụ việc anh/chị được xem.',
+    // R11, lối thoát cuối (rà soát cuối làn M13, I1): số của "Hiệu suất theo kỳ" và đầu trang của một người
+    // giữ tạm theo người xem (`App\Support\Performance\PerformanceCache`); in trong "Cách tính các con số"
+    // khi bộ nhớ tạm đang bật.
+    'cache_note_label' => 'Số liệu giữ tạm',
+    'cache_note' => 'Để trang mở nhanh, các con số trên trang này được giữ tạm cho riêng anh/chị tối đa :minutes phút. Việc vừa làm (hoàn thành một mốc, trả lời khách, bàn giao một vụ) có thể cần tới :minutes phút mới hiện ở đây.',
 
     'pages' => [
         'team_overview' => [

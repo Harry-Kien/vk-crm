@@ -1231,7 +1231,8 @@ protected ?string $pollingInterval = null;    // không kế thừa '5s' của C
   4. Kế toán: 404 ở ba địa chỉ. Trang Doanh thu vẫn lọc được theo luật sư.
   5. Trợ lý: dòng của mình, không cột doanh thu; "Chuyển giai đoạn", "Vụ kết thúc trong kỳ" là "Không áp dụng". Trang "Việc của tôi" của trợ lý: các cột của người phụ trách vụ là "Không áp dụng", không phải 0.
   6. Hôm nay hoàn thành mốc đã lỡ của tháng trước; trang "Hiệu suất" kỳ "tháng trước" không đổi (R19).
-- [x] **Test SPEC §11 phần "Quyền nội bộ"** và phần mới "Theo dõi đội ngũ": liệt kê theo tên rồi chạy. Độ phủ ≥ 80% cho `app/Actions/Performance/`, `app/Support/Performance/` và policy mới (SPEC §14 mục 1).
+- [ ] **Test SPEC §11 phần "Quyền nội bộ"** và phần mới "Theo dõi đội ngũ": liệt kê theo tên rồi chạy. Độ phủ ≥ 80% cho `app/Actions/Performance/`, `app/Support/Performance/` và policy mới (SPEC §14 mục 1).
+  *(2026-10-07, rà soát cuối làn, I5: phần test đã liệt kê và chạy xanh; **độ phủ CHƯA đo** — image của làn không có Xdebug hay PCOV, và làn không cài thêm gì. Ô này để trống cho tới khi CI (hoặc người gộp) đo được con số; thay thế tạm là mutation probe cho mỗi điều kiện mới, ghi ở báo cáo từng task.)*
 - [x] **Kiểm chứng:**
   - `bin/dev test` xanh (so số test với `find`);
   - `bin/dev pint --test` sạch;

@@ -5859,8 +5859,11 @@ M13") — controller cập nhật lúc gộp.
   `App\Support\Performance`) — không bao giờ; không tool" (**đính chính 2026-10-04, R13**; làn M13 không sửa kế
   hoạch của làn khác). Viết test R20 (mốc `created_via = mcp`, chưa xác nhận, quá hạn: có ở N5, "lỡ" ở P1, cùng
   số với `CheckDeadlines::tierFor()`). `PerformanceMcpBoundaryTest` bắt đầu canh `app/Mcp` từ lúc gộp.
-  `Deadline.php`, `ClientRequest.php`, `Matter.php`: giữ cả hai bên. Câu `explain.n5` nói mốc tạo qua AI chưa
-  xác nhận được tính — chỉ đúng khi M11 có trên `main`.
+  `Deadline.php`, `ClientRequest.php`, `Matter.php`: giữ cả hai bên. Câu `explain.n5` **không còn** nói mốc tạo qua
+  AI (bỏ ở vòng sửa 1 của rà soát cuối, I3, vì M11 chưa gộp): khi gộp M11, thêm lại vào cuối câu "Gồm cả mốc tạo qua
+  trợ lý AI chưa xác nhận." — `TeamOverviewPageTest` ("mentions AI-created deadlines … only once deadlines record how
+  they were created") đỏ cho tới khi câu đó trở lại, vì nó đòi chữ "trợ lý AI" có mặt đúng khi `deadlines.created_via`
+  có.
 - **M10:** đã làm khi gộp `main` (cổng `intake_request` trong `scopeOwnedByVisibleMatters()`; R17 giờ làm việc).
 - **M12, M14 và mọi làn — tệp dùng chung:** `routes/console.php` (M13 thêm một dòng `use` ở đầu và lịch
   `performance.snapshot`), `lang/vi/activity.php`, `docs/SPEC.md`, `docs/PROGRESS.md`,
@@ -5961,7 +5964,9 @@ trước 3.750 mốc. Phân rã PHP của báo cáo quý (trưởng phòng; 6.40
 chính, khoá ngoại, morph `subject` hoặc index mới; `deadlines` và `client_requests` quét bảng trên cận ngày (15 ms,
 6 ms — không đáng thêm index).
 
-**Quyết định hiệu năng (Task 8, chủ văn phòng đảo được):**
+**Quyết định hiệu năng (Task 8, chủ văn phòng đảo được)** — *thay ngày 2026-10-07 bởi "Rà soát cuối, vòng sửa 1"
+dưới: rà soát cuối (I1) chỉ ra rằng Task 8 đã từ chối lối thoát cache của R11 mà không có phán quyết của controller
+hay chủ văn phòng; vòng sửa 1 làm đúng hình dạng R11 viết sẵn. Hai gạch đầu dòng ngay dưới giữ làm lịch sử:*
 - **"Hiệu suất theo kỳ", một quý, trưởng phòng/admin: VƯỢT ngân sách 500 ms (khoảng 1,0 giây) trên dữ liệu R11 —
   nhận số đo, không cache.** Phần còn lại là phép phân loại bằng PHP mà R11 cố ý giữ ở PHP (người giữ tại ngày đến
   hạn, giờ làm việc, trung vị), tỉ lệ thuận với số mốc và yêu cầu của kỳ: khoảng 0,12 ms mỗi mốc. Dữ liệu R11 dồn
@@ -5977,7 +5982,7 @@ chính, khoá ngoại, morph `subject` hoặc index mới; `deadlines` và `clie
   phần còn lại là vẽ Filament. Hai widget xu hướng tải lười, mỗi cái một request 38 ms sau khi trang đã hiện. Lựa
   chọn (a) — lọc theo người trong SQL cho hình dạng một người — đổi R11, cần kế hoạch hoặc chủ văn phòng.
 - **Theo dõi đội ngũ, tác vụ chụp, cột P8:** trong ngân sách.
-- **Cache:** không dùng ở đâu trong M13 (R11).
+- **Cache:** *(lịch sử Task 8)* không dùng. Nay: `PerformanceCache` trên hai trang — xem "Rà soát cuối, vòng sửa 1".
 - **Độ phủ (SPEC §14 mục 1):** không đo được trên làn — image `webdevops/php:8.3-alpine` không có Xdebug hay PCOV
   (`php -m`, thư mục extension), và làn không cài gì thêm. Thay vào đó mỗi điều kiện mới có mutation probe (báo cáo
   Task 1–8 của làn). CI của `main` đo được khi gộp, nếu bật.
@@ -5988,3 +5993,115 @@ chính, khoá ngoại, morph `subject` hoặc index mới; `deadlines` và `clie
   → `migrate` trên MariaDB thật sạch (56 migration); `pint --test` sạch (1100 tệp). Mutation probe (báo cáo Task 8
   của làn): 22 probe chạy, 20 bị giết; một probe viết sai (đột biến tương đương) được làm lại và bị giết; luật dời
   cuối tuần của seeder sống sót lần đầu nên test thêm khẳng định "gửi và trả lời trong ngày làm việc", rồi bị giết.
+
+### Rà soát cuối, vòng sửa 1 (2026-10-07)
+
+Rà soát toàn nhánh (`948ce96..326ae30`): 0 Critical, 5 Important (I1–I5), làm hết ở vòng này.
+
+- **I4 — gộp `main` 7632242 (M12, làn fu4, Filament 5.8.4) vào làn** (commit gộp `9616bcf`). Ba tệp xung đột, gỡ:
+  `docs/CAI-DAT.md` Bước 5 xếp đoạn nâng cấp **M10 → M13 → M12** (`InstallGuideM13UpgradeTest` đòi M13 ngay sau M10;
+  `PushInstallGuideTest` của `main` cắt đoạn M12 tới "**Muốn dữ liệu mẫu"); gạch đầu dòng "Nâng cấp lên bản mới" gộp
+  hai câu: "bản M12 không thêm quyền nào; bản M13 thêm quyền `performance.viewAny`…", danh sách "(M9, M10, M12, M13)",
+  câu "chỉ M12 (…)" giữ nguyên; `PushInstallGuideTest` ghim danh sách bốn bản. `docs/SPEC.md` §13 và §15 giữ cả đính
+  chính M12 lẫn M13 (M12 trước). `docs/PROGRESS.md`: dòng M12 của `main`; dòng M13 giữ bản của làn (bản trên `main`
+  có đường dẫn worktree bị mất dấu gạch ngược); "Ghi chú M12" đứng trước "Ghi chú M13". `composer install` từ lock
+  mới (Filament 5.8.4, gói Web Push của M12). Sau gộp, `tests/Feature/Performance` cùng `PushInstallGuideTest`,
+  `InstallGuideM10UpgradeTest` **460 passed** — vòng đời Livewire/Filament mà các test truy cập của M13 dựa vào
+  (`boot()` trước `mount()`, `hydrateCanAuthorizeAccess` 403, widget lười nhận `subjectId`) giữ nguyên trên 5.8.4.
+- **I2 — SPEC theo mã cuối** (`SpecM13ParityTest` đọc chính SPEC, so với mã và câu trên màn hình; đỏ 4/4 trước khi
+  sửa): §7.5 "Theo dõi đội ngũ" có cột N1–N10, N11 chỉ ở trang của một người (§6.14, dòng N11 ghi rõ); §6.14 "Định
+  dạng" in thời lượng bằng giờ làm việc ("3,5 giờ", "52 giờ", không gộp "ngày", như `ResponseTime::label()`); đoạn
+  R19 kể đủ bảy việc còn đổi số kỳ đã đóng, thêm "huỷ một vụ việc", cùng câu phạm vi xem — khớp
+  `explain.closed_period`; §5 bổ sung M13 đếm "13 + 4 + 3 + 1 = **21**" như enum `Permission`. Docblock
+  `BuildTeamWorkload`, `TeamWorkloadRow` thôi nói "cột N1–N11" của trang tổng quan.
+- **I3 — `explain.n5`** bỏ câu "Gồm cả mốc tạo qua trợ lý AI chưa xác nhận" (M11 chưa gộp, `main` không có
+  `deadlines.created_via`); test và việc của người gộp M11 ở "Việc để lại cho người gộp làn khác".
+- **I1 — R11, lối thoát cuối: bộ nhớ tạm theo người xem.** Ngân sách vẫn vỡ sau index, nên làm đúng hình dạng kế
+  hoạch viết sẵn thay cho quyết định "nhận số đo, không cache" của Task 8 (không có phán quyết nào cho phép từ chối):
+  - `App\Support\Performance\PerformanceCache::remember()` — `Cache::remember`, khoá
+    `performance:<trang>:<id người xem>:<băm bộ lọc>`, TTL `vkcrm.performance.cache_seconds` = 300, cắt ở
+    `MAX_SECONDS` = 300 dù cấu hình nói gì, `0` tắt hẳn (không đọc cả mục cũ). Không biến `.env` mới.
+  - "Hiệu suất theo kỳ": giữ CẢ báo cáo; bộ lọc = (kỳ, hai cận, công tắc), id người trên trang, cột doanh thu có hiện
+    không (đổi vai trò hay mất quyền đọc tiền là đổi mục ngay). Trang của một người: giữ dòng `TeamWorkloadRow`
+    (N1–N11) theo (người xem, người được xem). KHÔNG giữ: ba danh sách ngắn, bảng "Vụ việc", mọi lần hỏi quyền
+    (`boot()`), "Theo dõi đội ngũ" (trong ngân sách, là hàng đợi hành động). Tổng "hiện … trên tổng …" của ba danh
+    sách là số đầu trang, nên trong 5 phút sau một thay đổi có thể lệch với các dòng đang hiện — cái giá có chủ đích.
+    Đổi đội ngũ của một vụ (người xem thôi thấy một vụ) cũng chờ tối đa 5 phút, và cả quản trị viên bị hạ xuống
+    trưởng phòng (cùng tập người, cùng cột doanh thu, nên cùng mục: số có vụ `restricted` của người khác còn tối đa 5
+    phút); chỉ là con số, không mã, tên hay khách của vụ nào nằm trong mục giữ tạm. Muốn bỏ ngay: `php artisan
+    cache:clear`.
+  - `config/cache.php` `serializable_classes`: từ `false` thành năm lớp — `PerformanceReport`, `PerformanceRow`,
+    `Ratio`, `TeamWorkloadRow`, `CarbonImmutable` (kho `database` giải tuần tự hoá; `false` sẽ trả
+    `__PHP_Incomplete_Class`).
+  - Khối "Cách tính các con số" của hai trang có thêm câu "Số liệu giữ tạm … tối đa 5 phút" (`performance.cache_note`)
+    khi bộ nhớ tạm bật. SPEC §7.5 có gạch đầu dòng mới về điều này.
+  - Cả bộ test TẮT bộ nhớ tạm (`tests/Pest.php`, hook toàn cục duy nhất của khối `Feature` — Pest giữ một
+    `beforeEach` cho mỗi khối, gọi lần hai là ghi đè đĩa giả), để các test "đọc, đổi, đọc lại" (R19, quét rò rỉ,
+    nghiệm thu) đo phép tính. `PerformanceCacheTest` (8 test) bật lại trên kho `database` thật: hai trưởng phòng cùng
+    vai trò, cùng tập người, cùng kỳ không dùng chung mục (vụ `restricted` của người này không hiện cho người kia, ở
+    cả hai trang); một mục cho mỗi kỳ và mỗi người được xem; thời điểm N11 (`CarbonImmutable`) đọc lại nguyên vẹn từ
+    kho; giữ 299 giây, tính lại ở 301; cấu hình 3.600 vẫn chỉ 300; đổi vai trò bỏ mục ngay; mất quyền đọc tiền bỏ tiền
+    đã giữ; câu chú thích chỉ có khi bật, tắt là đọc lại thấy ngay. RED (hai trang ở bản trước khi giữ
+    tạm, lớp `PerformanceCache` có sẵn): 3/8 đỏ — giữ 5 phút, đọc lại N11 từ kho, câu chú thích; năm test còn lại canh
+    hình dạng khoá, xanh khi chưa giữ tạm và đỏ dưới đột biến khoá. Mutation probe chạy lại ở lượt cuối của vòng sửa
+    (lượt trước bị ngắt ghi thêm bỏ kỳ, bỏ người được xem, bỏ câu ở mỗi trang, bỏ `Ratio` hoặc `CarbonImmutable` khỏi
+    `serializable_classes` — không chạy lại): bỏ id người xem khỏi khoá → "never lets two viewers share" đỏ (1 ≠ 0);
+    bỏ nhánh tắt → test câu chú thích đỏ (1 ≠ 2); bỏ trần 300 → "never keeps … longer" đỏ (3600 ≠ 300); bỏ tập người
+    khỏi bộ lọc → "drops the cached rows" đỏ; bỏ cột doanh thu khỏi bộ lọc → "drops the cached revenue" đỏ (0 không
+    phải null). Cả 5 đỏ đúng test.
+  - **Số đo sau khi giữ tạm** (MariaDB, dữ liệu R11, trung vị 5 lần; "lạnh" = kho tạm trống, tức lần mở đầu tiên của
+    người xem trong 5 phút; "ấm" = các lần sau trong TTL). Máy dùng chung với các làn khác lúc đo: mọi số chậm hơn
+    lần đo Task 8 khoảng 20–30% (`BuildPerformanceReport` quý của trưởng phòng 1.011 ms so với 771 ms, cùng mã), và
+    có nhiễu (dòng trợ lý dưới):
+
+    | Trang / phép đo | Lạnh | Ấm | Ngân sách |
+    |---|---|---|---|
+    | Hiệu suất theo kỳ, request đổi sang quý trước — admin / trưởng phòng / luật sư | 1.205 / 1.328 / 349 ms | **286 / 269 / 108 ms** | 500 ms |
+    | Hiệu suất theo kỳ, mở trang ở tháng trước — admin / trưởng phòng / luật sư | 777 / 809 / 231 ms | **253 / 283 / 91 ms** | — |
+    | Trang của một người — luật sư tự xem / TP xem luật sư / admin xem luật sư / TP xem trợ lý | 306 / 317 / 355 / 361 ms | **166 / 184 / 140** / 336 ms | 200 ms |
+    | Trang của một người + hai widget xu hướng — TP xem luật sư / luật sư tự xem | 367 / 351 ms | 225 / 244 ms | 200 ms |
+    | Theo dõi đội ngũ, trưởng phòng (không giữ tạm) | 201 ms | — | 300 ms |
+    | Tác vụ chụp / cột P8 | 54 ms / 15 ms | — | 10 giây / — |
+
+    Đọc bảng: **lần mở đầu tiên vẫn vỡ ngân sách** (quý của trưởng phòng khoảng 1,3 giây; trang một người khoảng 0,3
+    giây) — bộ nhớ tạm không làm lần đầu nhanh hơn, và lần ghi vào bảng `cache` thêm vài chục ms (một lần đo bắt được
+    câu `insert into cache` 90 ms). Các lần sau trong 5 phút (sắp xếp, bật công tắc, mở lại, quay lại từ trang một
+    người) trong ngân sách, trừ dòng "TP xem trợ lý" ấm 336 ms: phần không giữ tạm (danh sách, bảng vụ của trợ lý)
+    không đủ giải thích con số này (lạnh trừ phần giữ tạm còn khoảng 250 ms), nên coi là nhiễu của máy dùng chung;
+    chưa đo lại. Trang + hai widget ấm 225–244 ms: hai widget là request riêng (khoảng 38 ms mỗi cái), không giữ tạm
+    (ảnh chụp, đọc một dải index). **Việc của chủ văn phòng hoặc controller:** nhận lần mở lạnh vượt ngân sách (đã
+    ghi ở đây), hoặc đổi R11 (chuyển phân loại sang SQL). Giữ tạm KHÔNG thay cho quyết định đó.
+  - `EXPLAIN` từng truy vấn gộp (MariaDB, cùng lần đo; bảng chính và cách đọc; bảng nối theo khoá chính hay khoá
+    ngoại `eq_ref`/`ref` không ghi lại):
+    - "Theo dõi đội ngũ" và đầu trang một người (`BuildTeamWorkload`, 12 truy vấn): #0, #1, #3, #4 (đếm vụ theo
+      `lead_lawyer_id`) `matters` ALL 3.026 dòng, temporary + filesort; #2 (ghế đội ngũ) `matters` ALL 3.026 +
+      `matter_user` ref `matter_user_matter_id_user_id_unique`; #5 (mốc quá hạn) `deadlines` ALL 15.041; #6 (mốc 7
+      ngày) `deadlines` range `deadlines_due_date_is_completed_index` 925; #7, #8 (chờ giấy tờ của khách) `matters`
+      ALL 3.026 + `matter_checklist_items` ALL 30.030 (bán nối); #9 (giấy tờ chờ duyệt) `matters` index
+      `matters_lead_lawyer_id_index` + `matter_checklist_items` ref `…_matter_id_status_index`; #10 (yêu cầu chờ trả
+      lời) `client_requests` ALL 6.006; #11 (hoàn thiện danh mục, 22–26 ms, chậm nhất) `matters` index +
+      `matter_checklist_items` ref + `documents` ALL 19.492. N11 cho một người (35–49 ms): `activity_log` ref `causer`
+      9.998 dòng, cùng các nhánh `EXISTS` của luật sở hữu dòng (`matters` ALL 3.026 mỗi nhánh).
+    - Xu hướng 90 ngày: `performance_snapshots` range `performance_snapshots_user_id_captured_on_index` 180. P8 cả
+      trang: range `performance_snapshots_captured_on_user_id_confidentiality_unique` 62.
+    - "Hiệu suất theo kỳ", quý, trưởng phòng (15 truy vấn, SQL tổng khoảng 150 ms): #0 mốc của quý `deadlines` ALL
+      15.041 (22,8 ms); #1, #5, #9 vụ của tập `matters` ALL 3.026 (`IN` danh sách id); #2, #6, #7, #10 lịch sử người
+      giữ (`activity_log` ref `activity_log_event_created_at_index`, ref hoặc range `subject` 270–730); #3 P2
+      `deadlines` ALL 15.041; #4 yêu cầu của quý `client_requests` ALL 6.006; #8 P4 `stage_logs` ALL 44.943 (11,5
+      ms); #11 P6 `activity_log` range `activity_log_event_created_at_index` 10.778 (26,7 ms) cùng các nhánh sở hữu
+      dòng; #12 P7 `payments` ALL 8.934; #13 lĩnh vực chính `matters` ALL 3.026 (nối `matter_types` 5 dòng); #14 P8
+      range như trên.
+    - Không thêm index nào ở vòng này: mỗi truy vấn quét toàn bảng dưới 25 ms; thời gian của lần lạnh nằm ở PHP
+      (`Deadline::outcomeAt()` 286 ms trên 6.400 mốc, nạp mốc 158 ms, `RequestHolderAt` 139 ms, giờ làm việc 133 ms,
+      `DeadlineHolderAtDue` 105 ms).
+- **I5 — mục kế hoạch đánh dấu mà chưa đạt.** Ô "Độ phủ ≥ 80%" của Task 8 bỏ đánh dấu, kèm chú thích (độ phủ chưa
+  đo: làn không có Xdebug hay PCOV; CI hoặc người gộp đo). `EXPLAIN` từng truy vấn gộp: ở trên. MariaDB: rà soát cuối
+  đã chạy tuần tự ba tệp còn thiếu của Task 8 — `IntakeAcceptanceWalkTest`, `DatabaseSeederEnvironmentTest`,
+  `MatterTypeSeederTest` — **25 passed**.
+- **Kiểm chứng của vòng (mã cuối, sau gộp `main` trên Filament 5.8.4):** full suite SQLite `--parallel --processes=2`
+  **6273 passed / 0 failed / 1 risky (có sẵn) / 33 skipped** (3043 s). `test:mariadb` tuần tự `tests/Feature/Performance`
+  (31 tệp, gồm `PerformanceCacheTest`, `SpecM13ParityTest`) cùng `PushInstallGuideTest`, `InstallGuideM10UpgradeTest`:
+  **473 passed** (869 s). `pint --test` PASS (1173 tệp). Một lượt full suite trước đó chạy CHỒNG lên lượt này (lỗi vận
+  hành: `timeout` ngắt client, container vẫn chạy) và đỏ một test, `DemoDataSeederTest` "lets a seeded document actually
+  download" (404) — nhiều khả năng vì hai tiến trình cùng worktree, cùng mã tiến trình song song, dùng chung thư mục đĩa giả `private` và `Storage::fake()` của bên này xoá
+  tệp của bên kia. Chạy riêng tệp đó: 21 passed; lượt full suite đứng một mình ở trên xanh.

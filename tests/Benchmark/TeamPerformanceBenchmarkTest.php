@@ -25,6 +25,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -288,6 +289,22 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
 
         return $times[2];
     };
+    // Rà soát cuối làn, I1 — bộ nhớ tạm R11 (`PerformanceCache`) trên ĐÚNG kho của production (`database`,
+    // TTL 300 giây). "Lạnh" xoá kho trước MỖI lần (ngoài phép đo): lần mở đầu tiên của một người xem trong
+    // 5 phút. "Ấm" là các lần sau, trong TTL. Hai con số in cạnh nhau (Ghi chú M13).
+    config(['cache.default' => 'database', 'vkcrm.performance.cache_seconds' => 300]);
+    $medianCold = function (callable $run): float {
+        $times = [];
+        foreach (range(1, 5) as $_) {
+            Cache::flush();
+            $start = hrtime(true);
+            $run();
+            $times[] = (hrtime(true) - $start) / 1e6;
+        }
+        sort($times);
+
+        return $times[2];
+    };
 
     $report = sprintf("\nBuildTeamWorkload trên %s: %d vụ, %d nhân sự theo dõi, %d mốc, %d dòng tiến độ, %d yêu cầu, %d trả lời, %d đầu mục, %d tài liệu, %d dòng nhật ký, %d khoản thu (trung vị 5 lần, ms)\n",
         DB::connection()->getDriverName(), Matter::query()->count(), TeamRoster::members()->count(), DB::table('deadlines')->count(),
@@ -368,11 +385,14 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
         Livewire::test(TeamMember::class, ['user' => $subject->getKey()]); // làm nóng
 
         $ms = $median(fn () => Livewire::test(TeamMember::class, ['user' => $subject->getKey()]));
-        $report .= sprintf("  Trang của một người (Livewire, %s): %.1f ms — ngân sách 200 ms\n", $label, $ms);
-        expect($ms)->toBeLessThan(3000.0);
+        $coldMs = $medianCold(fn () => Livewire::test(TeamMember::class, ['user' => $subject->getKey()]));
+        $report .= sprintf("  Trang của một người (Livewire, %s): lạnh %.1f ms, ấm %.1f ms — ngân sách 200 ms\n", $label, $coldMs, $ms);
+        expect($coldMs)->toBeLessThan(3000.0);
 
+        // Truy vấn của lần mở LẠNH (kho tạm trống): đúng các truy vấn gộp mà EXPLAIN bên dưới cần.
         $runs = [];
         foreach (range(1, 5) as $_) {
+            Cache::flush();
             DB::flushQueryLog();
             DB::enableQueryLog();
             Livewire::test(TeamMember::class, ['user' => $subject->getKey()]);
@@ -404,14 +424,16 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
         }
 
         $widgetMs = array_map(fn (string $widget): float => $median(fn () => Livewire::test($widget, ['subjectId' => $subject->getKey()])), $trendWidgets);
-        $whole = $median(function () use ($subject, $trendWidgets): void {
+        $wholeRun = function () use ($subject, $trendWidgets): void {
             Livewire::test(TeamMember::class, ['user' => $subject->getKey()]);
             foreach ($trendWidgets as $widget) {
                 Livewire::test($widget, ['subjectId' => $subject->getKey()]);
             }
-        });
-        $report .= sprintf("  Trang của một người CÓ biểu đồ (%s): trang + hai widget %.1f ms — ngân sách 200 ms; StaleTrendWidget %.1f ms, OverdueTrendWidget %.1f ms\n", $label, $whole, $widgetMs[0], $widgetMs[1]);
-        expect($whole)->toBeLessThan(3000.0);
+        };
+        $whole = $median($wholeRun);
+        $wholeCold = $medianCold($wholeRun);
+        $report .= sprintf("  Trang của một người CÓ biểu đồ (%s): trang + hai widget lạnh %.1f ms, ấm %.1f ms — ngân sách 200 ms; StaleTrendWidget %.1f ms, OverdueTrendWidget %.1f ms\n", $label, $wholeCold, $whole, $widgetMs[0], $widgetMs[1]);
+        expect($wholeCold)->toBeLessThan(3000.0);
 
         DB::flushQueryLog();
         DB::enableQueryLog();
@@ -460,23 +482,34 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
         DB::disableQueryLog();
 
         $this->actingAs($viewer, 'web');
-        $times = [];
-        foreach (range(1, 5) as $_) {
-            // Mở trang và chọn "Quý trước" ở ô kỳ (mỗi việc một request, ngoài phép đo); đo request "Xem số liệu".
-            $page = Livewire::test(Performance::class)->fillForm(['period' => 'last_quarter']);
-            $start = hrtime(true);
-            $page->call('applyPeriod');
-            $times[] = (hrtime(true) - $start) / 1e6;
-        }
-        sort($times);
-        expect($page->instance()->period()->key)->toBe('last_quarter');
+        $quarterRequest = function (bool $cold): array {
+            $times = [];
+            foreach (range(1, 5) as $_) {
+                // Mở trang và chọn "Quý trước" ở ô kỳ (mỗi việc một request, ngoài phép đo); đo request "Xem số liệu".
+                // Lạnh: kho tạm xoá ngay trước request đo; ấm: báo cáo quý đã có trong kho từ lần trước.
+                $page = Livewire::test(Performance::class)->fillForm(['period' => 'last_quarter']);
+                if ($cold) {
+                    Cache::flush();
+                }
+                $start = hrtime(true);
+                $page->call('applyPeriod');
+                $times[] = (hrtime(true) - $start) / 1e6;
+            }
+            sort($times);
+            expect($page->instance()->period()->key)->toBe('last_quarter');
+
+            return $times;
+        };
+        $times = $quarterRequest(true);
+        $warmTimes = $quarterRequest(false);
 
         // Lần mở trang ở kỳ MẶC ĐỊNH (tháng trước): mount + ghi nhật ký + báo cáo một tháng + vẽ bảng.
         Livewire::test(Performance::class); // làm nóng
         $monthMs = $median(fn () => Livewire::test(Performance::class));
+        $monthCold = $medianCold(fn () => Livewire::test(Performance::class));
 
-        $report .= sprintf("  \"Hiệu suất theo kỳ\", quý trước (%s, %d người): BuildPerformanceReport %.1f ms, %d truy vấn; request đổi kỳ (Livewire) %.1f ms — ngân sách 500 ms; mở trang ở kỳ mặc định (tháng trước) %.1f ms\n",
-            $label, $subjects->count(), $reportMs, count($reportQueries[$label]), $times[2], $monthMs);
+        $report .= sprintf("  \"Hiệu suất theo kỳ\", quý trước (%s, %d người): BuildPerformanceReport %.1f ms, %d truy vấn; request đổi kỳ (Livewire) lạnh %.1f ms, ấm %.1f ms — ngân sách 500 ms; mở trang ở kỳ mặc định (tháng trước) lạnh %.1f ms, ấm %.1f ms\n",
+            $label, $subjects->count(), $reportMs, count($reportQueries[$label]), $times[2], $warmTimes[2], $monthCold, $monthMs);
         expect($times[2])->toBeLessThan(60000.0);
     }
     $lastMonthBounds = PerformancePeriod::fromFilters(['period' => 'last_month'])->bounds();

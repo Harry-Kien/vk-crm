@@ -1720,6 +1720,12 @@ trộn số "bây giờ" với số "trong kỳ" trên một bảng làm ngườ
   như trang của trưởng phòng. Số liệu hiệu suất gắn với một người là dữ liệu cá nhân (Luật
   91/2025/QH15); việc thông báo chính thức cho nhân sự (nội quy, hợp đồng lao động) là việc của
   luật sư văn phòng.
+- **Số giữ tạm tối đa 5 phút (R11, đính chính 2026-10-07, rà soát cuối làn M13).** Ngân sách thời gian
+  của "Hiệu suất theo kỳ" và trang của một người vẫn vỡ sau khi thêm index, nên hai trang này giữ tạm
+  CON SỐ (báo cáo của kỳ; dòng N1–N11 ở đầu trang của một người) cho riêng từng người xem, tối đa 5 phút
+  (`PerformanceCache`; khoá gồm id người xem, kỳ, công tắc, tập người trên trang và việc cột doanh thu có
+  hiện không). Danh sách việc, bảng "Vụ việc" và mọi lần hỏi quyền luôn đọc trực tiếp. "Theo dõi đội
+  ngũ" không giữ tạm. Khối "Cách tính các con số" của hai trang nói số có thể chậm tới 5 phút.
 
 ---
 
