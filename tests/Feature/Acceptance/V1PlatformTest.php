@@ -95,13 +95,13 @@ it('§14.2 drains every queue from the schedule itself, each run stopping once t
             ->and($worker->expression)->toBe('* * * * *');
     }
 
-    // Hàng mặc định (thư) và hàng `push` (M12) đều có người rút; không hàng nào bị bỏ cho một worker
-    // thường trực mà máy chủ không có.
+    // Hàng mặc định (thư), hàng `push` (M12) và hàng `handover` (gói bàn giao, M7) đều có người rút;
+    // không hàng nào bị bỏ cho một worker thường trực mà máy chủ không có.
     $queues = $workers->map(fn (Event $event): string => preg_match('/--queue=(\S+)/', (string) $event->command, $m) ? trim($m[1], "'\"") : 'default')
         ->flatMap(fn (string $list): array => explode(',', $list))
         ->unique()->values()->all();
 
-    expect($queues)->toContain('default')->toContain('push');
+    expect($queues)->toContain('default')->toContain('push')->toContain('handover');
 });
 
 it('§14.2 asks the installer for exactly one crontab line, and it runs schedule:run', function () {

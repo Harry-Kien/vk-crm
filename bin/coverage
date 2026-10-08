@@ -27,6 +27,9 @@ docker run --rm -i \
     # Tải tarball tường minh: "pecl install pcov" qua kênh REST đôi khi trả "No releases available"
     # (đo ngày 2026-10-08) dù pecl.php.net vẫn lên; tệp tải về thì cài được.
     wget -qO /tmp/pcov.tgz https://pecl.php.net/get/pcov-1.0.12.tgz
+    # Băm sha256 của đúng tarball đã đo ngày 2026-10-08: khác thì dừng, không cài một tệp lạ.
+    echo "23255c8c9335a9636ccb743f5302436a97a582a0bbde9869485be911bbc15da8  /tmp/pcov.tgz" | sha256sum -c - >/dev/null \
+      || { echo "pcov-1.0.12.tgz sai băm sha256 — dừng"; exit 1; }
     pecl install /tmp/pcov.tgz >/tmp/pecl.log 2>&1 || { tail -20 /tmp/pecl.log; exit 1; }
     # Bật bằng tay thay cho docker-php-ext-enable: lệnh đó tự "apk add binutils" và có lúc treo trên
     # chỉ mục apk (đo ngày 2026-10-08). memory_limit 3G: mỗi tiến trình con của paratest giữ dữ liệu phủ

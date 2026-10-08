@@ -141,6 +141,7 @@ class RunPreflight
         return [
             $this->trustedProxiesRow(),
             $this->heartbeatUrlRow(),
+            ...$this->mailSchemeRows(),
             $this->sessionSecureCookieRow(),
             $this->appDebugRow(),
             $this->demoAccountsRow(),
@@ -194,6 +195,38 @@ class RunPreflight
         return filled(config('vkcrm.heartbeat_url'))
             ? $this->row('heartbeat_url', PreflightLevel::Green, __('preflight.heartbeat_url_ok'))
             : $this->row('heartbeat_url', PreflightLevel::Red, __('preflight.heartbeat_url_missing'));
+    }
+
+    /** Những `MAIL_SCHEME` mà transport SMTP của Laravel (Symfony Mailer) nhận; trống = để Laravel tự chọn. */
+    private const SUPPORTED_MAIL_SCHEMES = ['smtp', 'smtps'];
+
+    /**
+     * Lượt đọc lạnh hướng dẫn cài của bản 1.0 (§14 mục 8): bảng điều khiển email ghi "TLS/SSL" và
+     * hướng dẫn cũ viết `MAIL_ENCRYPTION=tls`, nên người cài dễ ghi `MAIL_SCHEME=tls`. Transport SMTP
+     * của Symfony Mailer chỉ nhận đúng `smtp`/`smtps`; mọi giá trị khác làm MỌI thư hỏng ngay lúc dựng
+     * kết nối (`UnsupportedSchemeException`) — ĐỎ, nêu giá trị. Trống (`null`, chuỗi rỗng): Laravel tự
+     * chọn theo cổng — XANH. Chỉ khi mailer mặc định dùng transport `smtp`: mailer khác không đọc biến
+     * này, nên không dòng nào. Đọc qua `config()`, nên vẫn kiểm được sau `config:cache`.
+     *
+     * @return list<array{key: string, level: PreflightLevel, message: string}>
+     */
+    private function mailSchemeRows(): array
+    {
+        $mailer = (string) config('mail.default');
+
+        if (config("mail.mailers.{$mailer}.transport") !== 'smtp') {
+            return [];
+        }
+
+        $scheme = config("mail.mailers.{$mailer}.scheme");
+
+        if (blank($scheme) || in_array($scheme, self::SUPPORTED_MAIL_SCHEMES, true)) {
+            return [$this->row('mail_scheme', PreflightLevel::Green, __('preflight.mail_scheme_ok'))];
+        }
+
+        return [$this->row('mail_scheme', PreflightLevel::Red, __('preflight.mail_scheme_unsupported', [
+            'value' => (string) $scheme,
+        ]))];
     }
 
     /**

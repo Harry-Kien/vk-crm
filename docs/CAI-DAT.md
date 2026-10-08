@@ -1,8 +1,10 @@
 # Cài lại VK-CRM trên một máy trống
 
-Đã kiểm chứng thật ngày **2026-09-23**: tải một bản sạch từ GitHub về ổ D, cài phụ thuộc,
-dựng cơ sở dữ liệu từ số không, và cả hai màn hình đều lên với đủ dữ liệu mẫu (21 vụ việc,
-12 khách hàng, 8 nhân sự). Các bước dưới đây là đúng những bước đã chạy, không phải mô tả.
+Đã kiểm chứng thật ngày **2026-09-23**, và đi lại theo đúng chữ ngày **2026-10-08** (Git Bash trên
+Windows, bản clone mới, cổng riêng theo mục "Chạy nhiều bản cùng lúc"): cài phụ thuộc, dựng cơ sở dữ
+liệu từ số không, và cả hai màn hình đều lên với đủ dữ liệu mẫu — 27 vụ việc, 12 khách hàng, 9 nhân
+sự (8 đăng nhập được, cộng một luật sư "đã nghỉ việc" của dữ liệu mẫu M13), 16 tài khoản cổng khách.
+Các bước dưới đây là đúng những bước đã chạy, không phải mô tả.
 
 ## Cần có sẵn trên máy
 
@@ -17,15 +19,25 @@ cd vk-crm
 cp .env.example .env
 ```
 
-Rồi mở `.env` và điền (xem phần dưới về `APP_KEY` — **đọc trước khi sinh khoá mới**).
+Máy đang chạy một bản khác (cổng 80, 3306, 1025, 8025 đã bị chiếm) thì đổi cổng trong `.env` trước —
+mục "Chạy nhiều bản cùng lúc" bên dưới. Rồi cài phụ thuộc, dựng môi trường, sinh khoá, gieo dữ liệu
+mẫu (máy mới với dữ liệu mẫu thì sinh khoá mới thoải mái; dựng lại cho dữ liệu THẬT thì đọc mục
+`APP_KEY` bên dưới trước):
 
 ```bash
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD:/var/www/html" -w /var/www/html webdevops/php:8.3-alpine composer install
 bin/dev up -d
-bin/dev composer install
+bin/dev artisan key:generate
 bin/dev artisan migrate:fresh --seed
 ```
 
-Xong. Mở `http://localhost/admin` và `http://localhost/portal`.
+`MSYS_NO_PATHCONV=1` là cho Git Bash trên Windows: thiếu nó, Git Bash đổi `/var/www/html` thành
+`C:/Program Files/Git/var/www/html` và Docker từ chối ("the working directory … is invalid"). Trên
+Linux/macOS biến đó vô hại. Thiếu `key:generate` thì bước gieo dữ liệu dừng giữa chừng với
+`No application encryption key has been specified.`: dữ liệu mẫu có số định danh khách hàng, cột này
+được mã hoá bằng `APP_KEY`.
+
+Xong. Mở `http://localhost/admin` và `http://localhost/portal` (đổi `APP_PORT` thì thêm `:<cổng>`).
 
 ## Bốn thứ cố ý KHÔNG nằm trong kho, và vì sao
 
@@ -159,13 +171,22 @@ Nghi ngờ số test thì so các lớp trong `bin/dev test --list-tests` với
 Mọi phần ở trên là cho máy DEV (Docker, dữ liệu mẫu). Phần này là máy chủ THẬT: một VPS Linux
 (Ubuntu/Debian) hoặc một gói shared hosting có SSH. Làm **đúng thứ tự** — vài bước dựa vào bước
 trước (ví dụ `vkcrm:preflight` phải chạy TRƯỚC `php artisan optimize`). Các bước dưới đây đã được
-đi thử một lượt theo đúng chữ, trên một bản clone mới trong container sạch, ngày 2026-10-01 (M8
-Task 7; đầu ra ở `docs/PROGRESS.md`, mục "Ghi chú M8").
+đi thử theo đúng chữ hai lần: ngày 2026-10-01 trên một bản clone mới trong container sạch (M8 Task
+7), và ngày 2026-10-08 trên một máy Ubuntu 24.04 trống trong container (nginx 1.24, PHP-FPM 8.3 của
+Ubuntu, hai người dùng như dưới đây) từ Bước 1 tới "Nâng cấp lên bản mới" — đầu ra ở
+`docs/PROGRESS.md`, mục "Nghiệm thu bản 1.0".
 
 Ví dụ đặt mã nguồn ở `/var/www/vk-crm` — đúng đường dẫn của hai mẫu máy chủ web trong
 `tools/deploy/` — và PHP-FPM chạy bằng người dùng `www-data`. Đổi cả hai cho đúng máy chủ thật.
-Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng chính người dùng chạy PHP-FPM
-(ví dụ `sudo -u www-data php artisan …`), để tệp nó tạo ra trong `storage/` không thuộc về `root`.
+Hai người dùng, mỗi người một việc:
+
+- **Người quản trị** (tài khoản SSH của bạn, có `sudo`; KHÔNG phải `www-data`) là chủ của mã nguồn:
+  chạy `git clone`, `git pull`, `composer install`, giữ deploy key. PHP-FPM không ghi được mã nguồn.
+- **`www-data`** (người dùng chạy PHP-FPM) chạy MỌI lệnh `php artisan …`, trong thư mục
+  `/var/www/vk-crm`: `sudo -u www-data php artisan …`. Nó là chủ của `storage/`, `bootstrap/cache/`
+  và `.env` (Bước 2), nên tệp lệnh tạo ra không thuộc về `root` hay người quản trị, và hai lệnh ghi
+  vào `.env` (`key:generate`, `webpush:vapid`) ghi được. Những khối lệnh bên dưới viết gọn
+  `php artisan …`; chuỗi "Nâng cấp lên bản mới" viết đủ người chạy từng dòng.
 
 ### Bước 0 — Hỏi chủ văn phòng trước khi bắt đầu
 
@@ -192,7 +213,18 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
   thiếu nhất trên shared hosting: `intl` (Filament bắt buộc) và `dom` (gói làm sạch HTML, gói ghép
   CSS vào thư, gói đọc/ghi tệp xlsx đều cần). `curl` bắt buộc từ M12 (gói thông báo đẩy
   `minishlink/web-push` cần nó). Nên có thêm, chưa bắt buộc: `gd` (preflight báo VÀNG nếu thiếu).
-  Kiểm nhanh: `php -m`.
+  Kiểm nhanh: `php -m`. Trên **Ubuntu 24.04** một dòng cài đủ PHP, các extension trên (tên gói
+  khác tên extension: `dom`, `xmlreader` nằm trong `php8.3-xml`, `pdo_mysql` trong `php8.3-mysql`;
+  phần còn lại có sẵn trong `php8.3-common`), `mariadb-client`, Composer 2, Git và nginx — đã chạy
+  thử ngày 2026-10-08 trên một máy Ubuntu 24.04 trống:
+
+  ```bash
+  sudo apt install php8.3-fpm php8.3-cli php8.3-intl php8.3-mbstring php8.3-xml php8.3-zip php8.3-curl php8.3-mysql php8.3-gd mariadb-client composer git nginx
+  ```
+
+  `mariadb-client` của Ubuntu 24.04 là bản 10.11; `mariadb-dump` của nó sao lưu được cơ sở dữ liệu
+  MariaDB 11 (đo cùng ngày). Bản máy chủ MariaDB 11 không có trong kho gói của Ubuntu 24.04 — xem
+  gạch "MariaDB 11" bên dưới.
 - **Cấu hình PHP-FPM** (php.ini của FPM, KHÁC tệp php.ini của dòng lệnh — `php -i` chỉ in tệp của
   dòng lệnh; trên Ubuntu xem bản của FPM bằng `php-fpm8.3 -i`):
   - `upload_max_filesize` ≥ `UPLOAD_MAX_MB` (mặc định 20 → `20M`) và `post_max_size` lớn hơn nó
@@ -225,8 +257,12 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
   đặt bên trong `storage/app/private`). `MEDIA_MAX_FILE_SIZE_MB` (mặc định 2048) là trần của một
   tệp trong kho hồ sơ: gói lớn hơn trần thì không sinh được, và trang vụ việc báo lỗi cho luật sư.
 - **MariaDB 11** — bản dự án chạy kiểm thử (máy dev và CI đều là `mariadb:11`). MariaDB 10.11 (mặc
-  định của Ubuntu 24.04) chưa được chạy thử. Một cơ sở dữ liệu `utf8mb4` riêng và một tài khoản chỉ
-  có quyền trên đúng cơ sở dữ liệu đó:
+  định của Ubuntu 24.04) chưa được chạy thử. Bản 11 lấy từ kho gói của chính MariaDB: trang
+  `https://mariadb.org/download/?t=repo-config` chọn hệ điều hành và bản 11.x, rồi làm theo các dòng
+  lệnh trang đó in ra (phần cài máy chủ cơ sở dữ liệu này chưa đi thử trong lượt 2026-10-08: lượt đó
+  dùng máy chủ `mariadb:11` của dự án). Cơ sở dữ liệu nằm trên máy khác thì đổi `'localhost'` ở
+  dưới thành địa chỉ của máy chủ web. Một cơ sở dữ liệu `utf8mb4` riêng và một tài khoản chỉ có quyền
+  trên đúng cơ sở dữ liệu đó:
 
   ```sql
   CREATE DATABASE vk_crm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -272,8 +308,20 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://updates.push.services.mozilla.
 dưới đây sẽ nhận `Repository not found` (hoặc bị hỏi mật khẩu GitHub, mà GitHub không nhận mật khẩu
 cho git nữa). Cách làm: máy chủ có một **deploy key** chỉ đọc, do người giữ kho thêm vào kho (Bước 0).
 
+Mọi lệnh của bước này chạy bằng **người quản trị** (không phải `www-data`, không phải `root`). Thư
+mục `/var/www` thuộc về `root`, nên tạo trước thư mục mã nguồn và giao nó cho người quản trị — thiếu
+dòng này, `git clone` dừng ở `could not create work tree dir '/var/www/vk-crm': Permission denied`:
+
 ```bash
-# Trên máy chủ, bằng người dùng sẽ chạy git clone / git pull (ví dụ www-data hoặc người quản trị):
+sudo mkdir -p /var/www/vk-crm
+sudo chown "$USER": /var/www/vk-crm
+```
+
+Deploy key sinh bằng chính người quản trị, nên khoá riêng nằm trong `~/.ssh` của người đó, và mọi
+`git pull` khi nâng cấp cũng chạy bằng người đó (`~` trong `core.sshCommand` là thư mục nhà của
+người đang gõ lệnh: `git pull` bằng người khác thì nhận `Permission denied (publickey)`):
+
+```bash
 ssh-keygen -t ed25519 -C "vk-crm deploy $(hostname)" -f ~/.ssh/vk-crm-deploy -N ""
 cat ~/.ssh/vk-crm-deploy.pub
 ```
@@ -284,7 +332,7 @@ deploy key, dán khoá, **không** tích "Allow write access". Rồi clone qua S
 ở khối lệnh dưới:
 
 ```bash
-git clone -c core.sshCommand="ssh -i ~/.ssh/vk-crm-deploy -o IdentitiesOnly=yes"   git@github.com:Harry-Kien/vk-crm.git /var/www/vk-crm
+git clone -c core.sshCommand="ssh -i ~/.ssh/vk-crm-deploy -o IdentitiesOnly=yes" git@github.com:Harry-Kien/vk-crm.git /var/www/vk-crm
 ```
 
 `-c core.sshCommand=…` lưu vào `.git/config` của bản clone, nên mọi `git pull` khi nâng cấp dùng lại
@@ -299,7 +347,9 @@ composer install --no-dev --optimize-autoloader
 
 - `cp .env.example .env` TRƯỚC `composer install`: sau khi cài, composer tự gọi `php artisan
   package:discover` và `php artisan filament:upgrade` (mục `post-autoload-dump` của
-  `composer.json`), và hai lệnh đó cần có `.env`.
+  `composer.json`), và hai lệnh đó cần có `.env`. Lần cài đầu chúng chạy được bằng người quản trị vì
+  `storage/` và `bootstrap/cache/` còn thuộc về người đó; khi nâng cấp thì không — chuỗi "Nâng cấp
+  lên bản mới" tách chúng ra, chạy bằng đúng người.
 - `filament:upgrade` chép tài sản giao diện của Filament vào `public/css/filament/`,
   `public/js/filament/`, `public/fonts/filament/` (không nằm trong kho — `.gitignore`). **Không có
   bước dựng giao diện**: không `npm`, không `vite build`; Livewire tự phục vụ tệp script của nó qua
@@ -307,15 +357,26 @@ composer install --no-dev --optimize-autoloader
 - `--no-dev`: không cài công cụ kiểm thử lên máy chủ thật.
 
 Thư mục `storage/` và `bootstrap/cache/` phải GHI ĐƯỢC bởi người dùng chạy PHP-FPM; phần còn lại
-của mã nguồn thì không cần:
+của mã nguồn thì không cần. `.env` thuộc về `www-data` và chỉ `www-data` đọc được (nó chứa `APP_KEY`
+và mọi mật khẩu):
 
 ```bash
-chown -R www-data:www-data storage bootstrap/cache
+sudo chown -R www-data:www-data storage bootstrap/cache
+sudo chown www-data:www-data .env
+sudo chmod 600 .env
 ```
 
-Chạy dòng này SAU `composer install`, và chạy lại sau MỖI lần `composer install` (kể cả khi nâng
-cấp): các lệnh `php artisan` mà composer tự gọi tạo tệp trong `bootstrap/cache/` và `storage/`
-mang chủ là người chạy composer, và PHP-FPM không ghi đè được tệp của người khác.
+Chạy ba dòng này SAU `composer install`. Dòng đầu chạy lại sau MỖI lần `composer install` (kể cả khi
+nâng cấp): lệnh `php artisan` nào chạy bằng người khác tạo tệp trong `bootstrap/cache/` và `storage/`
+mang chủ là người đó, và PHP-FPM không ghi đè được tệp của người khác.
+
+Từ đây, **sửa `.env` bằng `sudo -u www-data nano .env`** (hay `sudoedit .env`), để chủ và quyền của
+tệp giữ nguyên. Lượt đi thử ngày 2026-10-08 vấp hai lần ở đây: `.env` còn thuộc người quản trị thì
+`sudo -u www-data php artisan key:generate` dừng ở `file_put_contents(/var/www/vk-crm/.env): Failed
+to open stream: Permission denied`; và khi `www-data` không đọc được `.env` (tệp bị người quản trị ghi
+lại và mất quyền đọc của `www-data`), mọi lệnh chạy như chưa có `.env` — ví dụ `Database file at path
+[/var/www/vk-crm/database/database.sqlite] does not exist`. Gặp một trong hai thì chạy lại hai dòng
+`chown`/`chmod` của `.env` ở trên.
 
 **Không chạy `php artisan storage:link`** — tệp hồ sơ không bao giờ có đường dẫn tĩnh (xem mục
 "Tệp hồ sơ" trong `README.md`).
@@ -355,7 +416,7 @@ Những dòng PHẢI sửa so với bản mẫu — bản mẫu là cho máy dev
 | `APP_URL` | `https://khachhang.luatvukhang.com` | tên miền thật, có `https://` |
 | `LOG_LEVEL` | `warning` | — (`debug` của bản mẫu ghi quá nhiều) |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `127.0.0.1`, `3306`, `vk_crm`, `vk_crm`, mật khẩu ở Bước 1 | người quản trị cơ sở dữ liệu / bảng điều khiển hosting |
-| `MAIL_HOST`, `MAIL_PORT`, `MAIL_SCHEME`, `MAIL_USERNAME`, `MAIL_PASSWORD` | máy chủ SMTP của tên miền văn phòng | nhà cung cấp email của tên miền (cần SPF/DKIM cho `MAIL_FROM_ADDRESS`) |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_SCHEME`, `MAIL_USERNAME`, `MAIL_PASSWORD` | máy chủ SMTP của tên miền văn phòng; `MAIL_SCHEME` chỉ nhận `smtps` (cổng 465) hoặc `smtp`/`null` (cổng 587 hay 25 — STARTTLS tự bật khi máy chủ có) — đọc mục 4 ngay dưới bảng | nhà cung cấp email của tên miền (cần SPF/DKIM cho `MAIL_FROM_ADDRESS`) |
 | `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `no-reply@luatvukhang.com`, `"Luật Vũ Khang"` | `MAIL_FROM_NAME` là tên văn phòng khách nhìn thấy, không phải `${APP_NAME}` |
 | `TRUSTED_PROXIES` | `127.0.0.1` (bỏ dấu `#` đầu dòng) | đọc mục 1 ngay dưới bảng — KHÔNG dùng `*` |
 | `HEARTBEAT_URL` | URL ping của dịch vụ giám sát cron | Bước 8 |
@@ -375,7 +436,7 @@ khẩu hiệu, hotline, Zalo, website…) đang là dòng chú thích mang giá 
 và sửa khi văn phòng đổi; **đừng để `BRAND_…=` trống**: một dòng trống là chuỗi rỗng, không phải
 "dùng mặc định", và tên văn phòng biến mất khỏi trang đăng nhập lẫn thư.
 
-Ba điều cần nói rõ hơn một dòng bảng:
+Bốn điều cần nói rõ hơn một dòng bảng:
 
 1. **`TRUSTED_PROXIES` phải điền địa chỉ proxy thật.** Để trống nghĩa là mọi khách hàng dùng
    chung một bộ đếm đăng nhập: năm lần gõ sai của bất kỳ ai khoá cả cổng trong 15 phút.
@@ -401,6 +462,12 @@ Ba điều cần nói rõ hơn một dòng bảng:
 
    Chủ văn phòng cần xác nhận địa chỉ mặc định có đúng không (sổ tay M6.5 ghi việc này đang chờ trả
    lời).
+4. **`MAIL_SCHEME` không nhận `tls` hay `ssl`** — dù bảng điều khiển email của nhà cung cấp ghi
+   "Mã hoá: TLS/SSL" và nhiều hướng dẫn cũ viết `MAIL_ENCRYPTION=tls`. Biến này chỉ có ba giá trị:
+   `smtps` cho cổng 465 (SSL ngay từ đầu), `smtp` hoặc để `null` cho cổng 587/25 (máy chủ có STARTTLS
+   thì kết nối tự mã hoá). Ghi `tls` hay `ssl` thì MỌI thư hỏng với `The "tls" scheme is not supported;
+   supported schemes for mailer "smtp" are: "smtp", "smtps".` (đo ngày 2026-10-08: lỗi xảy ra ngay
+   lúc dựng kết nối thư, trước khi gửi được thư nào). `vkcrm:preflight` báo ĐỎ trường hợp này.
 
 **Từ M7 Task 10, chủ văn phòng sửa bốn thông tin pháp lý (cùng tên pháp lý, hotline, Zalo,
 website, email liên hệ) ngay trong ứng dụng** — trang "Thông tin văn phòng" trong `/admin`, chỉ
@@ -445,7 +512,12 @@ php artisan webpush:vapid
 Dùng mẫu ĐÃ CHẠY THỬ, sửa tên miền, đường dẫn chứng chỉ và đường dẫn dự án:
 
 - nginx: `tools/deploy/nginx.conf.example` (cùng socket PHP-FPM `/run/php/php8.3-fpm.sock` —
-  sửa nếu máy chủ khác);
+  sửa nếu máy chủ khác). Trên Ubuntu: chép mẫu vào `/etc/nginx/sites-available/vk-crm`, nối nó vào
+  `/etc/nginx/sites-enabled/`, bỏ `/etc/nginx/sites-enabled/default`, rồi `sudo nginx -t` và
+  `sudo systemctl reload nginx`. Mẫu bật HTTP/2 bằng dòng `http2 on;` — cú pháp của nginx từ bản
+  1.25.1. **nginx của Ubuntu 24.04 là bản 1.24**: `nginx -t` dừng ở `unknown directive "http2"`. Với
+  nginx cũ hơn 1.25.1, xoá dòng `http2 on;` và viết HTTP/2 vào hai dòng `listen` của khối 443:
+  `listen 443 ssl http2;` và `listen [::]:443 ssl http2;` (đã chạy thử trên nginx 1.24 ngày 2026-10-08);
 - Apache: `tools/deploy/apache-vhost.conf.example` (cần `a2enmod ssl rewrite headers alias`). Mẫu
   không tự nối PHP: dùng mod_php, hoặc PHP-FPM qua `proxy_fcgi` — trên Ubuntu
   `a2enmod proxy_fcgi setenvif` rồi `a2enconf php8.3-fpm`.
@@ -677,24 +749,41 @@ bên dưới.
    không bao giờ chứa tài khoản demo.
 
 Đủ điều kiện thì gọi thẳng seeder demo bằng `--class` (cờ này đi thẳng vào lớp được đặt tên,
-không qua kiểm tra môi trường của `DatabaseSeeder`):
+không qua kiểm tra môi trường của `DatabaseSeeder`). Dữ liệu mẫu cần thư viện sinh dữ liệu giả
+(Faker), một gói chỉ dành cho máy dev mà `composer install --no-dev` của Bước 2 không cài — thiếu nó,
+lệnh dừng ở `Call to undefined function Database\Seeders\fake()` (đo ngày 2026-10-08). Nên cài thêm
+các gói dev trước, rồi mới gieo:
 
 ```bash
-php artisan db:seed --class=DemoDataSeeder --force
+composer install --optimize-autoloader --no-scripts
+sudo -u www-data rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+sudo -u www-data php artisan package:discover
+sudo -u www-data php artisan db:seed --class=DemoDataSeeder --force
 ```
 
 Tài khoản cổng khách demo (`khach…@example.com`) cũng mật khẩu `password`, nhưng cổng khách luôn
 đòi thêm mã sáu số gửi qua email, và hộp thư `example.com` không có ai nhận.
 
 **Hết demo, chuyển sang dùng thật — chạy chuỗi này TRƯỚC Bước 6** (dòng cuối của nó CHÍNH LÀ
-Bước 6). Nó xoá SẠCH mọi thứ demo đã tạo:
+Bước 6). Trước hết gỡ lại các gói dev đã cài cho dữ liệu mẫu:
 
 ```bash
-php artisan migrate:fresh --force && \
-  php artisan db:seed --force && \
-  rm -rf storage/app/private/[0-9]* && \
-  php artisan vkcrm:create-admin
+composer install --no-dev --optimize-autoloader --no-scripts
+sudo -u www-data rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+sudo -u www-data php artisan package:discover
 ```
+
+Rồi chuỗi dưới — nó xoá SẠCH mọi thứ demo đã tạo:
+
+```bash
+sudo -u www-data php artisan migrate:fresh --force && \
+  sudo -u www-data php artisan db:seed --force && \
+  sudo -u www-data rm -rf storage/app/private/[0-9]* && \
+  sudo -u www-data php artisan vkcrm:create-admin
+```
+
+(Mọi dòng bằng `www-data`, kể cả `rm`: tệp hồ sơ mẫu thuộc về `www-data`, người quản trị không xoá
+được — `Permission denied`.)
 
 - `migrate:fresh --force` xoá MỌI bảng trong CSDL `DB_DATABASE` rồi tạo lại — tám tài khoản demo,
   khách, vụ việc, nhật ký, phiên đăng nhập (ai đang đăng nhập đều bị đẩy ra), thư còn chờ gửi.
@@ -750,7 +839,7 @@ php artisan optimize
 cấp, và TRƯỚC `php artisan optimize`/`config:cache`** (vài điều kiện đọc `.env` trực tiếp, không
 còn thấy giá trị thật sau khi cấu hình đã cache) — ngoại lệ duy nhất là dòng "bất biến tiền", xem
 đoạn ngay sau danh sách dưới. Lệnh tự kiểm
-`TRUSTED_PROXIES`/`HEARTBEAT_URL`/`SESSION_SECURE_COOKIE`/`APP_DEBUG`, tài khoản nhân sự demo
+`TRUSTED_PROXIES`/`HEARTBEAT_URL`/`MAIL_SCHEME`/`SESSION_SECURE_COOKIE`/`APP_DEBUG`, tài khoản nhân sự demo
 còn mật khẩu `password` (ĐỎ khi `ADMIN_IP_ALLOWLIST` trống, VÀNG khi có — Bước 5), PHP extension
 bắt buộc, `storage/app/private` có phục vụ công khai được không (nó tự gửi một request tới `APP_URL` — chạy
 khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện máy chủ cho sao lưu:
@@ -784,7 +873,7 @@ optimize`.
 
 ### Bước 8 — Một dòng lịch chạy tự động (cron), và giám sát nó
 
-Đúng một dòng trong crontab của người dùng chạy PHP-FPM (`crontab -u www-data -e` trên VPS; mục
+Đúng một dòng trong crontab của người dùng chạy PHP-FPM (`sudo crontab -u www-data -e` trên VPS; mục
 "Cron Jobs" trên shared hosting):
 
 ```
@@ -863,23 +952,40 @@ biến mất), quản trị viên đã cài 2FA, một lần khôi phục thử 
 
 ## Nâng cấp lên bản mới
 
+Chạy bằng người quản trị (chủ của mã nguồn và của deploy key — Bước 2); mỗi dòng `php artisan` chạy
+bằng `www-data`, viết đủ ở đây để chép nguyên khối:
+
 ```bash
 cd /var/www/vk-crm
-php artisan down
+sudo -u www-data php artisan down
 git pull
-composer install --no-dev --optimize-autoloader
-chown -R www-data:www-data storage bootstrap/cache
-php artisan migrate --force
-php artisan db:seed --force
-php artisan billing:check-invariants
-php artisan optimize:clear
-php artisan vkcrm:preflight
-php artisan optimize
-php artisan up
+composer install --no-dev --optimize-autoloader --no-scripts
+sudo -u www-data rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+sudo -u www-data php artisan package:discover
+php artisan filament:assets
+sudo chown -R www-data:www-data storage bootstrap/cache
+sudo -u www-data php artisan migrate --force
+sudo -u www-data php artisan db:seed --force
+sudo -u www-data php artisan billing:check-invariants
+sudo -u www-data php artisan optimize:clear
+sudo -u www-data php artisan vkcrm:preflight
+sudo -u www-data php artisan optimize
+sudo -u www-data php artisan up
 ```
 
 - `php artisan down` trả trang bảo trì (503) cho mọi người trong lúc cập nhật, để không ai ghi dữ
   liệu giữa chừng một migration.
+- `composer install … --no-scripts` rồi hai dòng sau nó: sau lần cài đầu, `bootstrap/cache/` và
+  `storage/` thuộc về `www-data`, nên hai lệnh composer tự gọi sau khi cài (`package:discover`,
+  `filament:upgrade`) không chạy được bằng người quản trị — lượt đi thử ngày 2026-10-08 dừng ở `Script
+  @php artisan package:discover --ansi handling the post-autoload-dump event returned with error code
+  1`. Vì vậy composer không tự gọi chúng, và ba dòng sau làm đúng việc của chúng bằng đúng người:
+  xoá hai tệp danh sách gói cũ trong `bootstrap/cache/` (việc composer vẫn tự làm trước
+  `package:discover` — bỏ dòng này thì một gói vừa bị gỡ làm `package:discover` chết ngay lúc khởi
+  động, ví dụ `Class "Laravel\Pail\PailServiceProvider" not found`, đo cùng ngày), `package:discover`
+  bằng `www-data` (nó ghi `bootstrap/cache/`), `filament:assets` bằng người quản trị (nó chép tài sản
+  giao diện vào `public/`, thư mục của người quản trị); phần dọn cache của `filament:upgrade` đã nằm
+  trong `optimize:clear` ở dưới.
 - `db:seed --force` an toàn để chạy lại (Bước 5) và NÊN chạy: bản mới có thể thêm quyền hay loại vụ
   việc. Bản M9 thêm bốn quyền tiền (`billing.view`, `contract.manage`, `payment.record`,
   `revenue.viewAny`) — không chạy thì không ai mở được màn hình tiền; bản M10 thêm ba quyền tiếp nhận

@@ -209,12 +209,18 @@ Mở rộng `README.md` và `docs/CAI-DAT.md`. Nội dung:
 
 Nghiệm thu bằng một agent chưa đọc repo.
 
-### - [ ] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
+> Ghi chú bản 1.0 (2026-10-08): lượt nghiệm thu đó không do một agent chưa từng đọc kho đi. Người điều phối quyết
+> định nhận một lượt đọc lạnh MÔ PHỎNG thay cho câu trên — xem Task 8 và PROGRESS, "Nghiệm thu bản 1.0", "Lượt
+> đọc lạnh mô phỏng".
 
-> **Làm ở làn `v1-acceptance-b` (2026-10-08), còn tiêu chí 8**, bản 1.0 = M0–M10 + M12 + M13 (M11, M14 gắn sau).
-> Bằng chứng ở PROGRESS, mục "Nghiệm thu bản 1.0". Tiêu chí 1–7 có bằng chứng. Tiêu chí 8 mới có một lượt đi theo
-> kịch bản do chính người làm viết (đã đọc kho); theo R6 chỉ tick khi một agent chưa từng đọc kho đã làm theo
-> `README.md` + `docs/CAI-DAT.md` — việc của người điều phối. `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
+### - [x] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
+
+> **Làm ở làn `v1-acceptance-b` (tiêu chí 1–7) và làn `v1-acceptance` (đối chiếu trên cây đã gộp, tiêu chí 8),
+> 2026-10-08**, bản 1.0 = M0–M10 + M12 + M13 (M11, M14 gắn sau). Bằng chứng ở PROGRESS, mục "Nghiệm thu bản 1.0".
+> Tiêu chí 8: R6 đòi một agent chưa từng đọc kho; người điều phối quyết định nhận thay vào đó một lượt đọc lạnh mô
+> phỏng — agent làm Task 2 của làn v1 (đã đọc kho) làm theo đúng chữ của `README.md` + `docs/CAI-DAT.md` trên một
+> máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên bản mới"; mỗi chỗ vấp sửa kèm một test
+> (`tests/Feature/Acceptance/InstallGuideColdReadTest.php`). `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
 > `bin/coverage` — một container `docker run --rm` bỏ đi, cài `pcov` bên trong, không đổi image, không đổi máy;
 > tóm tắt bằng `tools/coverage/summary.php`. CI giữ `coverage: none`.
 

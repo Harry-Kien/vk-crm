@@ -1,25 +1,33 @@
 <?php
 
 use App\Enums\ChecklistItemStatus;
+use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
+use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
 
 /*
- * Nghiệm thu bản 1.0 (v1 Task 2, M8 Task 8) — bảng truy vết SPEC §11 → test. Ba gạch đầu dòng của
- * §11 được khẳng định đủ ở tầng policy hoặc Action (`MatterPolicyTest`, `ReviewChecklistItemTest`) nhưng
- * ở màn hình chỉ từng mảnh (một vai, một tab, lý do 19 ký tự); tệp này khẳng định trọn từng gạch ở MÀN
- * HÌNH người dùng thật đi qua: trang xem vụ việc của `/admin` (HTTP) và nút "Từ chối" trên tab Hồ sơ giấy
- * tờ (Livewire). Mỗi khẳng định âm đi kèm vế dương của nó.
+ * Nghiệm thu bản 1.0 (v1 Task 2, M8 Task 8) — bảng truy vết SPEC §11 → test. Bốn gạch đầu dòng của
+ * §11 được khẳng định đủ ở tầng policy hoặc Action (`MatterPolicyTest`, `ReviewChecklistItemTest`,
+ * `PublishDocumentTest`) nhưng ở màn hình chỉ từng mảnh hay chưa có (một vai, một tab, lý do 19 ký tự);
+ * tệp này khẳng định trọn từng gạch ở MÀN HÌNH người dùng thật đi qua: trang xem vụ việc của `/admin`
+ * (HTTP), nút "Từ chối" trên tab Hồ sơ giấy tờ và nút "Công bố cho khách" trên tab Tài liệu (Livewire).
+ * Mỗi khẳng định âm đi kèm vế dương của nó.
  *
  * Hàm toàn cục mang tiền tố `s11…`.
  */
@@ -114,3 +122,46 @@ it('§11 refuses to reject a checklist item without a reason on the documents ta
     'chuỗi rỗng' => [''],
     'chỉ khoảng trắng' => ['     '],
 ]);
+
+/**
+ * §11 "Nghiệp vụ": nhóm B còn `internal_draft` hay `pending_approval` không công bố được — đo trên chính
+ * tab Tài liệu của luật sư phụ trách (Livewire). Nút "Công bố cho khách" có mặt trên mọi tài liệu không
+ * thuộc nhóm D (luật hiện có của nút, không đổi ở đây); bấm nó trên hai trạng thái đó bị
+ * `PublishDocument` từ chối, và tài liệu không đổi trạng thái, không tới khách. Vế dương: văn bản đã ký,
+ * đã nộp thì công bố được qua cùng nút. Tầng Action có `PublishDocumentTest`; `DocumentsRelationManagerTest`
+ * "does not claim success when a publication is refused" đo câu thông báo của bản nháp.
+ */
+it('§11 refuses to publish a group B document still in draft or awaiting approval from the documents tab, and publishes it once signed', function () {
+    Storage::fake('private');
+    config(['media-library.prefix' => 'test-'.Str::random(16)]);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+
+    $documents = collect([DocumentStatus::InternalDraft, DocumentStatus::PendingApproval, DocumentStatus::SignedFiled])
+        ->mapWithKeys(function (DocumentStatus $status) use ($matter): array {
+            $document = Document::factory()->for($matter)->group(DocumentGroup::Issued)->create(['status' => $status]);
+            $document->addMedia(UploadedFile::fake()->createWithContent('van-ban.pdf', '%PDF-1.4 noi dung'))
+                ->toMediaCollection('file');
+
+            return [$status->value => $document->refresh()];
+        });
+
+    $this->actingAs($lead, 'web');
+
+    $publish = fn (Document $document) => $this->livewire(DocumentsRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class])
+        ->callAction(TestAction::make('publish')->table($document), data: ['client_can_view' => true, 'client_can_download' => true]);
+
+    foreach (['internal_draft' => DocumentStatus::InternalDraft, 'pending_approval' => DocumentStatus::PendingApproval] as $key => $status) {
+        $publish($documents[$key]);
+
+        expect($documents[$key]->refresh()->status)->toBe($status)
+            ->and($documents[$key]->client_can_view)->toBeFalse()
+            ->and($documents[$key]->isReleasedToPortal())->toBeFalse();
+    }
+
+    $publish($documents['signed_filed']);
+
+    expect($documents['signed_filed']->refresh()->status)->toBe(DocumentStatus::Published)
+        ->and($documents['signed_filed']->isReleasedToPortal())->toBeTrue();
+});

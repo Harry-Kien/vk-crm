@@ -39,6 +39,11 @@ return [
         .'ngừng chạy (SPEC §2). Đăng ký một dịch vụ giám sát cron miễn phí và điền URL vào đây.',
     'heartbeat_url_ok' => 'HEARTBEAT_URL đã khai báo.',
 
+    'mail_scheme_unsupported' => 'MAIL_SCHEME=:value không phải giá trị Laravel nhận — MỌI thư sẽ hỏng ngay '
+        .'lúc dựng kết nối. Chỉ có ba cách ghi: smtps cho cổng 465, smtp hoặc để trống (null) cho cổng 587/25 '
+        .'(STARTTLS tự bật). Không ghi tls hay ssl dù nhà cung cấp email gọi như vậy (docs/CAI-DAT.md, Bước 3, mục 4).',
+    'mail_scheme_ok' => 'MAIL_SCHEME hợp lệ cho thư qua SMTP.',
+
     'session_secure_cookie_off' => 'SESSION_SECURE_COOKIE giải ra khác true (config(\'session.'
         .'secure\') = :value) — cookie phiên có thể bị gửi qua kết nối http không mã hoá. Để '
         .'trống biến này trên máy chủ thật (mặc định tự bật true ngoài local/testing), hoặc đặt '

@@ -43,6 +43,8 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
+    # nginx cũ hơn 1.25.1 (Ubuntu 24.04 cài 1.24) không biết dòng ngay dưới: xoá nó và viết
+    # "listen 443 ssl http2;" cùng "listen [::]:443 ssl http2;" — docs/CAI-DAT.md, Bước 4.
     http2 on;
     server_name khachhang.luatvukhang.com;
 

@@ -92,6 +92,25 @@ function v1aRecipients(array $mails): array
         ->all();
 }
 
+/**
+ * Nội dung người nhận đọc: phần HTML và phần chữ của thư, đã giải mã. Không đọc MIME thô
+ * (`toString()`): ở đó thân thư có thể là quoted-printable/base64 hay bị ngắt dòng mềm, nên một phép
+ * "không chứa" trên MIME thô có thể xanh mà không chứng minh gì.
+ */
+function v1aMailBody(Email $mail): string
+{
+    return (string) $mail->getHtmlBody()."\n".(string) $mail->getTextBody();
+}
+
+/**
+ * Khối 2 "Việc anh/chị cần làm" của trang hồ sơ trên cổng (`data-portal-block="2"`), hoặc chuỗi rỗng
+ * khi khối vắng mặt (SPEC §8.3 mục 2: khối chỉ hiện khi có việc).
+ */
+function v1aTodoBlock(string $html): string
+{
+    return preg_match('/<section data-portal-block="2".*?<\/section>/s', $html, $block) ? $block[0] : '';
+}
+
 function v1aProgressUrl(Matter $matter): string
 {
     return MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal');
@@ -153,7 +172,8 @@ it('§14.3 — one stage change by the lawyer mails the client, reaches the phon
 
     expect(v1aRecipients($newMail))->toBe(['khach1@example.com'])
         ->and($newMail[0]->getSubject())->toContain($matter->code)
-        ->and($newMail[0]->toString())->not->toContain('V1A-GHICHU-NOIBO');
+        ->and(v1aMailBody($newMail[0]))->toContain('V1A-CONGBO')
+        ->and(v1aMailBody($newMail[0]))->not->toContain('V1A-GHICHU-NOIBO');
 
     expect(v1aMailRows('client.stage_update'))->toBe($ledgerBefore + 1);
 
@@ -207,11 +227,12 @@ it('§14.4 — the client signs in, sees what is missing, sends a photo, and hea
 
     expect(auth('client')->id())->toBe($client->id);
 
-    // 2. Xem tiến độ và thấy còn thiếu giấy tờ gì.
-    $this->actingAs($client->fresh(), 'client')
+    // 2. Xem tiến độ và thấy còn thiếu giấy tờ gì — mục đó đứng trong khối "Việc anh/chị cần làm".
+    $page = $this->actingAs($client->fresh(), 'client')
         ->get(v1aProgressUrl($matter))
-        ->assertOk()
-        ->assertSee($item->name);
+        ->assertOk();
+
+    expect(v1aTodoBlock($page->getContent()))->toContain(e($item->name));
 
     // 3. Nộp một ảnh chụp cho đúng mục đó.
     $jpeg = "\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xDB";
@@ -225,6 +246,13 @@ it('§14.4 — the client signs in, sees what is missing, sends a photo, and hea
 
     expect($item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview)
         ->and(Document::query()->withoutGlobalScopes()->where('matter_checklist_item_id', $item->id)->count())->toBe(1);
+
+    // Đã nộp, đang chờ văn phòng kiểm tra: mục đó rời khối việc cần làm (để bước 6 có nghĩa).
+    $page = $this->actingAs($client->fresh(), 'client')
+        ->get(v1aProgressUrl($matter))
+        ->assertOk();
+
+    expect(v1aTodoBlock($page->getContent()))->not->toContain(e($item->name));
 
     // 4. Luật sư từ chối kèm lý do, trên tab Hồ sơ giấy tờ.
     $reason = 'Ảnh chụp bị mờ ở góc dưới nên không đọc được số giấy tờ. Nhờ anh chụp lại dưới ánh sáng tự nhiên.';
@@ -243,17 +271,22 @@ it('§14.4 — the client signs in, sees what is missing, sends a photo, and hea
     $newMail = array_slice(v1aSentMail(), $mailBefore);
 
     expect(v1aRecipients($newMail))->toBe(['khach1@example.com'])
-        ->and($newMail[0]->toString())->toContain($matter->code)
+        ->and(v1aMailBody($newMail[0]))->toContain($matter->code)
+        ->and(v1aMailBody($newMail[0]))->toContain(e($reason))
         ->and(v1aMailRows('client.document_rejected'))->toBe($ledgerBefore + 1);
 
     expect($this->pushServer->endpoints())->toBe([$phone])
         ->and(v1aPushRows($client, PushTopic::ClientDocumentRejected))->toBe(1);
 
-    // 6. Trên cổng: nguyên văn lý do, và mục đó lại nằm trong việc khách cần làm.
+    // 6. Trên cổng: nguyên văn lý do, mục đó lại nằm trong khối "Việc anh/chị cần làm", và có nút
+    //    gửi lại giấy tờ.
     Filament::setCurrentPanel('portal');
-    $this->actingAs($client->fresh(), 'client')
+    $page = $this->actingAs($client->fresh(), 'client')
         ->get(v1aProgressUrl($matter))
         ->assertOk()
         ->assertSee($reason)
-        ->assertSee($item->name);
+        ->assertSee(__('portal_progress.checklist.status.rejected'))
+        ->assertSee(__('portal_submit.entry.resubmit'));
+
+    expect(v1aTodoBlock($page->getContent()))->toContain(e($item->name));
 });
