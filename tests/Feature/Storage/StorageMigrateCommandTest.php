@@ -324,3 +324,39 @@ it('kho không tới được giữa lượt → dừng cả lượt (không th�
         ->and($output)->toContain(__('storage.commands.migrate.stopped_unavailable'))
         ->and(Ops::audits('document_store_migration_run')[0]->properties->get('stopped'))->toBe('unavailable');
 });
+
+// ---------------------------------------------------------------------------------------------
+// Task 8 (đo độ phủ): hai kết quả của PushDocumentFileToRemote mà lệnh chưa có test nào chạy tới
+// ---------------------------------------------------------------------------------------------
+
+it('media đang bị một job đẩy giữ khoá → đếm "đang được job khác đẩy", ở lại máy chủ, không tính là lỗi (mã 0)', function () {
+    t6EnableAndReady();
+    $lock = DocumentStore::pushLock($this->media[1]->id);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        [$exit, $output] = t6Migrate();
+    } finally {
+        $lock->release();
+    }
+
+    expect($exit)->toBe(0, $output)
+        ->and(Ops::disk($this->media[0]->id))->toBe(DocumentStore::REMOTE_DISK)
+        ->and(Ops::disk($this->media[1]->id))->toBe(DocumentStore::STAGING_DISK)
+        ->and(Ops::disk($this->media[2]->id))->toBe(DocumentStore::REMOTE_DISK)
+        ->and($output)->toContain(__('storage.commands.migrate.locked', ['count' => 1]))
+        ->and($output)->not->toContain('#'.$this->media[1]->id);
+});
+
+it('khoá lệch khuôn <media_id>/<ULID>.<đuôi> (tên người nộp đặt) → báo mã media lý do "khoá không đúng khuôn", ở lại máy chủ, mã 1', function () {
+    t6EnableAndReady();
+    $odd = StagingFixtures::media('%PDF-1.4 ten tu dat', 'Ho so Nguyen Van A.pdf');
+
+    [$exit, $output] = t6Migrate();
+
+    expect($exit)->toBe(1)
+        ->and(Ops::disk($odd->id))->toBe(DocumentStore::STAGING_DISK)
+        ->and(Ops::disk($this->media[0]->id))->toBe(DocumentStore::REMOTE_DISK)
+        ->and($output)->toContain('#'.$odd->id.': '.__('storage.commands.reasons.rejected'))
+        ->and($output)->not->toContain('Nguyen Van A');
+});

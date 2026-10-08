@@ -240,6 +240,30 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
 | Giám sát cron: cron chết thì trang chủ nói ra | **[Xong]** 2026-09-23 |
 | Xác thực hai lớp cho toàn bộ tài khoản nội bộ | **[Có kế hoạch]** M8 |
 | Sao lưu hằng ngày **đã thử khôi phục thật** | **[Có kế hoạch]** M8 |
+| Tệp hồ sơ có thể nằm trên kho Google Drive của văn phòng, vẫn chỉ mở qua CRM, có bản thứ hai mã hoá ở máy chủ văn phòng | **[Xong phần mã]** M14 — văn phòng chưa bật: chờ chủ văn phòng tạo Shared Drive và tài khoản dịch vụ (mục ngay dưới) |
+
+### Tài liệu nằm trên kho Google Drive (M14)
+
+Khi văn phòng bật kho, tệp hồ sơ nằm trên một Shared Drive của văn phòng thay vì chỉ trên máy chủ. Với
+nhân sự, cách làm việc **không đổi**:
+
+- Tài liệu **chỉ mở qua CRM**: nút "Tải tệp" trên trang vụ việc, như trước. CRM kiểm quyền theo vụ (kể
+  cả vụ hạn chế) và ghi ai tải, lúc nào, từ máy nào. Trên Drive, tên tệp là một chuỗi mã vô nghĩa, không
+  có tên khách hay mã hồ sơ — đó là có chủ đích.
+- **Không ai mở, chia sẻ, tải hay chép tệp trên giao diện Google Drive**, kể cả quản trị viên. Shared
+  Drive kho chỉ có tài khoản dịch vụ của CRM, tài khoản của máy chủ văn phòng và một tài khoản quản trị
+  dự phòng (chỉ dùng khi khôi phục sau sự cố hay khi huỷ hồ sơ hết hạn lưu, theo sổ tay).
+- **Thấy tệp hồ sơ trên Drive bằng bất kỳ đường nào khác** (một link được chia sẻ, một thư mục hiện
+  trong "Được chia sẻ với tôi", một tệp tên lạ trong Drive cá nhân): không mở, báo quản trị ngay. Hệ
+  thống tự kiểm thành viên và chia sẻ của kho mỗi giờ, nhưng một người thấy sớm vẫn nhanh hơn.
+- Kho tạm thời không truy cập được thì nút tải hiện trang "Chưa tải được tài liệu lúc này", thử lại sau
+  ít phút; tải tệp lên vẫn được bình thường (tệp vào máy chủ trước, lên kho sau).
+- **Máy chủ văn phòng** giữ bản thứ hai của mọi tệp, ở dạng **mã hoá**: mở thư mục đó chỉ thấy tên và
+  nội dung không đọc được, và không ai ngoài người giữ khoá mở được. Đừng tìm tài liệu ở đó; đó là bản
+  dự phòng, không phải nơi làm việc.
+
+Việc của chủ văn phòng trước khi bật (Workspace, Shared Drive, tài khoản dịch vụ, ý kiến luật sư về hồ
+sơ chuyển dữ liệu ra nước ngoài, máy chủ văn phòng): `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
 
 ---
 

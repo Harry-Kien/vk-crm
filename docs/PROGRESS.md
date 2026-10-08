@@ -5397,3 +5397,313 @@ giữ cũ "kích hoạt" được địa chỉ mới chưa ai xác minh (R12) r�
 - Số đo vòng sửa 1: RED trước khi sửa 3 ca (`fr1-red-kept.log`); 5/5 đột biến đỏ đúng ca; cả bộ SQLite **5811 passed**,
   33 skipped, 1 risky, **0 failed** (166591 khẳng định, 3201 s); MariaDB tuần tự (`PushDeviceRevocationTest`,
   `LoginTest`, `ClientUserResourceTest`) **156 passed**; `pint --test` PASS.
+
+## Ghi chú M14
+
+**Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
+(chủ văn phòng chọn ngày 2026-10-04: "Drive làm kho phía sau CRM (Khuyên dùng)"). Kế hoạch:
+`docs/superpowers/plans/2026-10-04-m14-google-drive-storage.md`. Nhánh `m14-drive-storage` (worktree
+`D:\vkwt\lane-m14`), Task 5 và Task 7 làm song song ở làn `m14b` rồi gộp lại. Mọi thứ chạy được trên
+Drive giả đã xanh; mọi bước cần Google Workspace thật là **PENDING OWNER** (mục "Phần 2" dưới). Production
+giữ `DOCUMENT_STORAGE=local` — hành vi y như trước M14 cho tới khi chủ văn phòng làm Phụ lục A.
+Hướng dẫn cho chủ văn phòng và người cài đặt: `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`; cài đặt và nâng cấp:
+`docs/CAI-DAT.md` ("Bản cập nhật M14"); máy chủ văn phòng: `docs/SAO-LUU-KHOI-PHUC.md`, Phụ lục D; dàn ý
+hồ sơ pháp lý: `docs/PHAP-LY-LUU-TRU-NUOC-NGOAI.md`. Đính chính SPEC §2, §4.11, §4.12, §4.19, §10 (mục 4
+và 8), §11, §13 ngày 2026-10-04.
+
+### Các commit của làn
+
+| Task | Commit | Nội dung |
+|---|---|---|
+| 0 | `e06aebe` | Khảo sát: dry-run gói trên `main` và lane-m11, bản đồ mã, đo seed (`docs/research/2026-10-04-kho-google-drive.md`) |
+| 1 | `9849542` | Nền: `google/auth`, `DOCUMENT_STORAGE`, đĩa `documents_remote`, bảng `drive_objects`/`drive_folders`, bốn cột `media`, cột kho của `system_health` |
+| 2 | `7093476`, `417ae5b` | Adapter Flysystem cho Drive REST v3: khoá mờ có số thế hệ, thư mục tháng, upload resumable, md5 do Google tính, thùng rác thay xoá, ngắt mạch hai phạm vi |
+| 3 | `7c7a111` | Ghi qua vùng đệm, job `PushDocumentFile` sau commit trên hàng `storage`, `PushPendingDocumentFiles`, `PurgeStagedDocumentCopies`, listener xoá media |
+| 4 | `d83d72e`, `bc89aba`, `1e2ed0f`, `f6908ce`, `8aa4339`, `d93a9fd` | Route tải mở luồng sau kiểm quyền và trước nhật ký, trang 503, gói bàn giao dựng từ bản tải về, thời gian job tính lại, bộ hồi quy hai chế độ |
+| 5 (m14b) | `e45581e`, `fbff4b6` | `StorageReadiness` ở mọi môi trường, preflight, sức khoẻ kho mỗi giờ, trang "Kho tài liệu", cổng pháp lý R13 |
+| 7 (m14b) | `6210b33`, `32337d6`, `b1c2cc9` | Máy chủ văn phòng: `tools/backup/office-pull.sh`, biên nhận, `ImportOfficeReceipts`, diễn tập "mất kho" |
+| gộp | `5cf2acf`, `31e0b7a`, `a39a89a` | `main` 8b0dbf9 → làn; làn `m14b` → làn; `main` `7632242` (M12 và việc sau gộp fu4) → làn |
+| 6 | `7832927` | `enable`, `migrate`, `verify`, `rollback`, `reindex`, `orphans`, `destruction-list` |
+| 8 | commit `docs: M14 Task 8 — …` (SHA trong sổ cái làn) | Nghiệm thu trên Drive giả, tài liệu, ghi chú này |
+
+### Phán quyết của chủ nhiệm (R1–R15)
+
+"Phán quyết 2026-10-04" là của người chủ trì kế hoạch ngày đó (chủ văn phòng đảo được); R10 là phán quyết
+**của chủ văn phòng**. Chi tiết và lý do đầy đủ ở mục "Phán quyết của chủ nhiệm" của kế hoạch.
+
+- **R1 — Gói: không `masbug/flysystem-google-drive-ext`; adapter của dự án trên Drive REST v3, cộng
+  `google/auth` để lấy token.** `masbug` 2.5.0 khai Guzzle `^7` trong khi `main` khoá Guzzle 8.2.0; với
+  `-W` nó hạ Guzzle, promises, psr7 của cả ứng dụng (đúng cái giá M8a đã từ chối) — và mô hình "tìm theo
+  tên" của nó sai trên Drive (cho trùng tên). `google/apiclient` giải sạch nhưng kéo cả cây
+  `apiclient-services` cho sáu endpoint. `google/auth` 1.55.1 giải sạch, ba gói mới (`google/auth`
+  Apache-2.0, `firebase/php-jwt` 7.2.1 BSD-3, `psr/cache` 3.0.0 MIT), không hạ gì; HTTP của nó đi qua
+  `Http` của Laravel nên `Http::fake()` phủ cả lệnh lấy token. Đường lùi đã ghi: tự ký JWT bằng
+  `openssl_sign`; rồi `rclone` qua `Process`.
+- **R2 — Ghi qua vùng đệm cục bộ, đẩy lên kho sau commit, chỉ tự đẩy tệp tạo sau khi bật kho; không I/O
+  mạng tới kho trong transaction.** Ba Action ghi tệp không đổi. `DOCUMENT_STORAGE=google_drive` chỉ cho
+  phép; `vkcrm:storage:enable` ghi mốc `storage.remote_enabled_at` mới bật (không có mốc thì tác vụ quét
+  sẽ đẩy cả kho tệp cũ trong giờ làm việc). Job trên kết nối riêng `storage` (`retry_after` 2400,
+  `--timeout=1800`), khoá đẩy `document-push:{id}` TTL 2100 > timeout; kiểm md5 do Google tính và kích
+  thước, lệch thì cho vào thùng rác và tải lại với thế hệ mới; đổi đĩa bằng UPDATE có điều kiện; lượt đẩy
+  đầu tiên trên production ghi `storage.first_transfer_at` một lần. Có test cấu trúc "không I/O kho trong
+  `DB::transaction`".
+- **R3 — Đọc luôn qua CRM: kiểm quyền → mở luồng → ghi nhật ký → stream.** Không redirect, không link
+  Drive, không mã tệp Drive rời máy chủ, `fields=` tường minh. Không lệnh gọi Drive nào trước khi chữ ký,
+  người nhận và policy đạt — khoá bằng đĩa gián điệp VÀ adapter thật trên `Http::fake()`, mỗi cái có cặp
+  dương (`Storage::fake()` trần không gửi HTTP nên `assertNothingSent()` trên nó không được tính). Mở
+  hỏng → 503, không nhật ký; header lấy từ dòng `media`; `HEAD` không mở luồng; `exists()` từ chỉ mục.
+- **R4 — Bố cục trên Drive: khoá mờ, chỉ mục trong CSDL; thư mục là tiền tố có `/`; tên có số thế hệ.**
+  Tên Drive `<media_id>~<ulid>[~gN].<đuôi>` trong thư mục `YYYY-MM`, không tên người, không tên vụ; đọc
+  ngược được nên dựng lại chỉ mục chỉ cần danh sách tên. Số thế hệ vì bản hỏng có thể đã ở máy văn phòng
+  (`copy --immutable`). Thư mục khớp `LIKE '<d>/%'` có thoát ký tự, vì `DefaultFileRemover` xoá theo
+  `18/` ở mọi lượt xoá media (khớp ngây thơ `18%` cho tệp của media 180… vào thùng rác).
+- **R5 — Chia sẻ: chỉ thành viên; tài khoản dịch vụ đúng vai Người quản lý nội dung (`fileOrganizer`);
+  mã không bao giờ tạo quyền.** Vai đó không xoá vĩnh viễn, không chuyển tệp ra ngoài, không quản lý thành
+  viên; `writer` là ĐỎ vì không cho vào thùng rác được (tệp mồ côi lặng lẽ). Thành viên được phép = tài
+  khoản dịch vụ + `GOOGLE_DRIVE_ALLOWED_MEMBERS` (`email:vai`). Không domain-wide delegation. `sao-luu@`
+  KHÔNG là thành viên Kho.
+- **R6 — Khoá tài khoản dịch vụ là một tệp ngoài repo và ngoài gốc web, `.env` chỉ mang đường dẫn; có
+  biến thể shared hosting.** VPS `/etc/vkcrm/google-drive-key.json` `0440`; shared hosting
+  `~/.config/vkcrm/…` `0400`. Token cache ở store `file`, không ở `database` (bản sao lưu CSDL không mang
+  token sống). Log, ngoại lệ, thư không bao giờ chứa token hay `private_key`. Xoay khoá 12 tháng.
+- **R7 — Công tắc `DOCUMENT_STORAGE`; kiểm sẵn sàng ở mọi môi trường; dev và test dùng đĩa cục bộ; một
+  test sống bật bằng biến môi trường.** Giá trị gõ sai → tệp ở lại máy chủ và `document_storage_driver`
+  ĐỎ. Đĩa `documents_remote` luôn có (media đã đẩy vẫn đọc được sau khi tắt công tắc).
+  `StorageReadiness` là định nghĩa duy nhất của "kho dùng được"; preflight production chỉ gói nó lại.
+  `GoogleDriveLiveTest` chỉ chạy với `DRIVE_LIVE_TEST=1` và ba biến `DRIVE_LIVE_*`.
+- **R8 — Trên kho, "xoá" là cho vào thùng rác; CRM không bao giờ xoá vĩnh viễn, không bao giờ ghi đè.**
+  Ghi vào khoá đã có bị từ chối; các đường tới xoá không đổi (tài liệu bị chứng từ tiền tham chiếu, đã
+  rút, đã có lượt tải của khách vẫn không bao giờ tới đường xoá).
+- **R9 — Hiệu năng, lỗi, điều người dùng thấy.** Kết nối 5 s, metadata 30 s, `read_timeout` 60 s giữa
+  hai khối, khối tải lên 120 s; backoff mũ theo Google; web một lần thử lại rồi 503, job bốn lần. Lỗi
+  không thử lại (`storageQuotaExceeded`, `teamDriveFileLimitExceeded`, …) → `DocumentStorageMisconfigured`
+  và thư. Ngắt mạch `web`/`job` riêng ở store `file` (3 lỗi/60 s → mở 60 s; lỗi khối tải lên không đếm).
+  Upload luôn resumable, khối 8 MiB. Không cache nội dung tệp. Kho sập: tải xuống là trang 503 tiếng Việt
+  (`Retry-After: 120`, hotline trên cổng khách), tải lên không thấy gì, gói bàn giao "lỗi" sinh lại được.
+- **R10 — Lúc nào cũng có hai bản; bản thứ hai ở máy chủ văn phòng, ngoài Google; vùng đệm chỉ dọn theo
+  biên nhận từng tệp.** *(Phán quyết của chủ văn phòng: "sao Drive sang Drive là vô ích; máy chủ văn
+  phòng là bản thứ hai".)* Máy văn phòng KÉO về (`rclone copy --immutable`, token `drive.readonly`) vào
+  remote `crypt`; khoá `crypt` không ở máy chủ web; `cryptcheck` từng tệp rồi biên nhận ràng vào đúng mã
+  Shared Drive và thư mục gốc. `PurgeStagedDocumentCopies` chỉ xoá bản cục bộ khi đọc lại dưới khoá đẩy
+  thấy: đĩa là kho, quá `local_purge_after`, có dòng chỉ mục sống đúng drive và md5, và `office_copied_at`
+  cũ hơn 24 giờ. Chưa có máy văn phòng thì không gì được dọn. **Tệp trên Kho không mã hoá phía văn
+  phòng** (SPEC §10 mục 8, chờ chữ ký). *Vì sao không theo góp ý:* (a) bỏ "giai đoạn A" của bản trước
+  (sao Kho sang Shared Drive sao lưu bằng `rclone` trên máy chủ web) — trái phán quyết của chủ văn phòng,
+  là điều kiện dọn duy nhất trong khi sau lượt dọn mọi tệp chỉ còn trong MỘT tenant Google, chạy bằng token
+  `drive` của `sao-luu@` trên chính máy chủ có khoá dịch vụ, tích luỹ tới giới hạn 400.000 mục trước Kho,
+  và điều kiện dọn của nó (mốc toàn cục + chuỗi nguồn tự do) làm mọi bản thành dọn được khi nguồn sai;
+  (b) không mã hoá tệp phía CRM trước khi đẩy — khoá phải ở máy chủ web nên không che máy chủ bị chiếm,
+  mất khoá là mất mọi tệp, quản trị dự phòng không khôi phục tay được (ngoài phạm vi M14, câu hỏi 8);
+  (c) không đổi `sao-luu@` thành Content manager trên "VK-CRM Backups" — góp ý nhắm vào bản sao Drive →
+  Drive đã bỏ, `sao-luu@` là người tạo nên là Manager, đổi vai là việc của M8a (mục "Việc sau").
+- **R11 — Bật kho, chuyển tệp cũ bằng cùng Action với luồng sống; chạy thử, chạy lại, chạy tiếp, quay
+  lui được; quay lui không tự đảo ngược; dựng lại chỉ mục cho Shared Drive mới.** `enable` từ chối (mã 2)
+  khi công tắc chưa là `google_drive`, readiness ĐỎ, hay production chưa qua cổng R13; đã có mốc thì
+  không dời. `migrate` gọi đúng `PushDocumentFileToRemote`, `--dry-run` đo tốc độ bằng tệp thăm dò 1 MiB
+  và in hạn mức 750 GB/ngày, `--keep-local-days=30`. `rollback` từ chối khi công tắc còn `google_drive`
+  (thứ tự ngược lại để `storage.push-pending` đẩy lại mọi dòng trong 15 phút), xoá mốc trước, không chạm
+  kho lẫn chỉ mục. `reindex` chỉ cho đúng drive đang cấu hình, dòng của drive khác thành `superseded`.
+  `orphans` chỉ báo cáo.
+- **R12 — Gói bàn giao dựng từ bản tải về; kiểm chỗ trống đúng đỉnh thật; thời gian của job tính lại.**
+  Không `$disk->path()` trên đĩa kho; `FreeSpace::bytes()` trả `null` khi `disk_free_space` bị tắt (bỏ
+  kiểm, preflight VÀNG); cần `2T + 50 MB` ở thư mục làm việc; `src/` xoá trước `store()` (đỉnh 2T thay
+  vì 3T). Số mới: `TIMEOUT_SECONDS` 600 → 1200, `retry_after` của `handover` 900 → 1500, `--timeout` của
+  `queue.handover` 600 → 1200, `withoutOverlapping` 15 → 25, `STALE_AFTER_MINUTES` 60 → 90
+  (`QueueHandoverScheduleTest` ghim ba quan hệ). `docs/CAI-DAT.md` sửa theo ở Task 8 (rà soát Task 4,
+  m3) và `StorageInstallDocsTest` ghim câu chữ vào hằng số.
+- **R13 — Pháp lý: hồ sơ chuyển dữ liệu ra nước ngoài và DPA; mặc định CHẶN trên production cho tới khi
+  luật sư trả lời câu hỏi 3a hoặc đã ghi ngày hồ sơ.** Trang "Kho tài liệu" ghi ngày hồ sơ, số hồ sơ, ngày
+  DPA, ý kiến luật sư cho chuyển trước (ngày + căn cứ), không nhận ngày tương lai. Production: thiếu cả
+  ngày hồ sơ lẫn ý kiến thì `enable` từ chối và `data_transfer_dossier` ĐỎ. Lượt đẩy đầu tiên tự ghi
+  `first_transfer_at`; đồng hồ 60 ngày VÀNG từ ngày 45 (thư mỗi ngày), ĐỎ quá ngày 60 — kể cả sau khi
+  quay lui hết về `local`. *Vì sao không theo bản trước:* bản trước mặc định VÀNG không chặn, tức chọn sai
+  chiều an toàn. Tài liệu nghiên cứu pháp lý là tham khảo, không phải tư vấn; M14 đi ngược khuyến nghị
+  "giữ dữ liệu gốc trên VPS tại Việt Nam" theo quyết định của chủ văn phòng (câu hỏi 3c).
+- **R14 — Không quyền mới, không đường MCP mới.** Trang "Kho tài liệu" dùng `settings.manage`. Không model
+  hay presenter MCP nào đọc `drive_objects`, `drive_folders` hay các cột `remote_*`/`checksum_*` của
+  `media`. `app/Mcp` chưa có trên `main` lúc gộp (`7632242`): test cấu trúc R14 là việc của làn M11
+  (mục "Việc sau"). M14 không đổi URL route tải (service worker M12 không cache nó).
+- **R15 — Huỷ tệp của hồ sơ đã quá hạn lưu: CRM vẫn không xoá; CRM in danh sách để người có quyền huỷ ở
+  từng nơi.** `vkcrm:storage:destruction-list {matter} --by=<email>` (chỉ admin, vụ đã ghi
+  `destroyed_at`) in tên Drive (mọi thế hệ), đường vùng đệm, đường `crypt` văn phòng; sổ tay bốn nơi ở
+  `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`; `verify`/`orphans` để tệp của vụ đã ghi huỷ thành nhóm riêng.
+
+### Phán quyết của controller (C1–C7) và các ghi đè kế hoạch
+
+- **C1 — Uỷ quyền.** Chủ văn phòng duyệt làm M14 ngay ngày 2026-10-04 và yêu cầu chạy liên tục; các tin
+  nhắn sau là hỏi tiến độ, không đổi phạm vi.
+- **C2 — Không có thông tin đăng nhập Google.** Không bao giờ gọi endpoint Google thật từ làn, test hay
+  script; mọi test dùng `Http::fake()` + `Http::preventStrayRequests()` hoặc đĩa giả. Task 0 mục a, b,
+  d, e, f, test sống của Task 2 và Task 8 Phần 2 là PENDING OWNER.
+- **C3 — Chia làn** (ghi đè thứ tự 0 → 8): làn `m14` làm Task 0–4, rồi Task 6 và 8; làn `m14b` tách từ
+  `417ae5b` (sau vòng sửa Task 2) làm Task 5 và 7 song song, gộp lại ở `31e0b7a`.
+- **C4 — Tệp dùng chung** chỉ nối thêm ở cuối khối (`routes/console.php`, `config/*.php`,
+  `RunPreflight::launchConditionRows()`, `lang/vi/*`, `.env.example`, `composer.*`, …). Hai chỗ lệch có lý
+  do, đã báo người gộp: `.env.example` dòng `HANDOVER_QUEUE_RETRY_AFTER` 900 → 1500 (giữ 900 thì
+  `retry_after` < timeout) và hai chú thích khối M14; `ResendTargets` chèn `staff.document_store_alert.*`
+  trước `undeclared`.
+- **C5 — Ngoài phạm vi.** Không nâng gói nào không liên quan; lock diff của M14 chỉ thêm `google/auth`,
+  `firebase/php-jwt`, `psr/cache` (và `content-hash`).
+- **C6 — Môi trường làn.** Chỉ Docker qua `/d/vkwt/m14-dev` (vendor riêng của làn), test với danh sách
+  tệp tường minh, `test:mariadb` tuần tự, commit theo đường dẫn.
+- **C7 — Gộp vào `main` là việc của controller.** Làn dừng ở "nhánh đã gộp `main`, xanh, đã push".
+- *Ghi đè khác:* `FreeSpace` (`App\Support\Files\FreeSpace`) được dựng ở CẢ hai làn với cùng giao diện
+  (Task 4 cần nó cho gói bàn giao, Task 5 cho dòng `disk_free_space_available`), lúc gộp giữ bản làn
+  `m14`; test "đi trọn đường" của Task 7 (đẩy → nhập biên nhận → dọn vùng đệm,
+  `OfficeReceiptPurgePathTest`) dời sang Task 6, nơi đủ cả hai nửa; phán quyết riêng cho Task 6/8: (1)
+  Task 6 nhặt các minor m14b chạm tới lệnh (Task 5 m3, m7; Task 7 m1, m2, r3), (2) với
+  `DOCUMENT_STORAGE=local` không dòng kho nào ĐỎ nên `php artisan up` không bao giờ bị chặn trên máy không
+  dùng Drive — ghim ở `tests/Feature/Deployment/StoragePreflightTest.php` ("DOCUMENT_STORAGE=local mặc
+  định, chưa cấu hình Drive, chưa từng chuyển…", hai ca: đo được / không đo được chỗ trống), (3)
+  `docs/CAI-DAT.md` sửa giờ chết 1200 giây và khoá 25 phút ở Task 8, (4) độ phủ đo trong container
+  `pcov` dùng một lần nếu được (kết quả dưới).
+
+### Task 0 — kết quả khảo sát và số đo
+
+- Dry-run gói (mỗi lệnh xong `git diff --exit-code composer.*` sạch): `masbug` thất bại mã 2 (Guzzle
+  8.2.0 bị khoá); `masbug -W` hạ guzzle 8.2.0 → 7.15.5, promises 3.0.2 → 2.5.3, psr7 3.1.0 → 2.13.1, gỡ
+  `polyfill-php82`, thêm 7 gói, kèm 5 lượt nâng; `google/auth:^1.55` trên `main` 3 gói không hạ gì; trên
+  bản sao lane-m11 2 gói (`firebase/php-jwt` 7.2.1 đã khoá ở đó); trên bản sao lane-m12 3 gói.
+- `composer audit` trước và sau như nhau (hai cảnh báo `league/commonmark` 2.10.1 có sẵn trên `main`,
+  C5); cây `google/auth` không thêm cảnh báo nào. Giấy phép: Apache-2.0, BSD-3-Clause, MIT; cả ba chạy
+  trên PHP 8.3.
+- Seed (`vk_crm_lane_m14`, MariaDB): 56 media, 43.430 byte, tệp lớn nhất 832 byte, tất cả ở `private`;
+  0 lệch khuôn khoá R4, 0 khoá có `~`, 0 tệp thiếu.
+- Thùng rác tính vào giới hạn 400.000 mục của Shared Drive (trợ giúp công khai, Task 0 mục c).
+
+### Nghiệm thu Task 8 — Phần 1, trên Drive giả (bắt buộc xanh)
+
+Mọi số đo dưới đây chạy trên nhánh đã gộp `main` `7632242` (commit gộp `a39a89a`), qua công cụ làn
+`/d/vkwt/m14-dev` (danh sách tệp tường minh), không lệnh nào gọi Google thật (C2).
+
+- **Cả bộ SQLite** (`test --parallel --processes=2`): **6855 passed, 36 skipped, 1 risky, 0 failed** (171194
+  khẳng định, 3339 s; ca risky là `EnvExampleTest` khối `BRAND_*`, có từ trước M14). Hai lượt đầu sau khi
+  gộp chết giữa chừng với `WorkerCrashedException` ở `DriveUploadTest` (hết `memory_limit` 512M mặc định
+  của image Docker: mỗi tiến trình song song để lại bộ nhớ dần qua khoảng 3.400 test trước đó, và các ca
+  khối 8 MiB nằm gần cuối thứ tự tệp). Sửa: `DriveUploadTest` gỡ drive giả sau mỗi ca (`afterEach`), và
+  `phpunit.xml` đặt `<ini name="memory_limit" value="1024M"/>` — CI (setup-php) vốn chạy với `-1`.
+- **MariaDB thật, tuần tự** (`test:mariadb`, CSDL `vk_crm_test_lane_m14`), 62 tệp: mọi test chạm kho (danh sách độ
+  phủ dưới) cộng `CredentialFileInspectorTest` và `PushTopicTest`: **1272 passed, 1 skipped, 0 failed** (6133 khẳng
+  định, 824 s).
+- **Vòng migration trên MariaDB thật** (CSDL `vk_crm_lane_m14`): `migrate:fresh --seed` → `migrate:reset` →
+  `migrate`, cả ba mã 0; năm migration M14 (`2026_10_04_000001`–`000004`, `2026_10_07_000001`) lên, xuống, lên lại sạch.
+- **`pint --test`**: PASS, 1250 tệp.
+- **Test SPEC §11 theo tên**, chạy lại trên nhánh đã gộp (27 tệp, `--parallel --processes=2`):
+  **953 passed, 2 skipped, 0 failed** (4613 khẳng định). Hai ca bỏ qua có chủ đích: một ca dataset
+  `remote` của `DocumentDownloadTest` (tên lệch khuôn khoá R4 không bao giờ lên kho, `PushOutcome::Rejected`)
+  và một ca của `LoginTest` có từ trước M14. Các tệp có dataset `RemoteDocuments::MODES` chạy mỗi test
+  hai lần: tệp ở `private`, và tệp CHỈ còn trên kho giả sau lượt đẩy thật của `PushDocumentFileToRemote`.
+  - *Tải tệp:* `tests/Feature/Support/FileGuardTest.php` (`.svg`, MIME giả `.pdf` = `x-dosexec`, 20 MB),
+    `tests/Feature/Actions/Document/UploadBelowUploadLimitTest.php`, `UploadStaffDocumentTest.php`,
+    `tests/Feature/Config/LivewireUploadConfigTest.php`, `tests/Feature/Filament/DocumentsRelationManagerTest.php`,
+    `tests/Feature/Portal/SubmitDocumentTest.php`, `tests/Feature/Http/DocumentDownloadTest.php` (hai chế
+    độ), `tests/Feature/Http/DocumentDownloadFromRemoteTest.php` (các test mới của Task 4: mọi nhánh từ
+    chối không gọi kho — đĩa gián điệp VÀ adapter thật trên `Http::fake()` —, `HEAD`, 503, 404 có chỉ
+    mục, tên tiếng Việt, rút tài liệu), `tests/Feature/Http/HandoverPackageDownloadTest.php` (hai chế độ),
+    `tests/Feature/Portal/RetractedDocumentNoticeTest.php` (hai chế độ).
+  - *Tài liệu nội bộ:* `tests/Feature/Actions/Document/PublishDocumentTest.php`,
+    `tests/Feature/Authorization/DocumentAccessTest.php`, `tests/Feature/Authorization/ChildPolicyTest.php`,
+    `tests/Feature/Authorization/PortalIsolationSweepTest.php` (hai test tải của nó chạy hai chế độ).
+  - *Cách ly dữ liệu giữa khách hàng:* `PortalIsolationSweepTest.php`, `DocumentDownloadTest.php` (khách
+    A tải URL tài liệu của khách B → 404, hai chế độ), `tests/Feature/Portal/MatterProgressTest.php`,
+    `MyMattersTest.php`, `MyRequestsTest.php`, `LoginTest.php`, `tests/Feature/Actions/CancelMatterTest.php`.
+  - *Bàn giao và lưu trữ:* `tests/Feature/Filament/UserResourceTest.php` (vô hiệu hoá lead lawyer),
+    `tests/Feature/Actions/Matter/ReassignMatterTest.php` (`stage_logs`, deadline), `BuildHandoverPackageTest.php`
+    và `BuildHandoverPackageFromRemoteTest.php` (giải nén zip thật, không nhóm D; với media chỉ trên
+    kho), `RequestHandoverPackageTest.php`, `tests/Feature/Jobs/GenerateHandoverPackageTest.php`,
+    `tests/Feature/Filament/HandoverPackageSectionTest.php`, `tests/Feature/Portal/ClientAccessExpiryTest.php`.
+- **Độ phủ** (C9; `spec-gap-10` vẫn mở vì image không có `pcov`): đo trong một container `--rm` dùng
+  một lần (`apk add $PHPIZE_DEPS`, `pecl install pcov`), không đổi image hay CI. Chạy 61 tệp test chạm
+  kho (thư mục `tests/Feature/Storage`, `tests/Unit/Support/Storage`, các test tải/bàn giao hai chế độ,
+  preflight, lịch, trang "Kho tài liệu"; 1207 passed, 2 skipped), nên số dưới là CẬN DƯỚI — cả bộ còn
+  chạy thêm mã này:
+  - `app/Actions/Storage/`: **94,1%** dòng (1220/1297); thấp nhất `MigrateDocumentsToRemote` 76,4% (các
+    kết quả `Locked`/`Rejected`/`AlreadyRemote`/`Gone` của lượt đẩy, lỗi `FilesystemException` và lỗi tệp
+    thăm dò đo tốc độ chưa test nào chạy tới — Task 8 thêm hai ca `Locked` và `Rejected` vào
+    `StorageMigrateCommandTest`; đo lại riêng lớp này: **83,6%** (92/110)), `PullDocumentsToLocal` 87,8%, `RebuildDriveIndex` 88,8%;
+  - `app/Support/Storage/`: **94,6%** (684/723) ở lượt đo; `CredentialFileInspector` 37% vì mọi test luật
+    dùng bản giả — Task 8 thêm `tests/Unit/Support/Storage/CredentialFileInspectorTest.php` (tệp thật,
+    tệp vắng, `posix`, thiếu `posix`); đo lại riêng lớp này: **100%** (27/27);
+  - policy mới `DriveObjectPolicy`, `DriveFolderPolicy`: **100%** (14/14).
+- **Tài liệu ghim bằng test**: `tests/Feature/Storage/StorageInstallDocsTest.php` đọc chính `docs/CAI-DAT.md`,
+  `README.md`, `docs/SPEC.md`, `docs/QUY-TRINH.md` và ghi chú này rồi so với mã (giờ chết
+  `GenerateHandoverPackage::TIMEOUT_SECONDS`, khoá của `queue.handover` đọc từ lịch thật,
+  `STALE_AFTER_MINUTES`, biến của khối M14 trong `.env.example`, các mục lịch `storage.*`, các dòng mà
+  `StorageReadiness` trả, các đính chính SPEC, R1–R15, C1–C7); 12 đột biến (tài liệu và hằng số) đều đỏ.
+
+### Nghiệm thu Task 8 — Phần 2, trên Shared Drive thử: PENDING OWNER toàn bộ
+
+Chưa có Google Workspace, tài khoản dịch vụ, khoá JSON, Shared Drive "VK-CRM Kho (thử)" hay tài khoản
+`van-phong-kho@…`, nên **không ô nào của Phần 2 được chạy** và không lệnh nào trong làn gọi Google thật
+(C2). Điều kiện tiên quyết: chủ văn phòng làm Phụ lục A bước 0–11 cho "VK-CRM Kho (thử)" (Shared Drive
+riêng, chỉ dữ liệu seed), tạo một thư mục biên nhận thử trên "VK-CRM Backups", và cài `rclone` + Git
+Bash trên máy dev cho máy văn phòng giả lập. Làn chạy bản phục vụ của nó (`/d/vkwt/m14-dev serve`,
+`http://localhost:8098`, CSDL `vk_crm_lane_m14`, `APP_ENV` không phải production nên cổng R13 không áp
+dụng và mọi kiểm tra đi qua `vkcrm:storage:check`). Các bước còn thiếu, theo đúng kế hoạch:
+
+1. `vkcrm:storage:init`; `vkcrm:storage:check` (mọi dòng sẵn sàng XANH, `document_storage_enabled` ĐỎ
+   là đúng); `vkcrm:storage:enable`; `check` lại thì dòng đó XANH; `GoogleDriveLiveTest` xanh với
+   `DRIVE_LIVE_TEST=1`.
+2. `migrate --dry-run` → `migrate` → `verify --all`; đo tốc độ tải lên/tải xuống (MB/s) và thời gian
+   tới byte đầu.
+3. Nhân sự tải một tài liệu; khách tải một tài liệu trên cổng (cả trên điện thoại); tên tiếng Việt có
+   dấu tải về đúng; khách sửa URL để tải tài liệu nhóm D → 404; dòng `document_downloads` đúng.
+4. Sinh gói bàn giao từ vụ mẫu đã kết thúc, giải nén, dán danh sách entry và thời gian dựng.
+5. Rút một tài liệu: tệp còn trên Drive, đường cũ trả 404.
+6. Máy văn phòng giả lập trên máy dev Windows (Git Bash + rclone; `vkkho` `drive.readonly`, `vkoffice`
+   = `crypt` trên thư mục cục bộ, `vkbackups` trỏ thư mục biên nhận thử): chạy `office-pull.sh`, chạy
+   `vkcrm:storage:office-receipts`, đếm dòng có `office_copied_at`; lùi `local_purge_after` và
+   `office_copied_at` hai ngày bằng một câu SQL trên CSDL làn, chạy `storage.purge-staged` bằng tay, xác
+   nhận bản cục bộ chỉ mất ở tệp có biên nhận khớp; mở thư mục `crypt` bằng Explorer: không đọc được tên
+   hay nội dung (chụp ảnh).
+7. Quay lui theo thứ tự mới: `rollback` khi công tắc còn `google_drive` → mã 2; đặt `local`, `optimize`,
+   `rollback` toàn bộ → `check` không còn `media_on_remote_while_local`; đợi một vòng
+   `storage.push-pending` → không media nào quay lại kho; đặt `google_drive`, `optimize`, `enable`,
+   `migrate` lại: không lượt tải lên thứ hai (đếm request trong log).
+8. Giả kho sập (chặn đường ra `googleapis.com` của container): tải xuống hiện trang 503 (chụp ảnh); tải
+   lên vẫn được; mở lại thì job tự đẩy.
+9. Giả lệch chia sẻ: chủ văn phòng thêm một tài khoản thử vào Shared Drive → trong một giờ có thư cảnh
+   báo và dòng đỏ trên trang chủ → gỡ ra → trạng thái về `ok`.
+10. Diễn tập "mất kho" của Task 7 trên một Shared Drive thử thứ hai.
+11. Mở giao diện Drive bằng tài khoản dự phòng: cây chỉ có thư mục tháng và tên dạng `1834~01k6….pdf`,
+    không tên khách, không mã hồ sơ (chụp ảnh).
+
+### Việc chờ chủ văn phòng và luật sư
+
+Câu hỏi 1–10 của kế hoạch (mục "Câu hỏi cho chủ văn phòng và luật sư của văn phòng"); không câu nào chặn
+việc triển khai bản M14 với `local`. Mỗi câu có mặc định an toàn trong app.
+1. Gói Google Workspace (cần Business Standard trở lên cho R5).
+2. Có chấp nhận bật "người ngoài tổ chức" cho riêng Shared Drive kho nếu Workspace đòi thế để thêm tài
+   khoản dịch vụ không.
+3. Luật sư: (a) được chuyển trước khi nộp hồ sơ hay phải chờ A05 — **mặc định trong app: chặn trên
+   production**; (b) lưu trên đám mây của bên xử lý có DPA có là "tiết lộ" theo Điều 25 Luật Luật sư
+   không; (c) Nghị định 333/2026 Điều 19 (nếu có: máy văn phòng bắt buộc trước khi bật); (d) ảnh
+   CCCD/CMND có cần biện pháp riêng không.
+4. Máy chủ văn phòng: bao giờ, ở đâu, ai giữ mật khẩu `crypt` và cấu hình rclone. Tới khi có, máy chủ web
+   giữ mọi tệp.
+5. Ai giữ tài khoản quản trị dự phòng.
+6. Thời gian ân hạn (24 giờ tệp mới, 30 ngày tệp chuyển, cộng 24 giờ sau biên nhận) và chỗ trống máy chủ.
+7. Sửa tài liệu chung trên Google Docs nằm ngoài phạm vi.
+8. **Mã hoá: chữ ký và ngày chấp nhận rằng tệp trên Kho ở dạng Google đọc được** (SPEC §10 mục 8 ghi
+   "PENDING OWNER — chưa ký").
+9. Tài khoản `van-phong-kho@…` riêng (một giấy phép) hay dùng tài khoản sẵn có.
+10. Ai làm từng bước của sổ tay huỷ tệp và biên bản huỷ lưu ở đâu.
+
+Việc tay của chủ văn phòng: Phụ lục A (Workspace, Shared Drive, Google Cloud project, tài khoản dịch vụ,
+khoá JSON, thành viên, DPA, nhật ký Drive hằng tháng, xoay khoá), Phụ lục D (máy văn phòng). Production
+giữ `DOCUMENT_STORAGE=local` cho tới lúc đó.
+
+### Việc sau
+
+- **M8a — vai của `sao-luu@` trên "VK-CRM Backups".** `sao-luu@` là người tạo Shared Drive sao lưu nên
+  là Manager, và token `gdrive` của nó (phạm vi `drive`) nằm trên máy chủ web: máy chủ bị chiếm thì xoá
+  được archive CSDL trên đó (máy văn phòng đã kéo archive về, nên vẫn còn một bản). Hạ nó xuống Người
+  quản lý nội dung cần một Manager khác — việc của M8a, không làm ở M14 (R10 mục c).
+- **Làn M11 — test cấu trúc R14** khi `app/Mcp` vào `main`: không model hay presenter MCP nào đọc
+  `drive_objects`, `drive_folders`, hay các cột `remote_*`/`checksum_*` của `media`.
+- `spec-gap-10` (cài `pcov` cho CI) vẫn mở; số đo độ phủ của M14 ở Phần 1 đo trong một container dùng một lần.
+- Minor của rà soát còn mở, để rà soát cuối của nhánh phân loại (chép nguyên trong sổ cái của làn M14,
+  `.superpowers/sdd/m14/progress.md` trên máy dev — tệp đó không vào repo): Task 3 m3–m8; Task 4 m1, m2, m4–m6 và ba minor của lần rà soát lại;
+  Task 5 m1, m4, m5; Task 7 m3–m8, r1, r2, r4; Task 6 m1, m2, m4–m10. Task 8 đã đóng: Task 4 m3
+  (CAI-DAT), Task 5 m2 (chạy `check` bằng người dùng PHP-FPM) và Task 6 m3 (`enable`/`migrate` chỉ xét
+  phần sẵn sàng của `check`) trong `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md` và `docs/CAI-DAT.md`.

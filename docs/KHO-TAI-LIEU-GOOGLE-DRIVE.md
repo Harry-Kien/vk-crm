@@ -30,7 +30,11 @@ Hồ sơ pháp lý (chuyển dữ liệu cá nhân ra nước ngoài) có dàn �
   `document_push_backlog`, `document_office_copy`, `data_transfer_dossier` (chỉ production),
   `media_on_remote_while_local`, `disk_free_space_available`.
 
-Có dòng ĐỎ thì lệnh thoát với mã 1. `drive_roundtrip` ghi một tệp thăm dò 1 KiB dưới `preflight/`, kiểm md5 do
+Có dòng ĐỎ thì lệnh thoát với mã 1. Sau khi đặt `google_drive` mà chưa chạy `enable`, dòng trạng thái
+`document_storage_enabled` ĐỎ là đúng: `enable` và `migrate` chỉ xét bảy dòng sẵn sàng. Chạy lệnh bằng ĐÚNG
+người dùng của PHP-FPM (`sudo -u www-data php artisan vkcrm:storage:check` trên VPS): dòng `drive_credentials`
+kiểm quyền đọc tệp khoá của người chạy lệnh, nên chạy bằng `root` hay tài khoản triển khai có thể VÀNG
+"nhóm của tệp không phải nhóm của tiến trình PHP" dù PHP-FPM đọc được đúng. `drive_roundtrip` ghi một tệp thăm dò 1 KiB dưới `preflight/`, kiểm md5 do
 Google tính, đọc lại rồi cho vào thùng rác của Shared Drive — đó là phép thử duy nhất chứng minh máy chủ thật sự
 gọi được Google (một heartbeat chạy được không chứng minh điều đó).
 
@@ -89,8 +93,8 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
    Không cần bật kho. Lệnh đo tốc độ bằng một tệp thăm dò 1 MiB (`preflight~…`) tải lên thư mục gốc rồi cho vào
    thùng rác; không media nào đổi, không dòng chỉ mục nào. Kho chưa cấu hình thì in "không đo được tốc độ".
 6. Đặt `DOCUMENT_STORAGE=google_drive`, `php artisan optimize`, rồi `php artisan vkcrm:storage:enable`.
-   - Mã thoát 2 khi công tắc chưa là `google_drive`, khi `vkcrm:storage:check` còn dòng ĐỎ (lệnh in các dòng
-     đó), hay khi production thiếu ngày hồ sơ lẫn ý kiến cho chuyển trước (bước 4). Chạy lại khi đã bật thì in
+   - Mã thoát 2 khi công tắc chưa là `google_drive`, khi phần **sẵn sàng** của `vkcrm:storage:check` còn dòng
+     ĐỎ (lệnh in các dòng đó; dòng trạng thái `document_storage_enabled` ĐỎ trước lúc bật là đúng, không chặn), hay khi production thiếu ngày hồ sơ lẫn ý kiến cho chuyển trước (bước 4). Chạy lại khi đã bật thì in
      mốc cũ, mã 0, **không** dời mốc.
    - Từ lúc `enable` xong, **tệp mới** tự lên kho; tệp cũ đứng yên.
    - Lượt đẩy thật đầu tiên tự ghi **ngày chuyển dữ liệu đầu tiên** (đồng hồ 60 ngày nộp hồ sơ); xem trên trang
@@ -104,7 +108,7 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
    - Chuyển từ media cũ nhất (id nhỏ) tới mới nhất; chạy lại chỉ làm phần còn lại. Tệp đã lên kho từ lượt trước
      mà chưa đổi đĩa không bị tải lần hai.
    - Mã thoát 1: có tệp không chuyển được (lệnh in `#<mã media>` và lý do; tệp vẫn ở máy chủ), hoặc kho không
-     tới được nên lượt dừng sớm. Mã 2: kho chưa bật hay `vkcrm:storage:check` có dòng ĐỎ.
+     tới được nên lượt dừng sớm. Mã 2: kho chưa bật hay phần sẵn sàng của `vkcrm:storage:check` có dòng ĐỎ.
 8. `php artisan vkcrm:storage:verify --all` (hoặc `--sample=N`; không tuỳ chọn = 100 tệp ngẫu nhiên). Phải sạch:
    lệnh in nhóm "bị đổi", "đã vào thùng rác", "thiếu", "không kiểm được" theo `#<mã media>`, mã thoát 1 khi có.
    Tệp của vụ đã ghi quyết định huỷ là nhóm riêng, không tính là lỗi.
