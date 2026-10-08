@@ -328,6 +328,37 @@ it('trang 503 của khách mang số hotline văn phòng; của nhân sự thì 
         ->assertDontSee('tel:'.$hotline, false);
 });
 
+/*
+ * Rà soát cuối M14 vòng sửa 1 (I1) — luật M12 Task 3 vòng sửa 1 (tests/Feature/Pwa/ErrorPageHomeLinkTest.php) cho
+ * trang 503: liên kết tải là bí danh `/admin|/portal/documents/{id}/download` mở trong CÙNG cửa sổ app
+ * đã cài, nên trang 503 hiện NGAY TRONG app. Nút "Về trang chủ" trỏ `start_url` của chính app đó
+ * (`PwaPanels::startUrlFor()`), không `url('/')` — `/` chuyển tới đăng nhập của KHÁCH, ngoài scope
+ * `/admin`, và trên iPhone mở một tấm Safari không có đường về. Lấy MỌI lối ra trừ `tel:` để một nút
+ * thứ hai trỏ ra ngoài app cũng làm test đỏ.
+ */
+it('trang 503 trong app: nút về trang chủ trỏ đầu CHÍNH app — bí danh nội bộ về /admin, bí danh cổng về /portal', function (string $app) {
+    $document = rfrDocument($this->matter);
+    RemoteDocuments::pushToRemote($document->getFirstMedia('file'));
+    SpyFilesystem::install(hooks: ['readStream' => fn () => throw DocumentStorageUnavailable::temporarily()]);
+    $actor = $app === 'portal' ? $this->clientUser : $this->lawyer;
+    $url = $document->downloadUrlFor($actor);
+
+    expect(parse_url($url, PHP_URL_PATH))->toBe("/{$app}/documents/{$document->id}/download");
+
+    $html = $this->actingAs($actor, $app === 'portal' ? 'client' : 'web')->get($url)
+        ->assertStatus(503)
+        ->getContent();
+
+    preg_match_all('/<a\b[^>]*\bhref="([^"]*)"/', $html, $matches);
+    $exits = array_values(array_filter(
+        array_map(fn (string $href): string => html_entity_decode($href, ENT_QUOTES), $matches[1]),
+        fn (string $href): bool => ! str_starts_with($href, 'tel:'),
+    ));
+
+    expect($exits)->toBe([url("/{$app}")])
+        ->and($html)->toMatch('#<a href="'.preg_quote(url("/{$app}"), '#').'"[^>]*>\s*'.preg_quote(e(__('storage.unavailable_page.home')), '#').'\s*</a>#');
+})->with(['admin', 'portal']);
+
 it('kho sập thật (Google trả 503 hết lượt thử): 503 tiếng Việt, không nhật ký', function () {
     $document = rfrDocument($this->matter);
     $drive = rfrWire($document, 'drive');

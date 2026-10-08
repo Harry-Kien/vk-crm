@@ -21,9 +21,12 @@
         <!-- M14 Task 8: image Docker của máy dev mặc định memory_limit 512M. Bộ test (khoảng 6.900 test
              sau khi gộp M12 và M14) để lại bộ nhớ dần trong mỗi tiến trình của lượt chạy song song, và
              các ca khối 8 MiB của tests/Unit/Support/Storage/GoogleDrive/DriveUploadTest.php (gần cuối
-             thứ tự tệp) chạm trần: WorkerCrashedException. CI (setup-php) chạy với memory_limit -1,
-             nên dòng này chỉ đưa máy dev lại gần CI. -->
-        <ini name="memory_limit" value="1024M"/>
+             thứ tự tệp) chạm trần: WorkerCrashedException. PHPUnit gọi ini_set() cho MỌI thẻ <ini>,
+             nên giá trị ở đây cũng đè lên CI: chỉ đúng giá trị của CI (setup-php: -1) mới đưa máy dev
+             về giống CI mà không đổi hành vi của CI. Một trần hữu hạn (1024M ở lượt trước) có thể làm
+             CI — chạy TUẦN TỰ, một tiến trình mang cả bộ — chết hết bộ nhớ. Ghim ở
+             tests/Unit/PhpunitMemoryLimitTest.php. -->
+        <ini name="memory_limit" value="-1"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_LOCALE" value="vi"/>
         <env name="ADMIN_DOMAIN" value=""/>

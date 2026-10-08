@@ -12,11 +12,20 @@
        lại sau ít phút.
     3. **Kiểu dáng nội tuyến, mọi biến màu có giá trị dự phòng** (không có bước dựng CSS; trang trả về
        ngoài Filament nên `theme.css` có thể chưa được nạp).
+
+    Nút "Về trang chủ" trỏ `start_url` của CHÍNH app mà request thuộc về
+    (`App\Support\Pwa\PwaPanels::startUrlFor()`: `/admin` cho bí danh tải nội bộ, `/portal` cho bí danh
+    của cổng và mọi request ngoài hai panel — luật đầy đủ ở docblock đó), cùng luật với `errors/403` và
+    `errors/404` (M12 Task 3 vòng sửa 1). Không `url('/')`: liên kết tải mở trong CÙNG cửa sổ app đã
+    cài nên trang này hiện ngay trong app, và `/` chuyển tới đăng nhập của KHÁCH, ngoài scope `/admin`
+    — trên iPhone là một tấm Safari không có đường về. Ghim ở
+    `tests/Feature/Http/DocumentDownloadFromRemoteTest.php` (vòng sửa 1 của rà soát cuối M14, I1).
 --}}
 
 @php
     $forStaff = auth('web')->check();
     $hotline = $forStaff ? null : App\Support\OfficeProfile::current()->hotline();
+    $home = \App\Support\Pwa\PwaPanels::startUrlFor(request());
     $tap = 'min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0.625rem 1rem;border-radius:0.5rem;text-decoration:none;font-weight:600;';
 @endphp
 <!DOCTYPE html>
@@ -44,7 +53,7 @@
         @endif
 
         <p style="margin-top:1rem;">
-            <a href="{{ url('/') }}" style="{{ $tap }}border:1px solid color-mix(in srgb, var(--gray-500, #6b7280) 40%, transparent);color:var(--primary-600, #2563eb);">
+            <a href="{{ $home }}" style="{{ $tap }}border:1px solid color-mix(in srgb, var(--gray-500, #6b7280) 40%, transparent);color:var(--primary-600, #2563eb);">
                 {{ __('storage.unavailable_page.home') }}
             </a>
         </p>
