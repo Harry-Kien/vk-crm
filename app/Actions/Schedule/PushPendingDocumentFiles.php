@@ -6,6 +6,7 @@ use App\Jobs\PushDocumentFile;
 use App\Models\Setting;
 use App\Support\Audit;
 use App\Support\Storage\DocumentStore;
+use App\Support\Storage\PushBackoff;
 use Carbon\CarbonImmutable;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
@@ -30,8 +31,12 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
  * và tệp tạo trong lúc tắt thành tệp cũ. Công tắc `google_drive` mà chưa có mốc: không làm gì (lệnh bật
  * chưa chạy; kiểm tra sẵn sàng báo ĐỎ).
  *
- * Job xếp ở đây có thể trùng một job còn trong hàng của cùng media: khoá đẩy loại trừ hai lượt, lượt
- * thứ hai thả lại (`Locked`) hay thấy `AlreadyRemote`.
+ * Kho đang dừng sau một lượt đẩy hỏng ({@see PushBackoff}: 60 phút sau lỗi cấu hình, 15 phút sau lỗi
+ * kho không trả lời) thì không xếp gì. Media vừa làm hỏng một lượt xếp CUỐI, sau các media khác theo
+ * `id`, để một tệp hỏng vì chính nó không đứng đầu mọi lượt (rà soát cuối vòng sửa 1, I4).
+ *
+ * Job đẩy là `ShouldBeUnique` theo media: media còn job trong hàng thì lần xếp này không thêm job thứ
+ * hai, nên `queued` đếm số media được ĐƯA RA xếp, không phải số job mới.
  */
 class PushPendingDocumentFiles
 {
@@ -62,20 +67,31 @@ class PushPendingDocumentFiles
             return ['queued' => 0, 'disabled_observed' => false];
         }
 
-        $queued = 0;
+        if (PushBackoff::paused()) {
+            return ['queued' => 0, 'disabled_observed' => false];
+        }
+
+        $first = [];
+        $last = [];
 
         Media::query()
             ->select('id')
             ->where('disk', DocumentStore::STAGING_DISK)
             ->where('created_at', '>=', $enabledAt->setTimezone(config('app.timezone')))
             ->where('created_at', '<=', now()->subMinutes(self::MINIMUM_AGE_MINUTES))
-            ->lazyById(500)
-            ->each(function (Media $media) use (&$queued): void {
-                PushDocumentFile::dispatch((int) $media->getKey());
-                $queued++;
+            ->chunkById(500, function ($chunk) use (&$first, &$last): void {
+                $ids = $chunk->map(fn (Media $media): int => (int) $media->getKey())->all();
+                $failed = PushBackoff::recentlyFailed($ids);
+
+                array_push($first, ...array_diff($ids, $failed));
+                array_push($last, ...$failed);
             });
 
-        return ['queued' => $queued, 'disabled_observed' => false];
+        foreach ([...$first, ...$last] as $mediaId) {
+            PushDocumentFile::dispatch($mediaId);
+        }
+
+        return ['queued' => count($first) + count($last), 'disabled_observed' => false];
     }
 
     private function forgetEnabledAt(CarbonImmutable $enabledAt): void
