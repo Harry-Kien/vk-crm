@@ -175,6 +175,7 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
 | Bốn thông tin pháp lý: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động, địa chỉ văn phòng | `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` — in ở chân mọi thư gửi khách. Địa chỉ trụ sở đã có sẵn (1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai — chủ văn phòng cung cấp ngày 2026-10-02); ba thông tin còn lại chờ chủ văn phòng |
 | Hộp thư có người đọc, nhận thư khi khách bấm "Trả lời" | `BRAND_REPLY_TO_ADDRESS` |
 | Họ tên và email của quản trị viên đầu tiên | Bước 6 |
+| Người giữ kho mã nguồn trên GitHub thêm khoá đọc (deploy key) của máy chủ | Bước 2 — kho là kho riêng tư |
 | Một tài khoản Google RIÊNG cho sao lưu | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 2 |
 | Hai chỗ cất khoá NGOÀI máy chủ (trình quản lý mật khẩu + bản giấy/USB trong két) | Bước 3 và `docs/SAO-LUU-KHOI-PHUC.md`, Bước 6 |
 
@@ -267,6 +268,28 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://updates.push.services.mozilla.
 
 ### Bước 2 — Lấy mã nguồn, cài phụ thuộc
 
+**Kho `Harry-Kien/vk-crm` là kho riêng tư.** Người không có quyền trên kho chạy lệnh `git clone`
+dưới đây sẽ nhận `Repository not found` (hoặc bị hỏi mật khẩu GitHub, mà GitHub không nhận mật khẩu
+cho git nữa). Cách làm: máy chủ có một **deploy key** chỉ đọc, do người giữ kho thêm vào kho (Bước 0).
+
+```bash
+# Trên máy chủ, bằng người dùng sẽ chạy git clone / git pull (ví dụ www-data hoặc người quản trị):
+ssh-keygen -t ed25519 -C "vk-crm deploy $(hostname)" -f ~/.ssh/vk-crm-deploy -N ""
+cat ~/.ssh/vk-crm-deploy.pub
+```
+
+Gửi dòng `ssh-ed25519 …` vừa in ra (khoá CÔNG KHAI — tệp `.pub`; tệp không đuôi là khoá riêng, không
+gửi cho ai) cho người giữ kho. Người đó vào GitHub → kho `vk-crm` → Settings → Deploy keys → Add
+deploy key, dán khoá, **không** tích "Allow write access". Rồi clone qua SSH thay cho dòng `https://`
+ở khối lệnh dưới:
+
+```bash
+git clone -c core.sshCommand="ssh -i ~/.ssh/vk-crm-deploy -o IdentitiesOnly=yes"   git@github.com:Harry-Kien/vk-crm.git /var/www/vk-crm
+```
+
+`-c core.sshCommand=…` lưu vào `.git/config` của bản clone, nên mọi `git pull` khi nâng cấp dùng lại
+đúng khoá đó. Người đã có quyền trên kho (tài khoản GitHub được mời) dùng thẳng dòng `https://` dưới đây.
+
 ```bash
 git clone https://github.com/Harry-Kien/vk-crm.git /var/www/vk-crm
 cd /var/www/vk-crm
@@ -311,7 +334,19 @@ khoá mới — đọc lại mục "CẢNH BÁO về `APP_KEY`" ở trên. Ngay 
 
 Rồi mở `.env` và điền. Mọi biến đều có sẵn một dòng trong `.env.example`, kèm một câu nói giá trị
 thật lấy ở đâu (`tests/Feature/Deployment/EnvExampleTest.php` giữ cho điều đó luôn đúng: một biến
-mới mà quên dòng mẫu là test đỏ). Những dòng PHẢI sửa so với bản mẫu — bản mẫu là cho máy dev:
+mới mà quên dòng mẫu là test đỏ).
+
+**Giá trị có dấu cách phải nằm trong ngoặc kép.** Bốn thông tin pháp lý, tên văn phòng, địa chỉ là
+chuỗi tiếng Việt có dấu cách; viết thiếu ngoặc kép thì cả tệp `.env` bị từ chối — mọi lệnh
+`php artisan` và mọi trang chết với `The environment file is invalid!`. Viết đúng, dạng:
+
+```
+BRAND_BAR_ASSOCIATION="Đoàn Luật sư tỉnh Đồng Nai"
+```
+
+(tên đoàn luật sư thật do chủ văn phòng cung cấp — Bước 0; dòng trên chỉ là dạng viết).
+
+Những dòng PHẢI sửa so với bản mẫu — bản mẫu là cho máy dev:
 
 | Biến | Giá trị trên máy chủ thật | Lấy ở đâu |
 |---|---|---|
