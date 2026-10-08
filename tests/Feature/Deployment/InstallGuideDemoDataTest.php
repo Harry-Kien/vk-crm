@@ -4,6 +4,7 @@ use App\Enums\UserPosition;
 use App\Models\User;
 use Database\Seeders\DemoDataSeeder;
 use Database\Seeders\ReferenceDataSeeder;
+use Database\Seeders\TeamPerformanceSeeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
@@ -176,7 +177,15 @@ it('Bước 5 chỉ đưa dữ liệu mẫu lên máy chủ thật sau ADMIN_IP_
     expect($demoStaff)->not->toBeEmpty()
         ->and($demoStaff->where('position', UserPosition::Admin)->pluck('email')->all())->toBe(['admin@luatvukhang.com']);
 
-    foreach ($demoStaff as $user) {
+    // M13 Task 8: luật sư ĐÃ NGHỈ VIỆC của `TeamPerformanceSeeder` — vô hiệu hoá, mật khẩu ngẫu nhiên, không đăng
+    // nhập được; tài liệu vẫn nêu tên và nói đúng điều đó.
+    $departed = $demoStaff->where('is_active', false);
+
+    expect($departed->pluck('email')->all())->toBe([TeamPerformanceSeeder::DEPARTED_EMAIL])
+        ->and(Hash::check('password', $departed->first()->password))->toBeFalse()
+        ->and($step5)->toContain('`'.TeamPerformanceSeeder::DEPARTED_EMAIL.'`');
+
+    foreach ($demoStaff->where('is_active', true) as $user) {
         expect(Hash::check('password', $user->password))->toBeTrue()
             ->and($user->two_factor_secret)->toBeNull()
             ->and($step5)->toContain("`{$user->email}`");

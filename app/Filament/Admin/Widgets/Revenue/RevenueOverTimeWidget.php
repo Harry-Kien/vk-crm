@@ -4,11 +4,10 @@ namespace App\Filament\Admin\Widgets\Revenue;
 
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
-use App\Models\Payment;
 use App\Models\User;
+use App\Support\Billing\CollectedRevenue;
 use App\Support\Billing\Money;
 use App\Support\Billing\RevenueFilters;
-use App\Support\Scopes\ClientPortalScope;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Contracts\Support\Htmlable;
@@ -123,14 +122,14 @@ class RevenueOverTimeWidget extends ChartWidget
 
         $filters = RevenueFilters::fromPageFilters($this->pageFilters);
 
-        $rows = Payment::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->whereNull('voided_at')
-            ->whereBetween('paid_on', $filters->bounds())
+        // "Tiền đã thu trong kỳ, trong tầm nhìn của người xem" là CollectedRevenue (M13 Task 2, tách
+        // nguyên văn từ đây — cột P7 của trang hiệu suất đọc cùng truy vấn). Hai bộ lọc của trang gắn
+        // THÊM: một khoản thu thuộc đúng một vụ, nên `whereHas` lĩnh vực thứ hai tương đương với điều
+        // kiện cũ nằm trong cùng closure `listableBy`.
+        $rows = CollectedRevenue::query($user, $filters->bounds())
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('attributed_lawyer_id', $v))
-            ->whereHas('instalment.contract.matter', fn (Builder $q) => $q
-                ->listableBy($user)
-                ->when($filters->practiceAreaId, fn (Builder $mq, int $v) => $mq->where('matter_type_id', $v)))
+            ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q
+                ->whereHas('instalment.contract.matter', fn (Builder $mq) => $mq->where('matter_type_id', $v)))
             ->get(['paid_on', 'amount']);
 
         $granularity = in_array($this->filter, ['month', 'quarter', 'year'], true) ? $this->filter : 'month';

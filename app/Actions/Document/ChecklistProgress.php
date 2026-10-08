@@ -4,6 +4,7 @@ namespace App\Actions\Document;
 
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
+use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\Scopes\ClientPortalScope;
@@ -313,9 +314,84 @@ class ChecklistProgress
     public static function countClientSubmittedDocuments(Builder $items): Builder
     {
         return $items->withCount([
-            'documents as '.self::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS => fn (Builder $documents): Builder => $documents
-                ->withoutGlobalScope(ClientPortalScope::class)
-                ->where('group', DocumentGroup::ClientProvided->value),
+            'documents as '.self::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS => self::clientSubmittedDocuments(...),
         ]);
+    }
+
+    /**
+     * `X/Y` CỘNG DỒN theo luật sư phụ trách (M13, cột N10 "Hoàn thiện danh mục"): với mỗi
+     * `lead_lawyer_id` của các vụ trong `$matters`, `settled` = Σ X và `total` = Σ Y của
+     * {@see self::handle()} trên từng vụ — một truy vấn `GROUP BY`, không một lần `handle()` cho mỗi
+     * vụ (R11 của kế hoạch M13).
+     *
+     * **Cùng luật, hình dạng SQL — không phải định nghĩa thứ hai.** `Y` là {@see self::countedInTotal()}
+     * nói bằng SQL ({@see self::countedInTotalQuery()}: bắt buộc, HOẶC có tài liệu NHÓM A chưa xoá mềm,
+     * cùng ràng buộc tài liệu {@see self::clientSubmittedDocuments()} mà bộ đếm của `handle()` dùng); `X`
+     * đếm BÊN TRONG `Y` theo đúng {@see self::SETTLED_STATUSES}. Bỏ `ClientPortalScope` của `Document`
+     * như `countClientSubmittedDocuments()`, và của chính đầu mục như `outstandingRequiredItems()` (con
+     * số không phụ thuộc phiên khách nào đang mở); giữ `SoftDeletingScope` của cả hai — đầu mục đã gỡ
+     * không có mặt, như quan hệ `Matter::checklistItems()`. `SingleSourceParityTest` ghim: kết quả
+     * bằng tổng `handle()` từng vụ trên mọi ca của mẫu số (không bắt buộc có nhóm A, chỉ nhóm B, nhóm A
+     * đã xoá mềm, đầu mục đã gỡ, `not_applicable`).
+     *
+     * `$matters` là tập vụ của NGƯỜI GỌI (N10: `listableBy($viewer)->open()`, R4) — hàm này không tự
+     * thêm điều kiện xem nào. Người phụ trách không có đầu mục nào trong `Y` không có khoá trong kết quả
+     * (0/0 là "chưa có gì để đếm", không phải 0%).
+     *
+     * @param  Builder<Matter>  $matters
+     * @return array<int, array{settled: int, total: int}> khoá là `lead_lawyer_id`
+     */
+    public static function totalsByLead(Builder $matters): array
+    {
+        $settled = array_map(static fn (ChecklistItemStatus $status): string => $status->value, self::SETTLED_STATUSES);
+        $placeholders = implode(', ', array_fill(0, count($settled), '?'));
+
+        return MatterChecklistItem::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->join('matters as progress_matter', 'progress_matter.id', '=', 'matter_checklist_items.matter_id')
+            ->whereIn('matter_checklist_items.matter_id', (clone $matters)->select($matters->qualifyColumn('id')))
+            ->where(fn (Builder $items): Builder => self::countedInTotalQuery($items))
+            ->groupBy('progress_matter.lead_lawyer_id')
+            ->toBase()
+            ->select('progress_matter.lead_lawyer_id as lead_id')
+            ->selectRaw("SUM(CASE WHEN matter_checklist_items.status IN ({$placeholders}) THEN 1 ELSE 0 END) as settled", $settled)
+            ->selectRaw('COUNT(*) as total')
+            ->get()
+            ->mapWithKeys(fn (object $row): array => [
+                (int) $row->lead_id => ['settled' => (int) $row->settled, 'total' => (int) $row->total],
+            ])
+            ->all();
+    }
+
+    /**
+     * Bản SQL của {@see self::countedInTotal()} — cùng hai vế, nói bằng `where`: đầu mục bắt buộc,
+     * HOẶC có ít nhất một tài liệu nhóm A ({@see self::clientSubmittedDocuments()}, cùng ràng buộc mà
+     * bộ đếm `withCount` của `countedInTotal()` đọc). Riêng tư: chỉ `totalsByLead()` cần lọc mẫu số
+     * bằng SQL; ai cần thêm thì nói lại test đồng nhất của `totalsByLead()` trước.
+     *
+     * @param  Builder<MatterChecklistItem>  $items
+     * @return Builder<MatterChecklistItem>
+     */
+    private static function countedInTotalQuery(Builder $items): Builder
+    {
+        return $items
+            ->where($items->qualifyColumn('is_required'), true)
+            ->orWhereHas('documents', self::clientSubmittedDocuments(...));
+    }
+
+    /**
+     * Tài liệu NHÓM A (`DocumentGroup::ClientProvided`) gắn vào đầu mục — ràng buộc DUY NHẤT của bộ
+     * đếm `countClientSubmittedDocuments()` và của vế thứ hai trong `countedInTotalQuery()`, để hai
+     * hình dạng của luật `Y` không lệch nhau. Bỏ `ClientPortalScope` tường minh (xem docblock lớp),
+     * giữ `SoftDeletingScope`: tài liệu đã xoá mềm không còn là "đã có tài liệu".
+     *
+     * @param  Builder<Document>  $documents
+     * @return Builder<Document>
+     */
+    private static function clientSubmittedDocuments(Builder $documents): Builder
+    {
+        return $documents
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('group', DocumentGroup::ClientProvided->value);
     }
 }

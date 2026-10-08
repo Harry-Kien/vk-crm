@@ -210,6 +210,10 @@ return [
         // (`vkcrm:storage:destruction-list`) — chủ thể là vụ, người thực hiện là quản trị viên `--by`;
         // chỉ số tên Drive, số tệp vùng đệm, số đường ở văn phòng.
         'matter_storage_destruction_listed' => 'Liệt kê tệp cần huỷ của hồ sơ đã quá hạn lưu',
+        // M13 (R14): xem số liệu theo dõi/hiệu suất của NGƯỜI KHÁC — trang "Theo dõi đội ngũ"
+        // (Task 1, chủ thể rỗng, `page = team_overview`), trang của một người khác (Task 5, chủ thể
+        // là người đó), "Hiệu suất theo kỳ" với `performance.viewAny` (Task 6, `properties` mang kỳ).
+        'performance_viewed' => 'Xem số liệu hiệu suất của nhân sự',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
@@ -238,6 +242,26 @@ return [
             // chỉ là bị ẩn có chủ đích (Controller decision Task 20: "không bao giờ hiện
             // id_number hay bất kỳ định danh cá nhân thô nào").
             'redacted' => '••• (đã ẩn — định danh cá nhân thô)',
+        ],
+    ],
+
+    // M13 Task 3 (R9, R18): nhãn của `reason` trong `properties` của một dòng nhật ký, theo CẶP
+    // sự kiện + lý do — `activity.reasons.<sự kiện>.<lý do>`. Mỗi lý do là một hằng số `*_REASON`
+    // của đúng Action ghi dòng đó (`ActivityReasonLabelsTest` ghim hai chiều: mọi hằng số có nhãn,
+    // không nhãn mồ côi). Modal "Xem chi tiết" in nhãn thay mã (`App\Support\ActivityReasonLabel`);
+    // lý do không có nhãn (lý do tự do của `matter_reassigned`, mã mới) in nguyên văn.
+    'reasons' => [
+        'deadline_responsible_changed' => [
+            // SetDeadlineCompletion::REOPEN_HANDOVER_REASON
+            'reopened_holder_no_longer_qualifies' => 'Mở lại mốc: người đang giữ không còn giữ được mốc, mốc chuyển về luật sư phụ trách hồ sơ',
+            // ReassignMatter::DEADLINE_HANDOVER_REASON
+            'matter_reassigned' => 'Bàn giao vụ việc: mốc chưa xong chuyển sang luật sư phụ trách mới',
+            // UpdateDeadline::HANDOVER_REASON
+            'deadline_updated' => 'Sửa mốc thời hạn: đổi người phụ trách',
+        ],
+        'client_request_assigned' => [
+            // ReassignMatter::REQUEST_HANDOVER_REASON
+            'matter_reassigned' => 'Bàn giao vụ việc: yêu cầu đang giao cho luật sư cũ chuyển sang luật sư phụ trách mới',
         ],
     ],
 ];

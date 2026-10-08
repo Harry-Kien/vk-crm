@@ -91,6 +91,15 @@ class ReviewChecklistItem
     private const MIN_REJECTION_REASON_LENGTH = 20;
 
     /**
+     * Tên sự kiện nhật ký của một lần duyệt hoặc từ chối (M13 Task 2). Cột P6 "Giấy tờ đã duyệt" đếm
+     * đúng các dòng này (`ActivityOwningMatter::scopeEventsWithin()`), nên tên đi qua MỘT hằng số dùng
+     * ở chính câu `Audit::record()` bên dưới — không để P6 đọc một chuỗi có thể trôi. Nhãn tiếng Việt:
+     * `activity.events.checklist_item_reviewed` (`SingleSourceParityTest` ghim, vì
+     * `ActivityLogEventTranslationsTest` chỉ quét chuỗi literal).
+     */
+    public const AUDIT_EVENT = 'checklist_item_reviewed';
+
+    /**
      * @param  array<int, int|string>|null  $documentIds  Tập id tài liệu hộp xác nhận đã hiện —
      *                                                    xem docblock lớp, mục R11.
      */
@@ -161,7 +170,7 @@ class ReviewChecklistItem
             // xác nhận là tập HIỆN TẠI (khớp `$documentIds` khi caller có truyền, hoặc chính
             // `$currentDocumentIds` khi không — dòng nhật ký vẫn nêu đích danh tệp nào, kể cả
             // với một caller không tự so sánh).
-            Audit::record('checklist_item_reviewed', $fresh, [
+            Audit::record(self::AUDIT_EVENT, $fresh, [
                 'matter_id' => $fresh->matter_id,
                 'client_id' => $matter->client_id,
                 'status' => $decision->value,

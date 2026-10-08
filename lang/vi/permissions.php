@@ -21,4 +21,5 @@ return [
     'intake.create' => 'Ghi nhận một lần có người liên hệ văn phòng',
     'intake.viewAny' => 'Xem mọi lần liên hệ, xử lý xung đột lúc tiếp nhận và xem báo cáo đầu vào',
     'intake.convert' => 'Chuyển một lần liên hệ thành vụ việc',
+    'performance.viewAny' => 'Xem số liệu theo dõi và hiệu suất của mọi nhân sự',
 ];

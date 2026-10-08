@@ -47,6 +47,9 @@ class DemoDataSeeder extends Seeder
             // M9 Task 13: tiền mẫu đọc vụ việc của MatterSeeder nên đứng sau nó — và chỉ ở đây,
             // không bao giờ trong ReferenceDataSeeder (docblock BillingSeeder).
             BillingSeeder::class,
+            // M13 Task 8: theo dõi đội ngũ — bốn vụ mẫu, một luật sư nghỉ việc bàn giao qua ReassignMatters,
+            // 90 ngày ảnh chụp GIẢ. Sau BillingSeeder: hợp đồng của các vụ này đi qua cùng ba Action tiền.
+            TeamPerformanceSeeder::class,
         ]);
 
         // M10 Task 8 — tiếp nhận: SAU các seeder trên (Đỏ trỏ vào khách hiện hữu, bản chuyển đổi gắn vào

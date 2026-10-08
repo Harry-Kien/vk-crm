@@ -588,7 +588,7 @@ Mọi cận ngày trên cột `date` (`due_date`, `paid_on`) là cận **đủ g
 
 ## Tasks
 
-### - [ ] Task 1 — Quyền, policy, danh sách người được theo dõi, khung ba trang, đính chính SPEC, ranh giới MCP
+### - [x] Task 1 — Quyền, policy, danh sách người được theo dõi, khung ba trang, đính chính SPEC, ranh giới MCP
 
 **Tệp:**
 - sửa: `app/Enums/Permission.php` (case mới, docblock đếm quyền cộng dồn), `app/Enums/Role.php` (Manager thêm quyền; Admin tự có qua `Permission::cases()`), `lang/vi/permissions.php`;
@@ -623,20 +623,20 @@ public function viewPerformanceRevenue(User|ClientUser $viewer, User $subject): 
 ```
 
 **Bước:**
-- [ ] Grep theo "Ràng buộc toàn cục" và dán kết quả. Nếu thiếu `StageLog::scopeEntries()` hoặc `RevenueFilters::bounds()` thì dừng lại.
-- [ ] Quyền và policy theo R2, danh sách người theo R3.
-- [ ] Ba trang, mỗi trang có icon riêng (Heroicon, không trùng icon đã dùng) và tiêu đề tiếng Việt:
+- [x] Grep theo "Ràng buộc toàn cục" và dán kết quả. Nếu thiếu `StageLog::scopeEntries()` hoặc `RevenueFilters::bounds()` thì dừng lại.
+- [x] Quyền và policy theo R2, danh sách người theo R3.
+- [x] Ba trang, mỗi trang có icon riêng (Heroicon, không trùng icon đã dùng) và tiêu đề tiếng Việt:
   - `TeamOverview::canAccess()` = `performance.viewAny`;
   - `TeamMember` và `Performance`: `canAccess()` = `matter.view` **hoặc** `performance.viewAny`;
   - `TeamMember::mount(int|string $user)` nạp người dùng **chưa xoá mềm** (đang hoạt động hay đã nghỉ việc đều được), rồi `abort_unless(Gate::forUser($viewer)->allows('viewPerformance', $subject), 404)`. Không tìm thấy cũng là 404 đó;
   - `boot()` của cả ba trang hỏi lại.
   - `TeamOverview::mount()` ghi `performance_viewed` (R14, `page = team_overview`).
-- [ ] Thanh điều hướng:
+- [x] Thanh điều hướng:
   - người có `performance.viewAny` thấy "Theo dõi đội ngũ" và "Hiệu suất";
   - người khác thấy "Việc của tôi" (đường dẫn tới `TeamMember` của chính mình, qua `getNavigationUrl()`, đọc `vendor/filament/filament/src/Pages/Page.php:270` trước) và "Hiệu suất".
 
   Thân trang ở task này chỉ là khung rỗng, có câu R4 cố định.
-- [ ] **Đính chính SPEC, mỗi mục kèm ngày 2026-10-04:**
+- [x] **Đính chính SPEC, mỗi mục kèm ngày 2026-10-04:**
   - §1, bảng người dùng: dòng "Trưởng phòng / Ban lãnh đạo" thêm "theo dõi tiến độ và hiệu suất của đội ngũ (M13)";
   - §5: bảng R2, câu "số của chính mình", và kế toán "không";
   - §6.14 mới "Số liệu đội ngũ và hiệu suất": bảng "Định nghĩa các con số" ở trên (kể cả bảng ca biên của P1), R5, R6 ("Không áp dụng"), R7, R9, R18 (người giữ yêu cầu tại một thời điểm), R19 (kỳ đã đóng không trôi), R20 (mốc tạo qua AI);
@@ -646,28 +646,28 @@ public function viewPerformanceRevenue(User|ClientUser $viewer, User $subject): 
   - §11 mục mới "Theo dõi đội ngũ": restricted không lộ qua con số; kế toán 404; luật sư chỉ thấy số của mình;
   - §13: dòng M13;
   - §15: phần "năng suất" của báo cáo quản trị đã làm; giờ làm và tỉ lệ thắng vẫn để sau (R15).
-- [ ] Test cấu trúc MCP theo R13.
+- [x] Test cấu trúc MCP theo R13.
 
 **Test bắt buộc** (mỗi vế một mutation probe; nhân chứng được cấp quyền trực tiếp, không qua vai trò, khi cần tách quyền):
-- [ ] Ma trận năm vai trò × ba trang:
+- [x] Ma trận năm vai trò × ba trang:
   - admin, quản lý: 200 cả ba;
   - luật sư, trợ lý: 404 `TeamOverview`, 200 `Performance`, 200 trang của mình, 404 trang người khác;
   - kế toán: 404 cả ba, kể cả trang "của mình".
-- [ ] `/team/{id}` của admin, của kế toán, của người đã xoá mềm, và của id không tồn tại: cùng một response 404, cùng thân.
-- [ ] `/team/{id}` của một luật sư **đã nghỉ việc** (chưa xoá mềm): 200 với trưởng phòng. Mutation probe: thêm `is_active` vào `isTrackable()` thì test đỏ.
-- [ ] Mất quyền sau `mount()`: lần gọi Livewire kế tiếp trả 404, nhờ hook `boot()`. Mutation probe: xoá dòng hỏi trong `boot()` thì test đỏ.
-- [ ] `TeamRoster`:
+- [x] `/team/{id}` của admin, của kế toán, của người đã xoá mềm, và của id không tồn tại: cùng một response 404, cùng thân.
+- [x] `/team/{id}` của một luật sư **đã nghỉ việc** (chưa xoá mềm): 200 với trưởng phòng. Mutation probe: thêm `is_active` vào `isTrackable()` thì test đỏ.
+- [x] Mất quyền sau `mount()`: lần gọi Livewire kế tiếp trả 404, nhờ hook `boot()`. Mutation probe: xoá dòng hỏi trong `boot()` thì test đỏ.
+- [x] `TeamRoster`:
   - có luật sư, trợ lý, quản lý; không có admin, kế toán;
   - `subjectsFor()`: người nghỉ việc chỉ có khi bật công tắc; người đã xoá mềm không bao giờ có;
   - **không** phụ thuộc vụ việc: luật sư chỉ có vụ `restricted` vẫn có mặt trong danh sách của trưởng phòng;
   - `leadsMatters()`: đúng với luật sư và quản lý, sai với trợ lý; theo quyền, không theo vụ;
   - gọi `Gate::allows('viewPerformance', …)` trên 3 rồi 12 người trả về: số truy vấn bằng nhau (vai trò đã nạp sẵn).
-- [ ] Mọi vai trò có `performance.viewAny` cũng có `matter.viewAny` (test cấu trúc trên `Role::permissions()`).
-- [ ] `PerformanceMcpBoundaryTest` xanh, kèm cặp dương trên fixture.
+- [x] Mọi vai trò có `performance.viewAny` cũng có `matter.viewAny` (test cấu trúc trên `Role::permissions()`).
+- [x] `PerformanceMcpBoundaryTest` xanh, kèm cặp dương trên fixture.
 
 **Commit:** `feat: M13 Task 1 — quyền performance.viewAny (đính chính SPEC §5), UserPolicy::viewPerformance, TeamRoster, khung ba trang trả 404 đồng nhất, ranh giới MCP`
 
-### - [ ] Task 2 — Những định nghĩa còn thiếu, đặt vào đúng lớp đang giữ luật (không màn hình)
+### - [x] Task 2 — Những định nghĩa còn thiếu, đặt vào đúng lớp đang giữ luật (không màn hình)
 
 Task này không thêm hành vi nào mà người dùng thấy, trừ một bản sửa lỗi có chủ đích (`Deadline::scopeUpcoming()` làm rơi ngày +7 trên SQLite). Nó chuyển luật đang nằm trong widget xuống model, và thêm đúng những scope M13 cần **vào cạnh luật đã có**. Mỗi scope mới có test đồng nhất với nơi đang dùng luật đó.
 
@@ -745,30 +745,30 @@ public static function scopeEventsWithin(Builder $query, string $event, array $b
 ```
 
 **Bước:**
-- [ ] Viết test đồng nhất đỏ cho từng scope, rồi mới viết scope.
-- [ ] Viết docblock cho mọi scope mới. Mỗi docblock nêu luật gốc nó nói lại, và vì sao không phải định nghĩa thứ hai. Theo khuôn `MatterStaleness::scopeStale()` / `color()`: hai hình dạng, một luật, một hằng số.
-- [ ] **Sửa `Deadline::scopeUpcoming()`** sang cận trên `today()->addDays($days)->endOfDay()->toDateTimeString()`. Hôm nay nó so `due_date ≤ 'Y-m-d'` trần: trên SQLite cột lưu `Y-m-d 00:00:00`, lớn hơn chuỗi ngày trần, nên mốc ngày +7 rơi khỏi widget trang chủ, trong khi trên MariaDB nó có mặt, và `CheckDeadlines::tierFor()` trả `d7` cho đúng ngày đó. Trước khi sửa, grep các test của `UpcomingDeadlinesWidget` đang khẳng định ngày +7; nếu có test đang khẳng định hành vi sai trên SQLite thì sửa **có chủ đích** và nói trong báo cáo. Tệp này M11 cũng sửa (`casts()`); người gộp giữ cả hai.
-- [ ] `outcomeAt()` cài đúng bảng ca biên của P1 (Định nghĩa các con số), theo thứ tự trong bảng. `closedOnOrBefore()` dùng `≤ 23:59:59` của ngày đến hạn, không `<` ngày trần: vụ kết thúc **đúng** ngày đến hạn làm mốc hết hiệu lực.
-- [ ] **`ClientRequest::holderId()` giữ ngữ nghĩa của đường thông báo, không thay nó.** `ReplyToClientRequest::notifyHolderOfFollowUp()` viết `$thread->assignee ?? $matter->leadLawyer` (không có biến `$preferred` nào; chữ đó chỉ có trong docblock). Quan hệ `assignee` bỏ người đã xoá mềm, nên người được giao đã xoá mềm nhường cho luật sư phụ trách. `scopeWithHolder()` và `holderId()` làm **đúng** như vậy (nối `users` với `deleted_at is null`). `ReplyToClientRequest` **không** bị sửa: đổi đường thông báo sang `holderId()` không đem lại gì, mà còn phải nạp lại `User` từ một id. Test đồng nhất (dưới) ghim hai bên vào nhau.
-- [ ] `totalsByLead()` dùng chính `SETTLED_STATUSES` và `DocumentGroup::ClientProvided` của lớp. Bỏ `ClientPortalScope` của `Document` như `countClientSubmittedDocuments()`, giữ `SoftDeletingScope`, và loại đầu mục đã xoá mềm như quan hệ `checklistItems()`.
-- [ ] `CollectedRevenue` là phép **tách nguyên văn**: cùng `withoutGlobalScope(ClientPortalScope::class)`, `whereNull('voided_at')`, `whereBetween('paid_on', $filters->bounds())`, `whereHas('instalment.contract.matter', listableBy)`.
+- [x] Viết test đồng nhất đỏ cho từng scope, rồi mới viết scope.
+- [x] Viết docblock cho mọi scope mới. Mỗi docblock nêu luật gốc nó nói lại, và vì sao không phải định nghĩa thứ hai. Theo khuôn `MatterStaleness::scopeStale()` / `color()`: hai hình dạng, một luật, một hằng số.
+- [x] **Sửa `Deadline::scopeUpcoming()`** sang cận trên `today()->addDays($days)->endOfDay()->toDateTimeString()`. Hôm nay nó so `due_date ≤ 'Y-m-d'` trần: trên SQLite cột lưu `Y-m-d 00:00:00`, lớn hơn chuỗi ngày trần, nên mốc ngày +7 rơi khỏi widget trang chủ, trong khi trên MariaDB nó có mặt, và `CheckDeadlines::tierFor()` trả `d7` cho đúng ngày đó. Trước khi sửa, grep các test của `UpcomingDeadlinesWidget` đang khẳng định ngày +7; nếu có test đang khẳng định hành vi sai trên SQLite thì sửa **có chủ đích** và nói trong báo cáo. Tệp này M11 cũng sửa (`casts()`); người gộp giữ cả hai.
+- [x] `outcomeAt()` cài đúng bảng ca biên của P1 (Định nghĩa các con số), theo thứ tự trong bảng. `closedOnOrBefore()` dùng `≤ 23:59:59` của ngày đến hạn, không `<` ngày trần: vụ kết thúc **đúng** ngày đến hạn làm mốc hết hiệu lực.
+- [x] **`ClientRequest::holderId()` giữ ngữ nghĩa của đường thông báo, không thay nó.** `ReplyToClientRequest::notifyHolderOfFollowUp()` viết `$thread->assignee ?? $matter->leadLawyer` (không có biến `$preferred` nào; chữ đó chỉ có trong docblock). Quan hệ `assignee` bỏ người đã xoá mềm, nên người được giao đã xoá mềm nhường cho luật sư phụ trách. `scopeWithHolder()` và `holderId()` làm **đúng** như vậy (nối `users` với `deleted_at is null`). `ReplyToClientRequest` **không** bị sửa: đổi đường thông báo sang `holderId()` không đem lại gì, mà còn phải nạp lại `User` từ một id. Test đồng nhất (dưới) ghim hai bên vào nhau.
+- [x] `totalsByLead()` dùng chính `SETTLED_STATUSES` và `DocumentGroup::ClientProvided` của lớp. Bỏ `ClientPortalScope` của `Document` như `countClientSubmittedDocuments()`, giữ `SoftDeletingScope`, và loại đầu mục đã xoá mềm như quan hệ `checklistItems()`.
+- [x] `CollectedRevenue` là phép **tách nguyên văn**: cùng `withoutGlobalScope(ClientPortalScope::class)`, `whereNull('voided_at')`, `whereBetween('paid_on', $filters->bounds())`, `whereHas('instalment.contract.matter', listableBy)`.
   - Bộ lọc lĩnh vực và luật sư của widget vẫn nằm ở widget, gắn thêm vào truy vấn trả về.
   - Ghi trong PROGRESS: tệp này M9-final vừa sửa 1 dòng (`bounds()`), nên lúc gộp phải đọc lại.
-- [ ] `scopeOwnedByVisibleMatters()`: gọi `whereOwnedByAny()` (đang `private`, giữ `private`) với `listableBy($viewer)` và `includeMoney` như `scopeOwnedBy()`. Nếu lúc cắt nhánh M10 đã gộp (grep `INTAKE_REQUEST`), tách lớp chồng "dòng `intake_request` chỉ khi xem được bản ghi" của `scopeVisibleTo()` thành một hàm `private` dùng chung và gọi ở cả hai scope. Nếu chưa, ghi vào PROGRESS cho người gộp M10, và thêm test đỏ-chờ (`->todo()`) nêu đúng ca: dòng `intake_request` có `properties.matter_id` của một vụ trưởng phòng xem được, nhưng bản ghi tiếp nhận trưởng phòng không xem được.
-- [ ] **`NoSecondDefinitionTest`** quét token (bỏ chú thích) của **mọi tệp bị quét** ở "Ràng buộc toàn cục" (gồm `CapturePerformanceSnapshots.php`, ba trang, thư mục widget hiệu suất; tệp chưa tồn tại thì bỏ qua, test tự canh khi tệp xuất hiện) theo đúng danh sách cột và danh sách ngoại lệ theo tệp ở đó.
+- [x] `scopeOwnedByVisibleMatters()`: gọi `whereOwnedByAny()` (đang `private`, giữ `private`) với `listableBy($viewer)` và `includeMoney` như `scopeOwnedBy()`. Nếu lúc cắt nhánh M10 đã gộp (grep `INTAKE_REQUEST`), tách lớp chồng "dòng `intake_request` chỉ khi xem được bản ghi" của `scopeVisibleTo()` thành một hàm `private` dùng chung và gọi ở cả hai scope. Nếu chưa, ghi vào PROGRESS cho người gộp M10, và thêm test đỏ-chờ (`->todo()`) nêu đúng ca: dòng `intake_request` có `properties.matter_id` của một vụ trưởng phòng xem được, nhưng bản ghi tiếp nhận trưởng phòng không xem được.
+- [x] **`NoSecondDefinitionTest`** quét token (bỏ chú thích) của **mọi tệp bị quét** ở "Ràng buộc toàn cục" (gồm `CapturePerformanceSnapshots.php`, ba trang, thư mục widget hiệu suất; tệp chưa tồn tại thì bỏ qua, test tự canh khi tệp xuất hiện) theo đúng danh sách cột và danh sách ngoại lệ theo tệp ở đó.
   - Mẫu "điều kiện": `(where|orWhere|having|orHaving)\w*\(\s*['"](\w+\.)?<cột>['"]`, `whereIn`/`whereNotIn`/`whereBetween` cùng dạng, và so sánh trong bộ nhớ `->\s*<cột>\s*(===|!==|==|!=|<=|>=|<|>)` hoặc ngược lại.
   - `select`/`groupBy`/`orderBy`/`pluck` trên cột quy người **không** bị bắt (R5, Ràng buộc toàn cục).
   - Cặp dương trên fixture cho từng nhóm cột, cặp âm cho `groupBy('lead_lawyer_id')` và `TextColumn::make('due_date')`.
   - Thêm `created_via`, `confirmed_at` vào danh sách cấm (R20).
-- [ ] Ghi hằng số `ReviewChecklistItem::AUDIT_EVENT` và dùng nó ở chính câu `Audit::record()` của lớp đó, để P6 không đọc một chuỗi có thể trôi.
+- [x] Ghi hằng số `ReviewChecklistItem::AUDIT_EVENT` và dùng nó ở chính câu `Audit::record()` của lớp đó, để P6 không đọc một chuỗi có thể trôi.
 
 **Test bắt buộc:**
-- [ ] `scopeOverdue()` và `CheckDeadlines::tierFor() === OVERDUE_KEY` đồng ý trên một dải mốc từ −3 tới +8 ngày, kể cả ngày hôm nay. `scopeDueWithin(7)` chứa đúng các mốc mà `tierFor()` trả một bậc `d1`/`d3`/`d7` (với mốc thường) cộng mốc hôm nay.
-- [ ] `upcoming(7)` = `overdue()` ∪ `dueWithin(7)`, hai tập rời nhau, **và** mốc ngày +7 có trong cả `upcoming(7)` lẫn `dueWithin(7)`, mốc ngày +8 không. Chạy trên SQLite **và** `test:mariadb` (`DeadlineScopeBoundaryTest`). Mutation probe: đổi cận trên về ngày trần thì test SQLite đỏ.
-- [ ] `UpcomingDeadlinesWidget`: mốc ngày +7 có trong `rowsFor()` trên SQLite (bản sửa lỗi).
-- [ ] `StaleMattersWidget` và `scopeStale()`: không đổi. `scopeNotMeasurable()` và `scopeStale()` không giao nhau. Hợp của chúng cùng phần "đã bật cổng, chưa quá hạn" bằng `open()`.
-- [ ] `PendingChecklistReviewsWidget`: mọi test cũ xanh sau khi chuyển. Mutation probe trên `scopeAwaitingReview()` làm cả widget lẫn test mới đỏ.
-- [ ] `totalsByLead()` bằng tổng `handle()` từng vụ trên dữ liệu có:
+- [x] `scopeOverdue()` và `CheckDeadlines::tierFor() === OVERDUE_KEY` đồng ý trên một dải mốc từ −3 tới +8 ngày, kể cả ngày hôm nay. `scopeDueWithin(7)` chứa đúng các mốc mà `tierFor()` trả một bậc `d1`/`d3`/`d7` (với mốc thường) cộng mốc hôm nay.
+- [x] `upcoming(7)` = `overdue()` ∪ `dueWithin(7)`, hai tập rời nhau, **và** mốc ngày +7 có trong cả `upcoming(7)` lẫn `dueWithin(7)`, mốc ngày +8 không. Chạy trên SQLite **và** `test:mariadb` (`DeadlineScopeBoundaryTest`). Mutation probe: đổi cận trên về ngày trần thì test SQLite đỏ.
+- [x] `UpcomingDeadlinesWidget`: mốc ngày +7 có trong `rowsFor()` trên SQLite (bản sửa lỗi).
+- [x] `StaleMattersWidget` và `scopeStale()`: không đổi. `scopeNotMeasurable()` và `scopeStale()` không giao nhau. Hợp của chúng cùng phần "đã bật cổng, chưa quá hạn" bằng `open()`.
+- [x] `PendingChecklistReviewsWidget`: mọi test cũ xanh sau khi chuyển. Mutation probe trên `scopeAwaitingReview()` làm cả widget lẫn test mới đỏ.
+- [x] `totalsByLead()` bằng tổng `handle()` từng vụ trên dữ liệu có:
   - đầu mục không bắt buộc có tài liệu nhóm A;
   - đầu mục không bắt buộc chỉ có tài liệu nhóm B (không vào `Y`);
   - tài liệu nhóm A đã xoá mềm;
@@ -776,23 +776,23 @@ public static function scopeEventsWithin(Builder $query, string $event, array $b
   - `not_applicable`.
 
   Chạy dưới `test:mariadb`.
-- [ ] `CollectedRevenue`: `RevenueDashboardTest` xanh nguyên. Tổng của `query()` bằng tổng các cột của widget cho cùng kỳ. Khoản thu vào đúng ngày cuối kỳ được tính, trên cả hai CSDL.
-- [ ] `closedWithin()`: vụ đóng ngày cuối kỳ có mặt; vụ đã huỷ (xoá mềm) không. `matterClosedAtConditionIn()` bắt được `whereBetween('closed_at'` và `->closed_at <` trong một chuỗi fixture, và không bắt `TextEntry::make('closed_at')`.
-- [ ] `closedOnOrBefore()`: vụ kết thúc 10:00 đúng ngày đến hạn → đúng; 00:00:01 hôm sau → sai.
-- [ ] `DeadlineOutcomeTest`: **mỗi ca** của bảng ca biên P1 một `it()`, kể cả ca 1 (mốc ghi sau ngày đến hạn), ca 2 (`completed_at` rỗng), ca 6 (vụ kết thúc đúng ngày đến hạn), ca 8 (mở lại sau ngày đến hạn). Mutation probe cho từng điều kiện.
-- [ ] `holderId()`, `scopeWithHolder()` và người mà `notifyHolderOfFollowUp()` báo (bắt `Notification::fake()`) đồng ý trên bốn luồng: chưa giao; giao cho trợ lý; giao cho người **đã xoá mềm** (cả ba nói luật sư phụ trách); luật sư phụ trách đã đổi. Mutation probe: bỏ điều kiện `deleted_at is null` của phép nối thì ca xoá mềm đỏ.
-- [ ] `scopeWithHolder()` kết hợp với `scopeCreatedBetween()` và `scopeAwaitingOffice()` chạy được trên MariaDB strict (không lỗi cột mơ hồ `created_at`/`status`).
-- [ ] `isClosedWithoutAnswer()`: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → đúng; Đã trả lời rồi đóng → sai.
-- [ ] `scopeOwnedByVisibleMatters()`:
+- [x] `CollectedRevenue`: `RevenueDashboardTest` xanh nguyên. Tổng của `query()` bằng tổng các cột của widget cho cùng kỳ. Khoản thu vào đúng ngày cuối kỳ được tính, trên cả hai CSDL.
+- [x] `closedWithin()`: vụ đóng ngày cuối kỳ có mặt; vụ đã huỷ (xoá mềm) không. `matterClosedAtConditionIn()` bắt được `whereBetween('closed_at'` và `->closed_at <` trong một chuỗi fixture, và không bắt `TextEntry::make('closed_at')`.
+- [x] `closedOnOrBefore()`: vụ kết thúc 10:00 đúng ngày đến hạn → đúng; 00:00:01 hôm sau → sai.
+- [x] `DeadlineOutcomeTest`: **mỗi ca** của bảng ca biên P1 một `it()`, kể cả ca 1 (mốc ghi sau ngày đến hạn), ca 2 (`completed_at` rỗng), ca 6 (vụ kết thúc đúng ngày đến hạn), ca 8 (mở lại sau ngày đến hạn). Mutation probe cho từng điều kiện.
+- [x] `holderId()`, `scopeWithHolder()` và người mà `notifyHolderOfFollowUp()` báo (bắt `Notification::fake()`) đồng ý trên bốn luồng: chưa giao; giao cho trợ lý; giao cho người **đã xoá mềm** (cả ba nói luật sư phụ trách); luật sư phụ trách đã đổi. Mutation probe: bỏ điều kiện `deleted_at is null` của phép nối thì ca xoá mềm đỏ.
+- [x] `scopeWithHolder()` kết hợp với `scopeCreatedBetween()` và `scopeAwaitingOffice()` chạy được trên MariaDB strict (không lỗi cột mơ hồ `created_at`/`status`).
+- [x] `isClosedWithoutAnswer()`: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → đúng; Đã trả lời rồi đóng → sai.
+- [x] `scopeOwnedByVisibleMatters()`:
   - không thả dòng đăng nhập hay dòng của vụ `restricted` cho trưởng phòng; cùng dòng đó thả cho luật sư phụ trách và admin;
   - admin cũng **không** nhận dòng đăng nhập;
   - dòng khoản thu chỉ thả cho người có `billing.view` (luật sư phụ trách có, trợ lý không).
-- [ ] `scopeEventsWithin()`: dòng lúc 23:59:59 ngày cuối kỳ có mặt, 00:00:00 hôm sau không.
-- [ ] `NoSecondDefinitionTest` xanh, với cặp dương và âm trên fixture như ở bước.
+- [x] `scopeEventsWithin()`: dòng lúc 23:59:59 ngày cuối kỳ có mặt, 00:00:00 hôm sau không.
+- [x] `NoSecondDefinitionTest` xanh, với cặp dương và âm trên fixture như ở bước.
 
 **Commit:** `refactor: M13 Task 2 — luật đặt đúng chỗ: Deadline::overdue/dueWithin/dueBetween/removedBetween/outcomeAt và sửa upcoming() rơi ngày +7 trên SQLite, MatterChecklistItem::awaitingReview (chuyển từ widget), ClientRequest::awaitingOffice/withHolder/createdBetween (người giữ như đường thông báo), ChecklistProgress::totalsByLead, CollectedRevenue tách từ RevenueOverTimeWidget, Matter::closedWithin/closedOnOrBefore/withSupportingMember, ActivityOwningMatter::ownedByVisibleMatters/eventsWithin; test đồng nhất và test cấm định nghĩa thứ hai trên mọi tệp M13`
 
-### - [ ] Task 3 — Lịch sử người giữ việc: mốc (R9), yêu cầu của khách và người phụ trách vụ (R18)
+### - [x] Task 3 — Lịch sử người giữ việc: mốc (R9), yêu cầu của khách và người phụ trách vụ (R18)
 
 **Tệp:**
 - sửa: `app/Actions/Matter/ReassignMatter.php`:
@@ -839,25 +839,25 @@ final class RequestHolderAt {
 ```
 
 **Bước:**
-- [ ] Trước khi sửa, grep các test đang đếm dòng nhật ký của `ReassignMatter`, `ReassignMatters`, `BulkReassign`, `SendReassignmentDigest` và `UpdateDeadline` (`toHaveCount`, `count()` trên `Activity`, khẳng định trên `client_request_assigned`). Dòng mới sẽ làm những test đó đổi số. Sửa số ở đó **có chủ đích**, và nói rõ trong báo cáo.
-- [ ] `ReassignMatter` bước 3: sau câu `update()` hàng loạt, ghi một `Audit::record('deadline_responsible_changed', $deadline, ['matter_id', 'client_id', 'from', 'to', 'reason' => self::DEADLINE_HANDOVER_REASON], causer: $actor)` cho mỗi mốc đã chuyển, trong cùng transaction.
+- [x] Trước khi sửa, grep các test đang đếm dòng nhật ký của `ReassignMatter`, `ReassignMatters`, `BulkReassign`, `SendReassignmentDigest` và `UpdateDeadline` (`toHaveCount`, `count()` trên `Activity`, khẳng định trên `client_request_assigned`). Dòng mới sẽ làm những test đó đổi số. Sửa số ở đó **có chủ đích**, và nói rõ trong báo cáo.
+- [x] `ReassignMatter` bước 3: sau câu `update()` hàng loạt, ghi một `Audit::record('deadline_responsible_changed', $deadline, ['matter_id', 'client_id', 'from', 'to', 'reason' => self::DEADLINE_HANDOVER_REASON], causer: $actor)` cho mỗi mốc đã chuyển, trong cùng transaction.
   - Nạp các mốc bằng **một** truy vấn theo `$movedDeadlineIds`, không một truy vấn mỗi mốc.
-- [ ] `ReassignMatter` bước 4: tương tự, `Audit::record('client_request_assigned', $thread, ['matter_id', 'client_id', 'from' => $oldLead->id, 'to' => $lockedNewLead->id, 'reason' => self::REQUEST_HANDOVER_REASON], causer: $actor)` cho mỗi luồng trong `$movedRequestIds`, một truy vấn nạp. Cùng tên sự kiện với `TriageClientRequest::assign()` và lần gỡ khi mở lại của `setStatus()`, để "ai từng giữ luồng này" đọc ở **một** khoá.
+- [x] `ReassignMatter` bước 4: tương tự, `Audit::record('client_request_assigned', $thread, ['matter_id', 'client_id', 'from' => $oldLead->id, 'to' => $lockedNewLead->id, 'reason' => self::REQUEST_HANDOVER_REASON], causer: $actor)` cho mỗi luồng trong `$movedRequestIds`, một truy vấn nạp. Cùng tên sự kiện với `TriageClientRequest::assign()` và lần gỡ khi mở lại của `setStatus()`, để "ai từng giữ luồng này" đọc ở **một** khoá.
   - Dòng `matter_reassigned` giữ nguyên ở cả hai bước.
-- [ ] `UpdateDeadline`: khi `responsible_user_id` thật sự đổi, ghi thêm dòng `deadline_responsible_changed` (`reason = deadline_updated`), sau dòng `deadline_updated`.
-- [ ] `DeadlineHolderAtDue` theo R9, một truy vấn cho cả lô. Ghi giới hạn "trước ngày triển khai" và ca `from` rỗng vào docblock.
-- [ ] `LeadAt` và `RequestHolderAt` theo R18. `RequestHolderAt` gọi `LeadAt` cho các luồng có người được giao rỗng tại thời điểm hỏi, **cùng** thời điểm. Tổng: hai truy vấn cho cả lô. So `created_at > $at` chặt: dòng ghi đúng giây `$at` coi như đã có hiệu lực. Docblock nêu giới hạn "luồng giao đích danh bị bàn giao trước ngày triển khai".
-- [ ] Nhãn lý do theo hình dạng trên. Modal "Xem chi tiết" của `ActivityLogPage` in `__('activity.reasons.'.$event.'.'.$reason)` thay mã khi `Lang::has()`, mã thô khi không.
+- [x] `UpdateDeadline`: khi `responsible_user_id` thật sự đổi, ghi thêm dòng `deadline_responsible_changed` (`reason = deadline_updated`), sau dòng `deadline_updated`.
+- [x] `DeadlineHolderAtDue` theo R9, một truy vấn cho cả lô. Ghi giới hạn "trước ngày triển khai" và ca `from` rỗng vào docblock.
+- [x] `LeadAt` và `RequestHolderAt` theo R18. `RequestHolderAt` gọi `LeadAt` cho các luồng có người được giao rỗng tại thời điểm hỏi, **cùng** thời điểm. Tổng: hai truy vấn cho cả lô. So `created_at > $at` chặt: dòng ghi đúng giây `$at` coi như đã có hiệu lực. Docblock nêu giới hạn "luồng giao đích danh bị bàn giao trước ngày triển khai".
+- [x] Nhãn lý do theo hình dạng trên. Modal "Xem chi tiết" của `ActivityLogPage` in `__('activity.reasons.'.$event.'.'.$reason)` thay mã khi `Lang::has()`, mã thô khi không.
 
 **Test bắt buộc:**
-- [ ] **Mốc:**
+- [x] **Mốc:**
   - lỡ rồi mới bàn giao, qua từng đường trong năm đường (`ReassignMatter`, `ReassignMatters` hàng loạt, `ChangeDeadlineResponsible`, `UpdateDeadline`, lần mở lại có chuyển người của `SetDeadlineCompletion`): người giữ vào ngày đến hạn là người **trước**;
   - bàn giao **trước** ngày đến hạn: người **sau**;
   - hai lần đổi sau ngày đến hạn: lấy `from` của lần **sớm nhất**;
   - đổi đúng lúc 23:59:59 của ngày đến hạn tính là "trước"; 00:00:01 hôm sau tính là "sau";
   - không có dòng lịch sử nào (dữ liệu cũ): người giữ hiện tại;
   - dòng lịch sử có `from` rỗng: `null`, không đoán.
-- [ ] **Yêu cầu của khách** (Review Focus 3):
+- [x] **Yêu cầu của khách** (Review Focus 3):
   - luồng chưa giao ai, trả lời khi A phụ trách, rồi `ReassignMatter` A → B: tại `answered_at` là A;
   - cùng ca qua `ReassignMatters` hàng loạt: A;
   - luồng chưa giao, chưa trả lời, hỏi tại một thời điểm trước lần bàn giao: A; sau: B;
@@ -867,15 +867,15 @@ final class RequestHolderAt {
   - luồng mở lại sau khi đóng làm `setStatus()` gỡ người giữ (dòng `client_request_assigned` với `to = null`): đọc đúng;
   - người được giao đã xoá mềm: `RequestHolderAt` vẫn trả người đó (lịch sử), trong khi `holderId()` trả luật sư phụ trách (R18, ghi trong docblock);
   - đồng nhất: `RequestHolderAt` tại `now()` bằng `holderId()` khi người được giao chưa xoá mềm; `LeadAt` tại `now()` bằng `lead_lawyer_id`.
-- [ ] **Người phụ trách vụ:** `LeadAt` tại `closed_at` của một vụ kết thúc rồi mới bàn giao (bàn giao từ trang vụ, `MatterPolicy::manageTeam()` cho phép) là người phụ trách cũ.
-- [ ] Test cấu trúc R9 (`HolderHistoryCompletenessTest`): ba mẫu token "ghi" cho `responsible_user_id` và `assigned_to` (R9); một đường ghi trong fixture mà thiếu khoá sự kiện thì test đỏ; các dạng âm (khoá `ValidationException`, câu `where`/`select`, đọc không gán) không bị bắt.
-- [ ] Mutation probe: bỏ dòng ghi trong `ReassignMatter` bước 3 thì test bàn giao mốc đỏ.
-- [ ] Số truy vấn của `DeadlineHolderAtDue::resolve()`, `LeadAt::resolve()` và `RequestHolderAt::resolve()` không đổi khi số phần tử tăng từ 3 lên 30.
-- [ ] `ActivityReasonLabelsTest`: mọi hằng số `*_REASON` dưới `app/Actions` (quét token `const \w+_REASON = '…'`, kèm tên sự kiện của dòng mà Action đó ghi) có khoá `activity.reasons.<sự kiện>.<lý do>`; modal "Xem chi tiết" in nhãn, không in mã, cho một dòng `reopened_holder_no_longer_qualifies`.
+- [x] **Người phụ trách vụ:** `LeadAt` tại `closed_at` của một vụ kết thúc rồi mới bàn giao (bàn giao từ trang vụ, `MatterPolicy::manageTeam()` cho phép) là người phụ trách cũ.
+- [x] Test cấu trúc R9 (`HolderHistoryCompletenessTest`): ba mẫu token "ghi" cho `responsible_user_id` và `assigned_to` (R9); một đường ghi trong fixture mà thiếu khoá sự kiện thì test đỏ; các dạng âm (khoá `ValidationException`, câu `where`/`select`, đọc không gán) không bị bắt.
+- [x] Mutation probe: bỏ dòng ghi trong `ReassignMatter` bước 3 thì test bàn giao mốc đỏ.
+- [x] Số truy vấn của `DeadlineHolderAtDue::resolve()`, `LeadAt::resolve()` và `RequestHolderAt::resolve()` không đổi khi số phần tử tăng từ 3 lên 30.
+- [x] `ActivityReasonLabelsTest`: mọi hằng số `*_REASON` dưới `app/Actions` (quét token `const \w+_REASON = '…'`, kèm tên sự kiện của dòng mà Action đó ghi) có khoá `activity.reasons.<sự kiện>.<lý do>`; modal "Xem chi tiết" in nhãn, không in mã, cho một dòng `reopened_holder_no_longer_qualifies`.
 
 **Commit:** `feat: M13 Task 3 — lịch sử người giữ việc ở một khoá sự kiện: ReassignMatter ghi deadline_responsible_changed cho từng mốc và client_request_assigned cho từng luồng, UpdateDeadline ghi lần đổi người, DeadlineHolderAtDue, LeadAt và RequestHolderAt dựng người giữ tại một thời điểm, nhãn lý do trong nhật ký`
 
-### - [ ] Task 4 — Trang "Theo dõi đội ngũ" (N1–N11)
+### - [x] Task 4 — Trang "Theo dõi đội ngũ" (N1–N11)
 
 **Tệp:**
 - mới: `app/Actions/Performance/BuildTeamWorkload.php`, `app/Support/Performance/TeamWorkloadRow.php`;
@@ -907,22 +907,22 @@ final readonly class TeamWorkloadRow {
 ```
 
 **Bước:**
-- [ ] `handle()` chạy **một truy vấn gộp cho mỗi chỉ số** (R11), gốc là `listableBy($viewer)` (R4), `GROUP BY` cột quy người, **không** lọc tập người trong SQL; giữ dòng của `$subjects` bằng PHP. Chỉ gọi các scope của Task 2, không viết điều kiện nào (`NoSecondDefinitionTest` quét tệp này).
-- [ ] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ); `$subjects` đến từ `TeamRoster`, đã nạp vai trò, nên không thêm truy vấn.
-- [ ] Trường (L) là `null` khi `TeamRoster::leadsMatters($subject)` sai; trang in `__('performance.not_applicable')` ("Không áp dụng").
-- [ ] Trang dùng `Table::records()` với các cột N1–N11:
+- [x] `handle()` chạy **một truy vấn gộp cho mỗi chỉ số** (R11), gốc là `listableBy($viewer)` (R4), `GROUP BY` cột quy người, **không** lọc tập người trong SQL; giữ dòng của `$subjects` bằng PHP. Chỉ gọi các scope của Task 2, không viết điều kiện nào (`NoSecondDefinitionTest` quét tệp này).
+- [x] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ); `$subjects` đến từ `TeamRoster`, đã nạp vai trò, nên không thêm truy vấn.
+- [x] Trường (L) là `null` khi `TeamRoster::leadsMatters($subject)` sai; trang in `__('performance.not_applicable')` ("Không áp dụng").
+- [x] Trang dùng `Table::records()` với các cột N1–N11:
   - cột đếm việc đang tồn sắp xếp được, cột tỉ lệ thì không (R8); "Không áp dụng" xếp như giá trị rỗng, sau mọi số;
   - tô màu theo R8 (tiền lệ `StaleMattersWidget`, style nội tuyến `var(--danger-600)`);
   - tên người dẫn tới `TeamMember` (kể cả người đã nghỉ việc, R3);
   - công tắc "Gồm người đã nghỉ việc";
   - khối thu gọn "Cách tính các con số" (R6);
   - câu R4.
-- [ ] `mount()` ghi `performance_viewed` (R14, `page = team_overview`); công tắc và sắp xếp không ghi thêm.
-- [ ] N11: đo ngay ở task này. Nếu truy vấn gộp vượt 150 ms trên dữ liệu benchmark, cột N11 rời trang tổng quan, chỉ còn trên trang một người (tính cho một người), và ghi phán quyết vào PROGRESS.
-- [ ] Dựng benchmark theo R11, **trừ phần ảnh chụp** (Task 7 thêm), chèn theo lô bằng `DB::table()->insert()` như `SearchMattersBenchmarkTest`. In số đo và `EXPLAIN` ra STDERR.
+- [x] `mount()` ghi `performance_viewed` (R14, `page = team_overview`); công tắc và sắp xếp không ghi thêm.
+- [x] N11: đo ngay ở task này. Nếu truy vấn gộp vượt 150 ms trên dữ liệu benchmark, cột N11 rời trang tổng quan, chỉ còn trên trang một người (tính cho một người), và ghi phán quyết vào PROGRESS.
+- [x] Dựng benchmark theo R11, **trừ phần ảnh chụp** (Task 7 thêm), chèn theo lô bằng `DB::table()->insert()` như `SearchMattersBenchmarkTest`. In số đo và `EXPLAIN` ra STDERR.
 
 **Test bắt buộc:**
-- [ ] Mỗi cột một fixture có ca biên:
+- [x] Mỗi cột một fixture có ca biên:
   - N1 bằng `LoadPerLawyerWidget::numberTableRows()` (không bộ lọc) cho từng luật sư, với trưởng phòng và với luật sư (Review Focus 2);
   - N2 không đếm `observer` và không đếm `lead`;
   - N3 không đếm vụ đã huỷ;
@@ -931,61 +931,61 @@ final readonly class TeamWorkloadRow {
   - N9 đếm cho luật sư phụ trách khi `assigned_to` rỗng, cho người được giao khi có, và cho luật sư phụ trách khi người được giao đã xoá mềm;
   - N10 khớp `X/Y` trên tab Danh mục của từng vụ;
   - N11 không tính dòng đăng nhập, kể cả với admin; dòng khoản thu chỉ khi người xem có `billing.view`.
-- [ ] **Trợ lý:** mọi cột (L) là "Không áp dụng" trên trang, các cột còn lại là số (kể cả 0). Luật sư không có vụ nào: các cột (L) là 0, không phải "Không áp dụng". Mutation probe: đổi `leadsMatters()` sang "có vụ đang phụ trách" thì ca luật sư chỉ có vụ `restricted` (trưởng phòng xem) đỏ.
-- [ ] **Đồng nhất với trang chủ** (Review Focus 2), cho trưởng phòng và cho luật sư.
-- [ ] **Quét rò rỉ** (Review Focus 1) trên mọi thuộc tính của `TeamWorkloadRow`: trưởng phòng, luật sư phụ trách, admin.
-- [ ] Số truy vấn bằng nhau với 3 và 12 người (R11).
-- [ ] Livewire:
+- [x] **Trợ lý:** mọi cột (L) là "Không áp dụng" trên trang, các cột còn lại là số (kể cả 0). Luật sư không có vụ nào: các cột (L) là 0, không phải "Không áp dụng". Mutation probe: đổi `leadsMatters()` sang "có vụ đang phụ trách" thì ca luật sư chỉ có vụ `restricted` (trưởng phòng xem) đỏ.
+- [x] **Đồng nhất với trang chủ** (Review Focus 2), cho trưởng phòng và cho luật sư.
+- [x] **Quét rò rỉ** (Review Focus 1) trên mọi thuộc tính của `TeamWorkloadRow`: trưởng phòng, luật sư phụ trách, admin.
+- [x] Số truy vấn bằng nhau với 3 và 12 người (R11).
+- [x] Livewire:
   - sắp xếp theo N5 được;
   - gọi `sortTable` trên cột `X/Y` không đổi thứ tự;
   - công tắc người nghỉ việc;
   - có câu R4 và đủ các câu giải thích (khoá dịch tồn tại, không in ra tên khoá);
   - đúng một dòng `performance_viewed` mỗi lần `mount()`, không thêm dòng khi bật công tắc.
-- [ ] Người được theo dõi đã nghỉ việc vẫn hiện tên khi bật công tắc, và liên kết tên mở được trang của họ (200, không 404).
+- [x] Người được theo dõi đã nghỉ việc vẫn hiện tên khi bật công tắc, và liên kết tên mở được trang của họ (200, không 404).
 
 **Commit:** `feat: M13 Task 4 — trang "Theo dõi đội ngũ": BuildTeamWorkload, mỗi chỉ số một truy vấn gộp trên listableBy, đồng nhất với widget trang chủ và LoadPerLawyerWidget, "Không áp dụng" theo quyền cho cột của người phụ trách, quét rò rỉ restricted, benchmark`
 
-### - [ ] Task 5 — Trang của một người (đi sâu)
+### - [x] Task 5 — Trang của một người (đi sâu)
 
 **Tệp:**
 - sửa: `app/Filament/Admin/Pages/TeamMember.php` và view;
 - mới: `tests/Feature/Performance/TeamMemberPageTest.php`.
 
 **Bước:**
-- [ ] Đầu trang gồm:
+- [x] Đầu trang gồm:
   - tên, chức danh (`UserPosition::label()`), trạng thái (kể cả "đã nghỉ việc", R3);
   - **đúng** `TeamWorkloadRow` của người đó, gọi `BuildTeamWorkload` với một người; cột (L) in "Không áp dụng" như Task 4;
   - bảng cơ cấu lĩnh vực (N1 theo `matter_type_id`; với trợ lý, bảng cơ cấu tính trên vụ đang tham gia N2, ghi rõ trên tiêu đề bảng).
-- [ ] Bảng "Vụ việc" là bảng Filament trên Eloquent:
+- [x] Bảng "Vụ việc" là bảng Filament trên Eloquent:
   - truy vấn: `Matter::query()->listableBy($viewer)->workedOnBy($subject)` (Task 2). Trang không tự viết điều kiện trên `lead_lawyer_id` hay `role_in_matter` (`NoSecondDefinitionTest` quét tệp này);
   - cột: mã, khách, tiêu đề, giai đoạn, vai của X, "cập nhật gần nhất cho khách" tô màu bằng `MatterStaleness::color()`;
   - lọc: đang mở/đã kết thúc (`open()`/`closed()`), phụ trách/tham gia (`ledBy()`/`withSupportingMember()`);
   - mỗi dòng mở `MatterResource` `view`. Trang đó tự kiểm quyền.
-- [ ] Ba danh sách ngắn, mỗi danh sách dựng trên **truy vấn đang có** rồi thêm **scope người** của Task 2:
+- [x] Ba danh sách ngắn, mỗi danh sách dựng trên **truy vấn đang có** rồi thêm **scope người** của Task 2:
   - mốc quá hạn và 7 ngày tới: `UpcomingDeadlinesWidget::rowsFor($viewer)->heldBy($subject)`. Trang là lớp Filament nên được gọi widget;
   - yêu cầu chờ trả lời: `ClientRequest::awaitingOffice()->heldBy($subject)` trên vụ `open()` và `listableBy`;
   - giấy tờ chờ duyệt: `PendingChecklistReviewsWidget::rowsFor($viewer)->whereHas('matter', fn ($m) => $m->ledBy($subject))`.
-- [ ] Chỗ dành cho biểu đồ xu hướng; Task 7 lấp vào bằng hai widget **tự kiểm quyền** (Ràng buộc toàn cục). Trang truyền `subjectId` cho widget qua `getWidgetData()`; widget không tin giá trị đó.
-- [ ] `#[Locked] public int $subjectId`. `mount()` và `boot()` hỏi `viewPerformance` (Task 1).
-- [ ] `Audit::record('performance_viewed', $subject, [], causer: $viewer)` ở `mount()` khi người xem không phải chính người đó (R14).
+- [x] Chỗ dành cho biểu đồ xu hướng; Task 7 lấp vào bằng hai widget **tự kiểm quyền** (Ràng buộc toàn cục). Trang truyền `subjectId` cho widget qua `getWidgetData()`; widget không tin giá trị đó.
+- [x] `#[Locked] public int $subjectId`. `mount()` và `boot()` hỏi `viewPerformance` (Task 1).
+- [x] `Audit::record('performance_viewed', $subject, [], causer: $viewer)` ở `mount()` khi người xem không phải chính người đó (R14).
 
 **Test bắt buộc:**
-- [ ] Bảng vụ chứa đúng tập `listableBy(V) ∩ việc của X`:
+- [x] Bảng vụ chứa đúng tập `listableBy(V) ∩ việc của X`:
   - vụ `restricted` X phụ trách: X và admin thấy, trưởng phòng không;
   - vụ X chỉ là `observer`: không có.
-- [ ] Ba danh sách: mỗi dòng có trong widget trang chủ tương ứng của cùng người xem (Review Focus 2). Quét rò rỉ trên ba danh sách. Danh sách yêu cầu: luồng giao cho người đã xoá mềm hiện ở trang của luật sư phụ trách (cùng người với N9).
-- [ ] Sửa `subjectId` qua Livewire thì bị chặn. Mất quyền giữa chừng thì 404.
-- [ ] Trang của một trợ lý: cột (L) in "Không áp dụng", không in 0.
-- [ ] `performance_viewed`:
+- [x] Ba danh sách: mỗi dòng có trong widget trang chủ tương ứng của cùng người xem (Review Focus 2). Quét rò rỉ trên ba danh sách. Danh sách yêu cầu: luồng giao cho người đã xoá mềm hiện ở trang của luật sư phụ trách (cùng người với N9).
+- [x] Sửa `subjectId` qua Livewire thì bị chặn. Mất quyền giữa chừng thì 404.
+- [x] Trang của một trợ lý: cột (L) in "Không áp dụng", không in 0.
+- [x] `performance_viewed`:
   - đúng một dòng mỗi lần `mount()` khi xem người khác;
   - không có dòng khi xem chính mình;
   - không thêm dòng khi lọc bảng (request Livewire);
   - nhãn tiếng Việt hiện trên trang Nhật ký hệ thống.
-- [ ] Luật sư mở trang của chính mình thấy cả vụ `restricted` mình phụ trách, trong bảng và trong số đầu trang.
+- [x] Luật sư mở trang của chính mình thấy cả vụ `restricted` mình phụ trách, trong bảng và trong số đầu trang.
 
 **Commit:** `feat: M13 Task 5 — trang của một người: số đầu trang dùng lại BuildTeamWorkload, bảng vụ việc trên listableBy và Matter::workedOnBy, ba danh sách dựng từ truy vấn widget trang chủ cộng scope người, audit performance_viewed`
 
-### - [ ] Task 6 — Trang "Hiệu suất theo kỳ" (P1–P7, P9, P10)
+### - [x] Task 6 — Trang "Hiệu suất theo kỳ" (P1–P7, P9, P10)
 
 **Tệp:**
 - mới: `app/Support/Performance/PerformancePeriod.php`, `Ratio.php`, `PerformanceRow.php`, `PerformanceReport.php`;
@@ -1033,16 +1033,16 @@ final class BuildPerformanceReport {
 ```
 
 **Bước:**
-- [ ] Chỉ số quy người theo một cột: một truy vấn `GROUP BY` (R11). Chỉ số quy người theo lịch sử: nạp tập của kỳ **không lọc người** rồi dựng lịch sử một lần (R11):
+- [x] Chỉ số quy người theo một cột: một truy vấn `GROUP BY` (R11). Chỉ số quy người theo lịch sử: nạp tập của kỳ **không lọc người** rồi dựng lịch sử một lần (R11):
   - P1: `Deadline::dueBetween($period->bounds())` trên vụ trong `listableBy(V)`, nạp kèm `matter` (`closed_at`); `DeadlineHolderAtDue::resolve()`; `outcomeAt($period->cutoff())`; lọc người bằng PHP;
   - P3, P10: `ClientRequest::createdBetween($period->bounds())` trên vụ trong `listableBy(V)`, nạp `created_at`, `answered_at`, `status`, `assigned_to`, `matter_id` và `matter`; `RequestHolderAt::resolve()` với thời điểm `answered_at` (luồng `answeredBy(cutoff)`) hoặc `cutoff` (mọi luồng khác); trung vị và trung bình bằng PHP (R17) chỉ trên luồng đã trả lời;
   - P5: `Matter::closedWithin(...)` trên `listableBy(V)`, `LeadAt::resolve()` tại `closed_at`;
   - P6: `ActivityOwningMatter::scopeEventsWithin(…, ReviewChecklistItem::AUDIT_EVENT, bounds)` cộng `scopeOwnedByVisibleMatters(…, V)`, `GROUP BY causer_id`;
   - "Lĩnh vực chính": hợp các `matter_id` đã quy về người đó ở P1, P3, P10, P4, P5; một truy vấn `matter_type_id`.
-- [ ] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ, như `BuildTeamWorkload`). Vai trò đã nạp sẵn qua `TeamRoster`, nên kiểm tra này không thêm truy vấn (R11).
-- [ ] Các trường (L) trả `null` khi `TeamRoster::leadsMatters($subject)` sai (R6). P7 chỉ được tính khi `PerformanceReport::$revenueVisible`: người xem có `billing.view` và (có `revenue.viewAny` hoặc tập người chỉ là chính người xem), tức `viewPerformanceRevenue` đúng cho mọi người trong trang.
-- [ ] Dòng tham chiếu R8 chỉ khi người xem có `performance.viewAny`, theo đúng các luật của dòng "Chung" ở R8 (không lọc người giữ, P4 luôn hiện, P7 theo `revenue.viewAny`).
-- [ ] Trang:
+- [x] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ, như `BuildTeamWorkload`). Vai trò đã nạp sẵn qua `TeamRoster`, nên kiểm tra này không thêm truy vấn (R11).
+- [x] Các trường (L) trả `null` khi `TeamRoster::leadsMatters($subject)` sai (R6). P7 chỉ được tính khi `PerformanceReport::$revenueVisible`: người xem có `billing.view` và (có `revenue.viewAny` hoặc tập người chỉ là chính người xem), tức `viewPerformanceRevenue` đúng cho mọi người trong trang.
+- [x] Dòng tham chiếu R8 chỉ khi người xem có `performance.viewAny`, theo đúng các luật của dòng "Chung" ở R8 (không lọc người giữ, P4 luôn hiện, P7 theo `revenue.viewAny`).
+- [x] Trang:
   - form kỳ (R16) và công tắc "Gồm người đã nghỉ việc" (R3);
   - tập người mặc định: `TeamRoster::subjectsForPeriod()`;
   - bảng `records()` **không cột nào sắp xếp được ngoài tên** (R8);
@@ -1050,53 +1050,53 @@ final class BuildPerformanceReport {
   - nhãn "kỳ đang chạy";
   - "Cách tính các con số" (gồm câu `closed_period` của R19) và "Vì sao không có bảng xếp hạng";
   - câu R4.
-- [ ] Người xem không có `performance.viewAny` chỉ có dòng của chính mình. Tập người tính lại từ người xem ở mỗi request, không nằm trong trạng thái Livewire.
-- [ ] `performance_viewed` theo R14: khi `mount()` và khi đổi kỳ, chỉ với người có `performance.viewAny`.
+- [x] Người xem không có `performance.viewAny` chỉ có dòng của chính mình. Tập người tính lại từ người xem ở mỗi request, không nằm trong trạng thái Livewire.
+- [x] `performance_viewed` theo R14: khi `mount()` và khi đổi kỳ, chỉ với người có `performance.viewAny`.
 - [ ] Mở rộng benchmark với một quý.
 
 **Test bắt buộc** (mỗi ca một `it()`):
-- [ ] P1, ranh giới thời gian:
+- [x] P1, ranh giới thời gian:
   - xong 23:59:59 ngày đến hạn → đúng hạn; 00:00:01 hôm sau → trễ;
   - đến hạn hôm nay, chưa xong → không vào tập; đến hạn hôm nay, đã xong → vào tập, đúng hạn;
   - kỳ đã đóng: xong sau 23:59:59 ngày cuối kỳ → lỡ, không phải trễ (R19).
-- [ ] P1, vụ và mốc đặc biệt (qua trang, đối chiếu bảng ca biên đã test ở Task 2):
+- [x] P1, vụ và mốc đặc biệt (qua trang, đối chiếu bảng ca biên đã test ở Task 2):
   - vụ kết thúc **trước** hoặc **đúng** ngày đến hạn, mốc chưa xong → không vào tập;
   - vụ kết thúc **sau** ngày đến hạn, mốc chưa xong → lỡ;
   - mốc ghi vào hệ thống sau ngày đến hạn → không vào tập;
   - mốc mở lại sau ngày đến hạn → lỡ, tính cho người giữ vào ngày đến hạn;
   - mốc đã gỡ → không vào tỉ lệ, có ở P2;
   - vụ đã huỷ → không ở đâu cả.
-- [ ] P1 quy người qua bàn giao (Review Focus 3): **luật sư xem dòng của chính mình** sau khi mốc mình lỡ đã được bàn giao cho người khác: mốc vẫn có trong dòng của mình là "lỡ". Mutation probe: nạp mốc bằng `responsible_user_id IN (tập người)` thì ca này đỏ.
-- [ ] P3:
+- [x] P1 quy người qua bàn giao (Review Focus 3): **luật sư xem dòng của chính mình** sau khi mốc mình lỡ đã được bàn giao cho người khác: mốc vẫn có trong dòng của mình là "lỡ". Mutation probe: nạp mốc bằng `responsible_user_id IN (tập người)` thì ca này đỏ.
+- [x] P3:
   - trung vị với n chẵn và n lẻ;
   - yêu cầu chưa trả lời vào mẫu số của P9, không vào thời gian phản hồi;
   - trả lời qua `TriageClientRequest` (đánh dấu đã trả lời qua điện thoại) có `answered_at`, nên được tính;
   - kỳ đã đóng: trả lời sau mốc cắt → chưa trả lời của kỳ đó;
   - quy về người giữ luồng lúc trả lời; các ca bàn giao của Review Focus 3 qua trang.
-- [ ] P10: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → không ở mẫu số P3/P9, có ở P10; luồng đã trả lời rồi đóng → vẫn "đã trả lời" ở P3. Mutation probe: bỏ điều kiện loại ở mẫu số thì test đỏ.
-- [ ] P4:
+- [x] P10: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → không ở mẫu số P3/P9, có ở P10; luồng đã trả lời rồi đóng → vẫn "đã trả lời" ở P3. Mutation probe: bỏ điều kiện loại ở mẫu số thì test đỏ.
+- [x] P4:
   - dòng "thêm cập nhật" cùng giai đoạn và dòng bàn giao nội bộ của `ReassignMatter` không tính (`entries()`);
   - dòng ghi lùi ngày tính theo `occurred_at`;
   - trợ lý hiện "Không áp dụng".
-- [ ] P5: vụ đóng rồi được admin mở lại (đường bỏ qua M6.5 R8) không còn tính; vụ kết thúc rồi mới bàn giao vẫn tính cho người phụ trách lúc kết thúc.
-- [ ] P6:
+- [x] P5: vụ đóng rồi được admin mở lại (đường bỏ qua M6.5 R8) không còn tính; vụ kết thúc rồi mới bàn giao vẫn tính cho người phụ trách lúc kết thúc.
+- [x] P6:
   - một lần duyệt và một lần từ chối trong kỳ → 2, theo người bấm;
   - khách nộp lại sau khi bị từ chối (`markPendingReview()` xoá `reviewed_by`) → lần từ chối trong kỳ vẫn được tính;
   - văn phòng tải giấy tờ thay khách (`settleChecklistItem()` ghi `accepted`) → không tính;
   - lần duyệt trên vụ `restricted` không tính cho trưởng phòng.
-- [ ] P7:
+- [x] P7:
   - bằng tổng `RevenueOverTimeWidget` với bộ lọc luật sư cùng kỳ (Review Focus 2);
   - trợ lý: "Không áp dụng" khi người xem thấy cột; người xem là trợ lý: không có cột;
   - luật sư chỉ thấy cột của mình;
   - khoản thu đã huỷ không tính.
-- [ ] **"Không áp dụng"**: dòng của trợ lý in "Không áp dụng" ở P4, P5, P7, số ở mọi cột còn lại.
-- [ ] **Dòng "Chung"**: gồm việc do admin và người ngoài danh sách giữ; không bằng tổng các dòng; P7 của dòng này bằng tổng `RevenueOverTimeWidget` không lọc luật sư.
-- [ ] **"Lĩnh vực chính"**: luật sư có 3 vụ hình sự đã kết thúc trong kỳ và 1 vụ dân sự đang mở không có việc trong kỳ → "Hình sự (3)", không có "Dân sự".
-- [ ] P9 và `Ratio`: n = 4 → "Chưa đủ dữ liệu"; n = 5 → có tỉ lệ. Mutation probe trên `MIN_SAMPLE`.
-- [ ] **Kỳ đã đóng ổn định** (`ClosedPeriodStabilityTest`, R19): tính "tháng trước"; rồi hôm nay hoàn thành một mốc đã lỡ, trả lời một luồng tồn, bàn giao vụ (`ReassignMatter` và `ReassignMatters`) sang người khác; tính lại: mọi trường của mọi `PerformanceRow` không đổi. Chạy dưới `test:mariadb`.
+- [x] **"Không áp dụng"**: dòng của trợ lý in "Không áp dụng" ở P4, P5, P7, số ở mọi cột còn lại.
+- [x] **Dòng "Chung"**: gồm việc do admin và người ngoài danh sách giữ; không bằng tổng các dòng; P7 của dòng này bằng tổng `RevenueOverTimeWidget` không lọc luật sư.
+- [x] **"Lĩnh vực chính"**: luật sư có 3 vụ hình sự đã kết thúc trong kỳ và 1 vụ dân sự đang mở không có việc trong kỳ → "Hình sự (3)", không có "Dân sự".
+- [x] P9 và `Ratio`: n = 4 → "Chưa đủ dữ liệu"; n = 5 → có tỉ lệ. Mutation probe trên `MIN_SAMPLE`.
+- [x] **Kỳ đã đóng ổn định** (`ClosedPeriodStabilityTest`, R19): tính "tháng trước"; rồi hôm nay hoàn thành một mốc đã lỡ, trả lời một luồng tồn, bàn giao vụ (`ReassignMatter` và `ReassignMatters`) sang người khác; tính lại: mọi trường của mọi `PerformanceRow` không đổi. Chạy dưới `test:mariadb`.
 - [ ] **R20** (khi `created_via` đã có trên `main`): mốc tạo qua AI chưa xác nhận, quá hạn → lỡ ở P1, có ở N5, cùng con số với `CheckDeadlines::tierFor()`.
-- [ ] **Tập người theo kỳ** (`subjectsForPeriod()`): luật sư vô hiệu hoá ngày 05/11 có dòng trong "tháng trước" (tháng 10) khi xem ngày 10/11, không cần công tắc; luật sư vô hiệu hoá ngày 20/09 không có, trừ khi bật công tắc; người đã xoá mềm không bao giờ có.
-- [ ] `PerformancePeriod`:
+- [x] **Tập người theo kỳ** (`subjectsForPeriod()`): luật sư vô hiệu hoá ngày 05/11 có dòng trong "tháng trước" (tháng 10) khi xem ngày 10/11, không cần công tắc; luật sư vô hiệu hoá ngày 20/09 không có, trừ khi bật công tắc; người đã xoá mềm không bao giờ có.
+- [x] `PerformancePeriod`:
   - `last_month` vào ngày 31/10 và ngày 01/11 (`travelTo()`);
   - quý;
   - `custom` dài 367 ngày → lỗi validation tiếng Việt;
@@ -1106,16 +1106,16 @@ final class BuildPerformanceReport {
   - `trailingDays(90)` vào ngày 2026-10-04 → 2026-07-06 … 2026-10-03.
 
   Chạy dưới `test:mariadb`.
-- [ ] Quét rò rỉ (Review Focus 1) trên mọi thuộc tính của `PerformanceRow` và của dòng tham chiếu.
-- [ ] Livewire:
+- [x] Quét rò rỉ (Review Focus 1) trên mọi thuộc tính của `PerformanceRow` và của dòng tham chiếu.
+- [x] Livewire:
   - luật sư gửi bộ lọc cố chèn id người khác vẫn chỉ có một dòng;
   - kế toán 404;
   - `sortTable` trên cột tỉ lệ không đổi thứ tự.
-- [ ] Số truy vấn hằng theo số người (3 và 12), kể cả kiểm quyền từng người.
+- [x] Số truy vấn hằng theo số người (3 và 12), kể cả kiểm quyền từng người.
 
 **Commit:** `feat: M13 Task 6 — trang "Hiệu suất theo kỳ": mốc đúng hạn/trễ/lỡ theo người giữ vào ngày đến hạn và cắt ở cuối kỳ, phản hồi yêu cầu khách theo người giữ lúc trả lời (trung vị, trung bình), yêu cầu đóng không trả lời tách riêng, chuyển giai đoạn qua StageLog::entries, duyệt giấy tờ theo nhật ký, doanh thu qua CollectedRevenue, tỉ lệ hoàn thành việc đến hạn có ngưỡng mẫu, không xếp hạng`
 
-### - [ ] Task 7 — Ảnh chụp hằng ngày và xu hướng (R10, P8)
+### - [x] Task 7 — Ảnh chụp hằng ngày và xu hướng (R10, P8)
 
 **Tệp:**
 - mới: migration `create_performance_snapshots_table`; `app/Models/PerformanceSnapshot.php`; `app/Policies/PerformanceSnapshotPolicy.php`; alias morph trong `AppServiceProvider`;
@@ -1158,73 +1158,73 @@ protected ?string $pollingInterval = null;    // không kế thừa '5s' của C
 ```
 
 **Bước:**
-- [ ] Migration theo "Mô hình dữ liệu"; chạy vòng MariaDB thật.
-- [ ] Tác vụ chụp:
+- [x] Migration theo "Mô hình dữ liệu"; chạy vòng MariaDB thật.
+- [x] Tác vụ chụp:
   - gọi **đúng** các scope của Task 2 trên `Matter::query()`, **không** qua `listableBy`. Tác vụ chạy không người đăng nhập và chụp toàn bộ; tách theo `confidentiality` **qua `Matter::scopeOfConfidentiality()`**, không tự viết điều kiện (`NoSecondDefinitionTest` quét tệp này);
   - chỉ chụp người của `TeamRoster::members()` (trackable, đang hoạt động); tác vụ không tự viết điều kiện trên `is_active`;
   - `upsert` theo khoá unique;
   - lịch: `->dailyAt('23:50')->name('performance.snapshot')->withoutOverlapping(30)`, kèm docblock nói lý do 23:50 và lý do khoá 30 phút, theo khuôn các mục khác của `routes/console.php`.
-- [ ] `PerformanceSnapshot::visibleLevels()` theo R4: `normal` chỉ khi người xem có `matter.viewAny` hoặc là chính người đó (có `matter.view`); `restricted` khi `(new Matter)->forceFill(['confidentiality' => Restricted, 'lead_lawyer_id' => $subject->id])->isListableBy($viewer)`. `scopeVisibleTo()` và `scopeVisibleToMany()` chỉ dịch kết quả đó sang SQL; không vế nào: `1 = 0`.
-- [ ] Cột P8 của trang hiệu suất: `BuildPerformanceTrend::endpoints()` đọc `scopeVisibleToMany()` một lần cho cả trang; `PerformanceRow` nhận bốn trường `?int` (null = không có ảnh chụp ngày đó).
-- [ ] `BuildPerformanceTrend`:
+- [x] `PerformanceSnapshot::visibleLevels()` theo R4: `normal` chỉ khi người xem có `matter.viewAny` hoặc là chính người đó (có `matter.view`); `restricted` khi `(new Matter)->forceFill(['confidentiality' => Restricted, 'lead_lawyer_id' => $subject->id])->isListableBy($viewer)`. `scopeVisibleTo()` và `scopeVisibleToMany()` chỉ dịch kết quả đó sang SQL; không vế nào: `1 = 0`.
+- [x] Cột P8 của trang hiệu suất: `BuildPerformanceTrend::endpoints()` đọc `scopeVisibleToMany()` một lần cho cả trang; `PerformanceRow` nhận bốn trường `?int` (null = không có ảnh chụp ngày đó).
+- [x] `BuildPerformanceTrend`:
   - đọc `PerformanceSnapshot::visibleTo($viewer, $subject)` (R4);
   - cộng dòng `normal` với dòng `restricted` khi người xem được thấy dòng `restricted`;
   - ngày thiếu dòng `normal` trả `null`;
   - trang một người gọi với `PerformancePeriod::trailingDays(self::MEMBER_PAGE_DAYS)`; trang hiệu suất gọi với kỳ đang chọn, cắt ở hôm qua.
-- [ ] **Hai widget tự kiểm quyền** (Ràng buộc toàn cục; Review Focus 4). Một widget là một component Livewire riêng: request của nó (đổi trang của bảng số, `$refresh`, hay một lần gọi tay) **không** đi qua `boot()` của trang `TeamMember`. Vì vậy:
+- [x] **Hai widget tự kiểm quyền** (Ràng buộc toàn cục; Review Focus 4). Một widget là một component Livewire riêng: request của nó (đổi trang của bảng số, `$refresh`, hay một lần gọi tay) **không** đi qua `boot()` của trang `TeamMember`. Vì vậy:
   - `#[Locked] public int $subjectId`, trang truyền qua `getWidgetData()`;
   - `mount()` **và** `boot()` nạp người dùng chưa xoá mềm theo `subjectId` và hỏi `Gate::forUser($viewer)->allows('viewPerformance', $subject)`; không có hoặc từ chối: `abort(404)`, cùng response với trang;
   - `canView()` tĩnh = người xem có `matter.view` hoặc `performance.viewAny` (lớp ngoài), không thay cho kiểm tra theo người;
   - `$pollingInterval = null`: không thăm dò; mỗi lần thăm dò là một lần chạy lại `BuildPerformanceTrend`;
   - logic kiểm quyền ở trait `AuthorizesPerformanceSubject`, gọi lại đúng `UserPolicy::viewPerformance` của Task 1; không viết luật xem thứ hai.
-- [ ] Hai widget, mỗi widget một chuỗi, một màu `#4a73bd`, không chú giải. Không bao giờ hai trục y.
+- [x] Hai widget, mỗi widget một chuỗi, một màu `#4a73bd`, không chú giải. Không bao giờ hai trục y.
   - Mức hoàn thiện danh mục khác đơn vị, nên chỉ nằm trong bảng số, không vẽ chung.
   - `$isDiscovered = false`.
   - View dùng lại `filament.admin.widgets.revenue.chart-with-table` và `HasMoneyNumberTable`, đúng khuôn M9 Task 9 và phán quyết CSP M8 R4. Không JS mới. `DashboardWidgetOrderTest` không đổi.
-- [ ] **Benchmark:** thêm hai năm ảnh chụp cho 30 người (cả hai loại dòng) và phép đo tác vụ chụp trên 3.000 vụ (ngân sách ≤ 10 giây, R11), cùng phép đo trang một người có biểu đồ (≤ 200 ms). In số đo ra STDERR.
+- [x] **Benchmark:** thêm hai năm ảnh chụp cho 30 người (cả hai loại dòng) và phép đo tác vụ chụp trên 3.000 vụ (ngân sách ≤ 10 giây, R11), cùng phép đo trang một người có biểu đồ (≤ 200 ms). In số đo ra STDERR.
 
 **Test bắt buộc:**
-- [ ] **Đồng nhất:** đóng băng thời gian, chạy tác vụ. Dòng `normal` của X bằng N1, N4, N5, N10 trực tiếp mà trưởng phòng đọc về X. `normal` cộng `restricted` bằng số mà X và admin đọc. Chạy với X có cả hai loại vụ.
-- [ ] Trưởng phòng: dữ liệu xu hướng của X không có vết nào của dòng `restricted`.
+- [x] **Đồng nhất:** đóng băng thời gian, chạy tác vụ. Dòng `normal` của X bằng N1, N4, N5, N10 trực tiếp mà trưởng phòng đọc về X. `normal` cộng `restricted` bằng số mà X và admin đọc. Chạy với X có cả hai loại vụ.
+- [x] Trưởng phòng: dữ liệu xu hướng của X không có vết nào của dòng `restricted`.
   - Dòng đó không được truy vấn: kiểm query log không có `confidentiality = 'restricted'`.
   - Số bằng số khi dòng đó không tồn tại.
-- [ ] **`scopeVisibleTo()` đóng khi không chắc** (`PerformanceSnapshotVisibilityTest`), ma trận người xem × loại dòng:
+- [x] **`scopeVisibleTo()` đóng khi không chắc** (`PerformanceSnapshotVisibilityTest`), ma trận người xem × loại dòng:
   - admin: cả hai; trưởng phòng: `normal`; chính X có `matter.view`: cả hai; X đã mất `matter.view`: không gì; luật sư khác, trợ lý: không gì; người có `performance.viewAny` cấp trực tiếp mà **không** có `matter.viewAny`: không dòng `normal` nào;
   - dòng `restricted` đồng ý với `isListableBy()` của vụ giả trên **mọi** ô của ma trận. Mutation probe: thay bằng `hasRole(Admin) || is($subject)` thì ô "X đã mất `matter.view`" đỏ; bỏ vế `matter.viewAny` của dòng `normal` thì ô "luật sư khác" đỏ;
   - `scopeVisibleToMany()` cho cùng tập dòng với hợp các `scopeVisibleTo()` từng người; số truy vấn của cột P8 bằng nhau với 3 và 12 người.
-- [ ] **Widget bị can thiệp** (`PerformanceTrendWidgetAccessTest`, Review Focus 4):
+- [x] **Widget bị can thiệp** (`PerformanceTrendWidgetAccessTest`, Review Focus 4):
   - luật sư L gọi `Livewire::test(StaleTrendWidget::class, ['subjectId' => <đồng nghiệp>])` → 404, response không chứa chuỗi số nào; tương tự `OverdueTrendWidget`;
   - L mở widget của chính mình, rồi `->set('subjectId', <đồng nghiệp>)` → bị `#[Locked]` chặn;
   - trưởng phòng mở widget của X, rồi mất `performance.viewAny`; lần gọi kế tiếp của **widget** (không qua trang) → 404 nhờ `boot()`. Mutation probe: xoá dòng hỏi trong `boot()` của trait thì test đỏ;
   - kế toán → 404;
   - widget không thăm dò: `$pollingInterval` là `null`, HTML không có `wire:poll`.
-- [ ] Khoảng của trang một người: vào ngày 2026-10-04, `dates` là 2026-07-06 … 2026-10-03 (90 phần tử); không có điểm của hôm nay.
-- [ ] Chạy hai lần cùng ngày: số dòng không đổi, số mới thắng.
-- [ ] Lúc 23:50 ngày D theo `APP_TIMEZONE`, `captured_on = D`. Kiểm bằng `travelTo()`, `APP_TIMEZONE = Asia/Ho_Chi_Minh`.
-- [ ] Ngày thiếu là `null`, không phải 0. Bảng số in "—".
-- [ ] Prune: dòng 25 tháng 1 ngày bị xoá, dòng 25 tháng còn.
-- [ ] Người đã nghỉ việc không có dòng mới, dòng cũ còn.
-- [ ] Lịch: tác vụ có tên `performance.snapshot`, chạy 23:50, khoá 30 phút (khuôn `tests/Feature/Schedule/*`).
-- [ ] `PortalCoverageTest` xanh không miễn trừ. `Audit::record(…, $snapshot)` không ném lỗi.
-- [ ] Widget không có trên trang chủ.
+- [x] Khoảng của trang một người: vào ngày 2026-10-04, `dates` là 2026-07-06 … 2026-10-03 (90 phần tử); không có điểm của hôm nay.
+- [x] Chạy hai lần cùng ngày: số dòng không đổi, số mới thắng.
+- [x] Lúc 23:50 ngày D theo `APP_TIMEZONE`, `captured_on = D`. Kiểm bằng `travelTo()`, `APP_TIMEZONE = Asia/Ho_Chi_Minh`.
+- [x] Ngày thiếu là `null`, không phải 0. Bảng số in "—".
+- [x] Prune: dòng 25 tháng 1 ngày bị xoá, dòng 25 tháng còn.
+- [x] Người đã nghỉ việc không có dòng mới, dòng cũ còn.
+- [x] Lịch: tác vụ có tên `performance.snapshot`, chạy 23:50, khoá 30 phút (khuôn `tests/Feature/Schedule/*`).
+- [x] `PortalCoverageTest` xanh không miễn trừ. `Audit::record(…, $snapshot)` không ném lỗi.
+- [x] Widget không có trên trang chủ.
 
 **Commit:** `feat: M13 Task 7 — ảnh chụp hằng ngày performance_snapshots (23:50, tách normal/restricted, upsert, giữ 25 tháng, xem được đóng khi không chắc và suy từ isListableBy), xu hướng 90 ngày trên trang một người và đầu kỳ → cuối kỳ trên trang hiệu suất, hai widget tự kiểm quyền ở mount và boot, không thăm dò, ngày thiếu để trống`
 
 ### - [ ] Task 8 — Đo hiệu năng, dữ liệu mẫu, nghiệm thu, tài liệu, cổng merge
 
 **Bước:**
-- [ ] **Đo.** Chạy `tests/Benchmark/TeamPerformanceBenchmarkTest.php` trên MariaDB thật, theo khối lượng của R11.
+- [x] **Đo.** Chạy `tests/Benchmark/TeamPerformanceBenchmarkTest.php` trên MariaDB thật, theo khối lượng của R11.
   - Ghi vào "Ghi chú M13" một bảng số đo (trung vị 5 lần) cho từng trang × từng loại người xem (admin, trưởng phòng, luật sư), cùng `EXPLAIN` của từng truy vấn gộp.
   - Ngân sách vỡ thì thêm index theo R11 bằng một migration riêng, chạy vòng MariaDB thật, rồi đo lại và ghi cả hai lần.
   - Ghi rõ đã quyết gì về cache, và vì sao.
-- [ ] **Dữ liệu mẫu** trong `DemoDataSeeder` (không bao giờ chạy ở production):
+- [x] **Dữ liệu mẫu** trong `DemoDataSeeder` (không bao giờ chạy ở production):
   - ba luật sư và hai trợ lý với hồ sơ khác nhau: một người đúng hạn đều, một người có mốc lỡ, một người nhận bàn giao (qua `ReassignMatters`, đúng đường thật) từ một luật sư nghỉ việc sau tháng trước: một mốc đã lỡ (R9) và vài luồng yêu cầu chưa giao ai mà người nghỉ việc đã trả lời (R18);
   - luật sư nghỉ việc đó vẫn có dòng trong "tháng trước" (R3);
   - yêu cầu khách trả lời nhanh và chậm; một yêu cầu đóng không trả lời (P10);
   - dòng tiến độ trải ba tháng;
   - một vụ `restricted` của luật sư A có vụ quá hạn cập nhật và mốc quá hạn, để thấy khác biệt giữa trưởng phòng và A;
   - 90 ngày ảnh chụp giả, ghi rõ là dữ liệu mẫu.
-- [ ] **Đi hết luồng trên dữ liệu seed**, ghi từng bước:
+- [x] **Đi hết luồng trên dữ liệu seed**, ghi từng bước:
   1. Trưởng phòng mở "Theo dõi đội ngũ", sắp theo mốc quá hạn, mở trang luật sư A, thấy A có 2 vụ quá hạn cập nhật. Trang Nhật ký hệ thống có dòng `performance_viewed`.
   2. A đăng nhập, mở "Việc của tôi", thấy 3 vụ quá hạn: 2 vụ thường và 1 vụ `restricted` của mình. A không mở được trang của B.
   3. Trưởng phòng mở "Hiệu suất", kỳ "tháng trước". Người nhận bàn giao không bị tính mốc lỡ, cũng không bị tính các luồng yêu cầu của người trước; người nghỉ việc vẫn có dòng của mình. Yêu cầu đóng không trả lời nằm ở cột riêng. Không có cột hạng. Dòng tham chiếu đứng đầu. Bấm vào tiêu đề cột tỉ lệ không đổi thứ tự.
@@ -1232,12 +1232,13 @@ protected ?string $pollingInterval = null;    // không kế thừa '5s' của C
   5. Trợ lý: dòng của mình, không cột doanh thu; "Chuyển giai đoạn", "Vụ kết thúc trong kỳ" là "Không áp dụng". Trang "Việc của tôi" của trợ lý: các cột của người phụ trách vụ là "Không áp dụng", không phải 0.
   6. Hôm nay hoàn thành mốc đã lỡ của tháng trước; trang "Hiệu suất" kỳ "tháng trước" không đổi (R19).
 - [ ] **Test SPEC §11 phần "Quyền nội bộ"** và phần mới "Theo dõi đội ngũ": liệt kê theo tên rồi chạy. Độ phủ ≥ 80% cho `app/Actions/Performance/`, `app/Support/Performance/` và policy mới (SPEC §14 mục 1).
-- [ ] **Kiểm chứng:**
+  *(2026-10-07, rà soát cuối làn, I5: phần test đã liệt kê và chạy xanh; **độ phủ CHƯA đo** — image của làn không có Xdebug hay PCOV, và làn không cài thêm gì. Ô này để trống cho tới khi CI (hoặc người gộp) đo được con số; thay thế tạm là mutation probe cho mỗi điều kiện mới, ghi ở báo cáo từng task.)*
+- [x] **Kiểm chứng:**
   - `bin/dev test` xanh (so số test với `find`);
   - `bin/dev pint --test` sạch;
   - `bin/dev test:mariadb` xanh, **tuần tự**;
   - `migrate:fresh --seed` và vòng `migrate:reset` → `migrate` trên MariaDB thật.
-- [ ] **Tài liệu:**
+- [x] **Tài liệu:**
   - `docs/PROGRESS.md`: dòng M13 trong bảng và "Ghi chú M13" gồm mọi phán quyết R1–R20, số đo, các mục cần chủ văn phòng hoặc luật sư xác nhận, và các việc để lại cho người gộp làn khác: R17 (M10), cổng bản ghi tiếp nhận trong `scopeOwnedByVisibleMatters()` (M10, nếu chưa gộp), test R20 (M11, nếu chưa gộp);
   - đính chính có ngày cho bảng R4 của kế hoạch M11 (R13);
   - đính chính có ngày nếu R17 còn chờ M10 (đổi sang giờ làm việc);
@@ -1248,7 +1249,7 @@ protected ?string $pollingInterval = null;    // không kế thừa '5s' của C
     - xu hướng bắt đầu từ ngày triển khai;
     - lịch sử người giữ mốc chỉ đầy đủ từ ngày triển khai; lịch sử người giữ luồng yêu cầu **giao đích danh** cũng vậy (luồng chưa giao ai thì đủ, nhờ `matter_reassigned`);
     - không biến `.env` mới.
-- [ ] Đối chiếu lại các đính chính SPEC của Task 1 với mã cuối cùng.
+- [x] Đối chiếu lại các đính chính SPEC của Task 1 với mã cuối cùng.
 - [ ] Rà soát toàn nhánh bằng Opus, brief **giả định có một Critical** cộng hai câu riêng của M13. Merge, push, chờ CI xanh (SQLite và MariaDB).
 
 **Commit:** `docs: M13 Task 8 — nghiệm thu: số đo trên 3.000 vụ, dữ liệu mẫu theo dõi đội ngũ (bàn giao khi nghỉ việc, yêu cầu đóng không trả lời), đi bộ năm vai trò và kỳ đã đóng, Ghi chú M13, QUY-TRINH giao ban và đánh giá tháng, CAI-DAT cập nhật`

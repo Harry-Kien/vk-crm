@@ -75,6 +75,14 @@ use Throwable;
  * `ChangeDeadlineResponsible` đã ghi — viết lại tại chỗ thay vì đổi thứ tự khoá của các Action cũ
  * (ngoài phạm vi task này).
  *
+ * # Lịch sử người giữ mốc (M13 Task 3, R9)
+ *
+ * Khi người phụ trách THẬT SỰ đổi (cột có trong `changed_fields`), Action ghi thêm một dòng
+ * `deadline_responsible_changed` (`from`, `to`, `reason` = {@see self::HANDOVER_REASON}) ngay SAU dòng
+ * `deadline_updated` — dòng đó vẫn giữ nguyên `before`/`after`. Lịch sử "ai từng giữ mốc này" đọc ở MỘT
+ * khoá sự kiện, cùng khoá `ChangeDeadlineResponsible` và lần mở lại của `SetDeadlineCompletion` ghi;
+ * `App\Support\Performance\DeadlineHolderAtDue` đọc nó. Gửi lại đúng người đang giữ không ghi dòng này.
+ *
  * # Không audit khi không có gì đổi
  *
  * Cùng kỷ luật {@see SetDeadlineCompletion}: một lượt gửi lại y hệt dữ liệu cũ (double-submit,
@@ -103,6 +111,12 @@ class UpdateDeadline
 
     /** `deadlines.name` là `string(200)` (SPEC §4.13) — cùng giới hạn với {@see AddMatterDeadline}. */
     public const NAME_MAX_LENGTH = AddMatterDeadline::NAME_MAX_LENGTH;
+
+    /**
+     * Giá trị `reason` của dòng `deadline_responsible_changed` mà Action này ghi khi người phụ trách
+     * thật sự đổi (M13 R9). Nhãn: `activity.reasons.deadline_responsible_changed.deadline_updated`.
+     */
+    public const HANDOVER_REASON = 'deadline_updated';
 
     /**
      * @param  string|CarbonInterface  $dueDate  chuỗi `Y-m-d` (ô chọn ngày) hoặc một mốc Carbon
@@ -193,6 +207,18 @@ class UpdateDeadline
                 'before' => $before,
                 'after' => $this->snapshot($fresh),
             ], causer: $actor);
+
+            // M13 R9: người phụ trách THẬT SỰ đổi — thêm dòng lịch sử người giữ, sau `deadline_updated`.
+            // Xem docblock lớp, mục "Lịch sử người giữ mốc".
+            if (in_array('responsible_user_id', $changedFields, true)) {
+                Audit::record('deadline_responsible_changed', $fresh, [
+                    'matter_id' => $matter->getKey(),
+                    'client_id' => $matter->client_id,
+                    'from' => $before['responsible_user_id'],
+                    'to' => $fresh->responsible_user_id,
+                    'reason' => self::HANDOVER_REASON,
+                ], causer: $actor);
+            }
 
             return $fresh;
         });
