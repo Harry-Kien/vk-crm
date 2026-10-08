@@ -56,10 +56,11 @@ abstract class CrmTool extends Tool
 
     /**
      * R13 (Task 6): tool ghi chỉ được ĐĂNG KÝ — có trong `tools/list`, và tìm thấy được ở
-     * `tools/call` — cho người ghi được qua MCP ngay lúc này ({@see McpAccess::canWrite()}:
-     * `read_write`, công tắc `mcp.write_enabled` bật). Người `read` không được mời gọi tool mà họ
-     * không dùng được; gọi thẳng tên tool ghi thì laravel/mcp trả "không tìm thấy". Tool đọc luôn
-     * đăng ký (`EnsureMcpAccess` đã chặn người không được dùng máy chủ).
+     * `tools/call` — cho người ghi được qua MCP ngay lúc này ({@see McpAccess::canWriteInRequest()}:
+     * `read_write`, công tắc `mcp.write_enabled` bật; tính một lần mỗi request). Người `read` không
+     * được mời gọi tool mà họ không dùng được; gọi thẳng tên tool ghi thì `CallCrmTool` trả một câu từ
+     * chối tiếng Việt (Task 13), tool không chạy. Tool đọc luôn đăng ký (`EnsureMcpAccess` đã chặn
+     * người không được dùng máy chủ).
      *
      * laravel/mcp hỏi hàm này ở mỗi request (`Primitive::eligibleForRegistration()`), nên hạ một
      * người về `read` có hiệu lực ngay request kế tiếp dù client còn giữ danh sách tool cũ [DC:87].
@@ -74,7 +75,7 @@ abstract class CrmTool extends Tool
 
         $user = Auth::guard('mcp')->user();
 
-        return $user instanceof User && McpAccess::canWrite($user);
+        return $user instanceof User && McpAccess::canWriteInRequest($user);
     }
 
     /**

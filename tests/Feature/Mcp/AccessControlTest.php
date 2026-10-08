@@ -708,7 +708,10 @@ it('R2 hạ read_write về read: token cũ còn hạn vẫn đọc được, nh
     app(SetUserAiAccess::class)->handle($staff, AiAccessMode::Read, $admin);
 
     $refused = aclCallTool('acl_ghi', $token);
-    $refused->assertStatus(400)->assertJsonPath('error.code', -32602);
+    // M11 Task 13 (rà soát Task 6, m5): tên tool ghi client còn giữ trong danh sách cũ nhận câu tiếng Việt
+    // (isError, HTTP 200), không còn -32602 "Tool not found" tiếng Anh qua HTTP 400.
+    $refused->assertOk()->assertJsonPath('result.isError', true)
+        ->assertJsonPath('result.content.0.text', __('ai_access.tools.write_refused'));
 
     aclCallTool('acl_doc', $token)->assertOk()->assertJsonPath('result.isError', false);
 
@@ -742,7 +745,8 @@ it('R13 người read: tools/list không có tool ghi; gọi thẳng tên tool g
 
     expect(aclListedTools($token))->toBe(['acl_doc']);
 
-    aclCallTool('acl_ghi', $token)->assertStatus(400)->assertJsonPath('error.code', -32602);
+    aclCallTool('acl_ghi', $token)->assertOk()->assertJsonPath('result.isError', true)
+        ->assertJsonPath('result.content.0.text', __('ai_access.tools.write_refused'));
 
     expect(aclToolCalls())->toBe([]);
 });
@@ -754,7 +758,8 @@ it('R13 read_write nhưng công tắc mcp.write_enabled tắt: như người rea
 
     expect(aclListedTools($token))->toBe(['acl_doc']);
 
-    aclCallTool('acl_ghi', $token)->assertStatus(400)->assertJsonPath('error.code', -32602);
+    aclCallTool('acl_ghi', $token)->assertOk()->assertJsonPath('result.isError', true)
+        ->assertJsonPath('result.content.0.text', __('ai_access.tools.write_refused'));
 
     expect(aclToolCalls())->toBe([]);
 });

@@ -5,15 +5,18 @@ namespace App\Support\Mcp;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\CommunicationLogsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Models\ClientRequest;
+use App\Models\CommunicationLog;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
+use App\Models\StageLogDraft;
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
 
@@ -65,6 +68,21 @@ final class AdminUrls
     public static function deadline(Deadline $deadline): string
     {
         return self::matterTab($deadline, DeadlinesRelationManager::class);
+    }
+
+    /**
+     * Nháp dòng tiến độ do AI soạn (Task 13): tab Tiến độ, nơi khối "Nháp từ AI (n)" có nút mở nháp
+     * và bỏ nháp (Task 12). Nháp trả lời không cần hàm riêng: nó hiện ở tab "Yêu cầu từ khách", tức
+     * {@see self::clientRequest()} của yêu cầu nó trả lời.
+     */
+    public static function stageLogDraft(StageLogDraft $draft): string
+    {
+        return self::matterTab($draft, StageLogsRelationManager::class);
+    }
+
+    public static function communicationLog(CommunicationLog $log): string
+    {
+        return self::matterTab($log, CommunicationLogsRelationManager::class);
     }
 
     /**

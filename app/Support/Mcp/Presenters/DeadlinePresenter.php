@@ -26,6 +26,38 @@ final class DeadlinePresenter
     ];
 
     /**
+     * Bản xem trước của `create_deadline` (Task 13): những gì SẼ được ghi — không id, không URL, vì bản
+     * chạy thử đã bị rollback và không tồn tại.
+     */
+    public const PREVIEW_FIELDS = [
+        'matter', 'name', 'due_date', 'severity', 'severity_label', 'responsible', 'is_published', 'created_via',
+    ];
+
+    /**
+     * Cần nạp sẵn: `matter`, `responsible`.
+     *
+     * @return array<string, mixed>
+     */
+    public static function preview(Deadline $deadline): array
+    {
+        /** @var Matter $matter */
+        $matter = self::loaded($deadline, 'matter');
+        /** @var User|null $responsible */
+        $responsible = self::loaded($deadline, 'responsible');
+
+        return [
+            'matter' => MatterPresenter::reference($matter),
+            'name' => (string) $deadline->name,
+            'due_date' => $deadline->due_date?->toDateString(),
+            'severity' => $deadline->severity?->value,
+            'severity_label' => $deadline->severity?->label(),
+            'responsible' => $responsible === null ? null : StaffPresenter::present($responsible),
+            'is_published' => (bool) $deadline->is_published,
+            'created_via' => $deadline->created_via?->value,
+        ];
+    }
+
+    /**
      * Cần nạp sẵn: `matter`, `responsible`.
      *
      * @return array<string, mixed>

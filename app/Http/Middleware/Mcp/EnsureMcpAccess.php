@@ -38,6 +38,10 @@ class EnsureMcpAccess
             throw new AuthenticationException('Unauthenticated.', ['mcp']);
         }
 
+        // Quyền ghi tính MỘT lần cho cả request (M11 Task 13, rà soát Task 6 m7): `shouldRegister()` của
+        // bốn tool ghi và bước gọi tool đọc lại câu trả lời này (`McpAccess::canWriteInRequest()`).
+        McpAccess::rememberWriteAccess($request, $user);
+
         return $next($request);
     }
 }

@@ -126,6 +126,51 @@ return [
                 'id' => 'Id yêu cầu có tiền tố, ví dụ request_7.',
             ],
         ],
+
+        // Task 13 — bốn tool ghi (R5): hai tool nháp một bước, hai tool ghi nội bộ hai bước (R6).
+        'draft_progress_update' => [
+            'title' => 'Soạn nháp cập nhật tiến độ',
+            'description' => 'Dùng khi cần soạn sẵn một dòng cập nhật tiến độ (không đổi giai đoạn) cho một vụ việc theo id matter_…: nội dung cho khách, bước tiếp theo, việc khách cần làm, ngày dự kiến cập nhật tiếp, ghi chú nội bộ. Chỉ tạo một bản nháp ở tab Tiến độ; người trong văn phòng mở nháp, sửa và tự bấm "Thêm cập nhật". Gọi lại với cùng idempotency_key và cùng nội dung trả lại nháp đã có. Không dùng để chuyển giai đoạn, công bố cho khách hay gửi thư.',
+            'params' => [
+                'matter_id' => 'Id vụ việc có tiền tố, ví dụ matter_12.',
+                'public_content' => 'Nội dung cập nhật dành cho khách (bắt buộc). Muốn công bố cho khách thì cần ít nhất 30 ký tự; người duyệt quyết định có công bố hay không.',
+                'next_step' => 'Bước tiếp theo của văn phòng.',
+                'client_action' => 'Việc khách cần làm.',
+                'expected_next_update_at' => 'Ngày dự kiến cập nhật tiếp, dạng YYYY-MM-DD, từ hôm nay trở đi.',
+                'internal_note' => 'Ghi chú nội bộ cho người duyệt; không bao giờ tới khách và không đọc lại được qua AI.',
+            ],
+        ],
+        'draft_request_reply' => [
+            'title' => 'Soạn nháp trả lời yêu cầu',
+            'description' => 'Dùng khi cần soạn sẵn câu trả lời cho một yêu cầu từ khách theo id request_…. Chỉ tạo một bản nháp ở tab "Yêu cầu từ khách"; người trong văn phòng mở nháp, sửa và tự bấm Gửi. Trạng thái yêu cầu không đổi. Gọi lại với cùng idempotency_key và cùng nội dung trả lại nháp đã có. Không dùng để gửi trả lời cho khách, đổi trạng thái hay gửi tới địa chỉ nào khác.',
+            'params' => [
+                'request_id' => 'Id yêu cầu có tiền tố, ví dụ request_7.',
+                'content' => 'Nội dung câu trả lời, tối đa 5000 ký tự.',
+            ],
+        ],
+        'create_deadline' => [
+            'title' => 'Thêm mốc thời hạn',
+            'description' => 'Dùng khi cần thêm một mốc thời hạn nội bộ cho một vụ việc theo id matter_…: tên, hạn, mức độ, người phụ trách (mặc định luật sư phụ trách). Hai bước: lần gọi không kèm confirmation_token không ghi gì và trả bản xem trước cùng confirmation_token; gọi lại với đúng các tham số đó và confirmation_token (trong 10 phút) thì mốc được ghi, mang nhãn "Tạo qua AI, chưa xác nhận". Không dùng để công bố mốc cho khách, đánh dấu hoàn thành hay ghi mốc đã qua.',
+            'params' => [
+                'matter_id' => 'Id vụ việc có tiền tố, ví dụ matter_12.',
+                'name' => 'Mốc là việc gì, tối đa 200 ký tự.',
+                'due_date' => 'Hạn, dạng YYYY-MM-DD, từ hôm nay trở đi.',
+                'severity' => 'Mức độ: normal (mặc định) hoặc critical.',
+                'responsible_id' => 'Người phụ trách, id có tiền tố user_… lấy từ đội ngũ trong get_matter; bỏ trống là luật sư phụ trách.',
+            ],
+        ],
+        'log_communication' => [
+            'title' => 'Ghi nhật ký liên lạc',
+            'description' => 'Dùng khi cần ghi lại một cuộc gọi, buổi làm việc, email, thư hay lần lên toà đã diễn ra vào nhật ký liên lạc nội bộ của một vụ việc theo id matter_…. Hai bước: lần gọi không kèm confirmation_token không ghi gì và trả bản xem trước cùng confirmation_token; gọi lại với đúng các tham số đó và confirmation_token (trong 10 phút) thì dòng được ghi, mang nhãn "Tạo qua AI". Không dùng để gửi gì cho khách hay ghi một việc chưa diễn ra.',
+            'params' => [
+                'matter_id' => 'Id vụ việc có tiền tố, ví dụ matter_12.',
+                'type' => 'Kênh: call_in (khách gọi đến), call_out (gọi cho khách), meeting, email, letter, court_visit.',
+                'occurred_at' => 'Thời điểm đã diễn ra, ISO 8601, ví dụ 2026-10-07T14:30:00+07:00; không ở tương lai.',
+                'duration_minutes' => 'Thời lượng, số phút từ 0 tới 65535.',
+                'counterpart' => 'Người liên lạc, tối đa 200 ký tự; bỏ trống là tên khách của vụ.',
+                'summary' => 'Nội dung trao đổi (bắt buộc).',
+            ],
+        ],
     ],
 
     // Task 11 — mô tả `limit`/`cursor` chung của bốn tool danh sách (`App\Mcp\Tools\Concerns\PaginatesByCursor`).
@@ -144,6 +189,49 @@ return [
         'invalid_cursor' => 'Giá trị cursor không dùng được cho lần gọi này. Gọi lại không kèm cursor để bắt đầu từ trang đầu.',
         'unknown_arguments' => 'Tham số không được hỗ trợ: :names.',
         'unauthenticated' => 'Chưa xác thực.',
+        // Task 13 — tool ghi. `forbidden` chỉ trả cho vụ/yêu cầu người gọi ĐÃ thấy được qua MCP, nên nói
+        // thẳng "không có quyền" không lộ gì (vụ không thấy được thì vẫn là `not_found`).
+        'forbidden' => 'Tài khoản của anh/chị không được làm việc này trên vụ việc này (trên web cũng không), nên AI cũng không làm được. Đừng thử lại; nếu cần, nhờ luật sư phụ trách vụ việc.',
+        'invalid_confirmation' => 'confirmation_token không dùng được: sai, đã hết hạn (10 phút), của người khác, hoặc tham số đã đổi so với bản xem trước. Không có gì được ghi. Gọi lại không kèm confirmation_token để nhận bản xem trước và mã mới.',
+        'idempotency_conflict' => 'idempotency_key này anh/chị đã dùng cho một nháp khác. Mỗi nháp mới cần một idempotency_key mới; gửi lại đúng nội dung cũ với khoá cũ thì nhận lại nháp đã có.',
+    ],
+
+    /*
+     * Task 13 — bốn tool ghi: mô tả tham số chung, thông điệp kiểm tra tham số (liệt kê giá trị hợp lệ,
+     * [DC:190]), và câu `message` của kết quả. Câu xem trước nói rõ "chưa ghi gì" và cách xác nhận;
+     * câu của nháp nói rõ chưa có gì tới khách.
+     */
+    'write' => [
+        'params' => [
+            'confirmation_token' => 'Bỏ trống ở lần gọi đầu (chỉ xem trước, không ghi gì). Để ghi: gọi lại với đúng các tham số cũ và confirmation_token nhận được, trong 10 phút.',
+            'idempotency_key' => 'Khoá chống tạo trùng, 8–64 ký tự (chữ cái không dấu, chữ số, . _ : -), không phân biệt hoa thường; dùng một khoá mới cho mỗi nháp mới.',
+        ],
+        'validation' => [
+            'one_of' => ':attribute phải là một trong: :values.',
+            'date_format' => ':attribute phải là ngày dạng YYYY-MM-DD.',
+            'date_time_format' => ':attribute phải là thời điểm dạng ISO 8601, ví dụ 2026-10-07T14:30:00+07:00.',
+            'due_date_past' => 'due_date phải từ hôm nay (:today) trở đi. Mốc đã qua thì nhập trên web.',
+            'next_update_past' => 'expected_next_update_at phải từ hôm nay (:today) trở đi.',
+            'idempotency_key' => 'idempotency_key phải dài 8–64 ký tự, chỉ gồm chữ cái không dấu, chữ số và . _ : -',
+        ],
+        'create_deadline' => [
+            'preview' => 'Chưa ghi gì. Sẽ tạo mốc ":name", hạn :due_date, mức :severity, người phụ trách :responsible, trên vụ :code — mốc nội bộ, không công bố cho khách, mang nhãn "Tạo qua AI, chưa xác nhận". Để ghi, gọi lại create_deadline với đúng các tham số này và confirmation_token (hết hạn sau :minutes phút).',
+            'created' => 'Đã tạo mốc ":name", hạn :due_date. Mốc mang nhãn "Tạo qua AI, chưa xác nhận" trên web cho tới khi có người bấm Xác nhận, và vẫn được nhắc hạn như mọi mốc.',
+            'replayed' => 'Mã xác nhận này đã được dùng: đây là mốc ":name", hạn :due_date đã tạo trước đó. Không tạo thêm.',
+        ],
+        'log_communication' => [
+            'preview' => 'Chưa ghi gì. Sẽ ghi vào nhật ký liên lạc của vụ :code: :type lúc :occurred_at, người liên lạc :counterpart — chỉ nội bộ, khách không thấy, mang nhãn "Tạo qua AI". Để ghi, gọi lại log_communication với đúng các tham số này và confirmation_token (hết hạn sau :minutes phút).',
+            'created' => 'Đã ghi :type vào nhật ký liên lạc của vụ :code (nội bộ, mang nhãn "Tạo qua AI").',
+            'replayed' => 'Mã xác nhận này đã được dùng: đây là dòng :type đã ghi trước đó vào vụ :code. Không ghi thêm.',
+        ],
+        'draft_progress_update' => [
+            'created' => 'Đã lưu nháp cập nhật tiến độ ở tab Tiến độ của vụ :code. Chưa có gì tới khách: một người trong văn phòng phải mở nháp, sửa nếu cần và bấm "Thêm cập nhật".',
+            'existing' => 'idempotency_key này đã có nháp (trạng thái: :state) ở vụ :code; không tạo thêm. Chưa có gì tới khách nếu chưa có người gửi từ nháp.',
+        ],
+        'draft_request_reply' => [
+            'created' => 'Đã lưu nháp trả lời ở tab "Yêu cầu từ khách" của vụ :code. Chưa có gì tới khách: một người trong văn phòng phải mở nháp, sửa nếu cần và bấm Gửi.',
+            'existing' => 'idempotency_key này đã có nháp trả lời (trạng thái: :state) ở vụ :code; không tạo thêm. Chưa có gì tới khách nếu chưa có người gửi từ nháp.',
+        ],
     ],
 
     // Task 10 — các giới hạn mà `whoami` liệt kê (`App\Support\Mcp\Presenters\WhoAmIPresenter::LIMITS`).

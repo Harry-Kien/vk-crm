@@ -27,10 +27,11 @@ use Throwable;
  * 1. **Tool phải kế thừa {@see CrmTool}.** Chỉ lớp đó nói được tool đọc hay ghi (`writes()`) và mang
  *    các luật R13/R14; một tool không qua nó thì không biết nó làm gì, nên không chạy.
  * 2. **R13 — handler vẫn kiểm lại quyền ghi.** Tool ghi chỉ chạy khi người sở hữu token ghi được qua
- *    MCP ở chính request này ({@see McpAccess::canWrite()}: `read_write`, công tắc `mcp.write_enabled`).
+ *    MCP ở chính request này ({@see McpAccess::canWriteInRequest()}: `read_write`, công tắc
+ *    `mcp.write_enabled` — câu trả lời `EnsureMcpAccess` đã tính một lần cho request này).
  *    `CrmTool::shouldRegister()` đã giấu tool ghi khỏi người không ghi được, nên bình thường lần gọi
- *    dừng ở "not found" trước khi tới đây; lần kiểm này là lớp thứ hai, cho một tool lỡ tự nới
- *    `shouldRegister()`.
+ *    dừng ở `CallCrmTool` trước khi tới đây (câu từ chối tiếng Việt cho một tên tool ghi đã ẩn, Task
+ *    13); lần kiểm này là lớp thứ hai, cho một tool lỡ tự nới `shouldRegister()`.
  *
  * Task 8 (R8): điền kết cục của lần gọi vào {@see ToolCallContext} của request —
  *  - hai lần từ chối ở trên: `denied`;
@@ -63,7 +64,7 @@ class CrmToolInvoker extends ToolInvoker
         if ($tool->isWriteTool()) {
             $user = Auth::guard('mcp')->user();
 
-            if (! $user instanceof User || ! McpAccess::canWrite($user)) {
+            if (! $user instanceof User || ! McpAccess::canWriteInRequest($user)) {
                 return $this->refuse($tool, $request, __('ai_access.tools.write_refused'));
             }
         }
@@ -100,6 +101,19 @@ class CrmToolInvoker extends ToolInvoker
 
             return $this->toErrorResponse($throwable);
         }
+    }
+
+    /**
+     * Từ chối một tool ghi mà máy chủ có khai nhưng KHÔNG đăng ký cho người này ở request này (người
+     * `read`, công tắc ghi tắt — R13): kết quả tool `isError` mang câu tiếng Việt
+     * `ai_access.tools.write_refused` qua HTTP 200, kết cục `denied`; tool không chạy. Gọi từ
+     * {@see CallCrmTool} (M11 Task 13, rà soát Task 6 m5): client còn giữ danh sách tool cũ [DC:87] và
+     * gọi tên tool ghi thì nhận một câu nói rõ lý do và rằng thử lại vô ích, thay cho "Tool not found"
+     * tiếng Anh qua HTTP 400 mà vài client coi là lỗi kết nối.
+     */
+    public function refuseHiddenWrite(CrmTool $tool, JsonRpcRequest $request): JsonRpcResponse
+    {
+        return $this->refuse($tool, $request, __('ai_access.tools.write_refused'));
     }
 
     private function refuse(Tool $tool, JsonRpcRequest $request, string $message): JsonRpcResponse

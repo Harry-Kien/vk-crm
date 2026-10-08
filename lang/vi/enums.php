@@ -29,6 +29,12 @@ return [
         'allowed' => 'Cho phép AI truy cập',
         'denied' => 'Không cho AI truy cập',
     ],
+    // M11 R5 (Task 13): App\Enums\McpDraftState — trạng thái của một nháp do AI soạn (suy từ cột).
+    'mcp_draft_state' => [
+        'pending' => 'Đang chờ người duyệt trên web',
+        'used' => 'Đã gửi từ nháp',
+        'discarded' => 'Đã bỏ',
+    ],
     // M11 R5 (Task 7): App\Enums\CreatedVia — mốc hạn, nhật ký liên lạc tạo qua đường nào.
     'created_via' => [
         'web' => 'Nhập trên web',

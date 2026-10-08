@@ -3,14 +3,17 @@
 namespace App\Mcp\Tools\Concerns;
 
 use App\Enums\DocumentGroup;
+use App\Enums\McpDraftState;
 use App\Support\Mcp\Presenters\ChecklistItemPresenter;
 use App\Support\Mcp\Presenters\ClientPresenter;
 use App\Support\Mcp\Presenters\ClientRequestPresenter;
 use App\Support\Mcp\Presenters\ClientRequestReplyPresenter;
+use App\Support\Mcp\Presenters\CommunicationLogPresenter;
 use App\Support\Mcp\Presenters\DeadlinePresenter;
 use App\Support\Mcp\Presenters\DocumentPresenter;
 use App\Support\Mcp\Presenters\MatterChecklistPresenter;
 use App\Support\Mcp\Presenters\MatterPresenter;
+use App\Support\Mcp\Presenters\McpDraftPresenter;
 use App\Support\Mcp\Presenters\PartyPresenter;
 use App\Support\Mcp\Presenters\StaffPresenter;
 use App\Support\Mcp\Presenters\StageLogPresenter;
@@ -21,9 +24,10 @@ use Illuminate\JsonSchema\Types\ObjectType;
 use Illuminate\JsonSchema\Types\Type;
 
 /**
- * Mảnh `outputSchema` dùng chung cho các tool đọc (kế hoạch M11, "Quy ước chung": `structuredContent`
- * có `outputSchema`). Mỗi mảnh mô tả ĐÚNG đầu ra của một presenter ở `App\Support\Mcp\Presenters`:
- * cùng tên khoá, cùng thứ tự với hằng `FIELDS` của presenter đó, mọi khoá bắt buộc, và object ĐÓNG
+ * Mảnh `outputSchema` dùng chung cho các tool đọc và (từ Task 13) bốn tool ghi (kế hoạch M11, "Quy
+ * ước chung": `structuredContent` có `outputSchema`). Mỗi mảnh mô tả ĐÚNG đầu ra của một presenter ở
+ * `App\Support\Mcp\Presenters`: cùng tên khoá, cùng thứ tự với hằng `FIELDS` (hay `PREVIEW_FIELDS`,
+ * `STAGE_LOG_FIELDS`, `REPLY_FIELDS`) của presenter đó, mọi khoá bắt buộc, và object ĐÓNG
  * (`additionalProperties: false`).
  *
  * Object đóng biến schema thành một allowlist thứ hai ở tầng giao thức: test của từng tool so
@@ -166,6 +170,75 @@ final class OutputSchemas
         ]);
     }
 
+    /** {@see DeadlinePresenter::PREVIEW_FIELDS} — bản xem trước của `create_deadline` (Task 13). */
+    public static function deadlinePreview(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'matter' => self::matterReference($schema),
+            'name' => $schema->string(),
+            'due_date' => $schema->string()->nullable(),
+            'severity' => $schema->string()->nullable(),
+            'severity_label' => $schema->string()->nullable(),
+            'responsible' => self::staff($schema)->nullable(),
+            'is_published' => $schema->boolean(),
+            'created_via' => $schema->string()->nullable(),
+        ]);
+    }
+
+    /** {@see CommunicationLogPresenter::PREVIEW_FIELDS}, chưa đóng. @return array<string, Type> */
+    public static function communicationPreviewProperties(JsonSchema $schema): array
+    {
+        return [
+            'matter' => self::matterReference($schema),
+            'type' => $schema->string()->nullable(),
+            'type_label' => $schema->string()->nullable(),
+            'occurred_at' => $schema->string()->nullable(),
+            'duration_minutes' => $schema->integer()->nullable(),
+            'counterpart' => $schema->string()->nullable(),
+            'summary' => $schema->string()->nullable(),
+            'is_visible_to_client' => $schema->boolean(),
+            'created_via' => $schema->string()->nullable(),
+        ];
+    }
+
+    /** {@see CommunicationLogPresenter::FIELDS} */
+    public static function communication(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'id' => $schema->string(),
+            ...self::communicationPreviewProperties($schema),
+            'created_via_label' => $schema->string()->nullable(),
+            'url' => $schema->string(),
+        ]);
+    }
+
+    /** {@see McpDraftPresenter::STAGE_LOG_FIELDS} — không có khoá nào cho nội dung `internal_note` (R4). */
+    public static function stageLogDraft(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'id' => $schema->string(),
+            'matter' => self::matterReference($schema),
+            'public_content' => $schema->string()->nullable(),
+            'next_step' => $schema->string()->nullable(),
+            'client_action' => $schema->string()->nullable(),
+            'expected_next_update_at' => $schema->string()->nullable(),
+            'has_internal_note' => $schema->boolean(),
+            ...self::draftStateProperties($schema),
+        ]);
+    }
+
+    /** {@see McpDraftPresenter::REPLY_FIELDS} */
+    public static function replyDraft(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'id' => $schema->string(),
+            'request_id' => $schema->string(),
+            'matter' => self::matterReference($schema),
+            'content' => $schema->string()->nullable(),
+            ...self::draftStateProperties($schema),
+        ]);
+    }
+
     /** {@see StageLogPresenter::FIELDS} — không có khoá nào cho nội dung `internal_note` (R4). */
     public static function stageLog(JsonSchema $schema): ObjectType
     {
@@ -297,6 +370,17 @@ final class OutputSchemas
     public static function listOf(JsonSchema $schema, Type $items): ArrayType
     {
         return $schema->array()->items($items);
+    }
+
+    /** Bốn khoá cuối chung của hai loại nháp. @return array<string, Type> */
+    private static function draftStateProperties(JsonSchema $schema): array
+    {
+        return [
+            'state' => $schema->string()->enum(array_map(fn (McpDraftState $state): string => $state->value, McpDraftState::cases())),
+            'state_label' => $schema->string(),
+            'created_at' => $schema->string()->nullable(),
+            'url' => $schema->string(),
+        ];
     }
 
     /** @return array<string, Type> */

@@ -6,6 +6,7 @@ use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
 use App\Actions\Portal\TriageClientRequest;
 use App\Actions\TransitionMatterStage;
+use App\Enums\CreatedVia;
 use App\Enums\DeadlineSeverity;
 use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\Concerns\HasBlameable;
@@ -82,6 +83,8 @@ class AddMatterDeadline
     /**
      * @param  string|CarbonInterface  $dueDate  ngày đến hạn; chuỗi `Y-m-d` là thứ ô chọn ngày gửi lên
      * @param  User|null  $responsible  để trống thì lấy luật sư phụ trách vụ việc
+     * @param  CreatedVia  $createdVia  `mcp` chỉ do tool `create_deadline` của M11 truyền (R5): mốc mang nhãn
+     *                                  "Tạo qua AI, chưa xác nhận" trên web; mọi màn hình web để mặc định `web`
      *
      * @throws AuthorizationException
      * @throws ValidationException
@@ -95,8 +98,9 @@ class AddMatterDeadline
         DeadlineSeverity $severity = DeadlineSeverity::Normal,
         ?User $responsible = null,
         bool $isPublished = false,
+        CreatedVia $createdVia = CreatedVia::Web,
     ): Deadline {
-        return DB::transaction(function () use ($matter, $actor, $name, $dueDate, $severity, $responsible, $isPublished): Deadline {
+        return DB::transaction(function () use ($matter, $actor, $name, $dueDate, $severity, $responsible, $isPublished, $createdVia): Deadline {
             $fresh = $this->openMatterForDeadline($matter, $actor);
 
             $name = $this->cleanName($name);
@@ -127,6 +131,9 @@ class AddMatterDeadline
                 'is_published' => $isPublished,
             ]);
 
+            // `created_via` không nằm trong `$fillable` (một form web không tự dán nhãn "tạo qua AI").
+            $deadline->forceFill(['created_via' => $createdVia]);
+
             $deadline->blameOn($actor)->save();
 
             Audit::record('deadline_added', $deadline, [
@@ -136,6 +143,7 @@ class AddMatterDeadline
                 'severity' => $severity->value,
                 'responsible_user_id' => $responsible->getKey(),
                 'is_published' => $isPublished,
+                'created_via' => $createdVia->value,
             ], causer: $actor);
 
             return $deadline;

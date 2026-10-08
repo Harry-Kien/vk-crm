@@ -3,6 +3,9 @@
 namespace App\Mcp\Servers;
 
 use App\Mcp\Methods\CallCrmTool;
+use App\Mcp\Tools\CreateDeadlineTool;
+use App\Mcp\Tools\DraftProgressUpdateTool;
+use App\Mcp\Tools\DraftRequestReplyTool;
 use App\Mcp\Tools\FetchTool;
 use App\Mcp\Tools\GetChecklistTool;
 use App\Mcp\Tools\GetClientRequestTool;
@@ -11,6 +14,7 @@ use App\Mcp\Tools\ListClientRequestsTool;
 use App\Mcp\Tools\ListDeadlinesTool;
 use App\Mcp\Tools\ListDocumentsTool;
 use App\Mcp\Tools\ListMatterUpdatesTool;
+use App\Mcp\Tools\LogCommunicationTool;
 use App\Mcp\Tools\SearchMattersTool;
 use App\Mcp\Tools\SearchTool;
 use App\Mcp\Tools\WhoAmITool;
@@ -28,7 +32,9 @@ use Laravel\Mcp\Server\Tool;
  * Tool đăng ký theo THỨ TỰ CỐ ĐỊNH của bảng tool trong kế hoạch (R13, [DC:649]): Task 10 đăng ký
  * năm tool đọc đầu (`whoami`, `search`, `fetch`, `search_matters`, `get_matter`); Task 11 nối tiếp
  * sáu tool đọc còn lại (`list_matter_updates`, `list_deadlines`, `get_checklist`, `list_documents`,
- * `list_client_requests`, `get_client_request`); Task 13 bốn tool ghi.
+ * `list_client_requests`, `get_client_request`); Task 13 bốn tool ghi (`draft_progress_update`,
+ * `draft_request_reply`, `create_deadline`, `log_communication`) — chỉ đăng ký cho người ghi được
+ * qua MCP lúc này (`CrmTool::shouldRegister()`, R13).
  */
 class CrmServer extends Server
 {
@@ -52,6 +58,10 @@ class CrmServer extends Server
         ListDocumentsTool::class,
         ListClientRequestsTool::class,
         GetClientRequestTool::class,
+        DraftProgressUpdateTool::class,
+        DraftRequestReplyTool::class,
+        CreateDeadlineTool::class,
+        LogCommunicationTool::class,
     ];
 
     /**

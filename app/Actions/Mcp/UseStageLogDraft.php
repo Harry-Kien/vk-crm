@@ -2,6 +2,7 @@
 
 namespace App\Actions\Mcp;
 
+use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Actions\TransitionMatterStage;
 use App\Exceptions\McpDraftNotPending;
@@ -26,8 +27,9 @@ use Illuminate\Support\Facades\Gate;
  * tự, vụ đã bật portal, `StageLogPolicy::publish`) vẫn do `TransitionMatterStage` giữ.
  *
  * Một transaction, theo thứ tự khoá chung — dòng `matters` TRƯỚC, rồi dòng nháp:
- *  1. khoá vụ; vụ đã xoá mềm, hay người bấm không có `transitionStage` trên vụ → câu từ chối chung,
- *     TRƯỚC khi nói gì về nháp (SPEC §10.10);
+ *  1. khoá vụ; vụ đã xoá mềm, tài khoản người bấm đã vô hiệu hoá hay xoá mềm (M11 Task 13, rà soát
+ *     Task 12 m2 — cùng câu `DiscardDraft` hỏi), hay người bấm không có `transitionStage` trên vụ →
+ *     câu từ chối chung, TRƯỚC khi nói gì về nháp (SPEC §10.10);
  *  2. khoá nháp; nháp không thuộc vụ này → cùng câu từ chối; nháp đã dùng hoặc đã bỏ (người khác
  *     vừa bấm ở tab khác) → {@see McpDraftNotPending}, không ghi gì;
  *  3. `TransitionMatterStage` (transaction lồng; nó khoá lại vụ — đã giữ khoá — và tự kiểm giai đoạn
@@ -41,6 +43,7 @@ use Illuminate\Support\Facades\Gate;
  */
 class UseStageLogDraft
 {
+    use ChecksAccountActive;
     use ReadsWithoutPortalScope;
 
     public function handle(
@@ -62,7 +65,8 @@ class UseStageLogDraft
             // Câu ĐẦU TIÊN chạm CSDL: khoá vụ. `Matter::query()` loại vụ đã xoá mềm.
             $lockedMatter = $this->scopelessly(Matter::query())->lockForUpdate()->find($matter->getKey());
 
-            if ($lockedMatter === null || Gate::forUser($actor)->denies('transitionStage', $lockedMatter)) {
+            if ($lockedMatter === null || ! $this->accountIsActive($actor)
+                || Gate::forUser($actor)->denies('transitionStage', $lockedMatter)) {
                 $this->refuse();
             }
 

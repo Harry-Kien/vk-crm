@@ -35,9 +35,19 @@ final class McpIds
 
     public const USER = 'user';
 
+    /** Nháp dòng cập nhật tiến độ do `draft_progress_update` soạn (Task 13). */
+    public const PROGRESS_DRAFT = 'updatedraft';
+
+    /** Nháp trả lời yêu cầu do `draft_request_reply` soạn (Task 13). */
+    public const REPLY_DRAFT = 'replydraft';
+
+    /** Dòng nhật ký liên lạc do `log_communication` ghi (Task 13). */
+    public const COMMUNICATION = 'communication';
+
     private const TYPES = [
         self::MATTER, self::DEADLINE, self::REQUEST, self::DOCUMENT,
         self::UPDATE, self::CHECKLIST_ITEM, self::REPLY, self::USER,
+        self::PROGRESS_DRAFT, self::REPLY_DRAFT, self::COMMUNICATION,
     ];
 
     public static function encode(string $type, int $id): string

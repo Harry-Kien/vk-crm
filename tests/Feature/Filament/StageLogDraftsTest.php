@@ -368,6 +368,32 @@ it('refuses to send a draft that was used in another tab after the form was open
         ->and($draft->refresh()->used_stage_log_id)->toBe($log->id);
 });
 
+it('refuses to send a draft for an account deactivated after the form was opened, and writes nothing (M11 Task 13, Task 12 m2)', function () {
+    Event::fake([StageLogPublished::class]);
+    [$lawyer, $matter, $author] = sldMatter();
+    $draft = sldDraft($matter, $author);
+
+    $this->actingAs($lawyer, 'web');
+
+    $page = sldPage($matter)->mountAction(sldAction('useDraft', $draft));
+
+    $lawyer->forceFill(['is_active' => false])->save();
+
+    $page->callMountedAction()->assertNotified(__('ai_drafts.unavailable'));
+
+    expect(StageLog::query()->exists())->toBeFalse()
+        ->and($draft->refresh()->isPending())->toBeTrue();
+
+    Event::assertNotDispatched(StageLogPublished::class);
+
+    // Cặp dương: tài khoản hoạt động lại thì cùng form gửi được.
+    $lawyer->forceFill(['is_active' => true])->save();
+
+    sldPage($matter)->mountAction(sldAction('useDraft', $draft))->callMountedAction()->assertHasNoFormErrors();
+
+    expect(StageLog::query()->where('matter_id', $matter->id)->count())->toBe(1);
+});
+
 it('requires a reason to discard a draft', function () {
     [$lawyer, $matter, $author] = sldMatter();
     $draft = sldDraft($matter, $author);

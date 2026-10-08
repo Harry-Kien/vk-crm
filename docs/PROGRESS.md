@@ -5990,6 +5990,73 @@ từ trước), 0 failed, 3804 s. MariaDB tuần tự (`tests/Feature/Mcp`, `tes
 `TransportTest` "access token … sống đúng 1 giờ" nhận `expires_in` 3599 (giây đồng hồ sang giữa lúc cấp token và lúc
 dựng phản hồi; test không đổi trong lần gộp); chạy lại `TransportTest` trên MariaDB: 43 passed. `pint --test` sạch.
 
+### Task 13 — bốn tool ghi và mã xác nhận hai bước (R5, R6) (làn m11, 2026-10-07)
+
+**Đã dựng.** Bốn tool trên `CrmServer`, sau mười một tool đọc, đúng thứ tự bảng tool: `draft_progress_update`,
+`draft_request_reply`, `create_deadline`, `log_communication`. Lớp cơ sở `CrmWriteTool` (`writes()` cố định `true`;
+annotation, đăng ký theo quyền R13, giới hạn 10/phút + 100/ngày và dòng `mcp_tool_called` đều thừa hưởng, không
+mã riêng). Bốn việc chung với tool đọc tách thành trait `InteractsWithCrmRequests` (người gọi từ guard `mcp`, một câu
+"Không tìm thấy", schema đóng, kết quả có cấu trúc); `CrmReadTool` dùng lại trait đó, không đổi hành vi.
+- **Nghiệp vụ ở `app/Actions/Mcp/Write/`:** `CreateAiDeadline` (qua `AddMatterDeadline`), `LogAiCommunication` (qua
+  `LogCommunication` của M7 Task 8), `DraftProgressUpdate`, `DraftRequestReply`. Thứ tự giống nhau: vụ/yêu cầu trong
+  tập R3 (`McpMatterScope`, không thì "Không tìm thấy" y như tool đọc) → cổng của ĐÚNG màn hình web
+  (`MatterPolicy::update` cho mốc; `CommunicationLogPolicy::create($user, $matter)`; `MatterPolicy::transitionStage`
+  — cổng nút "Thêm cập nhật", trợ lý không có; `ClientRequestReplyPolicy::create` với luồng — câu
+  `ReplyToClientRequest` hỏi), không qua thì `mcp.tool_errors.forbidden` (outcome `denied`) → ghi. Server ÉP
+  `is_published = false`, `is_visible_to_client = false`, `created_via = mcp`, người tạo = người sở hữu token.
+- **Hai bước (R6):** `App\Support\Mcp\ConfirmationToken` — HMAC-SHA256 không trạng thái, khoá suy từ `APP_KEY` với nhãn
+  riêng; mang `users.id`, tên tool, SHA-256 tham số ĐÃ CHUẨN HOÁ (khoá xếp thứ tự, tên cắt khoảng trắng, mức mặc định
+  `normal` điền trước khi băm, `occurred_at` quy về múi giờ ứng dụng), `jti` 128 bit hex thường, hạn 10 phút. Chữ ký
+  so trên chuỗi base64url (sửa ký tự cuối — chỉ mang 4 bit — cũng bị từ chối). Mọi lý do từ chối một câu
+  (`invalid_confirmation`). Lần một (`ConfirmsInTwoSteps::dryRun()`): Action nghiệp vụ chạy ĐỦ trong một transaction
+  rồi rollback — bản xem trước đúng những gì lần ghi làm (người phụ trách mặc định, người liên lạc mặc định, mọi lỗi
+  kiểm tra) mà không chép luật nào; không gì commit (chỉ còn khoảng trống ở bộ đếm tự tăng). Lần hai
+  (`confirmOnce()`): một transaction, khoá dòng `matters` trước, `jti` đã có dòng `mcp_confirmations` thì trả đúng bản
+  ghi cũ, chưa có thì ghi qua Action rồi dòng mã CÙNG transaction; `jti` unique là chốt cuối khi hai lần gọi song song.
+- **Nháp (một bước):** `idempotency_key` 8–64 ký tự `[A-Za-z0-9._:-]`, chuyển về chữ thường trước khi đọc/ghi.
+- **Presenter:** `McpDraftPresenter` (nháp: không bao giờ `internal_note`, chỉ cờ; trạng thái `App\Enums\McpDraftState`
+  pending/used/discarded, có nhãn), `CommunicationLogPresenter`, `DeadlinePresenter::preview()`. Id mới:
+  `updatedraft_…`, `replydraft_…`, `communication_…`; URL: `AdminUrls::stageLogDraft()` (tab Tiến độ),
+  `communicationLog()` (tab Liên lạc), nháp trả lời về tab "Yêu cầu từ khách".
+- `AddMatterDeadline` và `LogCommunication` nhận thêm `CreatedVia $createdVia = CreatedVia::Web` (mở rộng có chủ đích,
+  mọi caller cũ giữ nguyên) và ghi `created_via` vào dòng audit `deadline_added` / `communication_logged`.
+
+**Phán quyết của task (lệch so với chữ kế hoạch, ghi để Task 17 gom):**
+- `create_deadline` TỪ CHỐI hạn trong quá khứ (`after_or_equal:today`) — thu hẹp so với web (nơi luật sư ghi mốc đã lỡ
+  khi nhận bàn giao): mốc đã qua do AI tạo nhiều khả năng là nhầm năm. Brief nêu đúng ví dụ này.
+- `log_communication`: `occurred_at` BẮT BUỘC (web: trống là "bây giờ") — một "bây giờ" tự điền ở lần hai sẽ lệch bản
+  xem trước; thời điểm kèm `Z` được quy về múi giờ ứng dụng (cột `datetime` không mang múi giờ — không quy đổi thì
+  lệch 7 giờ, có test).
+- `draft_request_reply` từ chối luồng đã đóng bằng câu của văn phòng (`requests.tab.closed_notice`) — nháp cho luồng
+  đóng không gửi được. Trần nội dung 5000 = `ReplyToClientRequest::CONTENT_MAX` (cột `TEXT`, nhưng nháp phải gửi được
+  nguyên văn); năm ô của nháp tiến độ 16.383 ký tự (`TEXT`-an-toàn utf8mb4, cùng cách `LogCommunication`).
+- Lỗi nghiệp vụ là `ValidationException` (outcome `invalid`, câu tiếng Việt liệt kê giá trị hợp lệ): laravel/mcp đổi
+  mọi exception khác ngoài xác thực/phân quyền thành "An internal server error occurred." khi tắt debug.
+- **Rà soát Task 7 m4/m5:** khoá idempotency không phân biệt hoa thường ở cả hai CSDL (chữ thường hoá; `jti` do server
+  sinh hex thường nên không cần đổi collation). Trúng khoá chỉ trả nháp cũ khi CÙNG vụ/yêu cầu và CÙNG nội dung; khác
+  thì `idempotency_conflict`, không lộ gì của nháp cũ; vụ/yêu cầu được hỏi lại qua R3 và cổng web TRƯỚC khi đọc khoá.
+- **Rà soát Task 7 m2/m3:** `matter_id`/`request_id` và `used_stage_log_id`/`used_reply_id` của hai bảng nháp đổi sang
+  `restrictOnDelete` — sửa TẠI CHỖ hai migration của Task 7 (chưa chạy trên máy chủ nào; làn chưa gộp `main`).
+- **Rà soát Task 6 m5:** gọi tên một tool GHI có khai mà không đăng ký cho người này (người `read`, công tắc ghi tắt,
+  client giữ danh sách cũ) nay nhận kết quả `isError` câu tiếng Việt `ai_access.tools.write_refused` qua HTTP 200
+  (outcome `denied`), thay cho "Tool not found" tiếng Anh qua HTTP 400; câu nay nói "Quản trị chưa bật quyền ghi cho
+  anh/chị… không thử lại". Tên lạ hẳn vẫn -32602. Ba test cũ của `AccessControlTest` đổi theo.
+- **Rà soát Task 6 m7:** `EnsureMcpAccess` tính "ghi được không" MỘT lần mỗi request và gắn lên request
+  (`McpAccess::rememberWriteAccess()` / `canWriteInRequest()`); `shouldRegister()` và bước gọi tool đọc lại. Chỉ dùng
+  cho đúng `users.id` đã tính; ngoài `/mcp` hỏi `canWrite()` như cũ.
+- **Rà soát Task 12 m2:** `UseStageLogDraft` hỏi tài khoản còn hoạt động (`ChecksAccountActive`), như `DiscardDraft`.
+
+**Giới hạn, nói thẳng.** Lần chạy thử giữ khoá dòng vụ trong vài mili giây rồi rollback. Khoá dòng vụ ở lần hai chỉ là
+lập luận trên MariaDB (SQLite biên dịch `lockForUpdate()` thành không gì); chốt cuối có test là `jti` unique và khoá
+unique của nháp. Người để "Always allow" thì AI tự gọi được cả hai bước (R6) — lớp an toàn thật là ghi chỉ nội bộ, nhãn
+"Tạo qua AI", và người sửa được trên web.
+
+**Mutation còn sống, có lý do (lớp chồng lớp).** Bỏ riêng lần đọc `mcp_confirmations` trước khi ghi, hoặc riêng nhánh bắt
+unique `jti` — test vẫn xanh vì lớp kia trả đúng bản ghi cũ; bỏ cả hai thì đỏ. Bỏ lần đọc khoá idempotency trước khi ghi
+nháp — unique `(created_by, idempotency_key)` vỡ và nhánh bắt lỗi trả cùng nháp, nên tương đương. Bỏ `Gate view` trên
+yêu cầu của `draft_request_reply` — với nhân sự `ClientRequestPolicy::view` hôm nay đúng bằng "thấy vụ", đã nằm trong
+`McpMatterScope`, nên tương đương; giữ lại để một lần siết policy sau này tự áp vào tool.
+
 ## Ghi chú M12
 
 Làn `m12-pwa-push` (`D:\vkwt\lane-m12`), kế hoạch `docs/superpowers/plans/2026-09-24-m12-pwa.md`. Cắt

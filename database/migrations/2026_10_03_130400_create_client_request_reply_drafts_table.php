@@ -14,7 +14,11 @@ use Illuminate\Support\Facades\Schema;
  *  - Cha là `request_id` — đúng tên cột của `client_request_replies`, bảng mà nháp này sẽ trở thành.
  *  - `content` TEXT như `client_request_replies.content`. Không có cột người nhận: tool không nhận
  *    địa chỉ nào (R5, R11).
- *  - `idempotency_key` unique THEO NGƯỜI; không `deleted_at` — chỉ bỏ, kèm người và lý do (M6.5 R14).
+ *  - `idempotency_key` unique THEO NGƯỜI (tool chuyển về chữ thường trước khi ghi, Task 13); không
+ *    `deleted_at` — chỉ bỏ, kèm người và lý do (M6.5 R14).
+ *  - `request_id` và `used_reply_id` `restrictOnDelete` (M11 Task 13, rà soát Task 7 m2/m3): cùng lý do
+ *    với `stage_log_drafts` — xoá cứng cha không xoá nháp, xoá cứng câu trả lời không đưa nháp đã dùng
+ *    về "đang chờ".
  */
 return new class extends Migration
 {
@@ -22,11 +26,11 @@ return new class extends Migration
     {
         Schema::create('client_request_reply_drafts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('request_id')->constrained('client_requests')->cascadeOnDelete();
+            $table->foreignId('request_id')->constrained('client_requests')->restrictOnDelete();
             $table->foreignId('created_by')->constrained('users')->restrictOnDelete();
             $table->text('content');
             $table->string('idempotency_key', 64);
-            $table->foreignId('used_reply_id')->nullable()->constrained('client_request_replies')->nullOnDelete();
+            $table->foreignId('used_reply_id')->nullable()->constrained('client_request_replies')->restrictOnDelete();
             $table->timestamp('discarded_at')->nullable();
             $table->foreignId('discarded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->text('discard_reason')->nullable();

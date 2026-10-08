@@ -17,7 +17,9 @@ return [
     ],
 
     'tools' => [
-        'write_refused' => 'Tài khoản của bạn hiện chỉ được đọc qua AI (chế độ "Chỉ đọc", hoặc quản trị đã tắt quyền ghi qua AI), nên không có gì được ghi. Hỏi quản trị nếu bạn cần quyền ghi.',
+        // Task 13 (brief, [DC:191]): nói rõ ai chưa bật, và rằng gọi lại cũng bị từ chối — AI đọc câu
+        // này rồi thôi thử, thay vì lặp lại lời gọi.
+        'write_refused' => 'Quản trị chưa bật quyền ghi cho anh/chị qua AI (tài khoản ở chế độ "Chỉ đọc", hoặc quyền ghi qua AI đang tắt cho cả văn phòng), nên không có gì được ghi. Đừng gọi lại: lần gọi sau cũng bị từ chối, không thử lại cho tới khi quản trị bật quyền ghi; hỏi quản trị nếu anh/chị cần.',
         'unavailable' => 'Công cụ này không dùng được qua máy chủ AI của văn phòng.',
     ],
 ];

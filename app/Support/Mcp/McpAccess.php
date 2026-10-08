@@ -12,6 +12,7 @@ use App\Models\AiAcknowledgement;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Http\Request;
 
 /**
  * MỘT định nghĩa của "người này dùng được máy chủ MCP lúc này không, và ghi được không" (M11 R2, R12,
@@ -22,13 +23,18 @@ use Illuminate\Contracts\Auth\Authenticatable;
  * Kiểm ở mỗi lần hỏi, không lúc cấp token [DC:149]: công tắc và lời cam kết đọc lại CSDL mỗi lần;
  * trạng thái của người (`is_active`, xoá mềm, `ai_access`, vai) đọc trên đối tượng `User` truyền vào —
  * trong request MCP đó là người guard `mcp` vừa nạp mới từ CSDL. Đổi một điều kiện thì request kế
- * tiếp của MỌI token cũ thấy ngay. Không thuộc tính `static` nào giữ gì qua hai lần hỏi.
+ * tiếp của MỌI token cũ thấy ngay. Không thuộc tính `static` nào giữ gì qua hai lần hỏi. Một ngoại lệ có
+ * phạm vi đúng MỘT request: câu "ghi được không" mà `EnsureMcpAccess` tính rồi gắn lên chính request
+ * `/mcp` đó ({@see self::canWriteInRequest()}).
  *
  * Không đọc `auth()` nào: người dùng luôn được truyền tường minh (trong request MCP, `auth('web')` và
  * `auth('client')` đều rỗng — Review Focus 4).
  */
 final class McpAccess
 {
+    /** Khoá thuộc tính request giữ câu trả lời "ghi được không" của request `/mcp` hiện hành. */
+    public const WRITE_ACCESS_ATTRIBUTE = 'vkcrm.mcp.write_access';
+
     /**
      * Lý do ĐẦU TIÊN khiến người này không dùng được máy chủ MCP, theo thứ tự R2 kiểm, hoặc `null`
      * khi được dùng:
@@ -110,9 +116,48 @@ final class McpAccess
      */
     public static function canWrite(User $user): bool
     {
-        return $user->ai_access === AiAccessMode::ReadWrite
-            && self::refusal($user) === null
-            && McpSwitches::writeEnabled();
+        return self::refusal($user) === null && self::writeModeOn($user);
+    }
+
+    /**
+     * {@see self::canWrite()} cho một lần hỏi BÊN TRONG request `/mcp` (M11 Task 13, rà soát Task 6 m7):
+     * đọc câu trả lời mà {@see EnsureMcpAccess} đã tính một lần cho chính request này
+     * ({@see self::rememberWriteAccess()}), thay vì hỏi lại công tắc, lời cam kết và spatie cho từng tool
+     * ghi ở `shouldRegister()` và ở bước gọi tool — với bốn tool ghi, một `tools/list` từng hỏi
+     * `refusal()` năm lần.
+     *
+     * Câu trả lời chỉ dùng được khi nó được tính cho ĐÚNG người này (cùng `users.id`); ngoài request
+     * `/mcp` (không middleware nào đặt nó) hàm này hỏi {@see self::canWrite()} như cũ. Nó sống trên đối
+     * tượng `Request` của request hiện hành, không trong thuộc tính `static` nào: request kế tiếp bắt đầu
+     * lại từ đầu, nên hạ quyền một người vẫn có hiệu lực ngay ở request kế tiếp.
+     */
+    public static function canWriteInRequest(User $user, ?Request $request = null): bool
+    {
+        $remembered = ($request ?? request())->attributes->get(self::WRITE_ACCESS_ATTRIBUTE);
+
+        if (is_array($remembered) && ($remembered['user'] ?? null) === $user->getKey()) {
+            return (bool) $remembered['can_write'];
+        }
+
+        return self::canWrite($user);
+    }
+
+    /**
+     * Gọi bởi {@see EnsureMcpAccess} SAU KHI người này đã qua {@see self::refusal()}: ghi lên request câu
+     * trả lời "ghi được không" cho mọi lần hỏi {@see self::canWriteInRequest()} còn lại của request đó.
+     */
+    public static function rememberWriteAccess(Request $request, User $user): void
+    {
+        $request->attributes->set(self::WRITE_ACCESS_ATTRIBUTE, [
+            'user' => $user->getKey(),
+            'can_write' => self::writeModeOn($user),
+        ]);
+    }
+
+    /** Hai điều kiện riêng của quyền ghi: chế độ `read_write` và công tắc `mcp.write_enabled`. */
+    private static function writeModeOn(User $user): bool
+    {
+        return $user->ai_access === AiAccessMode::ReadWrite && McpSwitches::writeEnabled();
     }
 
     /**

@@ -17,6 +17,13 @@ use Illuminate\Support\Facades\Schema;
  *    (M6.5 R14). `App\Models\StageLogDraft` từ chối mọi lần xoá và mọi lần bỏ thiếu người hay lý do.
  *  - `created_by` bắt buộc: người sở hữu token MCP. `restrictOnDelete` — không ai xoá cứng được một
  *    nhân sự mà vẫn để nháp của họ trôi nổi không chủ.
+ *  - `matter_id` và `used_stage_log_id` cũng `restrictOnDelete` (M11 Task 13, rà soát Task 7 m2/m3; sửa
+ *    tại chỗ vì migration chưa từng chạy trên máy chủ nào): một lần xoá CỨNG vụ — dưới tầng model, nơi
+ *    hook `deleting` của nháp không chạy — không được lặng lẽ xoá nháp; và một lần xoá cứng dòng tiến độ
+ *    không được đưa nháp đã dùng về "đang chờ" để gửi lần hai. Không đường nào trong `app/` xoá cứng
+ *    hai bảng cha đó, nên khoá ngoại là chốt cuối, không đổi hành vi nào hôm nay.
+ *  - `idempotency_key` được tool chuyển về chữ thường trước khi ghi (Task 13), nên unique theo người
+ *    cho cùng câu trả lời trên MariaDB (`utf8mb4_unicode_ci`) và SQLite (rà soát Task 7 m4).
  */
 return new class extends Migration
 {
@@ -24,7 +31,7 @@ return new class extends Migration
     {
         Schema::create('stage_log_drafts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('matter_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('matter_id')->constrained()->restrictOnDelete();
             $table->foreignId('created_by')->constrained('users')->restrictOnDelete();
             $table->text('public_content')->nullable();
             $table->text('next_step')->nullable();
@@ -32,7 +39,7 @@ return new class extends Migration
             $table->date('expected_next_update_at')->nullable();
             $table->text('internal_note')->nullable();
             $table->string('idempotency_key', 64);
-            $table->foreignId('used_stage_log_id')->nullable()->constrained('stage_logs')->nullOnDelete();
+            $table->foreignId('used_stage_log_id')->nullable()->constrained('stage_logs')->restrictOnDelete();
             $table->timestamp('discarded_at')->nullable();
             $table->foreignId('discarded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->text('discard_reason')->nullable();

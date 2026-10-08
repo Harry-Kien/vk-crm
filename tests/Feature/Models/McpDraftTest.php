@@ -261,3 +261,33 @@ it('never lets mass assignment set created_via or the confirmation of a deadline
         ->and($deadline->confirmed_by)->toBeNull()
         ->and($log->fresh()->created_via)->toBe(CreatedVia::Web);
 });
+
+/*
+ * M11 Task 13 (rà soát Task 7, m2 và m3): nháp đã dùng phải luôn trỏ được tới thứ nó đã thành, và
+ * một lần xoá CỨNG cha (dưới tầng model, nơi hook `deleting` của nháp không chạy) không được lặng lẽ
+ * xoá nháp hay đưa một nháp đã dùng về "đang chờ" để gửi lần hai. Bốn khoá ngoại là `restrict`.
+ */
+it('refuses a hard delete of the stage log or reply a used draft became, and keeps the draft used', function (string $kind) {
+    if ($kind === 'stage') {
+        $draft = StageLogDraft::factory()->create();
+        $target = StageLog::factory()->create(['matter_id' => $draft->matter_id]);
+        $draft->forceFill(['used_stage_log_id' => $target->id])->save();
+        $table = 'stage_logs';
+    } else {
+        $draft = ClientRequestReplyDraft::factory()->create();
+        $target = ClientRequestReply::factory()->create(['request_id' => $draft->request_id]);
+        $draft->forceFill(['used_reply_id' => $target->id])->save();
+        $table = 'client_request_replies';
+    }
+
+    expect(fn () => DB::table($table)->where('id', $target->id)->delete())->toThrow(QueryException::class)
+        ->and($draft->fresh()->isPending())->toBeFalse();
+})->with(['stage', 'reply']);
+
+it('refuses a hard delete of the matter or request a draft belongs to, and keeps the draft', function (string $kind) {
+    $draft = $kind === 'stage' ? StageLogDraft::factory()->create() : ClientRequestReplyDraft::factory()->create();
+    [$table, $id] = $kind === 'stage' ? ['matters', $draft->matter_id] : ['client_requests', $draft->request_id];
+
+    expect(fn () => DB::table($table)->where('id', $id)->delete())->toThrow(QueryException::class)
+        ->and($draft::query()->withoutGlobalScopes()->whereKey($draft->getKey())->exists())->toBeTrue();
+})->with(['stage', 'reply']);

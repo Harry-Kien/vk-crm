@@ -67,8 +67,13 @@ function readToolAuditRows(): array
     return Activity::query()->where('event', 'mcp_tool_called')->orderBy('id')->get()->all();
 }
 
-it('mọi tool đăng ký trên CrmServer là tool đọc có mặt trong danh sách của tệp này', function () {
-    $names = array_map(fn (string $class): string => app($class)->name(), McpToolCall::registeredTools());
+it('mọi tool ĐỌC đăng ký trên CrmServer có mặt trong danh sách của tệp này (bốn tool ghi của Task 13: WriteToolsCommonTest)', function () {
+    $names = collect(McpToolCall::registeredTools())
+        ->map(fn (string $class) => app($class))
+        ->reject(fn ($tool): bool => $tool->isWriteTool())
+        ->map(fn ($tool): string => $tool->name())
+        ->values()
+        ->all();
 
     expect($names)->toBe(array_keys(readToolArguments($this->world, $this->request)));
 });

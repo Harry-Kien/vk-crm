@@ -30,9 +30,11 @@ use ReflectionProperty;
  *     tên tool không tồn tại — một vòng gọi tên rác không thoát được giới hạn (mỗi lần vẫn là một dòng
  *     nhật ký).
  *  3. Tìm tool giống hệt `CallTool` của laravel/mcp 1.0.1 (thiếu `name`: -32602; tên không có trong
- *     danh sách ĐÃ LỌC theo `shouldRegister()` của request này: -32602 "not found"). Kết cục:
- *     `invalid`, hoặc `denied` khi tên là một tool máy chủ có khai nhưng không đăng ký cho người này
- *     (tool ghi với người `read`, R13).
+ *     danh sách ĐÃ LỌC theo `shouldRegister()` của request này: -32602 "not found", kết cục
+ *     `invalid`). Ngoại lệ (Task 13, rà soát Task 6 m5): tên là một tool GHI máy chủ có khai nhưng không
+ *     đăng ký cho người này (người `read`, công tắc ghi tắt — R13) → kết quả tool `isError` mang câu
+ *     tiếng Việt `ai_access.tools.write_refused` qua HTTP 200 ({@see CrmToolInvoker::refuseHiddenWrite()}),
+ *     kết cục `denied`; tool không chạy.
  *  4. Tham số đã lọc theo allowlist của tool ({@see CrmTool::auditArguments()}).
  *  5. Giới hạn RIÊNG của tool ({@see McpRateLimits::forTool()}: `search`/`fetch`, tool ghi).
  *  6. Gọi qua {@see CrmToolInvoker} thay cho `ToolInvoker` của gói. Lớp cha tự `new ToolInvoker`, nên
@@ -62,7 +64,8 @@ final class CallCrmTool extends CallTool
         $limits = app(McpRateLimits::class);
         $user = Auth::guard('mcp')->user();
         $name = $request->get('name');
-        $declared = $this->declaredToolNames($context);
+        $declaredTools = $this->declaredTools($context);
+        $declared = array_keys($declaredTools);
 
         $call->requested($name, $declared);
 
@@ -79,6 +82,17 @@ final class CallCrmTool extends CallTool
         $tool = $context->tools()->first(fn (Tool $tool): bool => $tool->name() === $name);
 
         if (! $tool instanceof Tool) {
+            $hidden = is_string($name) ? ($declaredTools[$name] ?? null) : null;
+
+            // M11 Task 13 (rà soát Task 6, m5): tool GHI có khai nhưng không đăng ký cho người này
+            // (người `read`, công tắc ghi tắt, client còn giữ danh sách cũ) → câu từ chối tiếng Việt,
+            // HTTP 200, kết cục `denied`; tool không chạy, không đếm vào giới hạn riêng của tool ghi.
+            if ($hidden instanceof CrmTool && $hidden->isWriteTool()) {
+                $call->resolved($hidden, $request->get('arguments', []));
+
+                return app()->make(CrmToolInvoker::class, ['call' => $call])->refuseHiddenWrite($hidden, $request);
+            }
+
             $call->outcome(in_array($name, $declared, true) ? McpToolOutcome::Denied : McpToolOutcome::Invalid);
 
             $shown = is_scalar($name) ? (string) $name : get_debug_type($name);
@@ -105,14 +119,15 @@ final class CallCrmTool extends CallTool
     }
 
     /**
-     * Tên mọi tool máy chủ KHAI (`Server::$tools`), kể cả tool mà `shouldRegister()` loại khỏi request
-     * này. `ServerContext` chỉ trả danh sách đã lọc ({@see ServerContext::tools()}) và giữ danh sách
-     * gốc ở một thuộc tính `protected`; đọc nó là cách duy nhất phân biệt "tool ghi bị giấu với người
-     * này" (`denied`) với "tên không có" (`invalid`) mà không khai lại danh sách tool lần thứ hai.
+     * Mọi tool máy chủ KHAI (`Server::$tools`) theo tên, kể cả tool mà `shouldRegister()` loại khỏi
+     * request này. `ServerContext` chỉ trả danh sách đã lọc ({@see ServerContext::tools()}) và giữ danh
+     * sách gốc ở một thuộc tính `protected`; đọc nó là cách duy nhất phân biệt "tool ghi bị giấu với
+     * người này" (`denied`, câu từ chối tiếng Việt) với "tên không có" (`invalid`) mà không khai lại
+     * danh sách tool lần thứ hai.
      *
-     * @return list<string>
+     * @return array<string, Tool>
      */
-    private function declaredToolNames(ServerContext $context): array
+    private function declaredTools(ServerContext $context): array
     {
         $declared = (new ReflectionProperty(ServerContext::class, 'tools'))->getValue($context);
 
@@ -120,8 +135,7 @@ final class CallCrmTool extends CallTool
             ->flatten()
             ->map(fn (mixed $tool): mixed => is_string($tool) && is_subclass_of($tool, Tool::class) ? app($tool) : $tool)
             ->filter(fn (mixed $tool): bool => $tool instanceof Tool)
-            ->map(fn (Tool $tool): string => $tool->name())
-            ->values()
+            ->keyBy(fn (Tool $tool): string => $tool->name())
             ->all();
     }
 }

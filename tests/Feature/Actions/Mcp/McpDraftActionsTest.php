@@ -118,6 +118,26 @@ it('refuses a draft that belongs to another matter, and writes nothing', functio
     expect(mdaUseStage($draft, $other, $this->lawyer)->matter_id)->toBe($other->id);
 });
 
+it('refuses to send from a draft for a deactivated or soft-deleted account with the shared sentence, and writes nothing (M11 Task 13, Task 12 m2)', function (string $how) {
+    $draft = mdaStageDraft($this->matter);
+
+    $how === 'deactivated'
+        ? $this->lawyer->forceFill(['is_active' => false])->save()
+        : $this->lawyer->delete();
+
+    expect(fn () => mdaUseStage($draft, $this->matter, $this->lawyer))
+        ->toThrow(AuthorizationException::class, __('ai_drafts.unavailable'))
+        ->and(StageLog::query()->exists())->toBeFalse()
+        ->and($draft->refresh()->isPending())->toBeTrue();
+
+    // Cặp dương: tài khoản hoạt động lại thì gửi được.
+    $how === 'deactivated'
+        ? $this->lawyer->forceFill(['is_active' => true])->save()
+        : $this->lawyer->restore();
+
+    expect(mdaUseStage($draft, $this->matter, $this->lawyer->fresh())->matter_id)->toBe($this->matter->id);
+})->with(['deactivated', 'soft-deleted']);
+
 it('refuses a draft on a soft-deleted matter', function () {
     $draft = mdaStageDraft($this->matter);
     $this->matter->delete();
