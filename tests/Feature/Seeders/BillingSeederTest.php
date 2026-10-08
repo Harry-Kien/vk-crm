@@ -16,6 +16,7 @@ use App\Support\Billing\BillingSummary;
 use App\Support\Billing\ScheduleTotal;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DemoDataSeeder;
+use Database\Seeders\TeamPerformanceSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
@@ -156,7 +157,9 @@ it('amends one contract upward, and leaves a closed matter still owing money', f
 });
 
 it('gives the restricted matter a contract that only its lead lawyer and the admin see', function () {
-    $restricted = Matter::query()->where('confidentiality', 'restricted')->sole();
+    // Vụ `restricted` ĐẦU TIÊN — đúng vụ `BillingSeeder` chọn (`orderBy('id')`). M13 Task 8 thêm một vụ
+    // `restricted` thứ hai (`TeamPerformanceSeeder`), có hợp đồng riêng, cũng do luật sư phụ trách ghi tiền.
+    $restricted = Matter::query()->where('confidentiality', 'restricted')->orderBy('id')->firstOrFail();
     $contract = Contract::query()->where('matter_id', $restricted->id)->sole();
 
     expect($contract->status)->toBe(ContractStatus::Active)
@@ -173,7 +176,12 @@ it('gives the restricted matter a contract that only its lead lawyer and the adm
 });
 
 it('keeps the money collected before a handover with the old lead and the money collected after it with the new one', function () {
-    $reassigned = Activity::query()->where('event', 'matter_reassigned')->sole();
+    // Lần bàn giao của `BillingSeeder` (vụ 20). M13 Task 8 thêm lần bàn giao của luật sư nghỉ việc
+    // (`TeamPerformanceSeeder`), mang `from_user_id` của người đó.
+    $departed = m9demoUser(TeamPerformanceSeeder::DEPARTED_EMAIL);
+    $reassigned = Activity::query()->where('event', 'matter_reassigned')->get()
+        ->reject(fn (Activity $row): bool => (int) $row->properties['from_user_id'] === $departed->id)
+        ->sole();
     $matter = Matter::query()->findOrFail($reassigned->subject_id);
     $oldLeadId = (int) $reassigned->properties['from_user_id'];
 
@@ -228,5 +236,6 @@ it('adds no second contract, payment or amendment when the demo seeder runs agai
     $this->seed(DemoDataSeeder::class);
 
     expect([Contract::count(), Instalment::count(), Payment::count(), ContractAmendment::count()])->toBe($before)
-        ->and(Activity::query()->where('event', 'matter_reassigned')->count())->toBe(1);
+        // Một lần bàn giao của BillingSeeder, một của TeamPerformanceSeeder (M13 Task 8) — không thêm lần nào.
+        ->and(Activity::query()->where('event', 'matter_reassigned')->count())->toBe(2);
 });

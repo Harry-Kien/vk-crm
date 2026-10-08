@@ -254,7 +254,7 @@ it('SAO-LUU bước 7 tách khôi phục thật (chép khoá VAPID) khỏi diễ
 /**
  * Mục 7: đoạn "Bản cập nhật M12 … làm gì trên máy chủ đã có dữ liệu" ở Bước 5, cùng kiểu M9/M10, đọc
  * từng con số từ mã (migration, mục lịch, khối nginx, hai dòng preflight); gạch đầu dòng chung của
- * "Nâng cấp lên bản mới" chỉ tới cả ba đoạn và tới mục M12 có bước TRƯỚC `git pull`.
+ * "Nâng cấp lên bản mới" chỉ tới cả bốn đoạn (M9, M10, M12, M13; đoạn M13 nằm giữa M10 và M12) và tới mục M12 có bước TRƯỚC `git pull`.
  */
 it('CAI-DAT Bước 5 có đoạn M12 "làm gì trên máy chủ đã có dữ liệu", khớp mã, và mục Nâng cấp không còn tự mâu thuẫn', function (): void {
     $guide = pushGuideFile('docs/CAI-DAT.md');
@@ -291,7 +291,7 @@ it('CAI-DAT Bước 5 có đoạn M12 "làm gì trên máy chủ đã có dữ l
 
     $upgrade = pushGuideFlat(pushGuideSection($guide, '## Nâng cấp lên bản mới', '### Bản cập nhật M12'));
     expect($upgrade)
-        ->toContain('"Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12)')
+        ->toContain('"Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13)')
         ->toContain('chỉ M12 ("Bản cập nhật M12", có một bước TRƯỚC `git pull`)')
         ->not->toContain('các đoạn "Bản cập nhật …".');
 });

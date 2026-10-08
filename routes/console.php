@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Schedule\CapturePerformanceSnapshots;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\ExpireClientAccess;
@@ -413,3 +414,20 @@ Schedule::call('App\Actions\Schedule\AnonymiseExpiredProspects@handle')
     ->dailyAt('03:30')
     ->name('prospects.anonymise')
     ->withoutOverlapping(60);
+
+/**
+ * Ảnh chụp cuối ngày số liệu theo người (M13 R10, Task 7): số vụ đang phụ trách, quá hạn cập nhật cho
+ * khách, mốc quá hạn và mức hoàn thiện danh mục của mọi người đang được theo dõi, để vẽ xu hướng trên
+ * trang của một người và trên trang "Hiệu suất theo kỳ". Không thư, không thông báo (R12).
+ *
+ * 23:50: số của ngày gần hết nhất mà vẫn còn trong ngày theo `APP_TIMEZONE` — `captured_on` là ngày đó,
+ * không phải ngày hôm sau, và các luật "quá hạn" (tính theo hôm nay) trả đúng câu trả lời của ngày đó.
+ * Sau mọi tác vụ nhắc của ban ngày, trước lượt sao lưu đêm. `withoutOverlapping(30)`: một lượt bị giết
+ * giữa chừng chỉ giữ khoá tới 00:20, không chặn lượt đêm sau (không để khoá 1440 phút mặc định —
+ * `BackupScheduleTest` ghim luật đó cho mọi tác vụ). Chạy lại trong ngày là vô hại: tác vụ `upsert` theo
+ * (ngày, người, loại). Dòng `use` của lớp nằm trong khối import đầu tệp (Pint đòi; người gộp giữ cả hai bên).
+ */
+Schedule::call(new CapturePerformanceSnapshots)
+    ->dailyAt('23:50')
+    ->name('performance.snapshot')
+    ->withoutOverlapping(30);

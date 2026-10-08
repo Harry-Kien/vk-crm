@@ -1,5 +1,10 @@
 <?php
 
+use App\Support\Performance\PerformanceReport;
+use App\Support\Performance\PerformanceRow;
+use App\Support\Performance\Ratio;
+use App\Support\Performance\TeamWorkloadRow;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
 return [
@@ -129,8 +134,20 @@ return [
     | storage. By default, no PHP classes will be unserialized from your
     | cache to prevent gadget chain attacks if your APP_KEY is leaked.
     |
+    | VK-CRM (M13 R11): chỉ các lớp giá trị `final readonly` của số liệu hiệu suất mà
+    | `App\Support\Performance\PerformanceCache` giữ tạm, cùng `CarbonImmutable` (thời điểm N11 của
+    | `TeamWorkloadRow`). Bốn lớp giá trị không có `__wakeup`, `__unserialize` hay `__destruct`;
+    | `CarbonImmutable` có `__unserialize`, chỉ dựng lại ngày giờ.
+    | `PerformanceCacheTest` chạy trên kho `database` thật để một lớp thiếu ở đây đỏ trong test.
+    |
     */
 
-    'serializable_classes' => false,
+    'serializable_classes' => [
+        PerformanceReport::class,
+        PerformanceRow::class,
+        Ratio::class,
+        TeamWorkloadRow::class,
+        CarbonImmutable::class,
+    ],
 
 ];

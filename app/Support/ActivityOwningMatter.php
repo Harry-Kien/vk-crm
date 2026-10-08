@@ -298,6 +298,19 @@ final class ActivityOwningMatter
 
         // Dòng của một bản ghi tiếp nhận (FI1, docblock lớp): chồng lên MỌI nhánh ở trên — phải xem được
         // chính bản ghi đó.
+        self::whereIntakeRowVisibleTo($query, $viewer);
+    }
+
+    /**
+     * Cổng FI1 (docblock lớp) dạng SQL: dòng chủ thể `intake_request` chỉ khi `$viewer` xem được chính bản
+     * ghi đó; dòng khác giữ nguyên. Một hàm cho cả {@see self::scopeVisibleTo()} (trang Nhật ký hệ thống) và
+     * {@see self::scopeOwnedByVisibleMatters()} (M13: N11, P6) — gộp `main` vào làn M13. Bản trong bộ nhớ
+     * là nhánh `INTAKE_REQUEST` của {@see self::canViewMany()}.
+     *
+     * @param  Builder<Activity>  $query
+     */
+    private static function whereIntakeRowVisibleTo(Builder $query, User $viewer): void
+    {
         $query->where(fn (Builder $rows) => $rows
             ->whereNull('subject_type')
             ->orWhere('subject_type', '!=', self::INTAKE_REQUEST)
@@ -350,6 +363,66 @@ final class ActivityOwningMatter
                 ->select('matters.id'),
             $seesMoney,
         ));
+    }
+
+    /**
+     * Chỉ các dòng QUY ĐƯỢC về một vụ trong `Matter::listableBy($viewer)` (M13: cột N11 "Thao tác hồ sơ
+     * gần nhất" và P6 "Giấy tờ đã duyệt" đếm trên đúng tập này) — ba bước đầu của luật (docblock lớp)
+     * qua CÙNG câu SQL {@see self::whereOwnedByAny()} mà {@see self::scopeVisibleTo()} và
+     * {@see self::scopeOwnedBy()} dùng, chỉ khác tập vụ.
+     *
+     * Ba chỗ khác `scopeVisibleTo()`, có chủ đích:
+     *  - **không có bước 4**: dòng không thuộc vụ nào (đăng nhập, người dùng, cấu hình) không bao giờ
+     *    tính — "thao tác hồ sơ" là thao tác trên một vụ việc;
+     *  - **không có lối tắt admin**: admin cũng chỉ nhận dòng quy được về một vụ (admin thấy mọi vụ
+     *    chưa huỷ qua `listableBy()`, nên chỉ mất những dòng không thuộc vụ nào, như dòng đăng nhập);
+     *  - **không `withTrashed()`**: dòng của một vụ ĐÃ HUỶ không tính, khác trang Nhật ký hệ thống (nơi
+     *    dòng đó vẫn hiện để admin đọc lại lịch sử). Mọi con số khác của M13 lấy tập gốc là
+     *    `Matter::query()->listableBy($viewer)` — `SoftDeletes` của `Matter` tự bỏ vụ đã huỷ (P1: "vụ đã
+     *    huỷ tự rơi") — và N11/P6 đi cùng luật đó, để "lần thao tác gần nhất" hay "số lần duyệt" không
+     *    đếm việc trên một vụ mà mọi cột khác của cùng dòng đã bỏ. `SingleSourceParityTest` ghim lựa chọn
+     *    này cạnh dòng tương ứng của trang nhật ký.
+     *
+     * Dòng TIỀN chỉ khi người xem là admin hoặc có `billing.view` — đúng như `scopeOwnedBy()`. Bỏ
+     * `ClientPortalScope` của `Matter` như `scopeVisibleTo()`.
+     *
+     * Cổng bản ghi tiếp nhận của M10 (FI1, docblock lớp) chồng lên như ở `scopeVisibleTo()`, qua cùng
+     * hàm {@see self::whereIntakeRowVisibleTo()}: dòng chủ thể `intake_request` mang `properties.matter_id`
+     * của một vụ xem được chỉ tính khi người xem xem được CHÍNH bản ghi đó (`SingleSourceParityTest`,
+     * "drops an intake_request row … (M10 gate)"). Cổng này áp cho cả admin (admin thấy mọi bản ghi).
+     *
+     * @param  Builder<Activity>  $query
+     */
+    public static function scopeOwnedByVisibleMatters(Builder $query, User $viewer): void
+    {
+        $seesMoney = self::isAdmin($viewer) || self::seesMoney($viewer);
+
+        $query->where(fn (Builder $rows) => self::whereOwnedByAny(
+            $rows,
+            fn () => Matter::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->listableBy($viewer)
+                ->select('matters.id'),
+            $seesMoney,
+        ));
+
+        self::whereIntakeRowVisibleTo($query, $viewer);
+    }
+
+    /**
+     * Dòng nhật ký của sự kiện `$event` ghi trong `$bounds` — hai cận đủ giờ của
+     * `PerformancePeriod::bounds()` (M13, cột P6: `ReviewChecklistItem::AUDIT_EVENT`). Ghép với
+     * {@see self::scopeOwnedByVisibleMatters()} để chỉ đếm dòng của vụ người xem thấy được; hàm này
+     * không tự quyết tầm nhìn.
+     *
+     * @param  Builder<Activity>  $query
+     * @param  array{0: string, 1: string}  $bounds
+     */
+    public static function scopeEventsWithin(Builder $query, string $event, array $bounds): void
+    {
+        $query
+            ->where($query->qualifyColumn('event'), $event)
+            ->whereBetween($query->qualifyColumn('created_at'), $bounds);
     }
 
     /**

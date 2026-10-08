@@ -44,10 +44,13 @@ it('grants the admin every permission and the accountant almost none', function 
 /*
  * `EnumLabelsTest` chỉ bắt nhãn thiếu ở dạng `enums.…`; nhãn quyền đọc từ `lang/vi/permissions.php`,
  * nên một quyền thiếu nhãn trả về chính khoá `permissions.…` và lọt qua test đó. Bốn quyền M9 là
- * lần đầu bảng quyền đổi kể từ M2; ba quyền M10 (nhóm intake) là lần thứ hai. Chốt ở đây cho cả hai mươi.
+ * lần đầu bảng quyền đổi kể từ M2; ba quyền M10 (nhóm intake) là lần thứ hai; một quyền M13
+ * (`performance.viewAny`, SPEC §5 đính chính 2026-10-04) là lần thứ ba. Chốt ở đây cho cả hai mươi
+ * mốt: 13 quyền gốc, cộng 4 quyền tiền của M9, cộng 3 quyền tiếp nhận của M10, cộng 1 quyền của M13.
+ * Đếm cộng dồn theo milestone để lần gộp làn khác thêm quyền chỉ phải sửa con số tổng.
  */
 it('gives every permission a vietnamese label', function () {
-    expect(Permission::cases())->toHaveCount(20);
+    expect(Permission::cases())->toHaveCount(21);
 
     foreach (Permission::cases() as $permission) {
         expect($permission->label())->not->toStartWith('permissions.', "{$permission->value} thiếu nhãn trong lang/vi/permissions.php");
@@ -62,6 +65,7 @@ it('matches the spec permission table for every role', function () {
             'client.manage', 'clientUser.manage', 'settings.manage', 'auditLog.view',
             'billing.view', 'contract.manage', 'payment.record', 'revenue.viewAny',
             'intake.create', 'intake.viewAny', 'intake.convert',
+            'performance.viewAny',
         ],
         Role::Manager->value => [
             'matter.viewAny', 'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',
@@ -69,6 +73,7 @@ it('matches the spec permission table for every role', function () {
             'client.manage', 'clientUser.manage', 'auditLog.view',
             'billing.view', 'contract.manage', 'revenue.viewAny',
             'intake.create', 'intake.viewAny', 'intake.convert',
+            'performance.viewAny',
         ],
         Role::Lawyer->value => [
             'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',

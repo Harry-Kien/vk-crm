@@ -76,8 +76,12 @@ class UpcomingDeadlinesWidget extends TableWidget
     // (so thứ tự TƯƠNG ĐỐI giữa bảy widget đó) không đo cặp này.
     protected static ?int $sort = -3;
 
-    /** Cùng cửa sổ với {@see Deadline::scopeUpcoming()} và SPEC §7.1 mục 2. */
-    public const WINDOW_DAYS = 7;
+    /**
+     * Bí danh của {@see Deadline::UPCOMING_WINDOW_DAYS} (SPEC §7.1 mục 2). Hằng số chuyển xuống model
+     * ở M13 Task 2 để cột N6 của "Theo dõi đội ngũ" (một Action — không được dùng lớp của Filament)
+     * đọc CÙNG con số; tên cũ giữ lại cho các test và lời gọi đã có.
+     */
+    public const WINDOW_DAYS = Deadline::UPCOMING_WINDOW_DAYS;
 
     public static function canView(): bool
     {

@@ -16,7 +16,7 @@
 | M9 Hợp đồng dịch vụ + đợt thanh toán | ✅ Xong | 2026-10-04 | Gộp a65ba4c (Task 2–5, 7–9, 12), 4280a4c (làn `m9-rest`: Task 1, 11) và lần gộp làn `m9-final` (Task 6 đợt thu theo giai đoạn + đối soát 07:00, Task 10 khối thanh toán trên cổng khách + bảng kê trong gói bàn giao, Task 13 nghiệm thu toàn M9: dữ liệu mẫu, `billing:check-invariants` trong preflight, kịch bản nhập liệu khi đưa vào dùng); suite sau gộp 4519 xanh (32 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Việc nhỏ để lại (người nhận thư "gói sẵn sàng" theo quyền tải gói; ghi rõ bảng kê là ảnh chụp tại ngày lập gói) chuyển sang lượt quét M8 Task 6. Chi tiết ở "Ghi chú M9 → Làn m9f" |
 | M10 Tiếp nhận khách | ✅ Xong | 2026-10-04 | Gộp làn `m10-intake` (Task 1–8; Task 6, 7 làm song song ở làn `m10-t6`, `m10-t7`): phiếu tiếp nhận, kiểm tra xung đột lợi ích (Đỏ/Vàng/Xanh, khoá gọi lặp, nguồn thứ hai), thông báo bảo vệ dữ liệu (bản nháp chờ luật sư), chuyển thành khách + vụ việc (phí đã báo gợi ý vào hợp đồng), gộp/từ chối/xoá theo yêu cầu, đồng hồ phản hồi theo giờ làm việc, nhắc nội bộ mỗi 15 phút, ẩn danh tự động 03:30 theo hạn lưu, bảng điều khiển tiếp nhận, dữ liệu mẫu. Suite sau gộp 5242 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; bốn việc nhỏ (câu chữ hộp thoại xoá dữ liệu, khối hợp đồng trong bài nghiệm thu, đoạn nâng cấp M10 trong CAI-DAT, ghi chú §12) ở làn việc sau gộp `fu3`. Chi tiết ở "Ghi chú M10" |
 | M12 Ứng dụng điện thoại (PWA) + thông báo đẩy | ✅ Xong | 2026-10-07 | Gộp làn `m12-pwa-push` (Task 1–10 + vòng sửa của rà soát cuối làn): cài lên màn hình điện thoại (manifest, biểu tượng, service worker, trang ngoại tuyến, hướng dẫn cài), thông báo đẩy Web Push (khoá VAPID, đăng ký theo thiết bị, trang "Thông báo trên điện thoại", gỡ máy khi đăng xuất/cắt phiên, hàng đợi `push` + nhật ký gửi), nối vào bốn sự kiện của khách và bốn sự kiện của nhân sự (kể cả nhắc hạn, đợt thu quá hạn), "Gửi thử". Suite sau gộp 5790 xanh (33 bỏ qua, 1 risky có sẵn); composer audit sạch. Rà soát gộp ba góc nhìn: 2 lỗi xác nhận (đổi email cổng khách và "Đặt lại 2FA" chưa gỡ máy nhận thông báo) cùng các việc nhỏ chuyển sang làn việc sau gộp `fu4`. Kiểm tra trên máy thật (Android, iPhone): CHỜ CHỦ VĂN PHÒNG theo danh sách trong tài liệu |
-| M13 Theo dõi đội ngũ + hiệu suất | 🟡 Đang làm | | Chủ văn phòng yêu cầu 2026-10-04 (cấp trên theo dõi tiến độ vụ việc của luật sư/chuyên viên; tỉ lệ hoàn thành công việc). Kế hoạch `docs/superpowers/plans/2026-10-04-m13-team-performance.md` (đã qua một vòng rà soát Opus). Trang "Theo dõi đội ngũ", trang từng người, trang "Hiệu suất theo kỳ", ảnh chụp số liệu hằng ngày; quyền mới `performance.viewAny` (admin, quản lý); luật sư/chuyên viên chỉ thấy số của mình; không xếp hạng; không lộ vụ mật. Làn `m13-team-performance` (D:kwtlane-m13) cắt từ đầu làn M9 cuối (558f0b5) + commit kế hoạch; làn A làm Task 1, 2, 4, 5, làn m13b tách sau Task 2 làm Task 3, 6 |
+| M13 Theo dõi đội ngũ + hiệu suất | ✅ Xong | 2026-10-08 | Gộp làn `m13-team-performance` (Task 1–8; Task 3, 6 làm song song ở làn `m13-team-history`) cùng vòng sửa của rà soát cuối làn: quyền `performance.viewAny` (21 quyền), trang "Theo dõi đội ngũ" (N1–N11), trang của từng người, trang "Hiệu suất theo kỳ" (P1–P10, thời gian phản hồi theo giờ làm việc M10), lịch sử người giữ việc qua bàn giao, ảnh chụp số liệu 23:50 + biểu đồ 90 ngày; luật sư/chuyên viên chỉ thấy số của mình, không xếp hạng, không lộ vụ mật. Suite sau gộp 6273 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; việc nhỏ (seeder demo gửi thư bàn giao, câu chữ P8/biểu đồ so với "Kỳ đã đóng") chuyển sang làn nghiệm thu bản 1.0 |
 | M14 Google Drive làm kho tài liệu | 🟡 Đang làm | | Chủ văn phòng quyết 2026-10-04: Shared Drive của văn phòng làm kho phía sau CRM, chỉ CRM đọc/ghi qua tài khoản dịch vụ; quyền theo vụ, vụ mật, nhật ký tải giữ nguyên. Kế hoạch `docs/superpowers/plans/2026-10-04-m14-google-drive-storage.md` (đã qua một vòng rà soát Opus). Adapter Drive REST v3 của dự án + `google/auth`; tải về luôn đi qua CRM; bản sao thứ hai ở máy chủ văn phòng; preflight ĐỎ khi bật Drive trên production mà chưa ghi ngày hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025). Việc của chủ văn phòng: tạo Shared Drive + tài khoản dịch vụ theo hướng dẫn trong kế hoạch |
 
 **Thứ tự làm đã chốt với chủ văn phòng: M6.5 → phần còn lại của M6 → M7 → M8 → M11 → M9 → M10
@@ -5397,3 +5397,711 @@ giữ cũ "kích hoạt" được địa chỉ mới chưa ai xác minh (R12) r�
 - Số đo vòng sửa 1: RED trước khi sửa 3 ca (`fr1-red-kept.log`); 5/5 đột biến đỏ đúng ca; cả bộ SQLite **5811 passed**,
   33 skipped, 1 risky, **0 failed** (166591 khẳng định, 3201 s); MariaDB tuần tự (`PushDeviceRevocationTest`,
   `LoginTest`, `ClientUserResourceTest`) **156 passed**; `pint --test` PASS.
+
+## Ghi chú M13
+
+Kế hoạch `docs/superpowers/plans/2026-10-04-m13-team-performance.md`. Làn A `m13` (nhánh
+`m13-team-performance`, worktree `D:\vkwt\lane-m13`) cắt từ đỉnh làn M9-final `558f0b5` cộng commit kế
+hoạch — không từ `main` (phán quyết controller). Làn m13b tách sau Task 2 cho Task 3, 6. Task 8 chép
+đủ phán quyết R1–R20 vào đây; mục dưới chỉ ghi việc của từng task.
+
+### Task 1 — quyền, policy, danh sách người được theo dõi, khung ba trang, đính chính SPEC, ranh giới MCP (2026-10-04)
+
+- **Quyền `performance.viewAny`** (admin qua `Permission::cases()`, quản lý tường minh), bằng đính chính
+  SPEC §5 "Bổ sung 2026-10-04". Số của chính mình: `UserPolicy::viewPerformance()` (có
+  `performance.viewAny`, hoặc chính mình với `matter.view`; và người được xem thuộc `TeamRoster`).
+  Cột doanh thu: `UserPolicy::viewPerformanceRevenue()`. Kế toán 404 ở cả ba trang.
+- **Đính chính SPEC, có ngày 2026-10-04:** §1 (dòng "Trưởng phòng / Ban lãnh đạo"), §5 (bảng quyền,
+  số của chính mình, kế toán, cột doanh thu, ranh giới MCP), §6.14 mới (định nghĩa các con số, ca biên
+  P1, R5, R6, R7, R9, R18, R19, R20), §7.1 (widget "Mốc thời hạn 7 ngày tới" gồm ngày +7 trên mọi CSDL —
+  bản sửa `scopeUpcoming()` là của Task 2), §7.5 mới (ba trang), §10 mục 6 (`performance_viewed`, lý do
+  mới của `deadline_responsible_changed`, dòng `client_request_assigned` từ bàn giao vụ — đường ghi là
+  của Task 3), §11 mục mới "Theo dõi đội ngũ", §13 (dòng M13), §15 (phần "năng suất" của mục 7 giai
+  đoạn 2 đã làm; giờ làm và tỉ lệ thắng vẫn để sau). Task 8 đối chiếu lại với mã cuối cùng.
+- **Ranh giới MCP — mang sang M11 (R13, đính chính 2026-10-04).** Bảng R4 của kế hoạch M11
+  (`docs/superpowers/plans/2026-09-24-m11-mcp.md`, "Các loại dữ liệu không bao giờ rời hệ thống qua
+  MCP") cần thêm dòng: **"Số liệu theo dõi đội ngũ và hiệu suất theo người (`performance_snapshots`,
+  mọi lớp dưới `App\Actions\Performance` và `App\Support\Performance`) — không bao giờ; không tool"**.
+  Làn M13 không sửa tệp kế hoạch của làn khác; người gộp M11 thêm dòng đó. Test cấu trúc
+  `tests/Feature/Performance/PerformanceMcpBoundaryTest.php` (quét token dưới `app/Mcp`,
+  `app/Support/Mcp`, `app/Actions/Mcp`; cặp dương trên fixture) hôm nay xanh vì rỗng — M11 chưa gộp
+  vào nhánh này — và canh từ lúc M11 gộp. M12: không `PushTopic` nào cho các con số này.
+- **Người gộp M10 (đã làm khi gộp `main` vào làn, xem "Gộp `main` vào làn M13" dưới đây):** `Permission.php`,
+  `Role.php`, `lang/vi/permissions.php`, `RolesAndPermissionsTest.php` (khẳng định `toHaveCount(18)` và ma
+  trận quyền của admin, quản lý), `lang/vi/activity.php`, SPEC §5 — M10 thêm ba quyền `intake.*`: cộng số
+  (18 + 3 = 21) và gộp ma trận; docblock của `Permission` đếm cộng dồn theo milestone nên chỉ con số tổng
+  phải sửa.
+- **Cổng của ba trang.** `canAccess()` (lần tải trang, điều hướng) và `boot()` (mọi request Livewire,
+  trước `hydrateCanAuthorizeAccess()` của Filament vốn trả 403). Kế hoạch ghi "hỏi trong `canAccess()`,
+  `mount()` và `boot()`"; `TeamOverview` và `Performance` **không** hỏi lần thứ ba trong `mount()` vì
+  Livewire gọi `boot()` TRƯỚC `mount()` ở lần mount (`SupportLifecycleHooks::mount()`), nên lần hỏi đó
+  không đường nào tới được và không mutation probe nào chứng minh được (cùng hình dạng
+  `Pages/Search.php`). Bằng chứng: bỏ dòng hỏi trong `TeamOverview::boot()` thì test "không ghi
+  `performance_viewed` cho người bị từ chối" đỏ — `mount()` đã chạy. `TeamMember::mount()` hỏi cổng
+  người (`viewPerformance`) vì id người chỉ có ở đó.
+- **Việc mang sang Task 8:** `docs/CAI-DAT.md` mục cập nhật — `db:seed --force` mang quyền
+  `performance.viewAny` cho máy chủ đã có dữ liệu (SPEC §5 đã ghi câu này).
+
+### Task 2 — định nghĩa còn thiếu, đặt vào đúng lớp đang giữ luật (2026-10-04)
+
+- **Không màn hình mới.** Scope và hàm mới đặt cạnh luật đang có: `Matter::closedWithin()`,
+  `closedOnOrBefore()`, `withSupportingMember()`, `ledBy()`, `workedOnBy()`, `ofConfidentiality()`;
+  `MatterRole::supporting()`; `MatterStaleness::scopeNotMeasurable()`; `Deadline::UPCOMING_WINDOW_DAYS`,
+  `overdue()`, `dueWithin()`, `dueBetween()`, `removedBetween()`, `heldBy()`, `outcomeAt()` (bảng ca biên
+  P1) và enum `DeadlineOutcome`; `MatterChecklistItem::awaitingReview()` (chuyển từ
+  `PendingChecklistReviewsWidget::rowsFor()`); `ClientRequest::awaitingOffice()`, `withHolder()`,
+  `holderIdSql()`, `heldBy()`, `holderId()`, `createdBetween()`, `isClosedWithoutAnswer()`, `answeredBy()`;
+  `StageLog::occurredBetween()`; `ReviewChecklistItem::AUDIT_EVENT`; `ChecklistProgress::totalsByLead()`;
+  `App\Support\Billing\CollectedRevenue` (tách nguyên văn từ `RevenueOverTimeWidget::computeBuckets()`);
+  `ActivityOwningMatter::scopeOwnedByVisibleMatters()`, `scopeEventsWithin()`. Test đồng nhất ở
+  `tests/Feature/Performance/SingleSourceParityTest.php`; luật "không định nghĩa thứ hai" ở
+  `NoSecondDefinitionTest.php` (quét token mọi tệp M13, ngoại lệ có tên theo tệp).
+- **Bản sửa lỗi có chủ đích — widget "Mốc thời hạn 7 ngày tới" gồm ngày +7 trên SQLite.**
+  `Deadline::scopeUpcoming()` so `due_date <=` chuỗi ngày trần, nên mốc ngày +7 rơi khỏi widget trên
+  SQLite (giữ trên MariaDB) dù `CheckDeadlines::tierFor()` trả `d7`. Nay cận trên là 23:59:59. Không test
+  cũ nào khẳng định ngược lại (`UpcomingDeadlinesWidgetTest` dùng +5/+3/+2/−3/−2/+40;
+  `DeadlineAndRequestTest` dùng `upcoming(3)` với +2/−1/+20) — cả hai và `DashboardWidgetOrderTest` xanh
+  sau bản sửa. `UpcomingDeadlinesWidget::WINDOW_DAYS` nay là bí danh của `Deadline::UPCOMING_WINDOW_DAYS`.
+- **N11, P6 bỏ vụ ĐÃ HUỶ (lựa chọn của Task 2).** `scopeOwnedByVisibleMatters()` lấy tập vụ
+  `listableBy($viewer)` KHÔNG `withTrashed()`, khác trang Nhật ký hệ thống (`scopeVisibleTo()`, vẫn hiện
+  dòng của vụ đã huỷ): mọi con số khác của M13 bỏ vụ đã huỷ (`SoftDeletes` của `Matter`), nên "thao tác
+  gần nhất" và "số lần duyệt" đi cùng luật đó. Không bước 4 (dòng không thuộc vụ nào, như đăng nhập, không
+  tính) và không lối tắt admin. Ghim bằng test cạnh dòng tương ứng của trang nhật ký.
+- **Người gộp M10 (đã làm khi gộp `main` vào làn):** `app/Support/ActivityOwningMatter.php` — M10 thêm cổng
+  bản ghi tiếp nhận (`INTAKE_REQUEST`, `visibleIntakes()`) vào `canViewMany()`/`scopeVisibleTo()`. Lớp chồng
+  "dòng `intake_request` chỉ khi người xem xem được chính bản ghi" nay là hàm riêng
+  `whereIntakeRowVisibleTo()`, gọi ở CẢ `scopeVisibleTo()` lẫn `scopeOwnedByVisibleMatters()`; test đang chờ
+  thành test thật (`SingleSourceParityTest`, "drops an intake_request row whose matter the viewer can see
+  but whose intake record they cannot (M10 gate)").
+- **Người gộp `main`:** `RevenueOverTimeWidget::computeBuckets()` vừa được M9-final sửa một dòng
+  (`bounds()`) trước khi Task 2 tách truy vấn sang `CollectedRevenue::query()`; đọc lại khi gộp. Bộ lọc
+  lĩnh vực của widget nay là một `whereHas('instalment.contract.matter', …)` thứ hai (một khoản thu thuộc
+  đúng một vụ, nên tương đương) — `RevenueDashboardTest` xanh nguyên.
+- **Người gộp M11:** `app/Models/Deadline.php` (M11 thêm `created_via`, `confirmed_at` vào `casts()` và
+  `$attributes`, quan hệ `confirmer()`; Task 2 thêm hằng số, năm scope, `outcomeAt()` và sửa
+  `scopeUpcoming()`),
+  `app/Models/ClientRequest.php` (M11: `replyDrafts()`; Task 2: tám scope/hàm) và `app/Models/Matter.php`
+  (M11: cast `ai_access`, một dòng trong `booted()`, `stageLogDrafts()`; Task 2: sáu scope/hàm) — giữ cả
+  hai bên. `NoSecondDefinitionTest` đã cấm `created_via`, `confirmed_at` trong điều kiện của tệp M13 (R20).
+- **`totalsByLead()`** trả khoá theo `lead_lawyer_id`; người phụ trách không có đầu mục nào trong `Y`
+  không có khoá (0/0 là "chưa có gì để đếm"). Hình dạng SQL của `countedInTotal()` nằm cạnh nó
+  (`countedInTotalQuery()`, riêng tư) và dùng chung ràng buộc tài liệu nhóm A với bộ đếm của `handle()`.
+- **`MatterTest`:** bộ quét `closed_at` tách thành `matterClosedAtConditionIn(string $source)` (khuôn
+  `forceDeleteCallLines()`), siết để bắt `whereBetween`/`whereDate`/`whereColumn`/`whereRelation`, so
+  sánh `<`, `<=`, `>`, `>=` và so sánh Carbon (`->closed_at->lte(`); có cặp dương/âm trên fixture.
+
+### Task 4 — trang "Theo dõi đội ngũ" (N1–N11) (2026-10-04)
+
+- **Mới:** `App\Actions\Performance\BuildTeamWorkload` (mỗi chỉ số MỘT truy vấn `GROUP BY` cột quy
+  người trên `listableBy($viewer)`, không lọc tập người trong SQL; chỉ gọi scope của Task 2; hỏi
+  `viewPerformance` từng người, ném `AuthorizationException` — phòng thủ), DTO
+  `App\Support\Performance\TeamWorkloadRow` (trường (L) là `?int`: `null` = "Không áp dụng" khi và chỉ
+  khi `TeamRoster::leadsMatters()` sai). Trang `TeamOverview` dùng `Table::records()`, sắp xếp bằng PHP:
+  chỉ tên và tám cột đếm việc đang tồn (`TeamOverview::SORTABLE_COLUMNS`) sắp xếp được, "Không áp dụng"
+  xếp sau mọi số ở cả hai chiều, mọi `sortTable` khác giữ thứ tự theo tên; mốc quá hạn > 0 và quá hạn
+  cập nhật > 0 tô `var(--danger-600)` nội tuyến; công tắc "Gồm người đã nghỉ việc" (bộ lọc, không hoãn);
+  khối thu gọn "Cách tính các con số"; câu R4. `lang/vi/performance.php`: `not_applicable`,
+  `how_computed`, `columns.n1`…`n11`, `explain.n1`…`n11` + `explain.not_applicable`, `team_overview.*`.
+- **Phán quyết N11 (Task 4, 2026-10-04, theo ngưỡng kế hoạch đặt sẵn — chủ văn phòng đảo được).** Kế
+  hoạch: truy vấn gộp N11 trên dữ liệu benchmark quá 150 ms thì cột N11 rời trang tổng quan, chỉ còn
+  trên trang của một người, tính cho một người. Đo (MariaDB, `tests/Benchmark/TeamPerformanceBenchmarkTest.php`,
+  150.000 dòng nhật ký, trung vị 5 lần): N11 gộp cho 30 người **297,6 ms** (lần đo thứ hai 309,3 ms) —
+  luật sở hữu dòng của `ActivityOwningMatter` là một chuỗi `OR` trên mọi loại chủ thể, phải xét từng dòng
+  nhật ký (EXPLAIN: `activity_log` range trên index `causer`, 149.069 dòng). Vì vậy: trang tổng quan KHÔNG
+  có cột N11 và không hỏi nhật ký; `BuildTeamWorkload::handle(..., withLastMatterActivity: true)` (trang
+  của một người, Task 5) tính N11 bằng một truy vấn giới hạn ở `causer_id` của người được hỏi — **38,5 ms**
+  cho một luật sư (9.998 dòng qua index `causer`). Khoá `columns.n11`/`explain.n11` giữ cho Task 5.
+  Đảo phán quyết = cho trang tổng quan gọi `withLastMatterActivity: true` (giới hạn theo cả danh sách
+  người, cùng truy vấn) và nhận khoảng 300 ms thêm, hoặc thêm index/bảng tổng hợp ở Task 8.
+- **Số đo Task 4 (MariaDB, dữ liệu R11 trừ ảnh chụp: 3.000 vụ 5% restricted, 30 nhân sự, 15.000 mốc,
+  45.000 dòng tiến độ, 6.000 yêu cầu + 15.000 trả lời, 30.000 đầu mục, 20.000 tài liệu nhóm A, 150.000
+  dòng nhật ký, 9.000 khoản thu; trung vị 5 lần):** `BuildTeamWorkload` trang tổng quan, trưởng phòng
+  98,1 ms, admin 98,6 ms (12 truy vấn, chậm nhất là `totalsByLead()` 21,7 ms); cả trang qua Livewire
+  (mount + nhật ký + bảng) **177,7 ms** ≤ 300 ms. Hình dạng trang một người (Task 5): luật sư xem chính
+  mình + N11 111,1 ms, trưởng phòng xem một luật sư + N11 136,3 ms — phần lớn là mười hai truy vấn gộp
+  trên cả văn phòng (R11 không lọc theo người); ngân sách 200 ms của Task 5 còn chỗ cho danh sách vụ,
+  mốc, yêu cầu. Không index nào cần (EXPLAIN in ra STDERR của benchmark).
+- **Đồng nhất (Review Focus 2), qua Livewire hoặc qua đúng `rowsFor()` của widget, cho trưởng phòng và
+  luật sư:** N1 ↔ `LoadPerLawyerWidget::numberTableRows()` — widget đòi `revenue.viewAny` nhưng Filament
+  chỉ hỏi `canView()` ở `hydrateCanAuthorizeAccess()` (request cập nhật), không ở lần mount của
+  `Livewire::test()`, nên vế "luật sư" đọc widget bằng một luật sư thật (không cần nhân chứng được cấp
+  thêm quyền); N4 ↔ bản ghi bảng `StaleMattersWidget` (truy vấn đã lọc của widget qua Livewire); N5 + N6
+  ↔ `UpcomingDeadlinesWidget::rowsFor()` và `CheckDeadlines::tierFor()` (ngày 0, +7); số trong ngoặc của
+  N7 ↔ `MattersMissingDocumentsWidget::rowsFor()`, số chính ↔ `mattersAwaitingClient()` không tham số;
+  N8 ↔ `PendingChecklistReviewsWidget::rowsFor()` (không lọc `open()`, như widget); N10 ↔ chữ "Đã nộp X/Y"
+  của tab Danh mục (Livewire) cộng dồn.
+- **Quét rò rỉ (Review Focus 1)** ở `tests/Feature/Performance/RestrictedLeakSweepTest.php`: dataset là
+  tên thuộc tính của `TeamWorkloadRow` (reflection); trưởng phòng đọc đúng cùng giá trị có/không có vụ
+  `restricted` của L, admin thấy chỉ số đó đổi (fixture phải có bản ghi cho mọi chỉ số), L thấy vụ của
+  mình (trừ N2 — vụ `restricted` chỉ hiện với người phụ trách và admin); thêm một test trang: mọi dòng,
+  mọi cột, mọi thứ tự sắp xếp và chữ trên màn hình giống hệt. Task 5, 7 thêm vào tệp này; Task 6 (làn
+  m13b) quét `PerformanceRow` ở tệp riêng. Hàm toàn cục của Task 4 mang tiền tố `m13t4` (rà soát Task 1 m5).
+- **Người gộp làn m13b:** `lang/vi/performance.php` — `columns` và `explain` phải là MỘT mảng mỗi khoá
+  (khoá `n*` của Task 4 và `p*`, `reference`, `closed_period` của Task 6 chung một mảng). Hai khối
+  `'columns' => [...]` cùng cấp thì PHP giữ khối sau và nửa số câu biến mất —
+  `TeamOverviewPageTest` ("declares every top-level key of lang/vi/performance.php once") đỏ ngay.
+- **Benchmark** `tests/Benchmark/TeamPerformanceBenchmarkTest.php` (ngoài mọi testsuite): Task 5 thêm
+  trang một người; phần "Hiệu suất theo kỳ, một quý" và ảnh chụp hai năm thêm sau khi gộp m13b (Task 7/8).
+- **Số đo test (2026-10-04):** bộ đầy đủ SQLite song song 4635 passed / 32 skipped / 1 risky / 1 todo
+  (todo = cổng tiếp nhận M10 của Task 2); bốn tệp Task 4 cùng `PerformanceAccessTest` trên MariaDB tuần
+  tự 88 passed; 42 mutation probe, tất cả đỏ (báo cáo Task 4 của làn).
+
+### Task 5 — trang của một người (2026-10-04)
+
+- **Trang `TeamMember`** (`/team/{user}`) lấp khung Task 1, không tự đếm, không tự viết điều kiện
+  nghiệp vụ (`NoSecondDefinitionTest` quét nó và Action mới):
+  - **đầu trang:** tên, chức danh (`UserPosition::label()`), trạng thái ("Đang làm việc"/"Đã nghỉ
+    việc"); ĐÚNG `TeamWorkloadRow` của `BuildTeamWorkload` cho một người, có N11
+    (`withLastMatterActivity: true`, phán quyết N11 của Task 4) — mỗi con số dưới nhãn
+    `performance.columns.nX` của nó, cột (L) rỗng in "Không áp dụng", N4/N5 > 0 tô `var(--danger-600)`
+    qua `TeamOverview::dangerWhenPositive()`;
+  - **cơ cấu lĩnh vực:** Action mới `App\Actions\Performance\BuildMatterTypeMix` → DTO
+    `App\Support\Performance\MatterTypeMix` — tập N1 (`listableBy()->open()->ledBy()`) theo
+    `matter_type_id`, hoặc tập N2 (`supportedBy()`) khi `TeamRoster::leadsMatters()` sai; tiêu đề nói
+    tập nào; tổng các dòng bằng N1/N2 cho cùng người xem;
+  - **ba danh sách:** mốc = `UpcomingDeadlinesWidget::rowsFor($viewer)->heldBy()` (= N5 + N6), yêu cầu =
+    `awaitingOffice()->heldBy()` trên `open()->listableBy()` (= N9, luồng giao cho người đã xoá mềm ở
+    trang luật sư phụ trách), giấy tờ = `PendingChecklistReviewsWidget::rowsFor($viewer)` trên vụ
+    `ledBy()` (= N8, "Không áp dụng" với trợ lý);
+  - **bảng "Vụ việc"** (Filament, Eloquent): `listableBy($viewer)->workedOnBy($subject)`; lọc tình trạng
+    (`open()`/`closed()`) và vai (`ledBy()`/`supportedBy()`), không hoãn; cột mã, khách, tiêu đề, giai
+    đoạn, vai của người này (ghế của chính họ trong đội ngũ, quan hệ `team` nạp sẵn chỉ ghế đó), cập nhật
+    gần nhất cho khách (`MatterStaleness::color()`, như `MattersTable`); mỗi dòng mở trang xem vụ việc;
+  - khối "Cách tính các con số" (partial `performance-explanations.blade.php`, dùng chung với trang tổng
+    quan), câu R4; `getWidgetData()` = `['subjectId' => …]` cho hai widget xu hướng của Task 7;
+  - `performance_viewed` ở `mount()` khi xem người khác (chủ thể là người đó, `properties` rỗng); không
+    khi xem chính mình, không ở request Livewire (lọc, sắp xếp).
+- **Lệch chữ kế hoạch, có chủ đích:**
+  1. Bộ lọc "Tham gia" dùng scope mới `Matter::scopeSupportedBy()`, không `withSupportingMember()` như
+     chữ kế hoạch: `withSupportingMember()` nối ghế phụ của MỌI người, nên trên bảng của một người nó giữ
+     cả vụ người đó phụ trách mà có người khác làm cộng sự. `scopeWorkedOnBy()` nay là `ledBy() OR
+     supportedBy()` (một định nghĩa vai); `TeamMemberPageTest` ghim `supportedBy(X)` = các vụ mà
+     `withSupportingMember()` cho ra dòng `member_id = X`. **Người gộp M11:** `app/Models/Matter.php` có
+     thêm hàm này (M11 cũng sửa tệp đó).
+  2. Cơ cấu lĩnh vực là một Action (`BuildMatterTypeMix`), không phải truy vấn trong trang (CLAUDE.md:
+     nghiệp vụ ở `app/Actions`; kế hoạch chỉ nêu trang và view).
+  3. Mỗi danh sách chỉ hiện với người thấy widget trang chủ tương ứng (`canView()` của chính widget;
+     danh sách yêu cầu không có widget nên hỏi `matter.view`), cột tiêu đề chỉ với `matter.view` như
+     `MattersTable`. Hôm nay mọi vai mở được trang này đều có cả hai quyền; luật chỉ khác đi với người
+     được cấp thẳng `performance.viewAny` mà thiếu `matter.view` — người đó đọc số, không đọc nội dung
+     hồ sơ (R2: lý do kế toán không có trang này).
+  4. `PendingChecklistReviewsWidget::SUBMITTED_AT_ALIAS` thành `public` (danh sách giấy tờ xếp và in theo
+     đúng mốc "khách nộp lúc" của widget).
+- **Quét rò rỉ:** `RestrictedLeakSweepTest` thêm trang của một người — với trưởng phòng, chữ trên trang
+  của L và của S (đầu trang, cơ cấu, ba danh sách, bảng ở mặc định và ở bốn bộ lọc) cùng tập dòng của
+  bảng giống hệt khi có và khi không có các vụ `restricted` của L; L và admin thấy vụ đó.
+- **Danh sách ngắn thật sự ngắn (`TeamMember::LIST_LIMIT = 10`).** Mỗi danh sách in tối đa 10 việc gấp
+  nhất (mốc quá hạn lâu nhất, luồng chờ lâu nhất, giấy tờ nộp sớm nhất — thứ tự của widget trang chủ) và
+  câu "Hiện 10 việc gấp nhất trên tổng số N." khi còn nữa; N là chính con số đầu trang (N5 + N6, N9, N8,
+  cùng tập — test ghim). Lần đo đầu, chưa giới hạn: trên dữ liệu benchmark một luật sư giữ vài trăm việc
+  ở ba danh sách, trang 289–308 ms.
+- **Số đo Task 5 (MariaDB, dữ liệu R11 của Task 4, trung vị 5 lần, qua `Livewire::test()`):** trang của
+  một người — luật sư xem chính mình **228,7 ms** (33 truy vấn, 95,1 ms CSDL), trưởng phòng xem một luật
+  sư **241,0 ms** (34 truy vấn, 113,0 ms), trưởng phòng xem một trợ lý **235,1 ms** (31 truy vấn, 111,4
+  ms). **Vượt ngân sách 200 ms của R11 khoảng 15–20 %.** Cùng lần đo: trang tổng quan 160,0 ms ≤ 300 ms.
+  Phần CSDL chủ yếu là mười hai truy vấn gộp TOÀN văn phòng của `BuildTeamWorkload` (R11 không lọc theo
+  người trong SQL; N10 `totalsByLead()` 11–21 ms) cộng N11 cho một người (25–35 ms); phần còn lại là vẽ
+  Filament (bảng "Vụ việc" có bộ lọc, ba danh sách). Không đổi R11 ở Task 5. **Việc của Task 8:** chọn một
+  trong (a) cho hình dạng một người lọc theo người trong SQL (đổi R11 — cần kế hoạch/chủ văn phòng),
+  (b) index theo `EXPLAIN`, (c) nhận số đo này.
+- **Số đo test (2026-10-04):** bộ đầy đủ SQLite song song (trước bước giới hạn danh sách) **4666 passed /
+  32 skipped / 1 risky / 1 todo**, 0 failed, 306 tệp test; sau bước giới hạn: mọi tệp
+  `tests/Feature/Performance/` cùng các test widget, nhãn nhật ký, `ArchitectureTest`, `MatterTest` — 216
+  passed / 1 todo. MariaDB tuần tự: bảy tệp chạm tới 128 passed / 1 todo; sau bước giới hạn
+  `TeamMemberPageTest` + `RestrictedLeakSweepTest` 52 passed. 62 mutation probe, tất cả đỏ (báo cáo Task 5
+  của làn).
+
+### Gộp `main` vào làn M13 (2026-10-05)
+
+`main` @ `8b0dbf9` (lần gộp M9 cuối, việc sau gộp M7 `fu2`, M10 tiếp nhận, việc sau gộp M9 + M10 `fu3`)
+gộp vào `m13-team-performance` @ `31e8ca2` (Task 1, 2, 4, 5). Làn m13b (Task 3, 6) chưa có lần gộp này.
+
+- **Xung đột, giữ cả hai bên:** `Permission.php` (21 quyền: 13 gốc + 4 tiền M9 + 3 `intake.*` M10 + 1
+  `performance.viewAny` M13), `Role.php` (quản lý có cả `intake.*` lẫn `performance.viewAny`),
+  `lang/vi/permissions.php`, `RolesAndPermissionsTest.php` (`toHaveCount(21)`, ma trận admin và quản lý),
+  SPEC §7.1, §13, §15 (đính chính có ngày của M10 rồi M13), dòng M13 của bảng milestone (chữ của `main`,
+  sửa đường dẫn worktree bị mất dấu gạch ngược), tệp kế hoạch M13 (add/add, bản của làn — có dấu tick).
+  `composer.lock` của `main` (`league/commonmark` 2.10.3), `composer audit --locked` sạch.
+- **Cổng bản ghi tiếp nhận (việc của người gộp M10, Task 2):** `ActivityOwningMatter::whereIntakeRowVisibleTo()`
+  gọi ở `scopeVisibleTo()` và `scopeOwnedByVisibleMatters()`; test `->todo()` thành test thật (đỏ trước
+  khi sửa: luật sư phụ trách đếm được dòng `intake_converted` của bản ghi người khác ghi).
+- **Quét "không định nghĩa thứ hai":** `NoSecondDefinitionTest` và `MatterTest` xanh trên cây đã gộp, không
+  thêm ngoại lệ — mã M10/`fu3` nằm ngoài tệp M13 bị quét và không viết lại định nghĩa nào của M13
+  (`intake_requests.assigned_to` là cột riêng của bản ghi tiếp nhận, không phải `client_requests`).
+- **R17 — `App\Support\BusinessHours` nay có trên làn A** (`minutesBetween()`). Thời gian phản hồi P3 vẫn
+  tính giờ lịch: P3 là mã Task 6 (làn m13b, chưa có `BusinessHours`). Đổi sang giờ làm việc trên làn A sau
+  khi m13b gộp về — Task 7 hoặc Task 8 (Task 8 ghi đính chính R17 theo kế hoạch).
+- **Số đo:** bộ đầy đủ SQLite song song **5437 passed / 33 skipped / 1 risky / 0 todo, 0 failed** (25.937
+  khẳng định, 3554 s, 338 tệp test); MariaDB tuần tự (`tests/Feature/Performance/`,
+  `RolesAndPermissionsTest`, `MatterTest`, `ActivityOwningMatterTest`, `ActivityLogPageTest`,
+  `EnumLabelsTest`) **233 passed**; test tập trung 383 passed; `pint --test` sạch (1061 tệp).
+
+### Task 3 — lịch sử người giữ việc ở một khoá sự kiện (R9, R18) (2026-10-04, làn m13b)
+
+- **Đường ghi.** `ReassignMatter` bước 3 ghi một dòng `deadline_responsible_changed` cho MỖI mốc đã
+  chuyển (`reason = matter_reassigned`, hằng số `DEADLINE_HANDOVER_REASON`), bước 4 ghi một dòng
+  `client_request_assigned` cho MỖI luồng đã chuyển (`REQUEST_HANDOVER_REASON`), cùng transaction, ngay
+  sau câu `update()`, mỗi bước nạp mốc/luồng bằng một truy vấn; dòng `matter_reassigned` giữ nguyên.
+  `UpdateDeadline` ghi thêm `deadline_responsible_changed` (`reason = deadline_updated`,
+  `HANDOVER_REASON`) sau dòng `deadline_updated` khi người phụ trách thật sự đổi. Test cũ không đổi số:
+  mọi test đếm dòng nhật ký của các đường này đếm theo TÊN sự kiện (`matter_reassigned`,
+  `deadline_updated`, `matter_reassignment_digest_failed`…); không test nào đếm
+  `deadline_responsible_changed`/`client_request_assigned` sau một lần bàn giao hay một lần sửa mốc.
+- **Ba bộ dựng** (`app/Support/Performance`): `DeadlineHolderAtDue` (người giữ mốc vào ngày đến hạn — `from`
+  của dòng sớm nhất sau `Deadline::dueEnd()`, không có thì người giữ hiện tại; một truy vấn),
+  `LeadAt` (luật sư phụ trách tại một thời điểm, qua `matter_reassigned.from_user_id`; một truy vấn),
+  `RequestHolderAt` (người được giao tại một thời điểm, rỗng thì `LeadAt` cùng thời điểm; hai truy vấn).
+  So "sau" chặt: dòng ghi đúng giây được hỏi coi như đã có hiệu lực. `from` rỗng/không phải số trên lịch sử
+  mốc và người phụ trách → `null` (chỉ vào dòng "Chung"); trên lịch sử luồng, `from = null` nghĩa là "chưa
+  giao ai" (rơi về `LeadAt`), thiếu khoá `from` hoặc `from` không phải số → `null`. `Deadline::dueEnd()`
+  (mới) là biên chung của "xong đúng hạn" (`outcomeAt()`) và "người giữ vào ngày đến hạn".
+- **Giới hạn đã biết (R9, R18).** Lần bàn giao vụ TRƯỚC ngày triển khai M13 không có dòng
+  `deadline_responsible_changed` cho từng mốc, và không có dòng `client_request_assigned` cho luồng giao
+  đích danh bị `ReassignMatter` chuyển: những mốc/luồng đó rơi về người giữ hiện tại. Vài tháng đầu, tỉ lệ
+  đúng hạn của người từng nhận bàn giao hàng loạt có thể thấp hơn thật. Luồng chưa giao ai không bị ảnh
+  hưởng (`matter_reassigned` có từ M6.5). Câu giải thích của P1 và P3 (Task 6) nói điều này.
+- **Nhãn lý do.** Nhóm khoá mới `activity.reasons.<sự kiện>.<lý do>` (bốn nhãn, kể cả
+  `reopened_holder_no_longer_qualifies` của `SetDeadlineCompletion` trước đây chưa có nhãn). Modal "Xem chi
+  tiết" in nhãn thay mã khi có, giữ nguyên giá trị khi không (`App\Support\ActivityReasonLabel`) — ở trang
+  Nhật ký hệ thống như kế hoạch, VÀ ở tab "Nhật ký" của vụ việc (cùng view, cùng modal; để hai nơi không
+  in khác nhau). `ActivityReasonLabelsTest` ghim hai chiều: mọi hằng số `*_REASON` dưới `app/Actions` có
+  nhãn theo sự kiện của dòng mang nó, và không nhãn mồ côi.
+- **Test cấu trúc `HolderHistoryCompletenessTest`.** Mọi tệp dưới `app/Actions` ghi `responsible_user_id`
+  (ba mẫu token của kế hoạch, thêm `??=`) chứa `'deadline_responsible_changed'`; ghi `assigned_to` chứa
+  `'client_request_assigned'`. Ngoại lệ: `AddMatterDeadline`, `OpenClientRequest` (tạo mới).
+- **Người gộp M10, M11:** một Action mới ghi `deadlines.responsible_user_id` hoặc `client_requests.assigned_to`
+  (ví dụ tool `create_deadline` của M11 nếu nó không đi qua `AddMatterDeadline`, hay bước chuyển của M10)
+  phải ghi đúng khoá lịch sử, hoặc là một đường TẠO mới được thêm vào danh sách ngoại lệ có lý do; một hằng
+  số `*_REASON` mới cần nhãn `activity.reasons.*`. Hai test trên đỏ cho tới khi làm.
+- **Cho Task 6 (P5)** (sửa theo minor m1 của rà soát Task 3): `matters.closed_at` là cột `date`, và cast `date`
+  của `Matter` đọc nó về 00:00 của ngày kết thúc trên CẢ SQLite lẫn MariaDB (`asDate()` gọi `startOfDay()`),
+  nên giờ đóng thật không đọc lại được. Hỏi `LeadAt` tại `closed_at` trần thì một lần bàn giao TRONG chính ngày
+  kết thúc luôn bị coi là "sau" thời điểm hỏi, trên cả hai CSDL. Task 6 chọn thời điểm hỏi (mục Task 6 dưới).
+
+### Task 6 — trang "Hiệu suất theo kỳ" (P1–P7, P9, P10) (2026-10-04, làn m13b)
+
+- **Đã làm.** `App\Support\Performance\PerformancePeriod` (R16, R19), `Ratio` (R7), `ResponseTime` (R17: trung
+  vị, trung bình, "3,5 giờ"/"2 ngày 4 giờ"), `PerformanceRow`, `PerformanceReport`;
+  `App\Actions\Performance\BuildPerformanceReport`; `TeamRoster::subjectsForPeriod()` (R3, khối riêng cuối lớp);
+  trang `Performance` lấp khung Task 1 (form kỳ, công tắc "Gồm người đã nghỉ việc", bảng `Table::records()`,
+  dòng "Chung", "Cách tính các con số", "Vì sao không có bảng xếp hạng", `performance_viewed`). Test:
+  `PerformancePeriodTest`, `PerformanceFormulasTest`, `PerformancePageTest`, `ClosedPeriodStabilityTest`,
+  `PerformanceLeakSweepTest` (tệp quét rò rỉ riêng của làn m13b, phán quyết controller).
+- **P5 hỏi `LeadAt` lúc 23:59:59 của ngày kết thúc** (chọn thời điểm theo ghi chú Task 3 ở trên). Cùng hình dạng
+  với "người giữ mốc vào ngày đến hạn" (R9). Bàn giao sáng rồi người nhận đóng vụ chiều cùng ngày tính cho người
+  nhận (test chạy cả SQLite lẫn MariaDB). Giới hạn đã biết, câu giải thích P5 nói rõ: vụ đóng rồi mới bàn giao
+  TRONG CÙNG NGÀY cũng tính cho người nhận. Bàn giao từ hôm sau trở đi không chuyển con số (Review Focus 3).
+- **R17 — giờ lịch (M10 chưa có trên nhánh này).** Trang ghi "giờ lịch" ở câu giải thích P3 và dưới ô P3.
+  **Người gộp M10:** trong `BuildPerformanceReport::countRequests()` có `TODO(M10-BusinessHours)`. Đổi phép tính
+  giờ sang `App\Support\BusinessHours::fromConfig()->minutesBetween($request->created_at, $request->answered_at) / 60`.
+  Đổi "giờ lịch" thành "giờ làm việc" ở `performance.explain.p3` và `performance.period_page.p3_response`.
+  Không viết định nghĩa giờ làm việc thứ hai.
+- **R20 — chưa viết test (M11 chưa gộp, không có `created_via`).** **Người gộp M11** viết test sau, qua trang
+  "Hiệu suất theo kỳ" và trang "Theo dõi đội ngũ": một mốc `created_via = mcp`, chưa xác nhận, quá hạn, là
+  "lỡ" ở P1, có mặt ở N5 và cùng con số với `CheckDeadlines::tierFor()`.
+- **Benchmark "một quý ≤ 500 ms": không làm ở làn m13b** (phán quyết controller: `tests/Benchmark/TeamPerformanceBenchmarkTest.php`
+  là của Task 4 làn A; tạo tệp cùng tên ở đây là xung đột add/add). Làn A thêm phép đo đó ở Task 7 hoặc 8, sau khi
+  gộp m13b. Số truy vấn của trang đã cố định theo số người (test 3 ↔ 12 người, `PerformancePageTest`). Tập người
+  tốn bốn truy vấn: người dùng, vai trò, quyền của vai trò, quyền riêng. Lần vô hiệu hoá tốn một truy vấn.
+  Phần số liệu, khi kỳ có dữ liệu: P1 hai (mốc, vụ) cộng lịch sử một, P2 một, P3 hai (luồng, vụ) cộng lịch sử
+  một hoặc hai, P4 một, P5 hai (vụ, lịch sử), P6 một, P7 một (chỉ khi có cột), lĩnh vực một.
+- **Cột doanh thu (P7), đọc rõ hơn kế hoạch.** Cột có trên trang khi và chỉ khi người xem đọc được tiền trên MỌI
+  dòng của trang. Dòng một người đọc được tiền qua `UserPolicy::viewPerformanceRevenue()`. Dòng "Chung" đọc được
+  tiền khi người xem có `billing.view` và `revenue.viewAny` (R8). Trang không có dòng nào thì không có cột. Kế
+  hoạch viết "billing.view và (revenue.viewAny hoặc tập người chỉ là chính người xem)": hai cách đọc cho cùng
+  kết quả với mọi vai trò hôm nay. Cách đọc theo từng dòng thêm hai ca biên có test: người có `performance.viewAny`
+  mà thiếu `revenue.viewAny`, và trang rỗng. Cột ẩn thì Action không chạy truy vấn tiền nào (test đếm truy vấn).
+- **Kỳ trên trang.** Form `$data` (ô kỳ, hai ô ngày chỉ hiện với "Tuỳ chọn") và nút "Xem số liệu" gọi
+  `applyPeriod()`. Chỉ kỳ đã qua `PerformancePeriod::fromFilters()` mới vào thuộc tính `#[Locked] $appliedPeriod`.
+  Lỗi của `fromFilters()` hiện tiếng Việt trên đúng ô (`data.date_to`…). Kỳ đặt sẵn tính lại từ hôm nay ở mỗi
+  request. `performance_viewed` (properties `page`, `period`, `from`, `to`) ghi ở `mount()` và khi kỳ THẬT SỰ đổi,
+  chỉ với người có `performance.viewAny`.
+- **Lần vô hiệu hoá (R3)** đọc dòng `updated` của chủ thể `user` có `attributes.is_active === false`
+  (`logOnlyDirty()` chỉ ghi khoá đó khi cột đổi). Lần GẦN NHẤT quyết định. Dòng sửa tên lúc đã nghỉ không phải
+  một lần vô hiệu hoá.
+- **"Lĩnh vực chính"**: hai loại vụ nhiều vụ nhất, bằng nhau thì theo tên. Truy vấn loại vụ không hỏi lại
+  `listableBy()`: mọi id đã đến từ các tập trong `listableBy(V)`.
+- **Người gộp làn A ↔ m13b — `lang/vi/performance.php`:** khối `// Task 6` thêm `not_applicable`, `how_computed`,
+  `columns`, `explain`, cùng các khoá `period`, `ratio`, `duration`, `period_page`. Làn A thêm `columns`/`explain`
+  cho N1–N11. Gộp thành MỘT mảng `columns` và MỘT mảng `explain`. `not_applicable`, `how_computed`,
+  `columns.name` giữ một bản. `explain.not_applicable` lấy câu của m13b: "…trong các vụ việc anh/chị được xem",
+  đúng R4, minor m3 rà soát Task 4. `TeamOverviewPageTest` của làn A canh mỗi khoá cấp một chỉ khai báo một lần.
+
+### Task 7 — ảnh chụp hằng ngày và xu hướng (R10, P8), cùng ba phán quyết controller (2026-10-07)
+
+- **Đã làm.** Bảng `performance_snapshots` (migration `2026_10_04_130000`, unique `(captured_on, user_id,
+  confidentiality)`, index `(user_id, captured_on)`); model `PerformanceSnapshot` (`RestrictedToClientPortal` là
+  `1 = 0`, `KEEP_MONTHS = 25`, alias morph `performance_snapshot`) và `PerformanceSnapshotPolicy` (khách và mọi
+  thao tác ghi bị từ chối; đọc một dòng = `visibleLevels()`). `PortalCoverageTest` xanh không thêm miễn trừ.
+- **Tác vụ chụp** `App\Actions\Schedule\CapturePerformanceSnapshots`, lịch `performance.snapshot` 23:50,
+  `withoutOverlapping(30)`. Gọi đúng `open()`, `MatterStaleness::scopeStale()`, `Deadline::scopeOverdue()` trên vụ
+  `open()`, `ChecklistProgress::totalsByLead()` trên `Matter::query()->ofConfidentiality()`, bằng CÙNG phép đếm
+  của trang "Theo dõi đội ngũ" (`BuildTeamWorkload::countPer()`, nay công khai). Người của `TeamRoster::members()`.
+  Dòng `normal` luôn ghi, dòng `restricted` chỉ khi có số > 0; chạy lại trong ngày là `upsert`, và dòng
+  `restricted` của hôm nay của người nay về 0 bị xoá. Dòng quá 25 tháng xoá trong cùng lượt (`delete()`).
+  `captured_on` theo `APP_TIMEZONE` (test: 23:50 ngày D và 06:00 ngày D đều là D). Một dòng `use` mới ở đầu
+  `routes/console.php` (Pint đòi) — người gộp giữ cả hai bên.
+- **Ai đọc dòng nào (R4).** `PerformanceSnapshot::visibleLevels()` là hàm quyết định duy nhất; `scopeVisibleTo()`
+  và `scopeVisibleToMany()` (một truy vấn cho cả trang) chỉ dịch nó. `normal` khi người xem có `matter.viewAny`
+  hoặc là chính người đó với `matter.view`; `restricted` khi một vụ `restricted` giả của người đó qua
+  `Matter::isListableBy()`. Ma trận 10 ô so với `listableBy()` trên một vụ restricted THẬT. Kế toán nhận `normal`
+  theo đúng chữ R4 (có `matter.viewAny`) nhưng không bao giờ tới được ảnh chụp (`viewPerformance` chặn).
+- **Xu hướng.** `BuildPerformanceTrend::handle()` (90 ngày kết thúc hôm qua cho trang một người; hôm nay không
+  bao giờ là một điểm; ngày không có dòng `normal` là `null`, bảng số in "—") và `endpoints()` (cột P8 của trang
+  "Hiệu suất theo kỳ": ảnh chụp ngày đầu kỳ → ngày cuối kỳ, không muộn hơn hôm qua; một truy vấn; dòng "Chung"
+  không có cột này). `PerformanceRow` thêm bốn trường `?int`. Hai widget `StaleTrendWidget` (N4; bảng số kèm X/Y
+  danh mục, không vẽ chung; "Không áp dụng" với người không đứng tên phụ trách vụ) và `OverdueTrendWidget` (N5),
+  một chuỗi `#4a73bd`, không chú giải, một trục y, view `chart-with-table` dùng chung, `$pollingInterval = null`,
+  `$isDiscovered = false`, phần chung ở lớp trừu tượng `PerformanceTrendWidget` (tệp ngoài danh sách của kế
+  hoạch, để hai widget không chép nhau). Kiểm quyền ở trait `AuthorizesPerformanceSubject`: `#[Locked] subjectId`,
+  hook `boot` và `mount()` cùng hỏi `UserPolicy::viewPerformance`, 404. Đo được: Livewire gán tham số
+  `subjectId` vào thuộc tính cùng tên TRƯỚC hook `boot` ở lần mount, nên hook là cổng đầu tiên cả ở lần mount;
+  `mount()` là lớp thứ hai (mutation probe bỏ nó sống sót vì vậy — ghi trong báo cáo Task 7).
+- **Phán quyết controller cho Task 7–8, đã làm ở Task 7:**
+  - **R17 — giờ làm việc.** P3 đo bằng `App\Support\BusinessHours::fromConfig()->minutesBetween() / 60` (M10),
+    không còn giờ lịch; `ResponseTime::label()` in giờ (không gộp thành "ngày" 24 giờ); câu `explain.p3` và
+    `period_page.p3_response` nói "giờ làm việc"; test hai CSDL (Thứ Sáu chiều → Thứ Hai sáng 2,5 giờ; đổi
+    `vkcrm.business_hours` thì số đổi theo). **Đính chính SPEC R17: việc của Task 8.**
+  - **Quét lịch sử người giữ việc** (`HolderHistoryCompletenessTest`, minor m2 + m3 của rà soát Task 3): mẫu mảng
+    quét token theo độ sâu ngoặc (`$data['x']`, mảng con, lời gọi trước khoá không còn làm lọt; thêm
+    `new Model([...])` và `Model::create([...])`); luật có tên `M13B_HH_COLUMN_TABLES`: luật `assigned_to` chỉ áp
+    cho tệp có nhắc `ClientRequest` (token) hoặc chuỗi `client_requests`, nên `RecordIntake`/`UpdateIntakeIdentity`
+    (bản ghi tiếp nhận M10) được THẤY là ghi nhưng ngoài cuộc.
+  - **Câu "Kỳ đã đóng"** (minor m1 của rà soát Task 6): nói đúng điều còn giữ — bàn giao sau kỳ không chuyển việc
+    sang người nhận; huỷ một vụ việc là thao tác thứ bảy làm đổi kỳ đã đóng; mọi số chỉ tính trên vụ người xem
+    ĐANG được xem (người phụ trách cũ tự xem sau khi vụ hạn chế đã bàn giao thì không còn thấy việc của vụ đó).
+    `ClosedPeriodStabilityTest` ghim cả hành vi lẫn câu chữ.
+- **Để lại cho Task 8:** phép đo "Hiệu suất theo kỳ", một quý (≤ 500 ms); quyết định thời gian trang một người
+  (Task 5 đã vượt; xem số đo dưới); đính chính SPEC R17; rà soát cuối kiểm cổng tiếp nhận của
+  `ActivityOwningMatter` (gộp `main`).
+- **Số đo (MariaDB, `tests/Benchmark/TeamPerformanceBenchmarkTest.php`, trung vị 5 lần, 36.530 dòng ảnh chụp
+  hai năm):** tác vụ chụp 51,5 ms (ngân sách 10 giây); cột P8 cả trang (quý trước, 30 người) 16,9 ms; mỗi widget
+  xu hướng 41–47 ms (EXPLAIN: range trên `performance_snapshots_user_id_captured_on_index`, 180 dòng); trang một
+  người KHÔNG biểu đồ 246–267 ms và "trang + hai widget" 356–373 ms — vượt 200 ms (R11); widget tải lười, mỗi
+  widget một request riêng. Không thêm index, không cache.
+- **Số đo test:** bộ đầy đủ SQLite song song **5689 passed / 33 skipped / 1 risky, 0 failed** (27.164 khẳng
+  định, 4218 s, 352 tệp test); MariaDB tuần tự 13 tệp chạm tới **234 passed**; vòng `migrate:fresh --seed` →
+  `migrate:reset` → `migrate` trên MariaDB thật sạch; `pint --test` sạch (1094 tệp).
+
+### Task 8 — số đo, dữ liệu mẫu, nghiệm thu, tài liệu (2026-10-07)
+
+**Tóm tắt M13 — đọc trước.** Ba trang trên panel `admin`: **Theo dõi đội ngũ** (`/team`, số "bây giờ",
+quyền `performance.viewAny` — admin, quản lý), **trang của một người** (`/team/{user}`; với luật sư, trợ lý là
+mục **Việc của tôi**), **Hiệu suất theo kỳ** (`/performance`, kỳ mặc định tháng trước; người có
+`matter.view` xem dòng của chính mình). Kế toán 404 ở cả ba. Một bảng mới `performance_snapshots` và tác vụ
+23:50 `performance.snapshot` cho xu hướng. Không thư, không thông báo, không tool MCP, không xếp hạng. Bản cập
+nhật trên máy chủ đã có dữ liệu: `docs/CAI-DAT.md` Bước 5, "Bản cập nhật M13"; cách dùng trong giao ban và
+đánh giá tháng: `docs/QUY-TRINH.md`, "Theo dõi đội ngũ".
+
+#### Phán quyết R1–R20 (2026-10-04, chủ văn phòng đảo được; đảo cái nào thì sửa đúng task nêu trong kế hoạch)
+
+- **R1** — hai câu hỏi, hai trang (bây giờ / trong kỳ) và một trang đi sâu; không trộn số của hai thời điểm.
+- **R2** — một quyền mới `performance.viewAny` (admin, quản lý) qua đính chính SPEC §5; số của chính mình
+  không cần quyền mới (`matter.view`); kế toán không gì cả; cột doanh thu theo `viewPerformanceRevenue()`.
+- **R3** — `TeamRoster` là định nghĩa duy nhất của danh sách: luật sư, trợ lý, quản lý chưa xoá mềm; người
+  nghỉ việc vẫn được theo dõi (công tắc trên trang "bây giờ", tự có trong kỳ họ còn làm); admin không vào.
+- **R4** — mọi số là phép đếm trên `listableBy(người xem)` ∩ việc của người đó, không bao giờ phép trừ; ảnh
+  chụp đóng khi không chắc (`PerformanceSnapshot::visibleLevels()`).
+- **R5** — mỗi số quy về đúng một người theo một cột đã có (bảng ở SPEC §6.14).
+- **R6** — mọi công thức kèm câu giải thích `performance.explain.*`; "Không áp dụng" chỉ theo quyền
+  (`TeamRoster::leadsMatters()`), không bao giờ theo "có vụ nào không".
+- **R7** — "hoàn thành việc đến hạn" là phép đếm mốc cộng yêu cầu, không trọng số; dưới 5 việc không tính tỉ
+  lệ; yêu cầu đóng không trả lời ở cột riêng (P10).
+- **R8** — không xếp hạng (bốn lý do, in trên trang); một dòng tham chiếu "Chung".
+- **R9** — lịch sử người giữ mốc ở MỘT khoá `deadline_responsible_changed`; `ReassignMatter` và
+  `UpdateDeadline` ghi từ M13; mốc tính cho người giữ vào ngày đến hạn.
+- **R10** — xu hướng từ ảnh chụp hằng ngày (giữ 25 tháng), không dựng lại lịch sử, ngày thiếu để trống.
+- **R11** — truy vấn gộp, đo bằng số, không cache (số đo và quyết định dưới).
+- **R12** — không thư tổng hợp hằng tháng, không thông báo mới.
+- **R13** — MCP và PWA không chạm các số này (đính chính bảng R4 của kế hoạch M11, dưới).
+- **R14** — dữ liệu cá nhân của nhân sự: chỉ xem, không quyết định tự động; nhật ký `performance_viewed`.
+- **R15** — ngoài phạm vi: giờ làm, tỉ lệ thắng kiện, thời gian xử lý theo loại vụ.
+- **R16** — `PerformancePeriod`: tháng trước (mặc định), tháng này, quý trước, quý này, tuỳ chọn ≤ 366 ngày.
+- **R17** — thời gian phản hồi đo bằng giờ làm việc qua `App\Support\BusinessHours` của M10 (đổi ở Task 7;
+  đính chính SPEC §6.14 ngày 2026-10-07 ở task này).
+- **R18** — người giữ luồng yêu cầu và người phụ trách vụ tại một thời điểm, dựng lại từ nhật ký.
+- **R19** — kỳ đã đóng không trôi: hoàn thành và trả lời tính tới hết kỳ; bảy thao tác có người bấm vẫn đổi
+  được kỳ đã đóng (câu `explain.closed_period`).
+- **R20** — mốc tạo qua AI (M11) tính như mốc thường (test chờ người gộp M11, dưới).
+
+#### Phán quyết của controller (ghi lại cho người gộp)
+
+Chủ văn phòng duyệt làm M13 ngay, song song (2026-10-04); câu hỏi mở lấy mặc định của kế hoạch; làn cắt từ
+đỉnh làn M9-final cộng commit kế hoạch, không từ `main`; chia làn A (Task 1, 2, 4, 5, 7, 8) và m13b (Task 3,
+6); `main` gộp vào làn ở `25ea771`, m13b gộp về ở `15d7502`; làn không gộp vào `main` — controller gộp.
+Phán quyết cho Task 7–8: R17 sang giờ làm việc (Task 7; đính chính SPEC ở đây); quét lịch sử người giữ việc
+theo độ sâu ngoặc, luật `assigned_to` chỉ cho tệp ghi `client_requests` (Task 7); câu "Kỳ đã đóng" nói đúng
+điều còn giữ (Task 7); cổng bản ghi tiếp nhận trong `ActivityOwningMatter` (gộp `main`) để rà soát cuối kiểm;
+phép đo một quý và quyết định thời gian trang một người (dưới); dòng M13 của bảng milestone giữ chữ đã sửa
+(không còn ký tự tab dọc). Dòng M13 của bảng milestone không sửa ở task này (luật làn: chỉ viết trong "Ghi chú
+M13") — controller cập nhật lúc gộp.
+
+#### Còn cần chủ văn phòng hoặc luật sư xác nhận (mặc định đang áp, không mục nào chặn)
+
+1. Có hiện thứ hạng không (R8) — mặc định không.
+2. Admin/giám đốc có hành nghề có vào danh sách theo dõi không (R3) — mặc định không.
+3. Thông báo cho nhân sự về việc hệ thống tính các con số này (R14, Luật 91/2025/QH15) — việc của luật sư văn
+   phòng; nên làm TRƯỚC khi dùng trang để đánh giá.
+4. Thư tổng hợp hằng tháng cho trưởng phòng (R12) — mặc định không.
+5. Giữ ảnh chụp bao lâu (R10) — mặc định 25 tháng.
+6. Mục tiêu thời gian trả lời yêu cầu của khách (R17) — chưa có; trang báo trung vị và trung bình.
+7. Có chia "tiến" và "lùi" giai đoạn không (P4) — mặc định không.
+8. Kế toán có cần cột doanh thu theo luật sư trên trang hiệu suất không (R2) — mặc định không (trang Doanh thu
+   đã lọc được theo luật sư).
+9. Yêu cầu đóng không trả lời có tính là "đã giải quyết" không (R7, P10) — mặc định không.
+10. Mốc tạo qua AI chưa xác nhận có tính vào tỉ lệ đúng hạn không (R20) — mặc định có.
+11. Kỳ đã đóng cắt ở cuối kỳ, không ân hạn (R19) — mặc định không ân hạn.
+
+#### Việc để lại cho người gộp làn khác
+
+- **M11:** thêm vào bảng R4 của `docs/superpowers/plans/2026-09-24-m11-mcp.md` dòng "Số liệu theo dõi đội ngũ và
+  hiệu suất theo người (`performance_snapshots`, mọi lớp dưới `App\Actions\Performance` và
+  `App\Support\Performance`) — không bao giờ; không tool" (**đính chính 2026-10-04, R13**; làn M13 không sửa kế
+  hoạch của làn khác). Viết test R20 (mốc `created_via = mcp`, chưa xác nhận, quá hạn: có ở N5, "lỡ" ở P1, cùng
+  số với `CheckDeadlines::tierFor()`). `PerformanceMcpBoundaryTest` bắt đầu canh `app/Mcp` từ lúc gộp.
+  `Deadline.php`, `ClientRequest.php`, `Matter.php`: giữ cả hai bên. Câu `explain.n5` **không còn** nói mốc tạo qua
+  AI (bỏ ở vòng sửa 1 của rà soát cuối, I3, vì M11 chưa gộp): khi gộp M11, thêm lại vào cuối câu "Gồm cả mốc tạo qua
+  trợ lý AI chưa xác nhận." — `TeamOverviewPageTest` ("mentions AI-created deadlines … only once deadlines record how
+  they were created") đỏ cho tới khi câu đó trở lại, vì nó đòi chữ "trợ lý AI" có mặt đúng khi `deadlines.created_via`
+  có.
+- **M10:** đã làm khi gộp `main` (cổng `intake_request` trong `scopeOwnedByVisibleMatters()`; R17 giờ làm việc).
+- **M12, M14 và mọi làn — tệp dùng chung:** `routes/console.php` (M13 thêm một dòng `use` ở đầu và lịch
+  `performance.snapshot`), `lang/vi/activity.php`, `docs/SPEC.md`, `docs/PROGRESS.md`,
+  `database/seeders/DemoDataSeeder.php` (thêm `TeamPerformanceSeeder` vào danh sách), `AppServiceProvider`
+  (alias morph `performance_snapshot`). M12: không `PushTopic` nào cho các số này.
+- **Dữ liệu mẫu đổi số ghim của test khác (có chủ đích):** `DemoDataSeederTest` (9 người, 4 luật sư, 27 vụ),
+  `DemoDataAuthorizationTest` (27 vụ; kế toán 25; luatsu1 11), `IntakeSeederTest` (27 vụ), `BillingSeederTest`
+  (vụ `restricted` đầu tiên theo id; lần bàn giao của BillingSeeder lọc khỏi lần bàn giao của người nghỉ việc;
+  hai dòng `matter_reassigned`), `PreflightCommandTest` và `InstallGuideDemoDataTest` (tài khoản nghỉ việc vô
+  hiệu hoá, mật khẩu ngẫu nhiên, không phải tài khoản demo đăng nhập được). Một làn khác thêm vụ hay người vào
+  dữ liệu mẫu thì cộng tiếp các số này.
+
+#### Giai đoạn 2, mục 7 (R15)
+
+Danh sách bảy hạng mục giai đoạn 2 (Ghi chú M6.5, "Giai đoạn 2 — nâng cấp sau bản đầu tiên") phải nhắc lại cho chủ
+văn phòng khi M12 xong. Mục 7 "Báo cáo quản trị nâng cao": **phần "năng suất luật sư" đã làm ở M13** (ba trang
+trên); còn lại **giờ làm** (cần mục 1, chấm công), **tỉ lệ thắng kiện** (chưa có cột kết quả vụ việc) và "thời
+gian xử lý theo loại vụ". Danh sách đó nằm ở ghi chú của M6.5 nên không sửa ở đó.
+
+#### Đã làm ở Task 8
+
+- **Số đo trên dữ liệu R11** (bảng dưới) và ba thay đổi hiệu năng, có test:
+  - trang "Hiệu suất theo kỳ" dựng báo cáo **một lần mỗi request**: cột doanh thu hỏi `visible()` qua
+    `BuildPerformanceReport::revenueVisible()` (luật tách ra từ `handle()`, vẫn một định nghĩa) thay vì qua báo
+    cáo — trước đó request đổi kỳ dựng báo cáo của kỳ CŨ rồi mới tới kỳ mới, và lần chọn ở ô kỳ dựng bốn lần
+    (`PerformancePageTest`, "builds the report once per Livewire request");
+  - **index `activity_log(event, created_at)`** (migration `2026_10_07_090000`, ứng viên của R11): `EXPLAIN` của
+    P6 quét cả index `causer` (148.955 dòng, 157 ms) → range trên index mới (10.756 dòng, 21 ms);
+  - ba bộ dựng lịch sử (`DeadlineHolderAtDue`, `RequestHolderAt`, `LeadAt`) đọc nhật ký qua một hàm chung
+    `LeadAt::changes()` bằng `toBase()` và so dấu thời gian Unix, không dựng model `Activity` cho từng dòng (quý
+    của trưởng phòng: `RequestHolderAt` 573 → 110 ms, `DeadlineHolderAtDue` 103 → 79 ms); `Deadline::outcomeAt()`
+    đọc mỗi cột ngày một lần (338 → 185–196 ms trên 6.400 mốc); báo cáo nạp của vụ chỉ các cột cần
+    (`matter:id,closed_at,deleted_at`, `matter:id,lead_lawyer_id`).
+- **Benchmark** (`tests/Benchmark/TeamPerformanceBenchmarkTest.php`): thêm "Hiệu suất theo kỳ" một quý và tháng
+  mặc định cho admin, trưởng phòng, luật sư, phân rã phần PHP, `EXPLAIN` mọi truy vấn của báo cáo quý và sáu truy
+  vấn chậm nhất của trang một người, trang một người cho admin. Hai chỗ dữ liệu sửa cho đúng thực tế: 30% vụ đã
+  kết thúc nay là `i % 10 ∈ {1, 2, 3}` để vụ `restricted` còn mở (tác vụ chụp ghi cả dòng `restricted` — rà soát
+  Task 7, m6); văn phòng trả lời 0–95 giờ SAU khi khách gửi (trước: hai cột rải độc lập, có luồng "trả lời" 300
+  ngày sau hoặc trước cả lúc gửi, làm phép đếm giờ làm việc duyệt từng ngày của gần một năm).
+- **Dữ liệu mẫu** `database/seeders/TeamPerformanceSeeder.php` (gọi từ `DemoDataSeeder`; docblock nhắc không chạy ở
+  production): luật sư A (`luatsu1`) có mốc lỡ, trả lời chậm, một yêu cầu đóng không trả lời, một vụ `restricted`
+  đã bật cổng quá hạn cập nhật có mốc quá hạn; luật sư Hà (`luatsu2`) đúng hạn đều, hai trợ lý giữ việc; luật sư
+  `luatsu4` nghỉ việc sau tháng trước, bàn giao vụ sang Bảo (`luatsu3`) qua `ReassignMatters` thật rồi bị vô hiệu
+  hoá (mật khẩu ngẫu nhiên); dòng tiến độ trải ba tháng; 90 ngày ảnh chụp GIẢ. Test
+  `tests/Feature/Seeders/TeamPerformanceSeederTest.php`.
+- **Đi hết luồng nghiệm thu** trên đúng dữ liệu seed — `tests/Feature/Performance/DemoWalkthroughTest.php`, sáu bước
+  của kế hoạch qua Livewire và HTTP: (1) trưởng phòng sắp "Theo dõi đội ngũ" theo mốc quá hạn, luật sư A đứng đầu
+  (2 mốc), trang của A: 2 vụ quá hạn cập nhật, nhật ký có `performance_viewed` (trang Nhật ký hệ thống hiện nhãn);
+  (2) A mở "Việc của tôi": 3 vụ quá hạn cập nhật (2 thường + 1 `restricted`), trang của Hà: 404; (3) "Hiệu suất",
+  tháng trước: Bảo 0 mốc lỡ, 0 luồng; người nghỉ việc có dòng (1 đúng hạn, 1 lỡ, 2/3 luồng); A 2 đúng hạn, 1 trễ,
+  2 lỡ, 1 đóng không trả lời ở cột riêng; tiêu đề cột không có "hạng"; dòng "Chung" đứng đầu; sắp xếp theo hai cột
+  tỉ lệ không đổi thứ tự; A tự xem thấy 3 mốc lỡ (cả vụ `restricted`); (4) kế toán 404 ở ba địa chỉ, trang Doanh
+  thu mở được và lọc theo luật sư (người nghỉ việc: 30.000.000 đ tháng trước); (5) trợ lý Lan: chỉ dòng của mình,
+  không cột doanh thu, "Chuyển giai đoạn" và "Vụ kết thúc trong kỳ" là "Không áp dụng", "Việc của tôi" có sáu cột
+  của người phụ trách là "Không áp dụng"; (6) A hoàn thành hôm nay một mốc lỡ của tháng trước qua
+  `SetDeadlineCompletion`: mọi dòng của "Hiệu suất" tháng trước không đổi. Đi bằng test thay cho trình duyệt: test
+  chạy lại được trên mọi bản sau.
+- **Vòng sửa 1 (I1, lỗi lịch):** mốc "quá hạn mấy ngày nay" của vụ `restricted` từng đến hạn `today() - 3` — ngày
+  1–3 mỗi tháng nó rơi vào "tháng trước", thành mốc lỡ thứ hai của vụ đó, và A tự xem thấy 4 mốc lỡ (bước 3 đỏ ba
+  ngày mỗi tháng, cùng loại với 21 test đỏ ngày cuối tháng của M9). Nay mốc đó đến hạn `max(today() - 3, ngày 1 tháng
+  này)`: luôn trong tháng này, quá hạn từ ngày 2 (ngày 1 thì đến hạn hôm nay); vụ vẫn có mốc quá hạn là mốc lỡ tháng
+  trước. "A tự xem thấy 3 mốc lỡ" đúng vào mọi ngày. Test `tests/Feature/Performance/DemoCalendarBoundaryTest.php`
+  dựng lại dữ liệu mẫu đúng ngày 1 (Chủ nhật), 2, 3, ngày cuối tháng và ngày 1/3 sau tháng Hai, đọc số qua trang
+  "Hiệu suất"; `DemoWalkthroughTest` và `TeamPerformanceSeederTest` cũng chạy xanh khi dời đồng hồ sang năm ngày đó.
+- **Tài liệu:** `docs/CAI-DAT.md` (Bước 5 "Bản cập nhật M13", ghi chú tài khoản nghỉ việc của dữ liệu mẫu, quyền M13
+  ở "Nâng cấp lên bản mới"; `InstallGuideM13UpgradeTest` đọc chính đoạn đó so với mã — tên migration, quyền, lịch
+  23:50, 25 tháng — và đo "chưa `db:seed --force` thì không ai thấy Theo dõi đội ngũ"), `docs/QUY-TRINH.md` (mục
+  "Theo dõi đội ngũ — giao ban hằng tuần và đánh giá hằng tháng", bốn lý do không xếp hạng), `docs/SPEC.md` (đính
+  chính R17 ngày 2026-10-07 ở §6.14; câu §5 về ảnh chụp sửa theo minor m1 rà soát Task 1: luật không lộ vụ
+  `restricted` nằm ở `visibleLevels()`, không dựa vào `performance.viewAny`).
+- **Đối chiếu các đính chính SPEC của Task 1 với mã cuối:** quyền và ma trận vai (§5) khớp `Role::permissions()`;
+  §6.14 khớp `BuildTeamWorkload`/`BuildPerformanceReport` (R17 nay giờ làm việc); §7.1: `Deadline::scopeUpcoming()`
+  cận trên 23:59:59 (Task 2); §10 mục 6: `performance_viewed`, nhãn lý do `activity.reasons.*` và modal in nhãn khi
+  `Lang::has()` (Task 3, `ActivityReasonLabel`); §11 "Theo dõi đội ngũ" có test. Minor m2 của rà soát Task 1 (SPEC
+  nói trước việc Task 2/3 làm): nay đã đúng.
+- **Câu `explain.p8`** (minor m1, m2 rà soát Task 7): nói cột này đọc số đã chụp (vụ bàn giao hay huỷ sau ngày chụp
+  vẫn nằm trong số của ngày đó) và số hôm nay ở trang của từng người — không đưa luật sư tới một trang 404.
+
+#### Số đo (MariaDB, dữ liệu R11, trung vị 5 lần, qua `Livewire::test()`; 2026-10-07)
+
+| Trang / phép đo | Admin | Trưởng phòng | Luật sư | Ngân sách |
+|---|---|---|---|---|
+| Theo dõi đội ngũ (cả trang) | — (`BuildTeamWorkload` 77,9 ms) | **154,7 ms** (`BuildTeamWorkload` 79,9 ms) | 404 (không có quyền) | 300 ms |
+| Trang của một người (không biểu đồ) | 246,4 ms (xem một luật sư) | 233,2 ms (luật sư), 243,3 ms (trợ lý) | 236,3 ms (chính mình) | 200 ms |
+| Trang của một người + hai widget xu hướng | — | 319,2 ms (mỗi widget 38 ms) | 309,6 ms | 200 ms |
+| Hiệu suất theo kỳ, quý trước — request "Xem số liệu" | 1.066,9 ms | 1.021,9 ms | **219,3 ms** | 500 ms |
+| … trong đó `BuildPerformanceReport` | 841,1 ms | 771,0 ms | 148,7 ms | — |
+| Hiệu suất theo kỳ, mở trang ở tháng trước (mặc định) | 627,7 ms | 652,9 ms | 168,2 ms | — |
+| Tác vụ chụp (40 dòng, có dòng `restricted`) | — | — | — | 53,8 ms / 10 giây |
+| Cột P8 cả trang (quý, 30 người) | — | 15,3 ms | — | — |
+
+Trước các thay đổi của Task 8 (cùng dữ liệu, lần đo đầu): request đổi kỳ một quý của trưởng phòng **5.135 ms**
+(báo cáo 1.285 ms, dựng 2–4 lần mỗi request), luật sư 1.820 ms; P6 157 ms. Quý trước của dữ liệu R11 có **6.750 mốc
+đến hạn** (45% của 15.000 mốc — benchmark dồn mọi ngày đến hạn vào ±60 ngày quanh hôm nay) và 1.840 yêu cầu; tháng
+trước 3.750 mốc. Phân rã PHP của báo cáo quý (trưởng phòng; 6.400 mốc và 1.760 yêu cầu sau `listableBy`): nạp mốc
+121 ms, `outcomeAt()` 196 ms, `DeadlineHolderAtDue` 79 ms, nạp yêu cầu 40 ms, `RequestHolderAt` 110 ms, giờ làm việc
+99 ms; SQL của cả báo cáo khoảng 120 ms. `EXPLAIN` (in ra STDERR của benchmark): truy vấn của báo cáo dùng index khoá
+chính, khoá ngoại, morph `subject` hoặc index mới; `deadlines` và `client_requests` quét bảng trên cận ngày (15 ms,
+6 ms — không đáng thêm index).
+
+**Quyết định hiệu năng (Task 8, chủ văn phòng đảo được)** — *thay ngày 2026-10-07 bởi "Rà soát cuối, vòng sửa 1"
+dưới: rà soát cuối (I1) chỉ ra rằng Task 8 đã từ chối lối thoát cache của R11 mà không có phán quyết của controller
+hay chủ văn phòng; vòng sửa 1 làm đúng hình dạng R11 viết sẵn. Hai gạch đầu dòng ngay dưới giữ làm lịch sử:*
+- **"Hiệu suất theo kỳ", một quý, trưởng phòng/admin: VƯỢT ngân sách 500 ms (khoảng 1,0 giây) trên dữ liệu R11 —
+  nhận số đo, không cache.** Phần còn lại là phép phân loại bằng PHP mà R11 cố ý giữ ở PHP (người giữ tại ngày đến
+  hạn, giờ làm việc, trung vị), tỉ lệ thuận với số mốc và yêu cầu của kỳ: khoảng 0,12 ms mỗi mốc. Dữ liệu R11 dồn
+  6.750 mốc vào một quý; một văn phòng vài nghìn vụ thật có ít hơn nhiều. Luật sư xem dòng của mình: 219 ms, trong
+  ngân sách. Không dùng `Cache::remember` (lối thoát cuối của R11): cache chỉ nhanh ở lần mở THỨ HAI — lần đầu vẫn
+  một giây — mà mang đủ bốn rủi ro R11 nêu (số cũ ngay sau một lần bàn giao, mỗi lần xem một lần ghi vào bảng
+  `cache`, khoá quên id người xem là rò rỉ R4). Trang là trang đánh giá tháng, không phải hàng đợi. Đảo: cho phép
+  cache đúng hình dạng R11 (khoá gồm id người xem và kỳ, TTL ≤ 5 phút, test hai người xem không dùng chung), hoặc
+  chuyển phân loại sang SQL (đổi R11).
+- **Trang của một người: VƯỢT 200 ms khoảng 15–25% (233–246 ms; cùng hai biểu đồ 310–319 ms) — nhận số đo (lựa
+  chọn (c) của Task 5).** SQL khoảng 115 ms trong đó (12 truy vấn gộp toàn văn phòng của R11, cộng N11 cho một người
+  35 ms — `EXPLAIN` N11: ref trên index `causer`, 9.998 dòng; thời gian nằm ở luật sở hữu dòng, index không giúp);
+  phần còn lại là vẽ Filament. Hai widget xu hướng tải lười, mỗi cái một request 38 ms sau khi trang đã hiện. Lựa
+  chọn (a) — lọc theo người trong SQL cho hình dạng một người — đổi R11, cần kế hoạch hoặc chủ văn phòng.
+- **Theo dõi đội ngũ, tác vụ chụp, cột P8:** trong ngân sách.
+- **Cache:** *(lịch sử Task 8)* không dùng. Nay: `PerformanceCache` trên hai trang — xem "Rà soát cuối, vòng sửa 1".
+- **Độ phủ (SPEC §14 mục 1):** không đo được trên làn — image `webdevops/php:8.3-alpine` không có Xdebug hay PCOV
+  (`php -m`, thư mục extension), và làn không cài gì thêm. Thay vào đó mỗi điều kiện mới có mutation probe (báo cáo
+  Task 1–8 của làn). CI của `main` đo được khi gộp, nếu bật.
+- **Số đo test (2026-10-07):** bộ đầy đủ SQLite song song **5709 passed / 33 skipped / 1 risky, 0 failed** (27.348
+  khẳng định, 3375 s, 356 tệp test = `find tests/Unit tests/Feature -name '*Test.php'`); MariaDB tuần tự
+  `tests/Feature/Performance/` cùng bốn tệp seeder, `DemoDataAuthorizationTest`, `PreflightCommandTest`,
+  `InstallGuideDemoDataTest` **521 passed**; `migrate:fresh --seed` (có `TeamPerformanceSeeder`) rồi `migrate:reset`
+  → `migrate` trên MariaDB thật sạch (56 migration); `pint --test` sạch (1100 tệp). Mutation probe (báo cáo Task 8
+  của làn): 22 probe chạy, 20 bị giết; một probe viết sai (đột biến tương đương) được làm lại và bị giết; luật dời
+  cuối tuần của seeder sống sót lần đầu nên test thêm khẳng định "gửi và trả lời trong ngày làm việc", rồi bị giết.
+
+### Rà soát cuối, vòng sửa 1 (2026-10-07)
+
+Rà soát toàn nhánh (`948ce96..326ae30`): 0 Critical, 5 Important (I1–I5), làm hết ở vòng này.
+
+- **I4 — gộp `main` 7632242 (M12, làn fu4, Filament 5.8.4) vào làn** (commit gộp `9616bcf`). Ba tệp xung đột, gỡ:
+  `docs/CAI-DAT.md` Bước 5 xếp đoạn nâng cấp **M10 → M13 → M12** (`InstallGuideM13UpgradeTest` đòi M13 ngay sau M10;
+  `PushInstallGuideTest` của `main` cắt đoạn M12 tới "**Muốn dữ liệu mẫu"); gạch đầu dòng "Nâng cấp lên bản mới" gộp
+  hai câu: "bản M12 không thêm quyền nào; bản M13 thêm quyền `performance.viewAny`…", danh sách "(M9, M10, M12, M13)",
+  câu "chỉ M12 (…)" giữ nguyên; `PushInstallGuideTest` ghim danh sách bốn bản. `docs/SPEC.md` §13 và §15 giữ cả đính
+  chính M12 lẫn M13 (M12 trước). `docs/PROGRESS.md`: dòng M12 của `main`; dòng M13 giữ bản của làn (bản trên `main`
+  có đường dẫn worktree bị mất dấu gạch ngược); "Ghi chú M12" đứng trước "Ghi chú M13". `composer install` từ lock
+  mới (Filament 5.8.4, gói Web Push của M12). Sau gộp, `tests/Feature/Performance` cùng `PushInstallGuideTest`,
+  `InstallGuideM10UpgradeTest` **460 passed** — vòng đời Livewire/Filament mà các test truy cập của M13 dựa vào
+  (`boot()` trước `mount()`, `hydrateCanAuthorizeAccess` 403, widget lười nhận `subjectId`) giữ nguyên trên 5.8.4.
+- **I2 — SPEC theo mã cuối** (`SpecM13ParityTest` đọc chính SPEC, so với mã và câu trên màn hình; đỏ 4/4 trước khi
+  sửa): §7.5 "Theo dõi đội ngũ" có cột N1–N10, N11 chỉ ở trang của một người (§6.14, dòng N11 ghi rõ); §6.14 "Định
+  dạng" in thời lượng bằng giờ làm việc ("3,5 giờ", "52 giờ", không gộp "ngày", như `ResponseTime::label()`); đoạn
+  R19 kể đủ bảy việc còn đổi số kỳ đã đóng, thêm "huỷ một vụ việc", cùng câu phạm vi xem — khớp
+  `explain.closed_period`; §5 bổ sung M13 đếm "13 + 4 + 3 + 1 = **21**" như enum `Permission`. Docblock
+  `BuildTeamWorkload`, `TeamWorkloadRow` thôi nói "cột N1–N11" của trang tổng quan.
+- **I3 — `explain.n5`** bỏ câu "Gồm cả mốc tạo qua trợ lý AI chưa xác nhận" (M11 chưa gộp, `main` không có
+  `deadlines.created_via`); test và việc của người gộp M11 ở "Việc để lại cho người gộp làn khác".
+- **I1 — R11, lối thoát cuối: bộ nhớ tạm theo người xem.** Ngân sách vẫn vỡ sau index, nên làm đúng hình dạng kế
+  hoạch viết sẵn thay cho quyết định "nhận số đo, không cache" của Task 8 (không có phán quyết nào cho phép từ chối):
+  - `App\Support\Performance\PerformanceCache::remember()` — `Cache::remember`, khoá
+    `performance:<trang>:<id người xem>:<băm bộ lọc>`, TTL `vkcrm.performance.cache_seconds` = 300, cắt ở
+    `MAX_SECONDS` = 300 dù cấu hình nói gì, `0` tắt hẳn (không đọc cả mục cũ). Không biến `.env` mới.
+  - "Hiệu suất theo kỳ": giữ CẢ báo cáo; bộ lọc = (kỳ, hai cận, công tắc), id người trên trang, cột doanh thu có hiện
+    không (đổi vai trò hay mất quyền đọc tiền là đổi mục ngay). Trang của một người: giữ dòng `TeamWorkloadRow`
+    (N1–N11) theo (người xem, người được xem). KHÔNG giữ: ba danh sách ngắn, bảng "Vụ việc", mọi lần hỏi quyền
+    (`boot()`), "Theo dõi đội ngũ" (trong ngân sách, là hàng đợi hành động). Tổng "hiện … trên tổng …" của ba danh
+    sách là số đầu trang, nên trong 5 phút sau một thay đổi có thể lệch với các dòng đang hiện — cái giá có chủ đích.
+    Đổi đội ngũ của một vụ (người xem thôi thấy một vụ) cũng chờ tối đa 5 phút, và cả quản trị viên bị hạ xuống
+    trưởng phòng (cùng tập người, cùng cột doanh thu, nên cùng mục: số có vụ `restricted` của người khác còn tối đa 5
+    phút); chỉ là con số, không mã, tên hay khách của vụ nào nằm trong mục giữ tạm. Muốn bỏ ngay: `php artisan
+    cache:clear`.
+  - `config/cache.php` `serializable_classes`: từ `false` thành năm lớp — `PerformanceReport`, `PerformanceRow`,
+    `Ratio`, `TeamWorkloadRow`, `CarbonImmutable` (kho `database` giải tuần tự hoá; `false` sẽ trả
+    `__PHP_Incomplete_Class`).
+  - Khối "Cách tính các con số" của hai trang có thêm câu "Số liệu giữ tạm … tối đa 5 phút" (`performance.cache_note`)
+    khi bộ nhớ tạm bật. SPEC §7.5 có gạch đầu dòng mới về điều này.
+  - Cả bộ test TẮT bộ nhớ tạm (`tests/Pest.php`, hook toàn cục duy nhất của khối `Feature` — Pest giữ một
+    `beforeEach` cho mỗi khối, gọi lần hai là ghi đè đĩa giả), để các test "đọc, đổi, đọc lại" (R19, quét rò rỉ,
+    nghiệm thu) đo phép tính. `PerformanceCacheTest` (8 test) bật lại trên kho `database` thật: hai trưởng phòng cùng
+    vai trò, cùng tập người, cùng kỳ không dùng chung mục (vụ `restricted` của người này không hiện cho người kia, ở
+    cả hai trang); một mục cho mỗi kỳ và mỗi người được xem; thời điểm N11 (`CarbonImmutable`) đọc lại nguyên vẹn từ
+    kho; giữ 299 giây, tính lại ở 301; cấu hình 3.600 vẫn chỉ 300; đổi vai trò bỏ mục ngay; mất quyền đọc tiền bỏ tiền
+    đã giữ; câu chú thích chỉ có khi bật, tắt là đọc lại thấy ngay. RED (hai trang ở bản trước khi giữ
+    tạm, lớp `PerformanceCache` có sẵn): 3/8 đỏ — giữ 5 phút, đọc lại N11 từ kho, câu chú thích; năm test còn lại canh
+    hình dạng khoá, xanh khi chưa giữ tạm và đỏ dưới đột biến khoá. Mutation probe chạy lại ở lượt cuối của vòng sửa
+    (lượt trước bị ngắt ghi thêm bỏ kỳ, bỏ người được xem, bỏ câu ở mỗi trang, bỏ `Ratio` hoặc `CarbonImmutable` khỏi
+    `serializable_classes` — không chạy lại): bỏ id người xem khỏi khoá → "never lets two viewers share" đỏ (1 ≠ 0);
+    bỏ nhánh tắt → test câu chú thích đỏ (1 ≠ 2); bỏ trần 300 → "never keeps … longer" đỏ (3600 ≠ 300); bỏ tập người
+    khỏi bộ lọc → "drops the cached rows" đỏ; bỏ cột doanh thu khỏi bộ lọc → "drops the cached revenue" đỏ (0 không
+    phải null). Cả 5 đỏ đúng test.
+  - **Số đo sau khi giữ tạm** (MariaDB, dữ liệu R11, trung vị 5 lần; "lạnh" = kho tạm trống, tức lần mở đầu tiên của
+    người xem trong 5 phút; "ấm" = các lần sau trong TTL). Máy dùng chung với các làn khác lúc đo: mọi số chậm hơn
+    lần đo Task 8 khoảng 20–30% (`BuildPerformanceReport` quý của trưởng phòng 1.011 ms so với 771 ms, cùng mã), và
+    có nhiễu (dòng trợ lý dưới):
+
+    | Trang / phép đo | Lạnh | Ấm | Ngân sách |
+    |---|---|---|---|
+    | Hiệu suất theo kỳ, request đổi sang quý trước — admin / trưởng phòng / luật sư | 1.205 / 1.328 / 349 ms | **286 / 269 / 108 ms** | 500 ms |
+    | Hiệu suất theo kỳ, mở trang ở tháng trước — admin / trưởng phòng / luật sư | 777 / 809 / 231 ms | **253 / 283 / 91 ms** | — |
+    | Trang của một người — luật sư tự xem / TP xem luật sư / admin xem luật sư / TP xem trợ lý | 306 / 317 / 355 / 361 ms | **166 / 184 / 140** / 336 ms | 200 ms |
+    | Trang của một người + hai widget xu hướng — TP xem luật sư / luật sư tự xem | 367 / 351 ms | 225 / 244 ms | 200 ms |
+    | Theo dõi đội ngũ, trưởng phòng (không giữ tạm) | 201 ms | — | 300 ms |
+    | Tác vụ chụp / cột P8 | 54 ms / 15 ms | — | 10 giây / — |
+
+    Đọc bảng: **lần mở đầu tiên vẫn vỡ ngân sách** (quý của trưởng phòng khoảng 1,3 giây; trang một người khoảng 0,3
+    giây) — bộ nhớ tạm không làm lần đầu nhanh hơn, và lần ghi vào bảng `cache` thêm vài chục ms (một lần đo bắt được
+    câu `insert into cache` 90 ms). Các lần sau trong 5 phút (sắp xếp, bật công tắc, mở lại, quay lại từ trang một
+    người) trong ngân sách, trừ dòng "TP xem trợ lý" ấm 336 ms: phần không giữ tạm (danh sách, bảng vụ của trợ lý)
+    không đủ giải thích con số này (lạnh trừ phần giữ tạm còn khoảng 250 ms), nên coi là nhiễu của máy dùng chung;
+    chưa đo lại. Trang + hai widget ấm 225–244 ms: hai widget là request riêng (khoảng 38 ms mỗi cái), không giữ tạm
+    (ảnh chụp, đọc một dải index). **Việc của chủ văn phòng hoặc controller:** nhận lần mở lạnh vượt ngân sách (đã
+    ghi ở đây), hoặc đổi R11 (chuyển phân loại sang SQL). Giữ tạm KHÔNG thay cho quyết định đó.
+  - `EXPLAIN` từng truy vấn gộp (MariaDB, cùng lần đo; bảng chính và cách đọc; bảng nối theo khoá chính hay khoá
+    ngoại `eq_ref`/`ref` không ghi lại):
+    - "Theo dõi đội ngũ" và đầu trang một người (`BuildTeamWorkload`, 12 truy vấn): #0, #1, #3, #4 (đếm vụ theo
+      `lead_lawyer_id`) `matters` ALL 3.026 dòng, temporary + filesort; #2 (ghế đội ngũ) `matters` ALL 3.026 +
+      `matter_user` ref `matter_user_matter_id_user_id_unique`; #5 (mốc quá hạn) `deadlines` ALL 15.041; #6 (mốc 7
+      ngày) `deadlines` range `deadlines_due_date_is_completed_index` 925; #7, #8 (chờ giấy tờ của khách) `matters`
+      ALL 3.026 + `matter_checklist_items` ALL 30.030 (bán nối); #9 (giấy tờ chờ duyệt) `matters` index
+      `matters_lead_lawyer_id_index` + `matter_checklist_items` ref `…_matter_id_status_index`; #10 (yêu cầu chờ trả
+      lời) `client_requests` ALL 6.006; #11 (hoàn thiện danh mục, 22–26 ms, chậm nhất) `matters` index +
+      `matter_checklist_items` ref + `documents` ALL 19.492. N11 cho một người (35–49 ms): `activity_log` ref `causer`
+      9.998 dòng, cùng các nhánh `EXISTS` của luật sở hữu dòng (`matters` ALL 3.026 mỗi nhánh).
+    - Xu hướng 90 ngày: `performance_snapshots` range `performance_snapshots_user_id_captured_on_index` 180. P8 cả
+      trang: range `performance_snapshots_captured_on_user_id_confidentiality_unique` 62.
+    - "Hiệu suất theo kỳ", quý, trưởng phòng (15 truy vấn, SQL tổng khoảng 150 ms): #0 mốc của quý `deadlines` ALL
+      15.041 (22,8 ms); #1, #5, #9 vụ của tập `matters` ALL 3.026 (`IN` danh sách id); #2, #6, #7, #10 lịch sử người
+      giữ (`activity_log` ref `activity_log_event_created_at_index`, ref hoặc range `subject` 270–730); #3 P2
+      `deadlines` ALL 15.041; #4 yêu cầu của quý `client_requests` ALL 6.006; #8 P4 `stage_logs` ALL 44.943 (11,5
+      ms); #11 P6 `activity_log` range `activity_log_event_created_at_index` 10.778 (26,7 ms) cùng các nhánh sở hữu
+      dòng; #12 P7 `payments` ALL 8.934; #13 lĩnh vực chính `matters` ALL 3.026 (nối `matter_types` 5 dòng); #14 P8
+      range như trên.
+    - Không thêm index nào ở vòng này: mỗi truy vấn quét toàn bảng dưới 25 ms; thời gian của lần lạnh nằm ở PHP
+      (`Deadline::outcomeAt()` 286 ms trên 6.400 mốc, nạp mốc 158 ms, `RequestHolderAt` 139 ms, giờ làm việc 133 ms,
+      `DeadlineHolderAtDue` 105 ms).
+- **I5 — mục kế hoạch đánh dấu mà chưa đạt.** Ô "Độ phủ ≥ 80%" của Task 8 bỏ đánh dấu, kèm chú thích (độ phủ chưa
+  đo: làn không có Xdebug hay PCOV; CI hoặc người gộp đo). `EXPLAIN` từng truy vấn gộp: ở trên. MariaDB: rà soát cuối
+  đã chạy tuần tự ba tệp còn thiếu của Task 8 — `IntakeAcceptanceWalkTest`, `DatabaseSeederEnvironmentTest`,
+  `MatterTypeSeederTest` — **25 passed**.
+- **Kiểm chứng của vòng (mã cuối, sau gộp `main` trên Filament 5.8.4):** full suite SQLite `--parallel --processes=2`
+  **6273 passed / 0 failed / 1 risky (có sẵn) / 33 skipped** (3043 s). `test:mariadb` tuần tự `tests/Feature/Performance`
+  (31 tệp, gồm `PerformanceCacheTest`, `SpecM13ParityTest`) cùng `PushInstallGuideTest`, `InstallGuideM10UpgradeTest`:
+  **473 passed** (869 s). `pint --test` PASS (1173 tệp). Một lượt full suite trước đó chạy CHỒNG lên lượt này (lỗi vận
+  hành: `timeout` ngắt client, container vẫn chạy) và đỏ một test, `DemoDataSeederTest` "lets a seeded document actually
+  download" (404) — nhiều khả năng vì hai tiến trình cùng worktree, cùng mã tiến trình song song, dùng chung thư mục đĩa giả `private` và `Storage::fake()` của bên này xoá
+  tệp của bên kia. Chạy riêng tệp đó: 21 passed; lượt full suite đứng một mình ở trên xanh.

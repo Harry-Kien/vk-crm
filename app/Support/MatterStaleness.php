@@ -77,6 +77,27 @@ final class MatterStaleness
     }
 
     /**
+     * Vụ mà luật "quá hạn cập nhật" KHÔNG đo được (M13, số "chưa bật cổng: N" đi kèm cột N4): vụ
+     * {@see Matter::scopeOpen()} mà chưa bật cổng khách — đúng phần bù của điều kiện 2 trong
+     * {@see self::scopeStale()} trên tập "đang mở". Khách không có đường nào đọc một tiến độ khi cổng
+     * chưa bật, nên câu "đã quá 14 ngày chưa cập nhật cho khách" không có nghĩa với những vụ này; hiện
+     * chúng riêng để con số N4 không đọc thành "mọi vụ còn lại đều ổn".
+     *
+     * Không định nghĩa thứ hai: cùng `open()`, cùng cột công bố của `scopeStale()`, chỉ đảo giá trị.
+     * `SingleSourceParityTest` ghim: hai tập không giao nhau, và hợp của chúng cùng phần "đã bật cổng,
+     * chưa quá hạn" bằng đúng `open()`.
+     *
+     * @param  Builder<Matter>  $query
+     * @return Builder<Matter>
+     */
+    public static function scopeNotMeasurable(Builder $query): Builder
+    {
+        return $query
+            ->open()
+            ->where($query->qualifyColumn('is_published_to_portal'), false);
+    }
+
+    /**
      * Màu của cột "cập nhật gần nhất cho khách" cho MỘT bản ghi đã tải — cùng ba điều kiện của
      * {@see self::scopeStale()}, viết lại bằng thuộc tính thay vì bằng `where`, vì `MattersTable`
      * tô màu từng dòng đã có sẵn chứ không lọc lại một truy vấn.

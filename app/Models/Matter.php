@@ -15,6 +15,7 @@ use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\Billing\BillingSummary;
 use App\Support\CodeSequence;
 use App\Support\Scopes\ClientPortalScope;
+use Carbon\CarbonInterface;
 use Database\Factories\MatterFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -186,6 +187,124 @@ class Matter extends Model
     public function isClosed(): bool
     {
         return $this->closed_at !== null && ! $this->trashed();
+    }
+
+    /**
+     * Vụ đã kết thúc TRONG một khoảng ngày (M13, cột P5 "Vụ kết thúc trong kỳ"):
+     * {@see self::scopeClosed()} cộng `closed_at` nằm giữa 00:00:00 của `$from` và 23:59:59 của `$to`.
+     *
+     * **Cận đủ giờ, không ngày trần** — bài học `RevenueFilters::bounds()` (M9 Task 13). `closed_at`
+     * là cột `date`, nhưng cast `date` ghi theo định dạng ngày-giờ của kết nối: trên SQLite dòng do
+     * `TransitionMatterStage` ghi (`now()`) mang cả giờ (`2026-09-30 15:42:10`), lớn hơn cận trần
+     * `2026-09-30` khi so chuỗi, nên vụ kết thúc đúng ngày cuối kỳ rơi khỏi kỳ. MariaDB nâng cột
+     * `DATE` lên nửa đêm khi so với `DATETIME`, nên cùng hai cận đúng trên cả hai. Giờ trên `$from`/
+     * `$to` của người gọi bị bỏ: cận luôn là đầu và cuối NGÀY.
+     *
+     * Đi qua `closed()`, nên vụ đã huỷ không bao giờ "kết thúc trong kỳ", kể cả dưới `withTrashed()`.
+     * Ngoài tệp này (và `TransitionMatterStage`, nơi ghi cột), không chỗ nào trong `app/` được viết
+     * điều kiện trên `closed_at` — `MatterTest` ("uses closed_at as a condition nowhere…") canh, và từ
+     * M13 bắt cả `whereBetween`/`whereDate`/`whereColumn` lẫn so sánh `<`, `<=`, `>`, `>=`.
+     */
+    public function scopeClosedWithin(Builder $query, CarbonInterface $from, CarbonInterface $to): Builder
+    {
+        return $query
+            ->closed()
+            ->whereBetween($this->qualifyColumn('closed_at'), [
+                $from->copy()->startOfDay()->toDateTimeString(),
+                $to->copy()->endOfDay()->toDateTimeString(),
+            ]);
+    }
+
+    /**
+     * Vụ đã kết thúc vào hoặc trước NGÀY `$day`: {@see self::isClosed()} và `closed_at` không muộn
+     * hơn 23:59:59 của `$day` — kể cả vụ kết thúc ĐÚNG ngày đó. Dùng ở `Deadline::outcomeAt()` (ca 6
+     * của bảng ca biên P1): vụ đã kết thúc thì mốc đến hạn từ hôm đó trở đi hết hiệu lực.
+     *
+     * So với cuối ngày, không với ngày trần: cùng lý do với {@see self::scopeClosedWithin()}. Trong bộ
+     * nhớ cast `date` đọc `closed_at` về 00:00 của ngày đóng, nên phép so thực chất là so NGÀY.
+     */
+    public function closedOnOrBefore(CarbonInterface $day): bool
+    {
+        return $this->isClosed() && $this->closed_at->lte($day->copy()->endOfDay());
+    }
+
+    /**
+     * Mỗi chỗ ngồi "giữ việc phụ" của đội ngũ là một dòng (M13, cột N2 "Vụ đang tham gia"): nối
+     * `matter_user` (bí danh `supporting_seat`) với vai thuộc {@see MatterRole::supporting()} — luật sư
+     * cộng sự, trợ lý; không `lead` (đã quy qua `lead_lawyer_id`), không `observer` (không giữ việc).
+     * Chọn thêm `supporting_seat.user_id as member_id` (cộng `matters.*` nếu truy vấn chưa chọn cột
+     * nào), nên một vụ có hai người giữ việc phụ ra hai dòng, mỗi dòng mang `member_id` của một người.
+     *
+     * Đếm theo người: `->select('supporting_seat.user_id as member_id')->selectRaw('COUNT(*) …')
+     * ->groupBy('supporting_seat.user_id')` — đọc bí danh của scope này, không viết lại điều kiện vai.
+     * Bí danh bảng để câu không có hai `matter_user` (lần nối này và EXISTS của `listableBy()` ở nhánh
+     * người không có `matter.viewAny`). Cùng tập với quan hệ {@see self::team()} lọc theo vai, và
+     * hình dạng đếm ở trên chạy trên MariaDB strict — `SingleSourceParityTest`.
+     */
+    public function scopeWithSupportingMember(Builder $query): Builder
+    {
+        if ($query->getQuery()->columns === null) {
+            $query->select($this->qualifyColumn('*'));
+        }
+
+        return $query
+            ->join('matter_user as supporting_seat', 'supporting_seat.matter_id', '=', $this->qualifyColumn('id'))
+            ->whereIn('supporting_seat.role_in_matter', self::supportingRoleValues())
+            ->addSelect('supporting_seat.user_id as member_id');
+    }
+
+    /**
+     * Vụ `$subject` đang phụ trách — `lead_lawyer_id` HIỆN TẠI (M13, danh sách giấy tờ chờ duyệt trên
+     * trang của một người). Không phải "người phụ trách lúc …": câu đó là `LeadAt` (R18).
+     */
+    public function scopeLedBy(Builder $query, User $subject): Builder
+    {
+        return $query->where($this->qualifyColumn('lead_lawyer_id'), $subject->getKey());
+    }
+
+    /**
+     * Vụ `$subject` giữ một ghế "việc phụ" trong đội ngũ — vai thuộc {@see MatterRole::supporting()}
+     * (luật sư cộng sự, trợ lý); không `lead`, không `observer` (M13 Task 5: bộ lọc "Tham gia" của bảng
+     * vụ và bảng cơ cấu lĩnh vực của một trợ lý trên trang của một người). Đúng tập vụ mà
+     * {@see self::scopeWithSupportingMember()} cho một dòng mang `member_id` của người đó — cùng danh
+     * sách vai; `matter_user` có khoá duy nhất `(matter_id, user_id)`, nên mỗi vụ là đúng một ghế và
+     * phép đếm vụ ở đây bằng phép đếm ghế của N2 (`TeamMemberPageTest` ghim hai hình dạng). Chỉ thu
+     * hẹp: người gọi tự ghép `listableBy($viewer)` (R4).
+     */
+    public function scopeSupportedBy(Builder $query, User $subject): Builder
+    {
+        return $query->whereHas('team', fn (Builder $team): Builder => $team
+            ->whereKey($subject->getKey())
+            ->whereIn('matter_user.role_in_matter', self::supportingRoleValues()));
+    }
+
+    /**
+     * Vụ `$subject` đang làm (M13, bảng vụ trên trang của một người): {@see self::scopeLedBy()} HOẶC
+     * {@see self::scopeSupportedBy()}. Cùng hai vế với N1 + N2 — vai `observer` không tính. Chỉ thu
+     * hẹp: người gọi tự ghép `listableBy($viewer)` (R4).
+     */
+    public function scopeWorkedOnBy(Builder $query, User $subject): Builder
+    {
+        return $query->where(fn (Builder $matters): Builder => $matters
+            ->ledBy($subject)
+            ->orWhere(fn (Builder $seated): Builder => $seated->supportedBy($subject)));
+    }
+
+    /**
+     * Vụ ở một mức bảo mật (M13 Task 7: tác vụ chụp tách mỗi người thành dòng `normal` và
+     * `restricted`). **Không phải luật xem** — ai thấy vụ nào vẫn chỉ là {@see self::scopeListableBy()};
+     * scope này chỉ phân loại cho một tác vụ chạy không người đăng nhập, để tác vụ đó không tự viết
+     * điều kiện trên `confidentiality`.
+     */
+    public function scopeOfConfidentiality(Builder $query, Confidentiality $level): Builder
+    {
+        return $query->where($this->qualifyColumn('confidentiality'), $level->value);
+    }
+
+    /** @return list<string> */
+    private static function supportingRoleValues(): array
+    {
+        return array_map(static fn (MatterRole $role): string => $role->value, MatterRole::supporting());
     }
 
     /**
