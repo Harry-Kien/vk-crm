@@ -103,49 +103,74 @@ lưu vào đúng ngày máy chủ hỏng là vụ việc không lấy lại đư
 nó thay vì tự nói chuyện trực tiếp với Google (lý do kỹ thuật: xem
 `docs/research/2026-09-26-sao-luu.md`, mục "Task 2").
 
-`rclone` là MỘT tệp chạy duy nhất, không cần quyền quản trị để cài — cách dưới đây dùng được cả
-trên VPS lẫn trên shared hosting (nơi không có `sudo`). Nhờ người quản trị máy chủ, hoặc tự làm qua
-SSH bằng đúng tài khoản chạy ứng dụng, một lần:
+`rclone` là MỘT tệp chạy duy nhất. Nó phải chạy được bằng **đúng người dùng chạy ứng dụng** — người
+chạy lịch sao lưu hằng đêm và lệnh kiểm `vkcrm:backup-check` — và đọc được cấu hình của chính người
+đó. Trên VPS (cài theo `docs/CAI-DAT.md`, hai người dùng) người đó là `www-data`: nó không có phiên
+SSH, không đọc được thư mục nhà của người quản trị (`~/bin/rclone` của người quản trị báo
+`Permission denied`), và thư mục nhà của nó (`/var/www`) thuộc `root`. Vì vậy trên VPS tệp chạy nằm
+ở `/usr/local/bin/rclone` (ai cũng chạy được) và cấu hình nằm ở `/etc/vkcrm-rclone/rclone.conf`, thuộc
+`www-data`, được ghi tên trong `.env` (Bước 4). Trên **shared hosting** chỉ có một tài khoản: cách
+`~/bin` ở cuối bước này.
+
+**Tải và kiểm tính toàn vẹn** (bằng người quản trị, trong thư mục nhà của người đó — cần `curl` và
+`unzip`, có trong dòng `apt` của `docs/CAI-DAT.md` Bước 1). Tệp `SHA256SUMS` chính thức chỉ nằm trong
+thư mục của từng phiên bản, nên lấy số phiên bản trước:
 
 ```
 cd ~
-curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip
-curl -O https://downloads.rclone.org/SHA256SUMS
+V=$(curl -fsS https://downloads.rclone.org/version.txt | awk '{print $2}')
+echo "$V"
+curl -fsSLO "https://downloads.rclone.org/$V/rclone-$V-linux-amd64.zip"
+curl -fsSLO "https://downloads.rclone.org/$V/SHA256SUMS"
+sha256sum -c --ignore-missing SHA256SUMS
 ```
 
-Đối chiếu tệp vừa tải với bảng mã kiểm tra chính thức (dòng `rclone-v…-linux-amd64.zip` trong
-`SHA256SUMS` phải trùng với kết quả của lệnh dưới — khác là tệp tải về bị hỏng hoặc bị tráo, dừng
-lại):
+- `echo "$V"` in một số phiên bản dạng `v1.75.2`. Trống, hay một lệnh `curl` in `curl: (22) The
+  requested URL returned error: 404`: dừng lại (không có mạng ra ngoài, hay địa chỉ đã đổi) — `-f`
+  làm lỗi HTTP thành lỗi thật, thay vì lưu một trang lỗi HTML làm "bảng mã".
+- Dòng cuối phải in `rclone-v1.75.2-linux-amd64.zip: OK` (đúng số phiên bản vừa in). Có thể kèm một
+  cảnh báo `lines are improperly formatted` — đó là phần chữ ký đi kèm trong tệp, không phải lỗi.
+  `FAILED` hay `no properly formatted checksum lines found` thì tệp tải về bị hỏng hoặc bị tráo: dừng
+  lại, không cài.
+
+**Cài trên VPS** (bằng người quản trị):
 
 ```
-sha256sum rclone-current-linux-amd64.zip
+unzip "rclone-$V-linux-amd64.zip"
+sudo install -m 755 "rclone-$V-linux-amd64/rclone" /usr/local/bin/rclone
+sudo install -d -m 0750 -o www-data -g www-data /etc/vkcrm-rclone
+rm -r "rclone-$V-linux-amd64.zip" SHA256SUMS "rclone-$V-linux-amd64"
+sudo -u www-data /usr/local/bin/rclone version
 ```
 
-Rồi giải nén và đặt vào thư mục `bin` trong thư mục nhà của tài khoản đó:
+Dòng cuối phải in số phiên bản (ví dụ `rclone v1.75.2`), chạy bằng `www-data`. Thư mục
+`/etc/vkcrm-rclone` sẽ chứa cấu hình (Bước 3) — trong đó có token truy cập Google Drive, nên chỉ
+`www-data` đọc được. **Từ đây, trên VPS, mọi lệnh `rclone` của tài liệu này viết đủ là
+`sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf …`**: đúng người dùng, đúng tệp cấu
+hình mà lịch hằng đêm dùng. Gõ `rclone config` trần bằng người quản trị thì cấu hình rơi vào thư mục
+nhà của người quản trị, và `vkcrm:backup-check` báo LỖI `didn't find section in config file ("gdrive")`.
+
+**Shared hosting** (không có `sudo`; PHP chạy bằng chính tài khoản SSH): sau khối "Tải và kiểm" ở
+trên, đặt tệp chạy vào thư mục `bin` trong thư mục nhà của tài khoản đó:
 
 ```
-unzip rclone-current-linux-amd64.zip
+unzip "rclone-$V-linux-amd64.zip"
 mkdir -p ~/bin
-cp rclone-v*-linux-amd64/rclone ~/bin/rclone
+cp "rclone-$V-linux-amd64/rclone" ~/bin/rclone
 chmod 755 ~/bin/rclone
-rm -r rclone-current-linux-amd64.zip SHA256SUMS rclone-v*-linux-amd64
-```
-
-(Máy chủ dùng chip ARM thì thay `linux-amd64` bằng `linux-arm64`. **Không** dùng cách
-`curl … | sudo bash` hay thấy trên mạng: nó chạy một kịch bản tải về với quyền quản trị mà không
-cho ai xem trước, và không làm được trên shared hosting.)
-
-Kiểm tra đã cài xong (dùng đường dẫn đầy đủ — thư mục `~/bin` không nhất thiết nằm trong `PATH` của
-tiến trình chạy lịch hằng đêm):
-
-```
+rm -r "rclone-$V-linux-amd64.zip" SHA256SUMS "rclone-$V-linux-amd64"
 ~/bin/rclone version
 ```
 
-Lệnh trên phải in ra một số phiên bản (ví dụ `rclone v1.68.0`), không phải lỗi "No such file".
 Ghi lại đường dẫn đầy đủ của tệp (in bằng `echo ~/bin/rclone`, ví dụ `/home/vukhang/bin/rclone`) —
-Bước 4 điền nó vào `BACKUP_RCLONE_BINARY`. Ở các bước dưới, chỗ nào ghi `rclone …` thì gõ đường
-dẫn đầy đủ đó.
+Bước 4 điền nó vào `BACKUP_RCLONE_BINARY` (lịch chạy hằng đêm không đọc `PATH` của phiên SSH). Trên
+shared hosting, chỗ nào tài liệu này ghi `sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf …`
+thì gõ đường dẫn đầy đủ đó, không `sudo -u www-data` và không `--config` (cấu hình ở chỗ mặc định của
+chính tài khoản đó).
+
+(Máy chủ dùng chip ARM thì thay `linux-amd64` bằng `linux-arm64` ở mọi dòng. **Không** dùng cách
+`curl … | sudo bash` hay thấy trên mạng: nó chạy một kịch bản tải về với quyền quản trị mà không
+cho ai xem trước, và không làm được trên shared hosting.)
 
 ---
 
@@ -172,10 +197,11 @@ toàn bộ bản sao lưu biến mất theo.
 ## Bước 3 — Chạy `rclone config` để tạo remote tên "gdrive"
 
 "Remote" là cách `rclone` gọi một đích lưu trữ đã cấu hình xong (ở đây là tài khoản/Shared Drive
-Google Drive vừa tạo ở Bước 2). Việc này làm **một lần** trên máy chủ.
+Google Drive vừa tạo ở Bước 2). Việc này làm **một lần** trên máy chủ, bằng `www-data` và vào đúng tệp
+cấu hình của Bước 1 (shared hosting: `~/bin/rclone config`, xem cuối Bước 1):
 
 ```
-rclone config
+sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf config
 ```
 
 `rclone` sẽ hỏi từng câu — trả lời theo thứ tự:
@@ -225,14 +251,14 @@ rclone config
 ### Kiểm tra remote vừa tạo
 
 ```
-rclone lsd gdrive:
+sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf lsd gdrive:
 ```
 
 Lệnh này liệt kê các thư mục trong Google Drive (hoặc Shared Drive) vừa nối — không báo lỗi xác
 thực là đã đúng. Sau đó tạo trước thư mục sẽ chứa bản sao lưu (ví dụ):
 
 ```
-rclone mkdir gdrive:VK-CRM-backups
+sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf mkdir gdrive:VK-CRM-backups
 ```
 
 Không cần tạo thư mục con cho từng môi trường — hệ thống tự tạo `gdrive:VK-CRM-backups/<tên>`
@@ -242,17 +268,18 @@ Không cần tạo thư mục con cho từng môi trường — hệ thống t�
 
 ## Bước 4 — Điền `.env` trên máy chủ
 
-Mở tệp `.env` trên máy chủ (nhờ người quản trị máy chủ nếu chưa quen), điền các dòng sau (đã có
-sẵn trong `.env.example`, chỉ cần điền giá trị thật):
+Mở tệp `.env` trên máy chủ bằng `sudo -u www-data nano .env` (nhờ người quản trị máy chủ nếu chưa
+quen), điền các dòng sau (đã có sẵn trong `.env.example`, chỉ cần điền giá trị thật). Mẫu dưới là của
+VPS; shared hosting xem hai gạch `BACKUP_RCLONE_BINARY`, `BACKUP_RCLONE_CONFIG` bên dưới:
 
 ```
 BACKUP_DISKS=local_backups
 BACKUP_NAME="VK-CRM production"
-BACKUP_ARCHIVE_PASSWORD=<một-chuỗi-ngẫu-nhiên-dài-tự-tạo>
+BACKUP_ARCHIVE_PASSWORD='<một-chuỗi-ngẫu-nhiên-dài-tự-tạo>'
 BACKUP_NOTIFY_EMAIL=<email-nhận-báo-lỗi>
 BACKUP_RCLONE_REMOTE=gdrive:VK-CRM-backups
-BACKUP_RCLONE_BINARY=<đường-dẫn-đầy-đủ-ghi-lại-ở-Bước-1>
-BACKUP_RCLONE_CONFIG=
+BACKUP_RCLONE_BINARY=/usr/local/bin/rclone
+BACKUP_RCLONE_CONFIG=/etc/vkcrm-rclone/rclone.conf
 BACKUP_LOCAL_KEEP=7
 BACKUP_RCLONE_TIMEOUT=
 BACKUP_MAX_STORAGE_MB=
@@ -262,18 +289,25 @@ BACKUP_MAX_STORAGE_MB=
   (`"VK-CRM production"` → `gdrive:VK-CRM-backups/vk-crm-production`) và tiền tố tên từng bản sao
   lưu. Máy thử (staging) dùng chung Google Drive thì đặt tên khác (ví dụ `"VK-CRM staging"`). Để
   trống thì dùng `APP_NAME`.
-- `BACKUP_ARCHIVE_PASSWORD`: tự tạo một chuỗi dài, ngẫu nhiên (ví dụ bằng một trình quản lý mật
-  khẩu). **Đây là chìa khoá duy nhất mở được bản sao lưu** — xem Bước 6 về nơi cất nó.
+- `BACKUP_ARCHIVE_PASSWORD`: tự tạo một chuỗi dài, ngẫu nhiên — cách gọn nhất là
+  `openssl rand -hex 32` (64 ký tự chỉ gồm chữ số và a–f). **Đây là chìa khoá duy nhất mở được bản
+  sao lưu** — xem Bước 6 về nơi cất nó. **Viết trong ngoặc ĐƠN**, như mẫu trên: không ngoặc thì một
+  dấu `#` trong mật khẩu cắt im lặng mọi ký tự sau nó (`BACKUP_ARCHIVE_PASSWORD=ab#cd` được đọc là
+  `ab`), bản sao lưu được mã hoá bằng nửa đầu đó, và chuỗi đầy đủ đã cất ở Bước 6 không mở được nó
+  đúng lúc cần khôi phục; trong ngoặc kép thì `${…}` bị thay bằng giá trị khác. Mật khẩu do trình
+  quản lý mật khẩu sinh hay có `#`: dùng ngoặc đơn, và chọn chuỗi không chứa chính dấu `'`.
 - `BACKUP_RCLONE_REMOTE`: đúng tên remote đã tạo ở Bước 3 (`gdrive`), cộng dấu hai chấm, cộng tên
   thư mục đã tạo (`VK-CRM-backups`). Để TRỐNG dòng này thì tắt hẳn việc đẩy lên Google Drive — máy
   chủ tự giữ đủ 30 bản như khi chưa có Google Drive, và trên máy chủ thật mỗi đêm có email báo lỗi
   "không có bản sao ngoài máy chủ".
-- `BACKUP_RCLONE_BINARY`: đường dẫn đầy đủ tới tệp `rclone` đã cài ở Bước 1 (ví dụ
-  `/home/vukhang/bin/rclone`). Chỉ để trống khi `rclone` đã nằm trong `PATH` của hệ thống (ví dụ
-  người quản trị VPS tự cài vào `/usr/local/bin`) — lịch chạy hằng đêm không đọc `PATH` của phiên
-  SSH của anh/chị.
-- `BACKUP_RCLONE_CONFIG`: để trống trong tình huống thông thường (Bước 3 lưu cấu hình vào vị trí
-  mặc định của `rclone`). Chỉ điền nếu dùng một tệp `rclone.conf` khác vị trí mặc định.
+- `BACKUP_RCLONE_BINARY`: đường dẫn đầy đủ tới tệp `rclone` đã cài ở Bước 1 — trên VPS
+  `/usr/local/bin/rclone`; trên shared hosting đường dẫn đã ghi lại ở cuối Bước 1 (ví dụ
+  `/home/vukhang/bin/rclone`): lịch chạy hằng đêm không đọc `PATH` của phiên SSH của anh/chị.
+- `BACKUP_RCLONE_CONFIG`: tệp cấu hình mà Bước 3 đã ghi — trên VPS **bắt buộc**
+  `/etc/vkcrm-rclone/rclone.conf`. Để trống thì `rclone` tìm cấu hình trong thư mục nhà của người
+  đang chạy nó (với `www-data` là `/var/www/.rclone.conf`, không có), và `vkcrm:backup-check` báo LỖI
+  `didn't find section in config file ("gdrive")`. Trên shared hosting để trống: Bước 3 đã lưu cấu
+  hình vào chỗ mặc định của chính tài khoản chạy ứng dụng.
 - `BACKUP_LOCAL_KEEP`: số bản giữ trên máy chủ khi đã bật Google Drive. Để trống là 7.
 - `BACKUP_RCLONE_TIMEOUT`: hạn cho mỗi lệnh `rclone`, tính bằng giây. Để trống là 1800 (30 phút).
   Chỉ nới ra khi email báo lỗi nói lệnh `rclone` bị quá hạn (bản sao lưu rất lớn, mạng chậm).
@@ -285,23 +319,37 @@ BACKUP_MAX_STORAGE_MB=
 Google Drive đi qua đúng bước ghi vào đĩa `local_backups` trên máy chủ — nếu ai đó sau này sửa
 `BACKUP_DISKS` và lỡ bỏ mất `local_backups` (ví dụ gõ nhầm, hoặc dọn `.env` không cẩn thận), lượt
 đẩy lên Google Drive mỗi đêm **lặng lẽ không chạy nữa**, dù không có lỗi nào hiện ra ngay lúc đó.
-`php artisan vkcrm:backup-check` (Bước 5) bắt được ngay tình huống này; `backup:run` mỗi đêm cũng tự
+`vkcrm:backup-check` (Bước 5) bắt được ngay tình huống này; `backup:run` mỗi đêm cũng tự
 gửi thư báo lỗi khi phát hiện — nhưng cách chắc nhất vẫn là không đụng vào `BACKUP_DISKS` sau khi
 đã cấu hình xong, trừ khi THÊM một disk mới.
 
-Sau khi sửa `.env`, giá trị mới chỉ có hiệu lực khi cấu hình được nạp lại: trên máy chủ đã cache
-cấu hình (`php artisan optimize`, `docs/CAI-DAT.md` Bước 7), chạy lần lượt `php artisan
-optimize:clear`, `php artisan vkcrm:preflight`, `php artisan optimize`, rồi
-`sudo -u www-data chmod 600 bootstrap/cache/config.php` (bản sao `.env` trong cache phải kín như chính
-`.env`: lệnh cache tạo lại tệp đó với quyền `644`, ai trên máy cũng đọc được `APP_KEY` và mọi mật khẩu;
-`docs/CAI-DAT.md` Bước 7) — hỏi người quản trị máy chủ nếu chưa quen.
+Sau khi sửa `.env`, giá trị mới chỉ có hiệu lực khi cấu hình được nạp lại. Trên máy chủ đã cache
+cấu hình (`docs/CAI-DAT.md` Bước 7), chạy:
+
+```
+sudo -u www-data php artisan optimize:clear
+sudo -u www-data php artisan vkcrm:preflight
+sudo -u www-data php artisan optimize
+sudo -u www-data chmod 600 bootstrap/cache/config.php
+```
+
+Dòng cuối giữ bản sao `.env` trong cache kín như chính `.env`: lệnh cache tạo lại tệp đó với quyền
+`644`, ai trên máy cũng đọc được `APP_KEY` và mọi mật khẩu (`docs/CAI-DAT.md` Bước 7). Hỏi người quản
+trị máy chủ nếu chưa quen.
+
+**Mọi lệnh `php artisan` của tài liệu này chạy bằng `www-data`** (tiền tố `sudo -u www-data`, người
+chạy ứng dụng — `docs/CAI-DAT.md`, đầu phần "Cài lên máy chủ thật"). Gõ trần `php artisan …` bằng
+người quản trị thì lệnh chết ngay lúc khởi động, với
+`require(/var/www/vk-crm/bootstrap/cache/config.php): Failed to open stream: Permission denied` và
+`Class "config" does not exist`: đó là dấu hiệu đang chạy bằng sai người. **Shared hosting** (PHP chạy
+bằng chính tài khoản SSH, không có `sudo`): bỏ tiền tố `sudo -u www-data` ở mọi lệnh.
 
 ---
 
 ## Bước 5 — Chạy lệnh kiểm tra
 
 ```
-php artisan vkcrm:backup-check
+sudo -u www-data php artisan vkcrm:backup-check
 ```
 
 Lệnh này **không chờ tới đêm** — nó thử ngay lập tức: ghi một tệp nhỏ, đọc lại, xoá đi, trên MỖI
@@ -312,16 +360,30 @@ tiếng Việt, từng dòng một đích.
   hình đúng.
 - Có dòng chữ **"LỖI"** — đọc chi tiết lỗi ngay sau dấu gạch ngang, đối chiếu lại Bước 3/4. Lỗi
   thường gặp nhất: gõ sai tên remote ở `BACKUP_RCLONE_REMOTE` (thiếu dấu `:`, hoặc sai tên thư mục
-  so với lúc `rclone mkdir`).
+  so với lúc `rclone mkdir`), và trên VPS thiếu `BACKUP_RCLONE_CONFIG` (`didn't find section in config
+  file`, Bước 4).
 
 Chỉ kiểm một đích cụ thể (ví dụ chỉ Google Drive, không đụng tới đĩa máy chủ):
 
 ```
-php artisan vkcrm:backup-check rclone
+sudo -u www-data php artisan vkcrm:backup-check rclone
 ```
 
 **Chạy lại lệnh này sau MỖI lần đổi `.env` liên quan tới sao lưu**, và định kỳ (ví dụ đầu mỗi
 tháng) để chắc token Google chưa hết hạn.
+
+**Bản sao lưu đầu tiên — tạo bằng tay, ngay bây giờ.** Lượt tự động đầu tiên chạy lúc 02:00, mà lần
+khôi phục thử ("Khôi phục thử" bên dưới) phải có một bản để khôi phục. Sau khi `vkcrm:backup-check`
+xanh:
+
+```
+sudo -u www-data php artisan backup:run
+```
+
+Kết quả mong đợi: lệnh kết thúc bằng `Backup completed!`; không có email báo lỗi sao lưu nào tới; và
+`sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf lsf gdrive:VK-CRM-backups/vk-crm-production/`
+(thư mục theo `BACKUP_NAME`, Bước 4) in một tệp `.zip` mang giờ vừa chạy. Lần khôi phục thử dùng
+CHÍNH tệp đó.
 
 ---
 
@@ -354,6 +416,15 @@ nghĩa.** Mất `APP_KEY` là mất vĩnh viễn mọi số CCCD và mọi bí m
 - Ghi rõ ngày lấy giá trị, vì `APP_KEY` có thể đổi nếu ứng dụng từng chạy `php artisan key:generate`
   lại (không nên làm việc này sau khi đã có dữ liệu thật — nhưng nếu lỡ xảy ra, bản sao lưu cũ cần
   đúng `APP_KEY` CŨ, không phải key hiện tại).
+- **Lấy giá trị ra thế nào:** `.env` chỉ `www-data` đọc được (quyền 600), nên người quản trị in đúng
+  các dòng cần cất bằng `sudo -u www-data grep -E '^(APP_KEY|BACKUP_ARCHIVE_PASSWORD|VAPID_)' .env`,
+  và khoá riêng Passport (đoạn dưới) bằng `sudo -u www-data cat storage/oauth-private.key`. Chép
+  thẳng vào trình quản lý mật khẩu; không dán vào thư, Zalo hay tệp trên máy tính.
+- **Nên cất cả tệp `.env`** (đã mã hoá — ví dụ đính kèm vào mục của trình quản lý mật khẩu, nơi đã
+  mã hoá sẵn) cùng chỗ với `APP_KEY`, và cất lại sau mỗi lần sửa `.env`. Khôi phục thật cần đủ mọi dòng
+  của nó (mật khẩu cơ sở dữ liệu và hộp thư, `TRUSTED_PROXIES`, `HEARTBEAT_URL`, `BACKUP_*`, bốn thông
+  tin pháp lý…), không chỉ ba chìa khoá: thiếu tệp thì phải dựng lại từng dòng theo `docs/CAI-DAT.md`
+  Bước 3 đúng lúc gấp nhất.
 
 **Cùng chỗ đó, cặp khoá thông báo đẩy (M12): `VAPID_PRIVATE_KEY` và `VAPID_PUBLIC_KEY`** (hai dòng
 trong `.env`, sinh một lần ở `docs/CAI-DAT.md`, Bước 3), kèm `VAPID_SUBJECT`. Khoá riêng này cùng
@@ -401,11 +472,13 @@ tay).
 ### Quy trình cho máy chủ thật
 
 Khi cần khôi phục thật (máy chủ hỏng, cần dựng lại, hoặc diễn tập định kỳ — khuyến nghị ít nhất mỗi
-quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
+quý một lần, ghi kết quả vào `docs/PROGRESS.md`). Mọi lệnh `php artisan` dưới đây chạy bằng `www-data`
+(Bước 4, đoạn cuối); shared hosting bỏ tiền tố `sudo -u www-data`.
 
 1. **Lấy hai chìa khoá TRƯỚC TIÊN**, từ chỗ cất riêng (Bước 6 ở trên, KHÔNG phải từ máy chủ đã
    hỏng): `APP_KEY` và `BACKUP_ARCHIVE_PASSWORD` — đúng bản đi kèm THỜI ĐIỂM của bản sao lưu sẽ
-   dùng. Không có cả hai thì dừng lại ở đây; đọc tiếp không giải quyết được gì.
+   dùng. Không có cả hai thì dừng lại ở đây; đọc tiếp không giải quyết được gì. Có bản `.env` đã cất
+   (Bước 6) thì lấy luôn.
 2. **Lấy bản sao lưu** — tải tệp `.zip` mới nhất (hoặc bản ở đúng ngày cần khôi phục) từ Google
    Drive, hoặc từ đĩa `local_backups` trên máy chủ văn phòng nếu còn. Bản trên Google Drive nằm
    trong thư mục của môi trường (`gdrive:VK-CRM-backups/<tên theo BACKUP_NAME>`, xem Bước 4); tên
@@ -413,24 +486,34 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    dòng cuối. `rclone lsf` KHÔNG hứa in theo thứ tự nào, nên luôn nối thêm `| sort`. Trên máy khôi
    phục đã cài `rclone` và nối remote `gdrive` (Bước 1 và 3):
    ```
-   rclone lsf gdrive:VK-CRM-backups/vk-crm-production/ | sort
-   rclone lsf gdrive:VK-CRM-backups/vk-crm-production/ | sort | tail -1
-   rclone copy gdrive:VK-CRM-backups/vk-crm-production/vk-crm-production-2026-09-27-02-00-12.zip ./khoi-phuc/
+   sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf lsf gdrive:VK-CRM-backups/vk-crm-production/ | sort
+   sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf lsf gdrive:VK-CRM-backups/vk-crm-production/ | sort | tail -1
+   sudo -u www-data rclone --config /etc/vkcrm-rclone/rclone.conf copy gdrive:VK-CRM-backups/vk-crm-production/vk-crm-production-2026-09-27-02-00-12.zip /tmp/khoi-phuc/
    ```
    Lệnh thứ nhất liệt kê mọi bản, cũ trước mới sau; lệnh thứ hai chỉ in tên bản mới nhất. Lệnh thứ
-   ba tải đúng một tệp (thay tên tệp bằng tên thấy ở hai lệnh trên) vào thư mục
-   `./khoi-phuc/`. Không có `rclone` thì tải bằng trình duyệt từ giao diện Google Drive — cùng
-   một tệp.
-3. **Dựng một môi trường SẠCH** — máy chủ mới hoặc máy chủ đã cài lại từ đầu theo `README.md`/
-   `docs/CAI-DAT.md` (mã nguồn qua Git, `composer install`, extension PHP đầy đủ), với MỘT cơ sở
-   dữ liệu MariaDB RỖNG (không phải cơ sở dữ liệu cũ còn sót lại — một cơ sở dữ liệu cũ có thể che
-   giấu một lỗi nạp dump bằng dữ liệu vốn đã có sẵn).
+   ba tải đúng một tệp (thay tên tệp bằng tên thấy ở hai lệnh trên) vào thư mục `/tmp/khoi-phuc/`
+   (thuộc `www-data`; chép sang thư mục của người làm bằng `sudo cp` rồi `sudo chown "$USER":`). Không
+   có `rclone` thì tải bằng trình duyệt từ giao diện Google Drive — cùng một tệp. Một tệp tạo lúc
+   nâng cấp (`backup:run --only-db`, giờ trong ngày thay vì khoảng 02:00) chỉ có cơ sở dữ liệu,
+   không có thư mục `storage/`: tệp hồ sơ (bước 6) lấy từ bản đêm gần nhất trước nó.
+3. **Dựng một môi trường SẠCH** — máy chủ mới hoặc máy chủ đã cài lại từ đầu theo `docs/CAI-DAT.md`
+   **Bước 1–4** (máy, mã nguồn qua Git, `composer install`, `.env`, máy chủ web), với MỘT cơ sở dữ
+   liệu MariaDB RỖNG (không phải cơ sở dữ liệu cũ còn sót lại — một cơ sở dữ liệu cũ có thể che giấu
+   một lỗi nạp dump bằng dữ liệu vốn đã có sẵn). Ở Bước 3 đó: KHÔNG chạy `key:generate` (dán `APP_KEY`
+   cũ vào `.env` ngay — bước 7 dưới), KHÔNG `webpush:vapid`, và khi khôi phục thật KHÔNG
+   `passport:keys` (bước 7 nói làm gì với hai cặp khoá); `.env` chép từ bản đã cất nếu có. **BỎ Bước 5
+   và Bước 6** của tài liệu đó (`migrate`, `db:seed`, `vkcrm:create-admin`): chúng ghi vào cơ sở dữ
+   liệu đúng lúc nó phải còn rỗng để nhận bản dump. Bước 7–11 của tài liệu đó làm SAU, ở bước 12 dưới.
 4. **Giải nén** bằng `BACKUP_ARCHIVE_PASSWORD` lấy ở bước 1. Archive dùng mã hoá AES-256
    (`ZipArchive::EM_AES_256`) — chương trình `unzip` tiêu chuẩn trên nhiều bản Linux (và trên
-   Alpine) KHÔNG mở được kiểu mã hoá này và báo lỗi mập mờ kiểu "unsupported compression method";
-   dùng `7z x -p'<mật khẩu>' <tệp>.zip` (gói `p7zip`) hoặc một đoạn PHP ngắn qua `ZipArchive`
-   (`$zip->setPassword($pw); $zip->extractTo($thư_mục);`) — đây chính xác là cách
-   `tools/backup/restore-drill.sh` làm.
+   Alpine) KHÔNG mở được kiểu mã hoá này: nó in `skipping: … unsupported compression method 99` cho
+   từng tệp. Dùng một dòng PHP qua `ZipArchive` — đây chính xác là cách `tools/backup/restore-drill.sh`
+   làm — với tệp `.zip`, mật khẩu, và thư mục đích:
+   ```
+   php -r '$z=new ZipArchive; $z->open($argv[1]); $z->setPassword($argv[2]); var_dump($z->extractTo($argv[3]));' <tệp>.zip '<mật khẩu>' khoi-phuc
+   ```
+   Phải in `bool(true)`; `bool(false)` là sai mật khẩu. (Hoặc `7z x -p'<mật khẩu>' <tệp>.zip` của gói
+   `p7zip`.) Thư mục `khoi-phuc` chứa toàn bộ dữ liệu khách, không mã hoá: xoá nó ngay khi xong.
 5. **Nạp bản dump CSDL** — tệp nằm ở `db-dumps/<tên-driver>-<tên-csdl>.sql` sau khi giải nén.
    ⚠ Bản dump tạo bằng `mariadb-dump` (bản mới) mở đầu bằng dòng
    `/*M!999999\- enable the sandbox mode */`. Nạp bằng client **`mariadb`** (không phải `mysql` cũ
@@ -439,13 +522,13 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    mariadb -u<user> -p<mật khẩu CSDL> <tên-csdl> < duong-dan/db-dumps/ten-tep.sql
    ```
    Máy chủ đích PHẢI có sẵn gói mang lệnh `mariadb`/`mariadb-dump` (ví dụ `apt install
-   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8, kiểm tự
-   động bằng `php artisan vkcrm:preflight` (M8 Task 1, `App\Actions\Deployment\RunPreflight`; xem
-   `docs/CAI-DAT.md`, mục "Khi đưa lên máy chủ thật").
-6. **Chép tệp hồ sơ** — mọi mục trong archive có tiền tố `storage/app/private/` (đường TƯƠNG ĐỐI
-   tính từ gốc ứng dụng — xem đoạn giải thích `relative_path` ở docblock
-   `config/backup.php`) chép về ĐÚNG thư mục `storage/app/private/` của máy chủ mới, giữ nguyên
-   cấu trúc thư mục con.
+   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8, và
+   `vkcrm:preflight` báo ĐỎ khi thiếu (dòng `mariadb_dump`; `docs/CAI-DAT.md` Bước 1 và Bước 7).
+6. **Chép tệp hồ sơ** — mọi mục trong archive có tiền tố `storage/app/private/` (đường dẫn trong
+   archive tính từ thư mục gốc của ứng dụng, tức thư mục chứa tệp `artisan`) chép về ĐÚNG thư mục
+   `storage/app/private/` của máy chủ mới, giữ nguyên cấu trúc thư mục con; rồi trả chúng cho người
+   chạy ứng dụng bằng `sudo chown -R www-data:www-data storage` (tệp do người quản trị chép về mang
+   chủ là người đó, và ứng dụng không mở được tài liệu).
 7. **Đặt `APP_KEY`** trong `.env` của máy chủ mới bằng ĐÚNG giá trị lấy ở bước 1 — làm TRƯỚC khi
    cho ứng dụng chạy thật (trước khi ai đăng nhập hay đọc một hồ sơ nào). Ba dòng khoá thông báo
    đẩy (`VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`) thì tuỳ đây là khôi phục THẬT hay
@@ -453,7 +536,7 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    - **Khôi phục thật** (máy này thay máy chủ hỏng, cùng tên miền): đặt ba dòng bằng cặp khoá cất ở
      Bước 6 — còn khoá cũ thì điện thoại đã bật thông báo tiếp tục nhận. Không còn khoá cũ: KHÔNG
      chép khoá của máy khác, sinh cặp mới theo `docs/CAI-DAT.md`, Bước 3, rồi chạy
-     `php artisan vkcrm:push-reset` và báo mọi người bật lại thông báo.
+     `php artisan vkcrm:push-reset` (bằng `www-data`) và báo mọi người bật lại thông báo.
    - **Khôi phục thử / diễn tập định kỳ** (máy chủ tạm, máy thật vẫn chạy): để TRỐNG cả ba dòng
      `VAPID_*` — thông báo đẩy tắt, `vkcrm:preflight` báo VÀNG ở dòng khoá thông báo đẩy, đúng như
      mong đợi — và KHÔNG cài dòng cron `schedule:run` (`docs/CAI-DAT.md`, Bước 8). Bản sao mang đủ
@@ -464,13 +547,24 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
 
    Cặp khoá Passport (M11, kết nối AI) cũng theo hai trường hợp đó. **Khôi phục thật:** chép lại cặp
    khoá cất ở Bước 6 vào `storage/oauth-private.key` / `storage/oauth-public.key` (chủ là người dùng
-   của PHP-FPM, khoá riêng quyền 600); không còn thì chạy `php artisan passport:keys` bằng người dùng
-   đó (mọi người kết nối AI lại). **Khôi phục thử:** KHÔNG chép khoá thật, chạy
-   `php artisan passport:keys` sinh cặp riêng cho máy tạm — token cũ trong bản sao không còn hợp lệ,
-   đúng như mong đợi. Thiếu khoá thì `vkcrm:preflight` báo dòng khoá Passport ĐỎ và mọi kết nối AI hỏng.
-8. **`php artisan migrate:status`** — xác nhận không có migration nào "đang chờ" (mọi dòng đều có
-   `Ran`). Nếu có dòng chưa chạy, đó là dấu hiệu bản dump cũ hơn mã nguồn đang triển khai — dừng
-   lại, đối chiếu lại phiên bản mã nguồn với thời điểm bản sao lưu trước khi đi tiếp.
+   của PHP-FPM, khoá riêng quyền 600); không còn thì chạy `sudo -u www-data php artisan passport:keys`
+   (mọi người kết nối AI lại). **Khôi phục thử:** KHÔNG chép khoá thật, chạy
+   `sudo -u www-data php artisan passport:keys` sinh cặp riêng cho máy tạm — token cũ trong bản sao
+   không còn hợp lệ, đúng như mong đợi. Thiếu khoá thì `vkcrm:preflight` báo dòng khoá Passport ĐỎ và
+   mọi kết nối AI hỏng.
+8. **`sudo -u www-data php artisan migrate:status`** — mọi dòng `Ran` thì đi tiếp. Có dòng `Pending`
+   nghĩa là bản dump cũ hơn mã nguồn đang triển khai; có hai trường hợp:
+   - bản dump được tạo TRƯỚC một lần nâng cấp mà máy chủ đã chạy tốt sau đó (ví dụ khôi phục bản
+     02:00, mà chiều hôm trước đã nâng cấp xong và dùng bình thường): chạy
+     `sudo -u www-data php artisan migrate --force` — đúng việc chuỗi nâng cấp làm — rồi
+     `migrate:status` lại, mọi dòng phải là `Ran`;
+   - đang khôi phục VÌ một lần nâng cấp hỏng (migration của bản mới hỏng trên dữ liệu thật): KHÔNG
+     `migrate`. Đưa mã nguồn về commit đã chạy trước lần nâng cấp đó — dòng cuối của
+     `~/vk-crm-nang-cap.log` mà người quản trị ghi lúc nâng cấp — theo mục "Nâng cấp hỏng: quay lại bản trước"
+     của `docs/CAI-DAT.md` (máy chủ cũ còn chạy thì làm thẳng mục đó, không cần dựng máy mới), rồi
+     `migrate:status` lại.
+
+   Không chắc là trường hợp nào: dừng lại và hỏi người phụ trách kỹ thuật, đừng đoán.
 9. **Mở thử một hồ sơ khách hàng bất kỳ** và xác nhận đọc được `id_number` (không ném lỗi giải
    mã), rồi **mở thử một tài liệu** và xác nhận tệp mở được, đúng nội dung. Đây là bước "coi là
    xong" duy nhất được chấp nhận — `migrate:status` xanh không đủ, vì nó không chạm tới cột
@@ -481,10 +575,23 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
 11. **Ở chế độ kho tài liệu (M14)**: archive chỉ mang vùng đệm; tệp đã dọn khỏi máy chủ nằm trên
     Kho, và bản CSDL vừa nạp chỉ trỏ tới chúng qua chỉ mục `drive_objects`. Đặt đúng các biến
     `GOOGLE_DRIVE_*` và đặt khoá tài khoản dịch vụ như lúc cài (`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`,
-    Phụ lục A), `php artisan optimize`, `chmod 600 bootstrap/cache/config.php`, rồi chạy
-    `php artisan vkcrm:storage:verify --sample=20`: hai
+    Phụ lục A), `sudo -u www-data php artisan optimize`, `sudo -u www-data chmod 600 bootstrap/cache/config.php`, rồi chạy
+    `sudo -u www-data php artisan vkcrm:storage:verify --sample=20`: hai
     mươi media trên kho, chọn ngẫu nhiên, phải khớp md5 và cỡ. Kho cũng mất thì làm "Diễn tập mất
     kho" ở dưới với bản ở máy văn phòng. `tools/backup/restore-drill.sh` có cùng bước này (bước 12b).
+12. **Sau khi dữ liệu đã đúng (chỉ khôi phục thật)** — đưa máy mới thành máy chủ đang chạy, theo thứ
+    tự (khôi phục thử thì dừng ở bước 11: không cron, không mở cho người dùng):
+    - `.env` đủ mọi dòng (bản đã cất ở Bước 6, hoặc dựng lại theo `docs/CAI-DAT.md` Bước 3), tên miền
+      trỏ về máy mới, chứng chỉ và máy chủ web theo `docs/CAI-DAT.md` Bước 4;
+    - `rclone` và remote `gdrive` theo Bước 1 và 3 ở trên, `BACKUP_*` theo Bước 4;
+    - `sudo chown -R www-data:www-data storage bootstrap/cache` lần nữa nếu đã chép thêm gì;
+    - `sudo -u www-data php artisan vkcrm:preflight` phải xanh (như `docs/CAI-DAT.md` Bước 7), rồi
+      `sudo -u www-data php artisan optimize` và ngay sau nó `sudo -u www-data chmod 600 bootstrap/cache/config.php`;
+    - `sudo -u www-data php artisan vkcrm:backup-check` xanh;
+    - dòng cron của `docs/CAI-DAT.md` Bước 8 — từ đêm nay sao lưu chạy từ máy mới;
+    - `sudo -u www-data php artisan up` nếu máy đang ở chế độ bảo trì, rồi mở trang chủ `/admin`:
+      khối đỏ "Hệ thống nhắc việc…" phải biến mất trong vài phút sau khi cron chạy. Báo nhân sự, và
+      chạy một lần `sudo -u www-data php artisan backup:run` để có ngay một bản sao lưu của máy mới.
 
 ### Bảng số đo thật (lượt khôi phục thử ngày 2026-09-27, máy dev, `tools/backup/restore-drill.sh`)
 

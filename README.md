@@ -164,8 +164,8 @@ app/
 ├── Providers/Filament/     AdminPanelProvider, PortalPanelProvider
 ├── Support/Files/          FileGuard và seam VirusScanner (từ M4)
 └── Support/Scopes/         Global scope giới hạn dữ liệu theo khách (từ M2)
-app/Console/Commands/       vkcrm:preflight, vkcrm:create-admin, vkcrm:reset-2fa, vkcrm:backup-check,
-                            vkcrm:push-reset
+app/Console/Commands/       Lệnh vận hành vkcrm:* (preflight, create-admin, backup-check, storage:*…) —
+                            danh sách đủ, mỗi lệnh một câu: php artisan list vkcrm
 config/vkcrm.php            Cấu hình riêng của hệ thống (tên miền, tiền tố mã hồ sơ, ...)
 tools/deploy/               Mẫu nginx/Apache đã chạy thử + kịch bản kiểm máy chủ web (chặn storage/,
                             đưa /admin/sw.js và /portal/sw.js tới PHP)
@@ -195,17 +195,20 @@ Tóm tắt những điều không được bỏ qua:
   PHP chạy bằng chính tài khoản SSH) một tài khoản làm cả hai việc: bỏ `sudo` và `sudo -u www-data`
   khỏi mọi lệnh, bỏ các dòng `chown`, vẫn `chmod 600 .env` — `docs/CAI-DAT.md`, đoạn "Shared hosting"
   ở đầu phần production.
-- **Thứ tự cài:** `cp .env.example .env` → `composer install --no-dev --optimize-autoloader` →
-  giao `storage/`, `bootstrap/cache/` và `.env` cho `www-data` →
-  `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) và điền `.env`
-  (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`, `MAIL_SCHEME` là `smtps`
-  hoặc `smtp` — không bao giờ `tls`/`ssl`…) → cấu hình máy chủ web
-  từ mẫu đã chạy thử
+- **Thứ tự cài:** (mọi `php artisan` bằng `sudo -u www-data`) `cp .env.example .env` →
+  `composer install --no-dev --optimize-autoloader` → giao `storage/`, `bootstrap/cache/` và `.env`
+  cho `www-data` → `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) →
+  `php artisan passport:keys` → `php artisan config:clear` + `php artisan webpush:vapid` → điền `.env`
+  (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`, `HEARTBEAT_URL`, mật khẩu
+  trong ngoặc ĐƠN, `MAIL_SCHEME` là `smtps` hoặc `smtp` — không bao giờ `tls`/`ssl`…) → chứng chỉ
+  HTTPS (`certbot certonly --standalone`) → cấu hình máy chủ web từ mẫu đã chạy thử
   `tools/deploy/nginx.conf.example` hoặc `tools/deploy/apache-vhost.conf.example` (HTTPS, HSTS,
   header cho tệp tĩnh, chặn `storage/`) → `php artisan migrate --force` →
   `php artisan db:seed --force` (chỉ dữ liệu tham chiếu) → **`php artisan vkcrm:create-admin`**
   (quản trị viên đầu tiên, hỏi tương tác, mật khẩu nhập ẩn; 2FA bắt buộc ở lần đăng nhập đầu) →
-  **`php artisan vkcrm:preflight`** → `php artisan optimize` → `chmod 600 bootstrap/cache/config.php`.
+  **`php artisan vkcrm:preflight`** → `php artisan optimize` → `chmod 600 bootstrap/cache/config.php`
+  → dòng cron (dưới) → sao lưu, bản đầu tiên bằng tay (`php artisan backup:run`) và một lần khôi
+  phục thử.
 - **`php artisan vkcrm:preflight` phải xanh TRƯỚC khi mở cổng và sau MỖI lần nâng cấp**, và chạy
   TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp), rồi `chmod 600
   bootstrap/cache/config.php` ngay sau nó. Nó kiểm
@@ -213,7 +216,9 @@ Tóm tắt những điều không được bỏ qua:
   `storage/app/private` có lộ ra web không, và điều kiện máy chủ cho sao lưu. Một ngoại lệ duy
   nhất: dòng "bất biến tiền" (hợp đồng lệch tổng, dưới) vẫn ĐỎ và mã thoát vẫn 1, nhưng KHÔNG chặn
   `php artisan up` — nó là dữ liệu, chỉ sửa được trong app bằng phụ lục; mọi dòng ĐỎ khác chặn.
-- **Đúng một dòng cron**, cộng giám sát cron qua `HEARTBEAT_URL`:
+- **Đúng một dòng cron**, trong crontab của người dùng PHP-FPM (`sudo crontab -u www-data -e` trên
+  VPS; mục "Cron Jobs" trên shared hosting, với đường dẫn tuyệt đối của PHP — `docs/CAI-DAT.md`
+  Bước 8), cộng giám sát cron qua `HEARTBEAT_URL`:
   `* * * * * cd /var/www/vk-crm && php artisan schedule:run >> /dev/null 2>&1`
 - **`APP_KEY` là một nửa của bản sao lưu**: nó mã hoá số định danh khách hàng và secret 2FA của
   nhân sự, và là khoá của cột so trùng CCCD. Cất nó (cùng `BACKUP_ARCHIVE_PASSWORD`) ở hai nơi
@@ -247,7 +252,9 @@ Tóm tắt những điều không được bỏ qua:
   `vkcrm:storage:migrate`. Năm mục lịch mới (`queue.storage`, `storage.push-pending`,
   `storage.purge-staged`, `storage.health`, `storage.office-receipts`) chạy trong chính dòng cron.
   Chi tiết: `docs/CAI-DAT.md` ("Bản cập nhật M14") và `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
-- **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader
+- **Nâng cấp:** `php artisan down` → `php artisan backup:run --only-db` (phải in `Backup
+  completed!`, không thì `up` và dừng) → ghi commit đang chạy (`git rev-parse HEAD`) vào
+  `~/vk-crm-nang-cap.log` → `git pull` → `composer install --no-dev --optimize-autoloader
   --no-scripts` → xoá `bootstrap/cache/config.php`, `packages.php` và `services.php` → `php artisan
   package:discover` → `php artisan filament:assets` (bằng người quản trị) →
   `chown -R www-data:www-data storage bootstrap/cache` → `php artisan optimize:clear` (TRƯỚC
@@ -255,7 +262,8 @@ Tóm tắt những điều không được bỏ qua:
   `php artisan migrate --force` → `php artisan db:seed --force` →
   `php artisan billing:check-invariants` → `php artisan vkcrm:preflight` → `php artisan optimize` →
   `chmod 600 bootstrap/cache/config.php` → `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu. Chuỗi đủ người chạy từng
-  dòng, để chép nguyên khối: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
+  dòng, để chép nguyên khối: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới"; hỏng giữa chừng thì quay về
+  commit và bản sao lưu vừa ghi theo mục "Nâng cấp hỏng: quay lại bản trước" của cùng tài liệu.
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
     (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) và
