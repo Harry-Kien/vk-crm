@@ -76,6 +76,27 @@ return [
         'success' => 'Đã khôi phục hồ sơ.',
     ],
 
+    // A5 — hạn khách tra cứu hồ sơ đã kết thúc (khối "Lưu trữ hồ sơ", nút gia hạn, hộp công bố).
+    'access' => [
+        'until_label' => 'Khách tra cứu được tới hết ngày',
+        'expired_hint' => 'Đã hết hạn tra cứu: khách không còn thấy vụ này trên cổng và không nhận thư về vụ. Gia hạn bằng nút "Gia hạn tra cứu cho khách".',
+        'action' => 'Gia hạn tra cứu cho khách',
+        'modal_heading' => 'Gia hạn tra cứu cho khách',
+        'modal_description' => 'Hạn hiện tại: hết ngày :date. Khách thấy lại vụ trên cổng (nếu vụ đang bật công bố) tới hết ngày mới. Nếu tài khoản cổng của khách đã bị hệ thống tự tắt vì không còn vụ nào, hãy bật lại ở mục Tài khoản cổng. Lý do được ghi vào nhật ký.',
+        'submit' => 'Gia hạn',
+        'until' => 'Gia hạn tới hết ngày',
+        'reason' => 'Lý do gia hạn',
+        'success' => 'Đã gia hạn tra cứu cho khách.',
+        'not_extendable' => 'Chỉ gia hạn được vụ việc đã kết thúc, có hồ sơ lưu trữ và chưa ghi quyết định tiêu huỷ.',
+        'until_invalid' => 'Ngày gia hạn không hợp lệ.',
+        'until_too_early' => 'Ngày gia hạn phải sau ngày :date.',
+        'until_too_late' => 'Mỗi lần chỉ gia hạn tối đa :days ngày kể từ hôm nay.',
+        'reason_required' => 'Hãy nhập lý do gia hạn.',
+        'reason_max' => 'Lý do gia hạn dài tối đa :max ký tự.',
+        'publish_warning' => 'Vụ việc đã hết hạn tra cứu từ sau ngày :date: khách sẽ không thấy tài liệu này và không nhận thư. Gia hạn tra cứu ở trang vụ trước khi công bố.',
+        'published_not_visible' => 'Đã công bố, nhưng khách chưa thấy tài liệu vì vụ đã hết hạn tra cứu. Gia hạn tra cứu ở trang vụ để khách xem được.',
+    ],
+
     // Tab "Mốc thời hạn" và hai Action AddMatterDeadline/UpdateDeadline trên vụ đã kết thúc.
     'deadlines' => [
         'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm hay sửa mốc được nữa; muốn đặt mốc mới, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',

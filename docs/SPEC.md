@@ -812,6 +812,14 @@ Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu c
   từ `closed_at`. Vụ được mở lại thì chỉ `client_access_until` về NULL; phần còn lại của dòng giữ
   nguyên. Dòng không bao giờ bị xoá. Vụ bị huỷ vì mở nhầm (`CancelMatter`) không bao giờ có dòng
   này.
+- *Đính chính 2026-10-09 (làn fm A4, A5).* Bất biến trên giờ do `CancelMatter` giữ: nó từ chối vụ
+  đang kết thúc hoặc đã có dòng lưu trữ (huỷ vụ đó sẽ đưa hồ sơ ra khỏi hạn lưu và tiêu huỷ). Hồ sơ
+  đã huỷ được quản trị viên xem (bộ lọc "Hồ sơ đã huỷ") và khôi phục (`RestoreMatter`, lý do bắt
+  buộc, `matter_restored`). Ngoại lệ DUY NHẤT của "không form nào sửa các cột ngày":
+  `ExtendClientAccess` — luật sư phụ trách hoặc quản trị viên gia hạn `client_access_until` của vụ
+  đã kết thúc, chưa tiêu huỷ, tới một ngày sau hôm nay và sau hạn hiện có, tối đa 365 ngày kể từ hôm
+  nay, lý do bắt buộc, ghi `client_access_extended`. Lần đồng bộ lại khi vụ vẫn đóng giữ ngày muộn
+  hơn giữa ngày tính lại và ngày đã gia hạn; mở lại vụ vẫn đưa cột về NULL.
 - *`client_access_until`* là ngày CUỐI khách còn tra cứu được (hết ngày đó, theo giờ ứng dụng);
   xem đính chính M7 Task 5 ở §6.12.
 - *Bốn cột tiêu huỷ* (`destroyed_at`, `destroyed_by`, `destruction_reason`,

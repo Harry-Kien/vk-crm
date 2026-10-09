@@ -159,6 +159,20 @@ class MatterInfolist
                     ->visible(fn (Matter $record): bool => $record->archive !== null
                         && Gate::allows('view', $record->archive))
                     ->schema([
+                        // Làn fm A5: ngày cuối khách còn tra cứu được vụ trên cổng (hết ngày đó), và
+                        // câu nhắc khi đã quá — để nhân sự trả lời được khách gọi hỏi. Gia hạn bằng nút
+                        // "Gia hạn tra cứu cho khách" trên thanh tiêu đề (`ViewMatter`).
+                        TextEntry::make('archive.client_access_until')
+                            ->label(__('lifecycle.access.until_label'))
+                            ->date('d/m/Y')
+                            ->placeholder('—'),
+                        TextEntry::make('archive.client_access_expired_hint')
+                            ->label('')
+                            ->state(fn (): string => __('lifecycle.access.expired_hint'))
+                            ->color('warning')
+                            ->visible(fn (Matter $record): bool => $record->archive instanceof MatterArchive
+                                && $record->archive->isClientAccessExpired())
+                            ->columnSpanFull(),
                         TextEntry::make('archive.retention_until')
                             ->label(__('archive.section.fields.retention_until'))
                             ->date('d/m/Y')

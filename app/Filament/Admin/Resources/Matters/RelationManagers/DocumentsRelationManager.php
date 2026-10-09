@@ -17,6 +17,7 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
@@ -27,6 +28,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -621,6 +623,20 @@ class DocumentsRelationManager extends RelationManager
      * release (khi đó cả ba đều `false`, KHÔNG phải bộ mặc định tiện lợi `true`/`true` mà hai
      * `Toggle` hiển thị). `PublishDocument` so sánh LUÔN chạy, xem docblock lớp đó.
      */
+    /**
+     * Làn fm A5: ngày (d/m/Y) khách hết quyền tra cứu vụ của tab này, nếu vụ đã kết thúc và ĐÃ quá hạn
+     * đó (`MatterArchive::isClientAccessExpired()`); còn hạn hoặc vụ đang mở thì `null`.
+     */
+    private function clientAccessExpiredOn(): ?string
+    {
+        $matter = $this->getOwnerRecord();
+        $archive = $matter->isClosed() ? $matter->archive : null;
+
+        return $archive instanceof MatterArchive && $archive->isClientAccessExpired()
+            ? $archive->client_access_until->format('d/m/Y')
+            : null;
+    }
+
     private function publishAction(): Action
     {
         return Action::make('publish')
@@ -655,8 +671,20 @@ class DocumentsRelationManager extends RelationManager
                 Hidden::make('mounted_client_can_view'),
                 Hidden::make('mounted_client_can_download'),
                 Hidden::make('mounted_is_released'),
+                // Làn fm A5: vụ đã kết thúc và quá hạn tra cứu — khách không thấy tài liệu và không
+                // nhận thư (`MatterPolicy::view` nhánh khách, `NotifyClientOfDocumentPublished`). Nói
+                // trước khi bấm, như câu cảnh báo cùng điều kiện trên form tiến độ.
+                Text::make(fn (): string => __('lifecycle.access.publish_warning', [
+                    'date' => $this->clientAccessExpiredOn() ?? '',
+                ]))
+                    ->icon(Heroicon::OutlinedExclamationTriangle)
+                    ->color('warning')
+                    ->visible(fn (): bool => $this->clientAccessExpiredOn() !== null),
             ])
-            ->successNotificationTitle(__('documents.tab.actions.publish_success'))
+            // Làn fm A5: không báo "đã công bố cho khách" khi khách sẽ không thấy gì.
+            ->successNotificationTitle(fn (): string => $this->clientAccessExpiredOn() !== null
+                ? __('lifecycle.access.published_not_visible')
+                : __('documents.tab.actions.publish_success'))
             ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(PublishDocument::class)->handle(

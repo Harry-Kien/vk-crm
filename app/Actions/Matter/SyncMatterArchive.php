@@ -129,6 +129,16 @@ class SyncMatterArchive
             $archive->restore();
         }
 
+        // Làn fm A5: hạn tra cứu đã được gia hạn tay (`ExtendClientAccess`) và còn muộn hơn hạn vừa
+        // tính lại thì giữ — một lần đồng bộ lại (chuyển giữa hai giai đoạn kết thúc) không được rút
+        // ngắn quyền khách đã được cho. Vụ mở lại thì `syncReopened()` đã đưa cột về NULL, nên lần
+        // đóng sau tính lại từ đầu như trước.
+        $existing = $archive->client_access_until?->toDateString();
+
+        if ($existing !== null && $existing > $attributes['client_access_until']) {
+            $attributes['client_access_until'] = $existing;
+        }
+
         $archive->update($attributes);
 
         return $archive;

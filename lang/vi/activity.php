@@ -247,6 +247,8 @@ return [
         'stage_log_retracted' => 'Rút dòng tiến độ khỏi cổng khách',
         // A4: app/Actions/Matter/RestoreMatter.php — chủ thể là vụ việc, `properties.reason`.
         'matter_restored' => 'Khôi phục hồ sơ đã huỷ',
+        // A5: app/Actions/Matter/ExtendClientAccess.php — chủ thể là vụ việc, `from`/`to`/`reason`.
+        'client_access_extended' => 'Gia hạn tra cứu cho khách',
         // --- hết khối làn fm ---
     ],
 

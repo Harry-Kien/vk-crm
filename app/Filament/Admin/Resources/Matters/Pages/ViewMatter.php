@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
+use App\Actions\Matter\ExtendClientAccess;
 use App\Actions\Matter\ReassignMatter;
 use App\Actions\Matter\RecordMatterDestruction;
 use App\Actions\Matter\RequestHandoverPackage;
@@ -20,6 +21,7 @@ use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -81,6 +83,7 @@ class ViewMatter extends ViewRecord
             $this->reassignAction(),
             $this->generateHandoverAction(),
             $this->recordDestructionAction(),
+            $this->extendClientAccessAction(),
             $this->outboundMessagesAction(),
             // Lối vào "Sửa vụ việc" (M6.5 Task 5, EditMatter). Cổng mặc định của EditAction là
             // ability `update` trên model — đúng MatterPolicy::update() đã có, không cần khai báo
@@ -286,6 +289,58 @@ class ViewMatter extends ViewRecord
 
                 Notification::make()
                     ->title(__('archive.destruction.action.success'))
+                    ->success()
+                    ->send();
+            });
+    }
+
+    /**
+     * Làn fm A5 — "Gia hạn tra cứu cho khách" ({@see ExtendClientAccess}): chỉ trên vụ đã kết thúc, có
+     * dòng lưu trữ, chưa tiêu huỷ, cho người qua `MatterPolicy::extendClientAccess` (luật sư phụ trách
+     * hoặc quản trị viên). `minDate()`/`maxDate()` chỉ là tiện lợi; Action kiểm tra lại ngày và lý do.
+     */
+    private function extendClientAccessAction(): Action
+    {
+        return Action::make('extendClientAccess')
+            ->label(__('lifecycle.access.action'))
+            ->icon(Heroicon::OutlinedCalendarDays)
+            ->color('gray')
+            ->modalHeading(__('lifecycle.access.modal_heading'))
+            ->modalDescription(fn (): string => __('lifecycle.access.modal_description', [
+                'date' => $this->handoverArchive()?->client_access_until?->format('d/m/Y') ?? '—',
+            ]))
+            ->modalSubmitActionLabel(__('lifecycle.access.submit'))
+            ->visible(fn (): bool => $this->getRecord()->isClosed()
+                && ($archive = $this->handoverArchive()) !== null
+                && $archive->destroyed_at === null
+                && Gate::allows('extendClientAccess', $this->getRecord()))
+            ->schema([
+                DatePicker::make('until')
+                    ->label(__('lifecycle.access.until'))
+                    ->native(false)
+                    ->displayFormat('d/m/Y')
+                    ->minDate(today()->addDay())
+                    ->maxDate(today()->addDays(ExtendClientAccess::MAX_DAYS))
+                    ->required(),
+                Textarea::make('reason')
+                    ->label(__('lifecycle.access.reason'))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(ExtendClientAccess::REASON_MAX),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $this->runAction($action, fn () => app(ExtendClientAccess::class)->handle(
+                    matter: $this->getRecord(),
+                    actor: Auth::user(),
+                    until: (string) ($data['until'] ?? ''),
+                    reason: (string) ($data['reason'] ?? ''),
+                ));
+
+                // Đọc lại bản ghi lưu trữ để khối "Lưu trữ hồ sơ" hiện ngay hạn mới.
+                $this->getRecord()->unsetRelation('archive');
+
+                Notification::make()
+                    ->title(__('lifecycle.access.success'))
                     ->success()
                     ->send();
             });

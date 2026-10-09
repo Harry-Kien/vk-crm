@@ -334,6 +334,19 @@ class MatterPolicy
     }
 
     /**
+     * Làn fm A5: gia hạn khách tra cứu một vụ đã kết thúc (`ExtendClientAccess`) — luật sư phụ trách
+     * của chính vụ hoặc quản trị viên, và phải xem được vụ. Trạng thái vụ (đã kết thúc, có dòng lưu
+     * trữ, chưa tiêu huỷ) do Action hỏi dưới khoá, không ở đây.
+     */
+    public function extendClientAccess(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && ! $matter->trashed()
+            && $this->view($user, $matter)
+            && ((int) $matter->lead_lawyer_id === (int) $user->getKey() || $user->hasRole(Role::Admin->value));
+    }
+
+    /**
      * M7 Task 6 (R5): GHI quyết định tiêu huỷ hồ sơ ({@see RecordMatterDestruction})
      * — chỉ quản trị, cùng luật {@see self::delete()}. Không có quyền thứ 14 trong
      * `App\Enums\Permission` (SPEC §5 có đúng 13): vai trò admin là đủ, như xoá mềm vụ việc.
