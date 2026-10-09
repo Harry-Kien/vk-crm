@@ -178,7 +178,8 @@ Nghi ngờ số test thì so các lớp trong `bin/dev test --list-tests` với
 
 Mọi phần ở trên là cho máy DEV (Docker, dữ liệu mẫu). Phần này là máy chủ THẬT: một VPS Linux
 (Ubuntu/Debian) hoặc một gói shared hosting có SSH. Làm **đúng thứ tự** — vài bước dựa vào bước
-trước (ví dụ `vkcrm:preflight` phải chạy TRƯỚC `php artisan optimize`). Các bước dưới đây đã được
+trước (ví dụ `vkcrm:preflight` phải chạy TRƯỚC `php artisan optimize`, và `chmod 600
+bootstrap/cache/config.php` ngay SAU nó). Các bước dưới đây đã được
 đi thử theo đúng chữ hai lần: ngày 2026-10-01 trên một bản clone mới trong container sạch (M8 Task
 7), và ngày 2026-10-08 trên một máy Ubuntu 24.04 trống trong container (nginx 1.24, PHP-FPM 8.3 của
 Ubuntu, hai người dùng như dưới đây) từ Bước 1 tới "Nâng cấp lên bản mới" — đầu ra ở
@@ -204,9 +205,9 @@ Một người làm cả hai việc trên, nên ở mọi khối lệnh của t�
 thuộc về bạn), bỏ dòng `crontab` (Bước 8 dùng mục "Cron Jobs" của bảng điều khiển); những dòng quản
 trị máy (`sudo apt …`, `sudo nginx -t`, `sudo systemctl …` ở Bước 1 và 4) là việc của nhà cung cấp —
 nhờ họ, hoặc làm qua bảng điều khiển. GIỮ `chmod 600 .env` — viết không `sudo`: `.env` chứa `APP_KEY`
-và mọi mật khẩu, người dùng khác trên cùng máy không được đọc — và GIỮ cả dòng `chmod 600
-bootstrap/cache/config.php` sau MỖI `php artisan optimize` (Bước 7): `optimize` chép đúng những giá trị
-đó ra tệp này, mặc định ai trên máy cũng đọc được. Gói nào chạy PHP bằng một người dùng KHÁC tài khoản
+và mọi mật khẩu, người dùng khác trên cùng máy không được đọc — và GIỮ cả dòng ngay sau MỖI
+`php artisan optimize` (Bước 7), `chmod 600 bootstrap/cache/config.php`: lệnh cache chép đúng những giá
+trị đó ra tệp này, mặc định ai trên máy cũng đọc được. Gói nào chạy PHP bằng một người dùng KHÁC tài khoản
 SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi nhà cung cấp, đừng `chmod 777`.
 
 ### Bước 0 — Hỏi chủ văn phòng trước khi bắt đầu
@@ -394,8 +395,8 @@ composer install --no-dev --optimize-autoloader
 Thư mục `storage/` và `bootstrap/cache/` phải GHI ĐƯỢC bởi người dùng chạy PHP-FPM; phần còn lại
 của mã nguồn thì không cần. `.env` thuộc về `www-data` và chỉ `www-data` đọc được (nó chứa `APP_KEY`
 và mọi mật khẩu). Bản sao của chính các giá trị đó mà `php artisan optimize` ghi ra
-`bootstrap/cache/config.php` (Bước 7) được tạo với quyền `644` — ai trên máy cũng đọc được — nên Bước 7
-và chuỗi nâng cấp có thêm dòng `chmod 600` cho nó ngay sau `optimize`:
+`bootstrap/cache/config.php` (Bước 7) được tạo với quyền `644` — ai trên máy cũng đọc được — nên ngay sau
+`optimize`, Bước 7 và chuỗi nâng cấp có thêm dòng `sudo -u www-data chmod 600 bootstrap/cache/config.php`:
 
 ```bash
 sudo chown -R www-data:www-data storage bootstrap/cache
@@ -541,7 +542,7 @@ php artisan webpush:vapid
 ```
 
 - `config:clear` phải đứng TRƯỚC: lệnh sinh khoá dò dòng cũ trong `.env` theo khoá đang có trong
-  CẤU HÌNH. Cấu hình đã cache (sau lệnh `optimize` của Bước 7) mà không khớp `.env` — ví dụ cache
+  CẤU HÌNH. Cấu hình đã cache (sau lệnh `optimize` và dòng `chmod 600 bootstrap/cache/config.php` của Bước 7) mà không khớp `.env` — ví dụ cache
   lúc khoá còn trống, rồi `.env` có khoá — thì lệnh ghi đè hỏng dòng: `VAPID_PUBLIC_KEY=cu` thành
   `VAPID_PUBLIC_KEY=moicu`.
 - Chỉ chạy khi hai dòng `VAPID_PUBLIC_KEY=` và `VAPID_PRIVATE_KEY=` trong `.env` **còn trống** (đúng
@@ -570,7 +571,7 @@ các biến `GOOGLE_DRIVE_*` để trống. Hành vi y như trước M14: tệp 
 
 | Biến | Ý nghĩa |
 |---|---|
-| `DOCUMENT_STORAGE` | `local` (mặc định) hoặc `google_drive`. `google_drive` chỉ CHO PHÉP đẩy tệp; phải chạy thêm `php artisan vkcrm:storage:enable` (sau `optimize`) mới BẬT. Gõ sai: tệp ở lại máy chủ và dòng `document_storage_driver` ĐỎ |
+| `DOCUMENT_STORAGE` | `local` (mặc định) hoặc `google_drive`. `google_drive` chỉ CHO PHÉP đẩy tệp; phải chạy thêm `php artisan vkcrm:storage:enable` (sau `optimize` và `chmod 600 bootstrap/cache/config.php`) mới BẬT. Gõ sai: tệp ở lại máy chủ và dòng `document_storage_driver` ĐỎ |
 | `GOOGLE_DRIVE_CREDENTIALS_PATH` | Đường dẫn TUYỆT ĐỐI tới tệp khoá JSON của tài khoản dịch vụ (dưới). Không bao giờ dán nội dung khoá vào `.env` |
 | `GOOGLE_DRIVE_SHARED_DRIVE_ID` | Mã Shared Drive "Kho" (phần cuối URL `drive.google.com/drive/folders/<MÃ>`) |
 | `GOOGLE_DRIVE_ROOT_FOLDER_ID` | Mã thư mục gốc của môi trường trong Shared Drive, do `php artisan vkcrm:storage:init` tạo và in ra |
@@ -759,7 +760,8 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
     cước, câu chuyện, các bên đối lập bị xoá khỏi hệ thống; mã, nguồn, trạng thái và các mốc thời gian
     ở lại để thống kê. Chỉ các bản sao lưu cũ còn giữ dữ liệu đó, cho tới khi chúng bị dọn.
 - Hai biến `.env` tuỳ chọn — không đặt thì dùng mặc định, nên bản nâng cấp không bắt buộc sửa `.env`
-  (sửa thì chạy lại `optimize:clear`, `vkcrm:preflight`, `optimize` như Bước 7):
+  (sửa thì chạy lại `optimize:clear`, `vkcrm:preflight`, `optimize`, `chmod 600 bootstrap/cache/config.php` như
+  Bước 7):
   - `PROSPECT_RETENTION_MONTHS` — số tháng giữ dữ liệu người liên hệ không thành khách, mặc định 24
     (`.env.example` ghi sẵn 24; trống, 0, số âm, chữ hay quá 1200 cũng về 24). Hạn của mỗi bản ghi tính lúc
     bản ghi vào một trong ba trạng thái trên (hôm đó cộng số tháng này; gộp đi một bản đã từ chối hay
@@ -851,7 +853,7 @@ danh từng email), có allowlist thì VÀNG cho tới khi chạy chuỗi "Hết
 bên dưới.
 
 1. **Bắt buộc: `ADMIN_IP_ALLOWLIST` đã đặt IP văn phòng** (bảng biến ở Bước 3; đã chạy Bước 7
-   thì sửa `.env` xong chạy lại `php artisan optimize` và dòng `chmod` sau nó). Kiểm từ một mạng NGOÀI văn phòng (4G
+   thì sửa `.env` xong chạy lại `php artisan optimize` và `sudo -u www-data chmod 600 bootstrap/cache/config.php` sau nó). Kiểm từ một mạng NGOÀI văn phòng (4G
    của điện thoại): `https://<tên miền>/admin/login` phải là `404`. Chưa thấy `404` thì chưa
    chạy lệnh dưới.
 2. **Nên: demo trên một bản cài RIÊNG** — tên miền con (ví dụ `demo.<tên miền>`) hoặc máy chủ
@@ -948,7 +950,7 @@ sudo -u www-data chmod 600 bootstrap/cache/config.php
 
 **`php artisan vkcrm:preflight` phải xanh hết (R1) — chạy TRƯỚC khi mở cổng, sau MỖI lần nâng
 cấp, và TRƯỚC `php artisan optimize`/`config:cache`** (vài điều kiện đọc `.env` trực tiếp, không
-còn thấy giá trị thật sau khi cấu hình đã cache) — ngoại lệ duy nhất là dòng "bất biến tiền", xem
+còn thấy giá trị thật sau khi cấu hình đã cache; sau hai lệnh đó luôn là `chmod 600 bootstrap/cache/config.php`) — ngoại lệ duy nhất là dòng "bất biến tiền", xem
 đoạn ngay sau danh sách dưới. Lệnh tự kiểm
 `TRUSTED_PROXIES`/`HEARTBEAT_URL`/`MAIL_SCHEME`/`SESSION_SECURE_COOKIE`/`APP_DEBUG`, tài khoản nhân sự demo
 còn mật khẩu `password` (ĐỎ khi `ADMIN_IP_ALLOWLIST` trống, VÀNG khi có — Bước 5), PHP extension
@@ -1019,14 +1021,14 @@ lục A.
 `php artisan optimize` cache cấu hình, route, view và sự kiện (cộng phần cache riêng của
 Filament). **Từ lúc này, sửa `.env` không có tác dụng cho tới khi cache lại**: sau mỗi lần sửa
 `.env`, chạy `php artisan optimize:clear`, `php artisan vkcrm:preflight`, rồi `php artisan
-optimize` và dòng `chmod` ngay sau nó.
+optimize` và `sudo -u www-data chmod 600 bootstrap/cache/config.php` ngay sau nó.
 
 **Dòng `chmod 600 bootstrap/cache/config.php` sau MỖI `optimize`, ở mọi chỗ trong tài liệu này.**
 Cache cấu hình là một bản sao của `.env` đã đọc: `APP_KEY`, mật khẩu cơ sở dữ liệu, mật khẩu hộp thư,
 `BACKUP_ARCHIVE_PASSWORD`, khoá thông báo đẩy. `optimize` tạo lại tệp đó mỗi lần chạy, với quyền
 theo `umask` của người chạy — thường là `022`, tức `644`: mọi tài khoản trên máy đọc được, kể cả
-người quản trị và (trên shared hosting) khách khác của nhà cung cấp. `chmod 600` trả nó về đúng mức của
-`.env`; chạy bằng `www-data`, chủ của tệp (người quản trị không đổi được quyền tệp của người khác).
+người quản trị và (trên shared hosting) khách khác của nhà cung cấp. `chmod 600 bootstrap/cache/config.php` trả nó
+về đúng mức của `.env`; chạy bằng `www-data`, chủ của tệp (người quản trị không đổi được quyền tệp của người khác).
 `php artisan` chạy bằng người quản trị không đọc được tệp nữa — đúng ý: chuỗi nâng cấp xoá tệp đó
 trước dòng duy nhất người quản trị chạy (`filament:assets`).
 
@@ -1241,8 +1243,8 @@ sudo -u www-data php artisan up
   (nó chép tài sản giao diện vào `public/`, thư mục của người quản trị).
 - `optimize:clear` đứng TRƯỚC `migrate`: nó làm phần dọn cache của `filament:upgrade` (`config:clear`,
   `route:clear`, `view:clear`) và dọn thêm cache sự kiện, để `migrate`, `db:seed`,
-  `billing:check-invariants` chạy bằng cấu hình và mã của bản MỚI. Cache cấu hình của lần `optimize`
-  trước mà còn hiệu lực thì một migration đọc cấu hình mới đọc ra null — ví dụ máy chủ trước M12 nâng
+  `billing:check-invariants` chạy bằng cấu hình và mã của bản MỚI. Cache cấu hình mà bản cũ để lại,
+  còn hiệu lực, thì một migration đọc cấu hình mới đọc ra null — ví dụ máy chủ trước M12 nâng
   lên M12: migration `create_push_subscriptions_table` đọc `config('webpush.table_name')`, tệp
   `config/webpush.php` chưa có trong cache cũ, `Schema::create(null)` ném lỗi và site kẹt ở trang bảo
   trì (tìm ra khi rà soát, không quan sát được: lượt đi thử nâng cấp một bản lên chính nó). Nó đứng
@@ -1353,11 +1355,11 @@ cột và mục lịch không làm gì. Máy chủ đã chạy bản trước M1
 **Bật kho trên production** là một việc riêng, sau khi chủ văn phòng đã làm Phụ lục A (Workspace,
 Shared Drive, tài khoản dịch vụ, khoá) và luật sư đã có ý kiến về hồ sơ chuyển dữ liệu ra nước ngoài:
 làm đúng thứ tự Phụ lục C của `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md` — điền `.env` (vẫn `local`),
-`vkcrm:storage:init`, `optimize`, `vkcrm:storage:check` XANH; ghi ngày DPA và ngày hồ sơ (hoặc ý kiến
+`vkcrm:storage:init`, `optimize`, `chmod 600 bootstrap/cache/config.php`, `vkcrm:storage:check` XANH; ghi ngày DPA và ngày hồ sơ (hoặc ý kiến
 luật sư) trên trang "Kho tài liệu"; `vkcrm:storage:migrate --dry-run`; đặt `DOCUMENT_STORAGE=google_drive`,
-`optimize`, `php artisan vkcrm:storage:enable`; chuyển tệp cũ ngoài giờ (`vkcrm:storage:migrate
---max-minutes=240`, nhiều đêm); `vkcrm:storage:verify --all`. Quay lui: đặt `local` và `optimize`
-TRƯỚC, rồi `vkcrm:storage:rollback` (lệnh từ chối khi công tắc còn `google_drive`). Máy chủ văn phòng
+`optimize`, `chmod 600 bootstrap/cache/config.php`, `php artisan vkcrm:storage:enable`; chuyển tệp cũ ngoài giờ (`vkcrm:storage:migrate
+--max-minutes=240`, nhiều đêm); `vkcrm:storage:verify --all`. Quay lui: đặt `local`, `optimize` và
+`chmod 600 bootstrap/cache/config.php` TRƯỚC, rồi `vkcrm:storage:rollback` (lệnh từ chối khi công tắc còn `google_drive`). Máy chủ văn phòng
 (bản thứ hai ngoài Google, mã hoá): `docs/SAO-LUU-KHOI-PHUC.md`, Phụ lục D.
 
 ## Thao tác tiền và thời gian chờ khoá của MariaDB (`innodb_lock_wait_timeout`)

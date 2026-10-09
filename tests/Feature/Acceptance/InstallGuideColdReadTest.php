@@ -494,7 +494,7 @@ it('§14.8 keeps the cached copy of .env as private as .env itself', function ()
 
     $flat = fn (string $text): string => str_replace("\n", ' ', $text);
     expect($flat(igcSection($guide, '## Cài lên máy chủ thật (production)', '### Bước 0')))
-        ->toContain('GIỮ cả dòng `chmod 600 bootstrap/cache/config.php` sau MỖI `php artisan optimize`');
+        ->toContain('GIỮ cả dòng ngay sau MỖI `php artisan optimize` (Bước 7), `chmod 600 bootstrap/cache/config.php`');
     expect($flat(igcSection($guide, '### Bước 2', '### Bước 3')))
         ->toContain('`bootstrap/cache/config.php` (Bước 7) được tạo với quyền `644`');
     expect($flat(igcSection($guide, '### Bước 7', '### Bước 8')))
@@ -506,6 +506,129 @@ it('§14.8 keeps the cached copy of .env as private as .env itself', function ()
         ->and(substr($readme, (int) strpos($readme, '- **Thứ tự cài:**'), 1500))->toContain('`php artisan optimize` → `chmod 600 bootstrap/cache/config.php`')
         ->and(strpos($upgrade, '`php artisan optimize` →'))->toBeLessThan(strpos($upgrade, 'chmod 600 bootstrap/cache/config.php'))
         ->and(strpos($upgrade, 'chmod 600 bootstrap/cache/config.php'))->toBeLessThan(strpos($upgrade, '`php artisan up`'));
+});
+
+/**
+ * Đơn vị văn xuôi của một tài liệu Markdown (đã bỏ các khối ```…```): đoạn cách nhau bằng dòng trống,
+ * tách thêm ở đầu mỗi gạch đầu dòng, mục đánh số và hàng bảng; xuống dòng trong một đơn vị thành dấu
+ * cách. @return list<string>
+ */
+function igcProseUnits(string $text): array
+{
+    $prose = (string) preg_replace('/^\s*```.*?^\s*```[^\n]*$/ms', '', $text);
+    $units = [];
+
+    foreach (preg_split('/\n\s*\n/', $prose) ?: [] as $paragraph) {
+        foreach (preg_split('/\n(?=\s*(?:[-*]|\d+\.)\s|\|)/', $paragraph) ?: [] as $unit) {
+            $units[] = (string) preg_replace('/\s+/', ' ', $unit);
+        }
+    }
+
+    return $units;
+}
+
+/**
+ * Rà soát cuối làn v1, vòng sửa 2 (I2 phần còn lại, cùng tài liệu M14 vừa gộp). Test trên chỉ quét các
+ * khối lệnh của CAI-DAT, nên `docs/SAO-LUU-KHOI-PHUC.md` (sửa `.env` của bản khôi phục rồi chạy lại
+ * `optimize`) và tài liệu M14 (`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md` Phụ lục C, SAO-LUU Phụ lục D, "Bản
+ * cập nhật M14" của CAI-DAT) vẫn bảo người cài chạy `optimize` mà không giữ kín tệp cache: làm theo
+ * chúng thì `bootstrap/cache/config.php` lại thành `644`/`664`. Test này đi MỌI tài liệu người cài cầm
+ * trên tay — `README.md` và mọi `docs/*.md` trừ `docs/PROGRESS.md` (sổ ghi việc đã làm, không phải
+ * hướng dẫn):
+ *
+ *  - trong khối lệnh, dòng kết thúc bằng `php artisan optimize` hay `php artisan config:cache` (hai lệnh
+ *    ghi tệp đó) phải có ngay dòng sau kết thúc bằng `chmod 600 bootstrap/cache/config.php`;
+ *  - trong văn xuôi, mỗi lần nhắc lệnh (`optimize`, `php artisan optimize`, `config:cache` trong dấu
+ *    backtick) phải có `chmod 600 bootstrap/cache/config.php` ĐỨNG SAU nó trong cùng đoạn, cùng gạch
+ *    đầu dòng, cùng mục đánh số hay cùng hàng bảng.
+ */
+it('§14.8 follows every optimize in every operator document with the chmod of the cached config', function () {
+    $documents = array_merge(['README.md'], array_values(array_filter(
+        array_map(fn (string $path): string => 'docs/'.basename($path), glob(base_path('docs/*.md')) ?: []),
+        fn (string $path): bool => $path !== 'docs/PROGRESS.md',
+    )));
+    $chmod = 'chmod 600 bootstrap/cache/config.php';
+    $mention = '/`(?:sudo -u www-data )?(?:php artisan )?(?:optimize|config:cache)`/';
+    $missing = [];
+    $counted = [];
+
+    foreach ($documents as $document) {
+        $text = igcFile($document);
+        $counted[$document] = 0;
+
+        preg_match_all('/^\s*```[a-z]*\n(.*?)^\s*```/ms', $text, $blocks);
+
+        foreach ($blocks[1] as $block) {
+            $lines = array_values(array_filter(array_map('trim', explode("\n", $block)), fn (string $line): bool => $line !== ''));
+
+            foreach ($lines as $i => $line) {
+                if (preg_match('/php artisan (?:optimize|config:cache)$/', $line) === 1) {
+                    $counted[$document]++;
+
+                    if (! str_ends_with($lines[$i + 1] ?? '', $chmod)) {
+                        $missing[] = "{$document} (khối lệnh): {$line}";
+                    }
+                }
+            }
+        }
+
+        foreach (igcProseUnits($text) as $unit) {
+            preg_match_all($mention, $unit, $found, PREG_OFFSET_CAPTURE);
+
+            foreach ($found[0] as [$match, $offset]) {
+                $counted[$document]++;
+
+                if (strpos($unit, $chmod, $offset) === false) {
+                    $missing[] = "{$document}: {$match} … ".mb_substr($unit, 0, 160);
+                }
+            }
+        }
+    }
+
+    expect($missing)->toBe([])
+        // Không quét suông: mỗi tài liệu bảo người cài chạy `optimize` đều có lần nhắc được đếm.
+        ->and($counted['README.md'])->toBeGreaterThan(0)
+        ->and($counted['docs/CAI-DAT.md'])->toBeGreaterThan(0)
+        ->and($counted['docs/SAO-LUU-KHOI-PHUC.md'])->toBeGreaterThan(0)
+        ->and($counted['docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md'])->toBeGreaterThan(0);
+});
+
+/**
+ * Cùng mối nguy, ở chữ mà chính ứng dụng in cho người vận hành: `vkcrm:preflight` (khoá thông báo đẩy),
+ * `vkcrm:storage:*` và kiểm tra sẵn sàng của kho (M14) bảo "chạy php artisan optimize". Mọi chuỗi
+ * trong `lang/vi/*.php` nhắc `php artisan optimize` hay `php artisan config:cache` phải nói
+ * `chmod 600 bootstrap/cache/config.php` ĐỨNG SAU lần nhắc cuối.
+ */
+it('§14.8 follows every optimize the application tells the operator to run with the chmod of the cached config', function () {
+    $chmod = 'chmod 600 bootstrap/cache/config.php';
+    $missing = [];
+    $counted = 0;
+
+    foreach (glob(base_path('lang/vi/*.php')) ?: [] as $path) {
+        $lines = require $path;
+        $strings = [];
+        array_walk_recursive($lines, function (mixed $value, int|string $key) use (&$strings): void {
+            if (is_string($value)) {
+                $strings[] = [$key, $value];
+            }
+        });
+
+        foreach ($strings as [$key, $line]) {
+            if (preg_match_all('/php artisan (?:optimize|config:cache)(?![:\w-])/', $line, $found, PREG_OFFSET_CAPTURE) === 0) {
+                continue;
+            }
+
+            $counted++;
+            $last = (int) end($found[0])[1];
+
+            if (strpos($line, $chmod, $last) === false) {
+                $missing[] = basename($path).": {$key}";
+            }
+        }
+    }
+
+    expect($missing)->toBe([])
+        ->and($counted)->toBeGreaterThanOrEqual(10);
 });
 
 /**

@@ -207,7 +207,8 @@ Tóm tắt những điều không được bỏ qua:
   (quản trị viên đầu tiên, hỏi tương tác, mật khẩu nhập ẩn; 2FA bắt buộc ở lần đăng nhập đầu) →
   **`php artisan vkcrm:preflight`** → `php artisan optimize` → `chmod 600 bootstrap/cache/config.php`.
 - **`php artisan vkcrm:preflight` phải xanh TRƯỚC khi mở cổng và sau MỖI lần nâng cấp**, và chạy
-  TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp). Nó kiểm
+  TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp), rồi `chmod 600
+  bootstrap/cache/config.php` ngay sau nó. Nó kiểm
   `TRUSTED_PROXIES`, `HEARTBEAT_URL`, cookie phiên chỉ qua https, `APP_DEBUG`, extension PHP,
   `storage/app/private` có lộ ra web không, và điều kiện máy chủ cho sao lưu. Một ngoại lệ duy
   nhất: dòng "bất biến tiền" (hợp đồng lệch tổng, dưới) vẫn ĐỎ và mã thoát vẫn 1, nhưng KHÔNG chặn
