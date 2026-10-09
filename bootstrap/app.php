@@ -2,11 +2,13 @@
 
 use App\Exceptions\DocumentStorageMisconfigured;
 use App\Exceptions\DocumentStorageUnavailable;
+use App\Http\Middleware\EndDisabledStaffSessions;
 use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\SendSecurityHeaders;
 use App\Mcp\Servers\CrmServer;
 use App\Support\Mcp\McpEndpoint;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -57,7 +59,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // trước lần "Đặt lại 2FA" gần nhất bị đăng xuất. Nhóm này phủ request cập nhật Livewire và
         // các route ngoài panel; route trang của panel `admin` (không dùng nhóm `web`) đăng ký
         // riêng ở `AdminPanelProvider`. Lý do tồn tại: docblock của middleware.
-        $middleware->web(append: [RejectStaffSessionsFromBeforeReset::class]);
+        $middleware->web(append: [RejectStaffSessionsFromBeforeReset::class, EndDisabledStaffSessions::class]);
+
+        // Lượt quét §10.9 trên cây đã gộp M11 (rà soát cuối làn v1, vòng sửa 1, C1): `EndDisabledStaffSessions`
+        // phải chạy TRƯỚC `Authenticate` ở MỌI route có cả hai. Route của Passport khai `auth:web` trong
+        // danh sách middleware của route, nên khi sắp theo độ ưu tiên `Authenticate` đứng trước phần
+        // nối thêm của nhóm `web`: người bị vô hiệu hoá bấm "Đồng ý" (`POST /oauth/authorize`) qua được
+        // `Authenticate`, rồi mới bị đăng xuất, và nhận 403 thay cho trang đăng nhập mà docblock của
+        // middleware hứa. Đặt nó vào danh sách ưu tiên ngay trước `AuthenticatesRequests` (vẫn sau
+        // `StartSession`, đứng trước trong cùng danh sách). Test: `SessionCutSpec109Test`.
+        $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: EndDisabledStaffSessions::class);
 
         // M11 R7 — một request `/mcp` chưa xác thực KHÔNG BAO GIỜ được chuyển hướng: nó nhận 401
         // JSON kèm `WWW-Authenticate` (render ở `withExceptions` bên dưới). Mặc định của Laravel

@@ -291,8 +291,10 @@ gửi thư báo lỗi khi phát hiện — nhưng cách chắc nhất vẫn là 
 
 Sau khi sửa `.env`, giá trị mới chỉ có hiệu lực khi cấu hình được nạp lại: trên máy chủ đã cache
 cấu hình (`php artisan optimize`, `docs/CAI-DAT.md` Bước 7), chạy lần lượt `php artisan
-optimize:clear`, `php artisan vkcrm:preflight`, `php artisan optimize` — hỏi người quản trị máy chủ
-nếu chưa quen.
+optimize:clear`, `php artisan vkcrm:preflight`, `php artisan optimize`, rồi
+`sudo -u www-data chmod 600 bootstrap/cache/config.php` (bản sao `.env` trong cache phải kín như chính
+`.env`: lệnh cache tạo lại tệp đó với quyền `644`, ai trên máy cũng đọc được `APP_KEY` và mọi mật khẩu;
+`docs/CAI-DAT.md` Bước 7) — hỏi người quản trị máy chủ nếu chưa quen.
 
 ---
 
@@ -479,7 +481,8 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
 11. **Ở chế độ kho tài liệu (M14)**: archive chỉ mang vùng đệm; tệp đã dọn khỏi máy chủ nằm trên
     Kho, và bản CSDL vừa nạp chỉ trỏ tới chúng qua chỉ mục `drive_objects`. Đặt đúng các biến
     `GOOGLE_DRIVE_*` và đặt khoá tài khoản dịch vụ như lúc cài (`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`,
-    Phụ lục A), `php artisan optimize`, rồi chạy `php artisan vkcrm:storage:verify --sample=20`: hai
+    Phụ lục A), `php artisan optimize`, `chmod 600 bootstrap/cache/config.php`, rồi chạy
+    `php artisan vkcrm:storage:verify --sample=20`: hai
     mươi media trên kho, chọn ngẫu nhiên, phải khớp md5 và cỡ. Kho cũng mất thì làm "Diễn tập mất
     kho" ở dưới với bản ở máy văn phòng. `tools/backup/restore-drill.sh` có cùng bước này (bước 12b).
 
@@ -559,8 +562,9 @@ không bao giờ trên Kho thật. Chưa chạy: cần Workspace, Shared Drive t
 1. **Dựng Kho mới và trỏ máy chủ vào nó.** Tạo Shared Drive mới, thêm tài khoản dịch vụ đúng vai
    "Người quản lý nội dung" và các thành viên được phép (Phụ lục A của
    `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`). Đặt `GOOGLE_DRIVE_SHARED_DRIVE_ID` mới trong `.env`,
-   `php artisan optimize`, `php artisan vkcrm:storage:init` (in mã thư mục gốc mới), đặt
-   `GOOGLE_DRIVE_ROOT_FOLDER_ID` bằng mã đó, `php artisan optimize`, rồi
+   `php artisan optimize`, `chmod 600 bootstrap/cache/config.php`, `php artisan vkcrm:storage:init` (in mã thư
+   mục gốc mới), đặt `GOOGLE_DRIVE_ROOT_FOLDER_ID` bằng mã đó, `php artisan optimize`,
+   `chmod 600 bootstrap/cache/config.php`, rồi
    `php artisan vkcrm:storage:check`: các dòng sẵn sàng phải XANH.
 2. **Chép bản ở văn phòng lên Kho mới.** Trên máy văn phòng, tạo tạm một remote `vkkhomoi` (Google
    Drive, phạm vi `drive`, `team_drive` = Shared Drive mới, `root_folder_id` = thư mục gốc mới) bằng
@@ -637,7 +641,7 @@ M14 Task 8 Phần 2.
 | 5 | **`rclone config`** dưới tài khoản `vkcrm-saoluu`, ba remote (mục D.5); đặt mật khẩu cho tệp cấu hình rclone | `document_office_copy` |
 | 6 | **Cất ba mật khẩu** (mật khẩu `crypt`, salt, mật khẩu cấu hình rclone) cùng chỗ với `APP_KEY` và `BACKUP_ARCHIVE_PASSWORD` (Bước 6). **Không bao giờ** đặt chúng trên máy chủ web, không gửi qua email, Zalo hay Drive. **Mất mật khẩu `crypt` là mất bản ở văn phòng** | — |
 | 7 | **Đặt script và lịch**: `office-pull.sh` mỗi đêm 01:00, `office-pull.sh --check-monthly` ngày 1 hằng tháng (mục D.7) | `document_office_copy` |
-| 8 | **Người cài đặt** điền `DOCUMENT_OFFICE_RECEIPTS_PATH` trên máy chủ web, `php artisan optimize`, chạy `php artisan vkcrm:storage:office-receipts` (mục D.8) | `document_office_copy` |
+| 8 | **Người cài đặt** điền `DOCUMENT_OFFICE_RECEIPTS_PATH` trên máy chủ web, `php artisan optimize`, `chmod 600 bootstrap/cache/config.php`, chạy `php artisan vkcrm:storage:office-receipts` (mục D.8) | `document_office_copy` |
 | 9 | **Kiểm**: trang "Kho tài liệu" hiện biên nhận gần nhất, và số "media trên kho chưa có biên nhận" giảm dần qua các đêm. Mở thư mục bản sao bằng Explorer: tên và nội dung tệp không đọc được | — |
 | 10 | **Mỗi tháng**: xem `office-pull.log` của lượt `--check-monthly`. Có tệp lệch thì báo người cài đặt (có thể có tệp bị sửa trên Kho) | `document_office_copy` |
 
@@ -738,7 +742,8 @@ DOCUMENT_OFFICE_RECEIPTS_PATH=gdrive:VK-CRM-backups/office-receipts/vk-crm-produ
 ```
 
 (`gdrive` là remote của Bước 3; phần cuối là `ENV_FOLDER` của máy văn phòng.) Rồi
-`php artisan optimize` và `php artisan vkcrm:storage:office-receipts`: lệnh in số biên nhận đã nhập
+`php artisan optimize`, `chmod 600 bootstrap/cache/config.php` và
+`php artisan vkcrm:storage:office-receipts`: lệnh in số biên nhận đã nhập
 và số tệp được đánh dấu. Trống biến này thì lệnh và mục lịch không làm gì, và vùng đệm không bao giờ
 được dọn.
 

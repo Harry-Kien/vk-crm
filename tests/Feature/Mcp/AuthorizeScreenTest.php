@@ -387,8 +387,9 @@ it('R2/R12 màn hình từ chối, không có nút Đồng ý, khi người khô
         return $user;
     }, McpAccessRefusal::PolicyNotAcknowledged],
     'chưa cài 2FA (vừa bị Đặt lại 2FA hay chưa cài lần đầu)' => [fn () => User::factory()->withRole(Role::Lawyer)->withoutTwoFactor()->withAiAccess()->create(), McpAccessRefusal::TwoFactorNotSetUp],
-    'tài khoản bị vô hiệu hoá' => [fn () => tap(consentLawyer(), fn (User $user) => $user->forceFill(['is_active' => false])->save()), McpAccessRefusal::Inactive],
-    'vô hiệu hoá VÀ chưa cài 2FA: lý do đầu tiên là vô hiệu hoá' => [fn () => User::factory()->withRole(Role::Lawyer)->withoutTwoFactor()->withAiAccess()->create(['is_active' => false]), McpAccessRefusal::Inactive],
+    // Hai ca "tài khoản bị vô hiệu hoá" ra khỏi danh sách này khi gộp M11 vào làn nghiệm thu bản 1.0
+    // (2026-10-09): `EndDisabledStaffSessions` (SPEC §10.9) cắt phiên trước khi màn hình kịp dựng —
+    // test riêng ngay dưới. Thứ tự lý do (vô hiệu hoá trước 2FA) vẫn ở `AccessControlTest`.
     'vai không có matter.view (Kế toán) dù ai_access còn bật' => [fn () => tap(
         User::factory()->withRole(Role::Accountant)->create(),
         function (User $user) {
@@ -397,6 +398,33 @@ it('R2/R12 màn hình từ chối, không có nút Đồng ý, khi người khô
         },
     ), McpAccessRefusal::NoMatterView],
     'tài khoản là ClientUser (lọt vào guard web)' => [fn () => ClientUser::factory()->activated()->create(), McpAccessRefusal::NotStaff],
+]);
+
+/*
+ * SPEC §10.9 trên cây đã gộp M11 (rà soát cuối làn v1, vòng sửa 1): phiên của nhân sự bị vô hiệu hoá
+ * bị `EndDisabledStaffSessions` đăng xuất ở request kế tiếp, kể cả `GET /oauth/authorize` và "Đồng ý"
+ * ép tay — nên người đó về trang đăng nhập, không bao giờ thấy màn hình (kể cả màn hình từ chối), không
+ * mã nào được cấp, không dòng nhật ký kết nối nào. Lý do `Inactive` của `McpAccess::consentRefusal()`
+ * còn đó làm lớp thứ hai. Cùng lời hứa từ phía lượt quét: `SessionCutSpec109Test`.
+ */
+it('R2 + §10.9 tài khoản bị vô hiệu hoá: phiên bị cắt, về trang đăng nhập, không màn hình, không mã', function (Closure $setUp) {
+    $account = $setUp();
+
+    ['response' => $response] = consentScreen($account, McpOAuth::client());
+
+    $response->assertRedirect(McpEndpoint::staffLoginUrl());
+    $this->assertGuest('web');
+    consentNoCodeIssued($response);
+
+    $forced = consentApprove($account->fresh(), 'ma-bat-ky');
+
+    $forced->assertRedirect(McpEndpoint::staffLoginUrl());
+    $this->assertGuest('web');
+    consentNoCodeIssued($forced);
+    expect(consentAudit('mcp_connection_authorized'))->toBe([]);
+})->with([
+    'tài khoản bị vô hiệu hoá' => [fn () => tap(consentLawyer(), fn (User $user) => $user->forceFill(['is_active' => false])->save())],
+    'vô hiệu hoá VÀ chưa cài 2FA' => [fn () => User::factory()->withRole(Role::Lawyer)->withoutTwoFactor()->withAiAccess()->create(['is_active' => false])],
 ]);
 
 it('R1 phiên cổng khách (guard client) không phải phiên nhân sự: /oauth/authorize chuyển tới trang đăng nhập /admin, không màn hình, không mã', function () {

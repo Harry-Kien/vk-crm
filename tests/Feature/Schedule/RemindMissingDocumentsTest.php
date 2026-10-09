@@ -3,6 +3,7 @@
 use App\Actions\Schedule\RemindMissingDocuments;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\Confidentiality;
+use App\Enums\ContractStatus;
 use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
@@ -10,6 +11,7 @@ use App\Jobs\SendMissingDocumentsMail;
 use App\Mail\Client\MissingDocuments;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
@@ -584,3 +586,66 @@ it('escapes a staff-typed matter title in the 14-day notice body', function () {
     expect($body)->not->toContain('<a href')
         ->and($body)->toContain('&lt;a href');
 });
+
+// ---------------------------------------------------------------------------------------------
+// Đầu mục "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" khi hợp đồng còn nháp (lượt quét trước bản 1.0)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Việc mang sang từ làn fu (M6 → M8 Task 6): thư `client.missing_documents` đòi khách "Hợp đồng dịch
+ * vụ pháp lý và giấy uỷ quyền" khi văn phòng còn chưa có hợp đồng để khách ký — hợp đồng còn nháp, hay
+ * chưa có hợp đồng nào. Cùng luật với dòng nhắc của tab tiền (`BillingRelationManager::checklistNudge()`
+ * im lặng ở `draft`): đầu mục đó chỉ được đòi khi hợp đồng đã rời `draft`.
+ */
+function missingContractItem(Matter $matter): MatterChecklistItem
+{
+    $item = missingDocItem($matter, 5);
+    $item->forceFill(['name' => Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME])->saveQuietly();
+
+    return $item->refresh();
+}
+
+it('does not ask the client for the signed contract while there is no contract or only a draft', function (?ContractStatus $status) {
+    Mail::fake();
+    [$matter] = awaitingMatter();
+    $matter->checklistItems()->delete();
+    missingContractItem($matter);
+
+    if ($status !== null) {
+        Contract::factory()->for($matter)->create(['status' => $status]);
+    }
+
+    $result = (new RemindMissingDocuments)->handle();
+
+    Mail::assertNothingSent();
+    expect($result['mailed'])->toBe(0);
+})->with([
+    'chưa có hợp đồng' => [null],
+    'hợp đồng nháp' => [ContractStatus::Draft],
+]);
+
+it('leaves the contract item out of the list while the contract is a draft, and still asks for the rest', function () {
+    Mail::fake();
+    [$matter, , , $other] = awaitingMatter();
+    missingContractItem($matter);
+    Contract::factory()->for($matter)->create(['status' => ContractStatus::Draft]);
+
+    (new RemindMissingDocuments)->handle();
+
+    Mail::assertSent(MissingDocuments::class, fn ($mail) => $mail->items->pluck('id')->all() === [$other->id]);
+});
+
+it('asks for the signed contract once the contract has left draft', function (ContractStatus $status) {
+    Mail::fake();
+    [$matter] = awaitingMatter();
+    $matter->checklistItems()->delete();
+    $item = missingContractItem($matter);
+    Contract::factory()->for($matter)->create(['status' => $status, 'signed_at' => today()->subDay()->toDateString()]);
+
+    (new RemindMissingDocuments)->handle();
+
+    Mail::assertSent(MissingDocuments::class, fn ($mail) => $mail->items->pluck('id')->all() === [$item->id]);
+})->with([
+    'đang hiệu lực' => [ContractStatus::Active],
+    'đã hoàn tất' => [ContractStatus::Completed],
+]);

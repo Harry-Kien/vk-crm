@@ -21,6 +21,7 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Support\Intake\PrivacyNotice;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Cache;
@@ -94,11 +95,11 @@ it('records the privacy notice with its version, when and by whom, and refuses a
     $fresh = $intake->fresh();
     $row = Activity::query()->where('event', 'intake_privacy_notice_recorded')->sole();
 
-    expect($fresh->privacy_notice_version)->toBe(__('intake.privacy_notice.version'))
+    expect($fresh->privacy_notice_version)->toBe(PrivacyNotice::version())
         ->and($fresh->privacy_notice_acknowledged_at)->not->toBeNull()
         ->and($fresh->privacy_notice_recorded_by)->toBe($actor->id)
         ->and($row->causer->is($actor))->toBeTrue()
-        ->and($row->properties->all())->toBe(['version' => __('intake.privacy_notice.version')]);
+        ->and($row->properties->all())->toBe(['version' => PrivacyNotice::version()]);
 });
 
 it('does not record the privacy notice twice for the same version, but records a new version again', function () {
@@ -118,7 +119,7 @@ it('does not record the privacy notice twice for the same version, but records a
     app(RecordPrivacyNotice::class)->handle($actor, $intake, true);
 
     expect(Activity::query()->where('event', 'intake_privacy_notice_recorded')->count())->toBe(2)
-        ->and($intake->fresh()->privacy_notice_version)->toBe(__('intake.privacy_notice.version'));
+        ->and($intake->fresh()->privacy_notice_version)->toBe(PrivacyNotice::version());
 });
 
 it('keeps the story locked at red and never saves it, even when the caller insists', function () {

@@ -23,10 +23,10 @@ return [
 
     'readiness' => [
         'driver_ok' => 'DOCUMENT_STORAGE=:driver là giá trị hợp lệ.',
-        'driver_invalid' => 'DOCUMENT_STORAGE có giá trị lạ :value. Hệ thống coi như "local": tệp ở lại máy chủ, KHÔNG lên kho, trong khi người vận hành có thể đang tin là có. Đặt đúng local hoặc google_drive rồi chạy php artisan optimize.',
+        'driver_invalid' => 'DOCUMENT_STORAGE có giá trị lạ :value. Hệ thống coi như "local": tệp ở lại máy chủ, KHÔNG lên kho, trong khi người vận hành có thể đang tin là có. Đặt đúng local hoặc google_drive rồi chạy php artisan optimize và chmod 600 bootstrap/cache/config.php.',
 
         'credentials_missing' => 'Chưa cấu hình GOOGLE_DRIVE_CREDENTIALS_PATH (đường dẫn TUYỆT ĐỐI tới tệp khoá JSON của tài khoản dịch vụ, không dùng ~).',
-        'credentials_not_found' => 'Không có tệp khoá ở :path. Kiểm lại GOOGLE_DRIVE_CREDENTIALS_PATH (đường dẫn tuyệt đối, không dùng ~) rồi chạy php artisan optimize.',
+        'credentials_not_found' => 'Không có tệp khoá ở :path. Kiểm lại GOOGLE_DRIVE_CREDENTIALS_PATH (đường dẫn tuyệt đối, không dùng ~) rồi chạy php artisan optimize và chmod 600 bootstrap/cache/config.php.',
         'credentials_unreadable' => 'PHP không đọc được tệp khoá :path. Chủ sở hữu tệp phải là người dùng chạy PHP (shared hosting), hoặc nhóm của tệp là nhóm của PHP-FPM (VPS).',
         'credentials_inside_app' => 'Tệp khoá :path nằm bên trong :root — một lần git add hay một lỗi cấu hình máy chủ web là lộ khoá. Chuyển tệp ra ngoài thư mục mã nguồn (VPS: /etc/vkcrm/; shared hosting: /home/<tài khoản>/.config/vkcrm/).',
         'credentials_web_root' => 'Tệp khoá :path nằm dưới một thư mục :directory — thư mục mà máy chủ web thường phục vụ công khai. Chuyển tệp ra ngoài gốc web.',
@@ -65,7 +65,7 @@ return [
         'roundtrip_cleanup_log' => 'Kiểm tra sẵn sàng kho: không cho được tệp thăm dò vào thùng rác.',
 
         'enabled_local' => 'DOCUMENT_STORAGE không phải google_drive: tệp mới nằm trên máy chủ như trước, kho không bật.',
-        'enabled_missing' => 'DOCUMENT_STORAGE=google_drive nhưng kho CHƯA BẬT: tệp mới vẫn chỉ nằm trên máy chủ trong khi người vận hành tin là chúng ở trên kho. Chạy php artisan vkcrm:storage:enable (sau php artisan optimize).',
+        'enabled_missing' => 'DOCUMENT_STORAGE=google_drive nhưng kho CHƯA BẬT: tệp mới vẫn chỉ nằm trên máy chủ trong khi người vận hành tin là chúng ở trên kho. Chạy php artisan vkcrm:storage:enable (sau php artisan optimize và chmod 600 bootstrap/cache/config.php).',
         'enabled_ok' => 'Kho tài liệu đã bật từ :at: tệp mới tự lên kho.',
 
         'items_warn' => 'Shared Drive kho có khoảng :count mục, gần giới hạn :limit mục của Google (tính cả thùng rác trong 30 ngày). Cần chuẩn bị Shared Drive thứ hai.',
@@ -234,9 +234,9 @@ return [
     ],
 
     'init' => [
-        'not_configured' => 'Chưa cấu hình :missing. Điền vào .env, chạy php artisan optimize, rồi chạy lại lệnh này.',
+        'not_configured' => 'Chưa cấu hình :missing. Điền vào .env, chạy php artisan optimize và chmod 600 bootstrap/cache/config.php, rồi chạy lại lệnh này.',
         'created' => 'Đã tạo thư mục gốc ":name" trong Shared Drive kho.',
-        'env_line' => 'Điền dòng sau vào .env, rồi chạy php artisan optimize và php artisan vkcrm:storage:check:',
+        'env_line' => 'Điền dòng sau vào .env, rồi chạy php artisan optimize, chmod 600 bootstrap/cache/config.php và php artisan vkcrm:storage:check:',
         'exists' => 'Shared Drive đã có :count thư mục tên ":name". Không tạo thêm (Drive cho trùng tên, và hai thư mục gốc là hai kho).',
         'exists_item' => '  - mã :id',
         'exists_hint' => 'Nếu đúng là thư mục của môi trường này, điền mã của nó vào GOOGLE_DRIVE_ROOT_FOLDER_ID. Nếu có nhiều hơn một, hỏi người quản trị Workspace trước khi chọn.',

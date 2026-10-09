@@ -290,5 +290,12 @@ return [
             // ReassignMatter::REQUEST_HANDOVER_REASON
             'matter_reassigned' => 'Bàn giao vụ việc: yêu cầu đang giao cho luật sư cũ chuyển sang luật sư phụ trách mới',
         ],
+        // Lượt quét trước bản 1.0 (minor 3 rà soát làn fu4): ForgetPushDevice::REASON_* — văn phòng gỡ
+        // máy nhận thông báo đẩy thay chủ máy.
+        'push_device_removed' => [
+            'email_changed' => 'Đổi email tài khoản cổng: gỡ mọi máy của người giữ địa chỉ cũ',
+            'two_factor_reset' => 'Đặt lại 2FA: gỡ mọi máy của nhân sự',
+            'office' => 'Văn phòng gỡ theo yêu cầu của khách (mất hoặc đổi máy)',
+        ],
     ],
 ];

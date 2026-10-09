@@ -1413,6 +1413,11 @@ còn xem được vụ trên cổng (vụ đang công bố, chưa quá `client_a
 tải về. Thư công bố gói không thêm câu nào về tiền: thư đi cho mọi gói, kể cả gói của vụ không có hợp
 đồng nào.
 
+**Sửa câu 2026-10-08 (lượt quét toàn hệ thống trước bản 1.0).** Dòng dưới tiêu đề nay là "Tính đến LÚC
+lập gói (ngày dd/mm/yyyy)" và nói rõ khoản thanh toán cùng mọi thay đổi khác về thanh toán (miễn đợt,
+huỷ khoản thu, phụ lục) ghi nhận sau LÚC lập gói không có trong bảng kê — bảng kê đóng băng lúc lập,
+không phải cuối ngày đó, nên một khoản ghi chiều cùng ngày cũng không có (`handover.pdf.billing.as_of`).
+
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào
 thì tự đặt `is_active = false`. Dữ liệu vẫn nguyên trong hệ thống nội bộ.
@@ -1679,9 +1684,12 @@ P2), dời ngày đến hạn của một mốc (P1 dùng ngày đến hạn hi�
 một yêu cầu chưa trả lời (mẫu số P3 → P10), huỷ một vụ việc (việc của vụ đã huỷ rời mọi con số, vì
 `listableBy` không chứa vụ đã xoá mềm). Ngoài ra, mọi con số chỉ tính trên các vụ người xem đang được
 xem: khi người xem không còn được xem một vụ (ví dụ một vụ `restricted` đã bàn giao cho người khác),
-việc trên vụ đó không còn trong số người xem đọc, kể cả ở kỳ đã qua. Câu "Kỳ đã đóng" trên màn hình
-(`performance.explain.closed_period`) kể đúng bảy việc này; test `SpecM13ParityTest` giữ hai nơi khớp
-nhau.
+việc trên vụ đó không còn trong số người xem đọc, kể cả ở kỳ đã qua. Riêng P8 và hai biểu đồ xu hướng đọc ảnh chụp
+hằng ngày (`performance_snapshots`, chỉ tách theo mức bảo mật lúc chụp): số của một ngày đã qua giữ
+nguyên như lúc chụp, nên vẫn gồm vụ đã bàn giao, đã huỷ hay người xem nay không còn được xem (sửa câu
+2026-10-08, lượt quét trước bản 1.0 — câu "Kỳ đã đóng" và câu xu hướng của trang một người nói theo).
+Câu "Kỳ đã đóng" trên màn hình (`performance.explain.closed_period`) kể đúng bảy việc này; test
+`SpecM13ParityTest` giữ hai nơi khớp nhau.
 
 **Mốc tạo qua AI (R20).** Khi M11 có mốc "Tạo qua AI, chưa xác nhận", mốc đó tính như mốc thường ở
 mọi con số (N5, N6, P1, P9), đúng như `CheckDeadlines` nhắc nó như mốc thường — "một mốc hạn thật
@@ -2346,7 +2354,8 @@ có hợp đồng; một vụ bàn giao có khoản thu trước và sau; khoả
 các đợt khớp giá trị hợp đồng tới từng đồng (`billing:check-invariants` sạch). Để có tám tháng,
 vụ mẫu thứ i mở `30 + 12·i` ngày trước (vụ cũ nhất khoảng chín tháng). *(Sửa 2026-10-04, việc sau
 gộp M9 + M10: bản đầu ghi `BillingSeeder` "gọi cuối `DemoDataSeeder`" và "một vụ cố ý không có hợp
-đồng" — từ khi gộp M10, `IntakeSeeder` chạy sau nó và thêm vụ thứ 23 chưa có hợp đồng.)*
+đồng" — từ khi gộp M10, `IntakeSeeder` chạy sau nó và thêm một vụ chưa có hợp đồng, nay là vụ thứ 27:
+đính chính 2026-10-09 cuối mục này.)*
 
 **Đính chính 2026-10-03 (M10 Task 8 — tiếp nhận).** Thêm dữ liệu mẫu tiếp nhận (`IntakeSeeder`, gọi
 cuối `DemoDataSeeder`, nên không bao giờ chạy production qua `DatabaseSeeder`): 12 lần có người liên
@@ -2355,14 +2364,23 @@ hệ, mỗi lần đi qua đúng các Action của mã sản phẩm, ở thời 
 trước, nguồn dò thứ hai của §6.10), **một bản Đỏ** chờ trưởng phòng (bên đối lập là khách hiện hữu)
 và một bản đã bị từ chối vì xung đột, **một bản quá hạn phản hồi** lần đầu, **một bản đã ẩn danh** vì
 quá hạn lưu, và một bản đã chuyển thành vụ việc. Bản chuyển đổi gắn người liên hệ (một khách hiện hữu
-gọi về việc mới) vào hồ sơ khách ĐÃ CÓ, nên không thêm khách hàng nào, nhưng thêm **một vụ việc thứ
-23** (sau 20 vụ của danh sách trên, vụ `restricted` của M2 và vụ đã kết thúc của M7 Task 3; con số
-cập nhật khi gộp `main` vào làn M10): một vụ vừa mở qua `OpenMatter`, có lead
+gọi về việc mới) vào hồ sơ khách ĐÃ CÓ, nên không thêm khách hàng nào, nhưng thêm **một vụ việc**
+(vụ cuối cùng của dữ liệu mẫu — nay là vụ thứ 27, đính chính 2026-10-09 cuối mục này): một vụ vừa mở
+qua `OpenMatter`, có lead
 trong đội ngũ và 2 bên, **chưa có dòng `stage_logs` nào** — luật "3–8 dòng" ở trên là của các vụ
 `MatterSeeder` dựng, không phải của vụ này. *(Gộp M10 vào `main`, 2026-10-04: `IntakeSeeder` chạy SAU
-`BillingSeeder` của M9 Task 13 ở trên, nên vụ thứ 23 còn ở giai đoạn đầu và chưa có hợp đồng — ngoài
+`BillingSeeder` của M9 Task 13 ở trên, nên vụ đó còn ở giai đoạn đầu và chưa có hợp đồng — ngoài
 vụ "cố ý không có hợp đồng" của danh sách tiền — để form "Soạn hợp đồng" của nó hiện phí đã báo lúc
 tiếp nhận làm gợi ý.)*
+
+**Đính chính 2026-10-09 (nghiệm thu bản 1.0, làn v1, rà soát cuối vòng sửa 1, I3) — số thứ tự của vụ
+chuyển từ tiếp nhận.** Hai chỗ ở trên từng gọi vụ đó bằng số thứ tự của lúc gộp M10 (20 vụ của danh
+sách, vụ `restricted` của M2, vụ đã kết thúc của M7 Task 3, rồi nó). Từ khi gộp M13,
+`TeamPerformanceSeeder` (gọi trước `IntakeSeeder` trong `DemoDataSeeder`) thêm bốn vụ, nên
+`migrate:fresh --seed` dựng **27 vụ** và vụ chuyển từ tiếp nhận là **vụ thứ 27** — vẫn là vụ có id lớn
+nhất. Con số đo bằng cách gieo đúng `DatabaseSeeder` trong
+`tests/Feature/Acceptance/InstallGuideColdReadTest.php` (test "promises the demo data the seeder really
+builds"), cùng con số `README.md` ghi; test đó cũng giữ cho mục này không còn số thứ tự cũ.
 
 ---
 

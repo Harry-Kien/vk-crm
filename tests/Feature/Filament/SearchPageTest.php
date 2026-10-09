@@ -164,10 +164,12 @@ it('trả 404 cho một nhân sự không có quyền xem vụ việc nào, và 
  * Đường Livewire update THẬT: luật sư mở trang, rồi mất vai trò (hoặc bị vô hiệu hoá), rồi gõ tiếp từ
  * trang đang mở. Mất vai trò: `hydrateCanAuthorizeAccess()` của Filament trả 403 bên trong vòng đời
  * component, nên chính `boot()` của trang biến lần này thành 404 (mutation probe: xoá `boot()` làm
- * vế `role` đỏ). Bị vô hiệu hoá: `Authenticate` của panel — middleware bền của Livewire — từ chối
- * trước khi component chạy, và middleware 404 của panel đổi nó thành 404. Cả hai: không kết quả nào.
+ * vế `role` đỏ). Bị vô hiệu hoá: từ lượt quét §10 trước bản 1.0, `EndDisabledStaffSessions` (nhóm
+ * `web`) đăng xuất người đó TRƯỚC `Authenticate`, nên request là của một khách vãng lai và nhận 401
+ * như mọi người chưa đăng nhập — phiên mất ở request kế tiếp (§10.9), câu trả lời không phụ thuộc bản
+ * ghi nào. Cả hai: không kết quả nào.
  */
-it('trả 404 cho một request cập nhật Livewire từ người đã mất quyền hoặc đã bị vô hiệu hoá', function (string $how) {
+it('không trả kết quả nào cho một request cập nhật Livewire từ người đã mất quyền (404) hoặc đã bị vô hiệu hoá (đăng xuất, 401)', function (string $how) {
     $matter = srchMatter($this->lead, ['title' => 'Tranh chấp Kiwizon']);
 
     $snapshot = srchPageSnapshot(
@@ -182,11 +184,13 @@ it('trả 404 cho một request cập nhật Livewire từ người đã mất q
     $this->actingAs($this->lead->fresh(), 'web');
 
     $response = srchPostUpdate($snapshot, ['term' => 'Kiwizon']);
+    $expected = $how === 'inactive' ? 401 : 404;
 
-    $response->assertNotFound();
-    expect($response->getContent())->not->toContain($matter->code);
+    $response->assertStatus($expected);
+    expect($response->getContent())->not->toContain($matter->code)
+        ->and(auth('web')->check())->toBe($how !== 'inactive');
 
-    srchPostUpdate($snapshot, [], [['path' => '', 'method' => 'search', 'params' => []]])->assertNotFound();
+    srchPostUpdate($snapshot, [], [['path' => '', 'method' => 'search', 'params' => []]])->assertStatus($expected);
 })->with(['role', 'inactive']);
 
 /** Hành động thật tự hỏi lại cổng, độc lập với `boot()` (một thể hiện dựng thẳng). */

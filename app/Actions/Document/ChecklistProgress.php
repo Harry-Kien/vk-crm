@@ -2,8 +2,11 @@
 
 namespace App\Actions\Document;
 
+use App\Actions\Schedule\RemindMissingDocuments;
 use App\Enums\ChecklistItemStatus;
+use App\Enums\ContractStatus;
 use App\Enums\DocumentGroup;
+use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -225,6 +228,40 @@ class ChecklistProgress
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
+    }
+
+    /**
+     * Những đầu mục mà THƯ nhắc khách (`client.missing_documents`) được đòi: đúng
+     * {@see self::outstandingRequiredItems()}, trừ đầu mục hợp đồng đã ký
+     * ({@see Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME}) khi vụ chưa có hợp đồng nào rời `draft`
+     * — văn phòng còn chưa có bản để khách ký (lượt quét §10 trước bản 1.0, việc mang sang từ làn fu).
+     * Cùng điều kiện với dòng nhắc của tab tiền (`BillingRelationManager::checklistNudge()` im lặng ở
+     * `draft`). Rỗng thì không có thư nào: {@see RemindMissingDocuments} không
+     * xếp job, và `SendMissingDocumentsMail` đọc lại đúng hàm này lúc gửi.
+     *
+     * CHỈ cho thư khách. "Còn thiếu" của thanh tiến độ, widget và thông báo 14 ngày cho luật sư vẫn là
+     * {@see self::outstandingRequired()} — luật sư cần thấy đầu mục đó đang chờ, kể cả khi chưa đến
+     * lượt khách.
+     *
+     * @return Collection<int, MatterChecklistItem>
+     */
+    public static function itemsToRemindClientOf(Matter $matter): Collection
+    {
+        $items = self::outstandingRequiredItems($matter);
+
+        $contractLeftDraft = Contract::query()
+            ->withoutGlobalScopes()
+            ->where('matter_id', $matter->getKey())
+            ->where('status', '!=', ContractStatus::Draft->value)
+            ->exists();
+
+        if ($contractLeftDraft) {
+            return $items;
+        }
+
+        return $items
+            ->reject(fn (MatterChecklistItem $item): bool => $item->name === Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME)
+            ->values();
     }
 
     /**

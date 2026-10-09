@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Deadline\SetDeadlineCompletion;
+use App\Actions\Push\ForgetPushDevice;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\ActivityLogPage;
@@ -179,6 +180,7 @@ it('keeps no orphan label: every activity.reasons key belongs to a reason consta
         ->flatMap(fn (array $constants): array => collect($constants)
             ->flatMap(fn (array $constant): array => array_map(fn (string $event): string => "{$event}.{$constant['value']}", $constant['events']))
             ->all())
+        ->merge(m13bRlPushRemovalReasons())
         ->unique()->sort()->values()->all();
 
     $fromLang = collect(Lang::get('activity.reasons'))
@@ -304,4 +306,45 @@ it('keeps a reason that has no label as it was written: free text, and a code wi
         ->and(m13bRlModalContent($this->livewire(ActivityLogPage::class), $unlabelled))->toContain(m13bRlReasonLine('future_reason_code'))
         // Nhãn theo CẶP sự kiện + lý do: cùng mã dưới một sự kiện khác không mượn nhãn.
         ->and(m13bRlModalContent($this->livewire(ActivityLogPage::class), $otherEventSameCode))->toContain(m13bRlReasonLine('reopened_holder_no_longer_qualifies'));
+});
+
+/*
+ * Lượt quét trước bản 1.0 (minor 3 của rà soát làn fu4): dòng `push_device_removed` do văn phòng gây ra
+ * mang `reason` là MÃ (`email_changed`, `two_factor_reset`, `office`) — nhân sự đọc mã tiếng Anh trong
+ * modal "Xem chi tiết". Ba mã là hằng `ForgetPushDevice::REASON_*` (tiền tố, không hậu tố `_REASON`,
+ * và đi vào `Audit::record()` qua một biến chứ không qua `::HẰNG`), nên máy quét ở trên không thấy
+ * chúng: liệt kê bằng phản chiếu, và đòi mỗi mã một nhãn dưới đúng sự kiện đó.
+ *
+ * @return list<string>
+ */
+function m13bRlPushRemovalReasons(): array
+{
+    return collect((new ReflectionClass(ForgetPushDevice::class))->getConstants())
+        ->filter(fn (mixed $value, string $name): bool => str_starts_with($name, 'REASON_') && is_string($value))
+        ->map(fn (string $value): string => "push_device_removed.{$value}")
+        ->values()
+        ->all();
+}
+
+it('has a Vietnamese label for every reason the office can remove a push device for, shown in the log modal', function () {
+    expect(m13bRlPushRemovalReasons())->toEqualCanonicalizing([
+        'push_device_removed.email_changed',
+        'push_device_removed.two_factor_reset',
+        'push_device_removed.office',
+    ]);
+
+    foreach (m13bRlPushRemovalReasons() as $suffix) {
+        expect(Lang::has("activity.reasons.{$suffix}"))->toBeTrue("thiếu nhãn activity.reasons.{$suffix}");
+    }
+
+    $row = Audit::record('push_device_removed', $this->lead, [
+        'device_label' => 'Chrome trên Android',
+        'reason' => ForgetPushDevice::REASON_EMAIL_CHANGED,
+    ], $this->admin);
+
+    $this->actingAs($this->admin, 'web');
+    $content = m13bRlModalContent($this->livewire(ActivityLogPage::class), $row);
+
+    expect($content)->toContain(m13bRlReasonLine(__('activity.reasons.push_device_removed.email_changed')))
+        ->and($content)->not->toContain('"reason": "email_changed"');
 });

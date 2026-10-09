@@ -130,10 +130,14 @@ function installGuideCreateAdmin(): void
 /**
  * Chạy MỘT dòng shell của tài liệu: `php artisan <lệnh> [--cờ…]` qua Artisan thật, hoặc
  * `rm -rf storage/app/private/<mẫu glob>` áp đúng mẫu đó lên gốc của đĩa `private` (đĩa giả trong
- * test). Dòng nào khác là test đỏ — tài liệu không được có bước mà test này không kiểm.
+ * test). Dòng nào khác là test đỏ — tài liệu không được có bước mà test này không kiểm. Tiền tố
+ * `sudo -u www-data ` (người chạy dòng đó trên máy chủ thật) được bỏ trước khi chạy: trong test mọi
+ * dòng chạy bằng cùng một tiến trình.
  */
 function installGuideRunShellLine(string $line): void
 {
+    $line = (string) preg_replace('/^sudo -u www-data /', '', $line);
+
     if (preg_match('#^rm -rf storage/app/private/(\S+)$#', $line, $rm) === 1) {
         foreach (glob(Storage::disk('private')->path('').$rm[1]) ?: [] as $path) {
             is_dir($path) ? File::deleteDirectory($path) : File::delete($path);
@@ -204,11 +208,13 @@ it('chuỗi "hết demo, chuyển sang dùng thật" của Bước 5, chạy đ�
     $lines = installGuideShellLines(installGuideStep5(), 'migrate:fresh');
 
     // Thứ tự là một phần của lời hứa: xoá trước, seed tham chiếu, dọn tệp, rồi mới tạo admin.
+    // Mọi dòng chạy bằng người dùng của PHP-FPM (CAI-DAT, hai người dùng): tệp hồ sơ mẫu thuộc về
+    // `www-data`, người quản trị không xoá được (lượt đi thử bản 1.0, 2026-10-08).
     expect($lines)->toBe([
-        'php artisan migrate:fresh --force',
-        'php artisan db:seed --force',
-        'rm -rf storage/app/private/[0-9]*',
-        'php artisan vkcrm:create-admin',
+        'sudo -u www-data php artisan migrate:fresh --force',
+        'sudo -u www-data php artisan db:seed --force',
+        'sudo -u www-data rm -rf storage/app/private/[0-9]*',
+        'sudo -u www-data php artisan vkcrm:create-admin',
     ]);
 
     $originalDefault = config('database.default');

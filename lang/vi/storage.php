@@ -123,13 +123,13 @@ return [
         'enable' => [
             'enabled' => 'Đã bật kho tài liệu lúc :at. Từ giờ tệp MỚI tự lên kho; tệp cũ chỉ đi qua vkcrm:storage:migrate.',
             'already' => 'Kho tài liệu đã bật từ :at. Không dời mốc (dời mốc làm tệp tạo giữa hai mốc không bao giờ được đẩy).',
-            'not_google_drive' => 'Không bật: công tắc DOCUMENT_STORAGE (đọc sau php artisan optimize) chưa là google_drive. Đặt DOCUMENT_STORAGE=google_drive, chạy php artisan optimize, rồi chạy lại.',
+            'not_google_drive' => 'Không bật: công tắc DOCUMENT_STORAGE (đọc sau php artisan optimize) chưa là google_drive. Đặt DOCUMENT_STORAGE=google_drive, chạy php artisan optimize và chmod 600 bootstrap/cache/config.php, rồi chạy lại.',
             'not_ready' => 'Không bật: kiểm tra sẵn sàng của kho còn dòng ĐỎ (chạy php artisan vkcrm:storage:check để xem đủ):',
             'dossier_missing' => 'Không bật: production chưa có ngày lập/nộp hồ sơ chuyển dữ liệu ra nước ngoài, cũng chưa có ý kiến luật sư cho chuyển trước. Ghi một trong hai trên trang "Kho tài liệu" (admin), rồi chạy lại.',
         ],
 
         'migrate' => [
-            'not_enabled' => 'Không chuyển: kho chưa bật. Đặt DOCUMENT_STORAGE=google_drive, chạy php artisan optimize và php artisan vkcrm:storage:enable trước. (Chạy thử --dry-run không cần bật.)',
+            'not_enabled' => 'Không chuyển: kho chưa bật. Đặt DOCUMENT_STORAGE=google_drive, chạy php artisan optimize, chmod 600 bootstrap/cache/config.php và php artisan vkcrm:storage:enable trước. (Chạy thử --dry-run không cần bật.)',
             'not_ready' => 'Không chuyển: kiểm tra sẵn sàng của kho còn dòng ĐỎ:',
             'dossier_missing' => 'Không chuyển: production không còn ngày lập/nộp hồ sơ chuyển dữ liệu ra nước ngoài, cũng không còn ý kiến luật sư cho chuyển trước. Ghi lại một trong hai trên trang "Kho tài liệu" (admin), rồi chạy lại.',
             'pushed' => 'Đã chuyển lên kho: :count tệp, :bytes.',
@@ -159,7 +159,7 @@ return [
         ],
 
         'rollback' => [
-            'not_local' => 'Không quay lui, không đổi gì: công tắc chưa là DOCUMENT_STORAGE=local. Đặt DOCUMENT_STORAGE=local và chạy php artisan optimize TRƯỚC — nếu không, tác vụ quét đẩy lại mọi tệp vừa quay lui trong 15 phút.',
+            'not_local' => 'Không quay lui, không đổi gì: công tắc chưa là DOCUMENT_STORAGE=local. Đặt DOCUMENT_STORAGE=local, chạy php artisan optimize và chmod 600 bootstrap/cache/config.php TRƯỚC — nếu không, tác vụ quét đẩy lại mọi tệp vừa quay lui trong 15 phút.',
             'local' => 'Đổi về máy chủ bằng bản còn trong vùng đệm (không cần Drive): :count tệp.',
             'downloaded' => 'Tải về từ kho, đã kiểm md5, rồi đổi về máy chủ: :count tệp, :bytes.',
             'unreachable' => 'Chưa kéo về được :count tệp cần tải từ kho vì Drive không dùng được:',
@@ -187,7 +187,7 @@ return [
         ],
 
         'reindex' => [
-            'mismatch' => 'Không dựng lại: --drive và --root phải bằng GOOGLE_DRIVE_SHARED_DRIVE_ID và GOOGLE_DRIVE_ROOT_FOLDER_ID đang cấu hình. Đổi .env và chạy php artisan optimize trước.',
+            'mismatch' => 'Không dựng lại: --drive và --root phải bằng GOOGLE_DRIVE_SHARED_DRIVE_ID và GOOGLE_DRIVE_ROOT_FOLDER_ID đang cấu hình. Đổi .env, chạy php artisan optimize và chmod 600 bootstrap/cache/config.php trước.',
             'unreachable' => 'Không liệt kê được kho trên Drive: :error',
             'heading' => 'Đã dựng lại chỉ mục từ :files tệp trên Drive.',
             'heading_dry_run' => 'Chạy thử — không ghi gì. Danh sách Drive có :files tệp.',

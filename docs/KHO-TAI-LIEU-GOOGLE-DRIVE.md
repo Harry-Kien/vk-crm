@@ -58,7 +58,7 @@ hoặc mọi quản trị viên đang hoạt động) — mỗi loại sự cố
 | 8 | **Không thêm ai khác. Không chia sẻ tệp hay thư mục nào.** Tài khoản siêu quản trị đã tạo bộ nhớ là Người quản lý dự phòng | `drive_sharing`, `storage.health` |
 | 9 | **Đưa khoá lên máy chủ** (người cài đặt làm cùng chủ văn phòng). Xoá tệp trên máy tính cá nhân, **cả trong thùng rác**. Không gửi khoá qua email, Zalo hay Drive. Mất khoá thì tạo khoá mới (bước 5) và xoá khoá cũ. <br>• **VPS:** `/etc/vkcrm/google-drive-key.json`, chủ sở hữu `root`, nhóm PHP-FPM (ví dụ `www-data`), `chmod 0440`. <br>• **Shared hosting:** `/home/<tài khoản>/.config/vkcrm/google-drive-key.json` (ngoài thư mục mã nguồn, ngoài `public_html`), `chmod 700 /home/<tài khoản>/.config/vkcrm`, `chmod 0400` tệp khoá. Ghi đường dẫn TUYỆT ĐỐI vào `.env`: PHP không hiểu `~` | `drive_credentials` |
 | 10 | **Gửi người cài đặt**: mã Shared Drive (phần cuối URL `drive.google.com/drive/folders/<MÃ>` khi mở Shared Drive), email tài khoản dịch vụ, danh sách thành viên được phép kèm vai (email dự phòng `:organizer`, email văn phòng `:reader`) | — |
-| 11 | Người cài đặt điền `.env` (**giữ** `DOCUMENT_STORAGE=local`): `GOOGLE_DRIVE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_SHARED_DRIVE_ID`, `GOOGLE_DRIVE_ALLOWED_MEMBERS`; chạy `php artisan optimize` rồi `php artisan vkcrm:storage:init` (tạo thư mục gốc `vkcrm-<APP_ENV>` và in mã của nó); điền `GOOGLE_DRIVE_ROOT_FOLDER_ID`; `php artisan optimize`; chạy `php artisan vkcrm:storage:check`: mọi dòng sẵn sàng phải XANH (riêng `drive_sharing` được VÀNG nếu bước 2 phải bật "người ngoài tổ chức") | `document_storage_driver`, `drive_credentials`, `drive_http_client`, `drive_reachable`, `drive_sharing`, `drive_root_folder`, `drive_roundtrip` |
+| 11 | Người cài đặt điền `.env` (**giữ** `DOCUMENT_STORAGE=local`): `GOOGLE_DRIVE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_SHARED_DRIVE_ID`, `GOOGLE_DRIVE_ALLOWED_MEMBERS`; chạy `php artisan optimize` và `chmod 600 bootstrap/cache/config.php` (sau MỖI `optimize`, như `docs/CAI-DAT.md` Bước 7: tệp cache là bản sao của `.env`, `optimize` tạo lại nó với quyền `644`) rồi `php artisan vkcrm:storage:init` (tạo thư mục gốc `vkcrm-<APP_ENV>` và in mã của nó); điền `GOOGLE_DRIVE_ROOT_FOLDER_ID`; `php artisan optimize`; `chmod 600 bootstrap/cache/config.php`; chạy `php artisan vkcrm:storage:check`: mọi dòng sẵn sàng phải XANH (riêng `drive_sharing` được VÀNG nếu bước 2 phải bật "người ngoài tổ chức") | `document_storage_driver`, `drive_credentials`, `drive_http_client`, `drive_reachable`, `drive_sharing`, `drive_root_folder`, `drive_roundtrip` |
 | 12 | **DPA và hồ sơ** (pháp lý): Admin console → Tài khoản → Cài đặt tài khoản → Pháp lý và tuân thủ → "Security and Privacy Additional Terms" → chấp nhận **Cloud Data Processing Addendum**, lưu PDF. Luật sư lập hồ sơ theo `docs/PHAP-LY-LUU-TRU-NUOC-NGOAI.md`. Ghi trên trang **"Kho tài liệu"** trong /admin: ngày DPA, và ngày hồ sơ **hoặc** ý kiến luật sư cho chuyển trước (ngày + căn cứ). Thiếu cả hai thì production không bật được kho | `data_transfer_dossier` |
 | 13 | **Mỗi tháng**: Admin console → Báo cáo → Kiểm tra và điều tra → Sự kiện nhật ký Drive, lọc theo Shared Drive kho. Chỉ được thấy tài khoản dịch vụ và tài khoản văn phòng. Thấy người khác thì báo ngay | `storage.health` (kiểm tra sức khoẻ mỗi giờ: thành viên và vai) |
 | 14 | **Xoay khoá** 12 tháng một lần, và ngay khi một người có quyền vào máy chủ nghỉ việc: bước 5 (khoá mới) → bước 9 (đặt lên máy chủ) → `php artisan vkcrm:storage:check` XANH → xoá khoá cũ trong Google Cloud | `drive_credentials`, `drive_reachable` |
@@ -86,13 +86,15 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
 2. Chủ văn phòng làm Phụ lục A cho Shared Drive production, và phần máy văn phòng khi có máy. Luật sư làm hồ sơ
    theo `docs/PHAP-LY-LUU-TRU-NUOC-NGOAI.md` và trả lời câu hỏi 3a (có được chuyển trước khi nộp hồ sơ không).
 3. Điền `.env` (vẫn `local`), `php artisan vkcrm:storage:init`, `php artisan optimize`,
+   `chmod 600 bootstrap/cache/config.php` (như sau mọi lần cache cấu hình trong tài liệu này: `docs/CAI-DAT.md` Bước 7),
    `php artisan vkcrm:storage:check`: mọi dòng sẵn sàng XANH.
 4. Trên trang **"Kho tài liệu"**: ghi ngày DPA, và ngày hồ sơ **hoặc** ý kiến luật sư cho chuyển trước. Thiếu thì
    bước 6 bị từ chối (`data_transfer_dossier` ĐỎ).
 5. `php artisan vkcrm:storage:migrate --dry-run`: ghi số tệp, dung lượng, thời gian ước tính, chỗ trống máy chủ.
    Không cần bật kho. Lệnh đo tốc độ bằng một tệp thăm dò 1 MiB (`preflight~…`) tải lên thư mục gốc rồi cho vào
    thùng rác; không media nào đổi, không dòng chỉ mục nào. Kho chưa cấu hình thì in "không đo được tốc độ".
-6. Đặt `DOCUMENT_STORAGE=google_drive`, `php artisan optimize`, rồi `php artisan vkcrm:storage:enable`.
+6. Đặt `DOCUMENT_STORAGE=google_drive`, `php artisan optimize`, `chmod 600 bootstrap/cache/config.php`, rồi
+   `php artisan vkcrm:storage:enable`.
    - Mã thoát 2 khi công tắc chưa là `google_drive`, khi phần **sẵn sàng** của `vkcrm:storage:check` còn dòng
      ĐỎ (lệnh in các dòng đó; dòng trạng thái `document_storage_enabled` ĐỎ trước lúc bật là đúng, không chặn), hay khi production thiếu ngày hồ sơ lẫn ý kiến cho chuyển trước (bước 4). Chạy lại khi đã bật thì in
      mốc cũ, mã 0, **không** dời mốc.
@@ -123,7 +125,7 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
     có biên nhận văn phòng khớp md5 từ 24 giờ trở lên. Chưa có máy văn phòng thì không dọn gì
     (`document_office_copy` VÀNG nhắc điều đó).
 11. **Quay lui**, bất cứ lúc nào, **đúng thứ tự này**:
-    1. đặt `DOCUMENT_STORAGE=local`, `php artisan optimize`. **Trước tiên**: `rollback` từ chối khi công tắc còn
+    1. đặt `DOCUMENT_STORAGE=local`, `php artisan optimize`, `chmod 600 bootstrap/cache/config.php`. **Trước tiên**: `rollback` từ chối khi công tắc còn
        `google_drive`, vì nếu không, tác vụ quét đẩy lại mọi tệp vừa quay lui trong vòng 15 phút;
     2. `php artisan vkcrm:storage:rollback`. Lệnh xoá mốc bật kho trước tiên. Tệp còn bản cục bộ (md5 khớp) được
        đổi về ngay, không cần Drive; tệp đã dọn được tải về một tệp tạm, kiểm md5, rồi mới đặt vào chỗ (cần khoá
@@ -149,7 +151,7 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
   cho tệp thừa vào thùng rác trên Drive; thư mục vùng đệm mồ côi thì người vận hành xoá tay.
 - `php artisan vkcrm:storage:reindex --drive=<mã Shared Drive> --root=<mã thư mục gốc> [--dry-run]` — dựng lại
   chỉ mục từ danh sách tệp trên Drive (khôi phục CSDL cũ, hay chuyển sang Shared Drive mới). Hai mã phải bằng
-  `GOOGLE_DRIVE_SHARED_DRIVE_ID`/`GOOGLE_DRIVE_ROOT_FOLDER_ID` đang cấu hình (đổi `.env` và `optimize` trước),
+  `GOOGLE_DRIVE_SHARED_DRIVE_ID`/`GOOGLE_DRIVE_ROOT_FOLDER_ID` đang cấu hình (đổi `.env`, `optimize` và `chmod 600 bootstrap/cache/config.php` trước),
   nếu không mã thoát 2. Chạy `--dry-run` trước và đọc số đếm. Lệnh chỉ ghi tệp có md5 bằng md5 đã ghi của media
   (thế hệ cao nhất khớp); tệp trùng tên, thế hệ khác, tệp không còn media được báo, không ghi, không xoá. Dòng của
   Shared Drive cũ thành `superseded`, không bị xoá. Thư mục tháng có sẵn vào `drive_folders`.

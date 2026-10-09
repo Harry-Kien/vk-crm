@@ -283,8 +283,11 @@ class TeamMember extends Page implements HasTable
                 TextColumn::make('code')
                     ->label(__('matters.fields.code'))
                     ->sortable(),
+                // Lượt quét trước bản 1.0 (rà soát cuối M13, T5 m2): tên khách là nội dung hồ sơ cùng lý lẽ
+                // với cột tiêu đề — cùng cổng `matter.view`.
                 TextColumn::make('client.name')
-                    ->label(__('matters.fields.client')),
+                    ->label(__('matters.fields.client'))
+                    ->visible(fn (): bool => Gate::forUser($this->viewer())->allows(Permission::MatterView->value)),
                 TextColumn::make('title')
                     ->label(__('matters.fields.title'))
                     ->wrap()
@@ -363,18 +366,20 @@ class TeamMember extends Page implements HasTable
             ],
             'metrics' => self::metrics($row),
             'mix' => app(BuildMatterTypeMix::class)->handle($viewer, $subject),
-            'lists' => $this->lists($viewer, $subject, $row),
-            'explanations' => $this->explanations(),
+            'lists' => $lists = $this->lists($viewer, $subject, $row),
+            'explanations' => $this->explanations(hasLists: $lists !== []),
         ];
     }
 
     /**
      * Câu giải thích của mọi con số trên trang (R6): N1–N11 và "Không áp dụng" theo thứ tự đầu trang,
-     * rồi cơ cấu lĩnh vực và ba danh sách.
+     * rồi cơ cấu lĩnh vực và ba danh sách — câu về danh sách CHỈ khi trang có ít nhất một danh sách
+     * (`$hasLists`; lượt quét trước bản 1.0, rà soát cuối M13 T5 m3: người không có `matter.view` hay
+     * `checklist.review` không có danh sách nào, nên không đọc câu giải thích chúng).
      *
      * @return list<array{label: string, sentence: string}>
      */
-    private function explanations(): array
+    private function explanations(bool $hasLists): array
     {
         return [
             ...array_map(fn (string $code): array => [
@@ -382,7 +387,7 @@ class TeamMember extends Page implements HasTable
                 'sentence' => __("performance.explain.{$code}"),
             ], self::EXPLAINED_CODES),
             ['label' => __('performance.team_member.mix.label'), 'sentence' => __('performance.team_member.mix.explain')],
-            ['label' => __('performance.team_member.lists.label'), 'sentence' => __('performance.team_member.lists.explain', ['limit' => self::LIST_LIMIT])],
+            ...($hasLists ? [['label' => __('performance.team_member.lists.label'), 'sentence' => __('performance.team_member.lists.explain', ['limit' => self::LIST_LIMIT])]] : []),
             ['label' => __('performance.trend.label'), 'sentence' => __('performance.trend.explain', ['days' => BuildPerformanceTrend::MEMBER_PAGE_DAYS])],
             ...PerformanceCache::explanations(),
         ];

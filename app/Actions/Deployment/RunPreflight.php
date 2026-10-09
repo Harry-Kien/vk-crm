@@ -5,6 +5,7 @@ namespace App\Actions\Deployment;
 use App\Actions\Storage\StorageReadiness;
 use App\Enums\PreflightLevel;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
+use App\Models\IntakeRequest;
 use App\Models\User;
 use App\Support\Backup\RcloneProcess;
 use App\Support\Billing\ScheduleTotal;
@@ -74,6 +75,7 @@ class RunPreflight
         }
 
         array_push($rows, ...$this->backupNumericEnvRows());
+        array_push($rows, ...$this->prospectRetentionRows());
 
         $rows[] = $this->billingInvariantsRow();
 
@@ -149,6 +151,7 @@ class RunPreflight
         return [
             $this->trustedProxiesRow(),
             $this->heartbeatUrlRow(),
+            ...$this->mailSchemeRows(),
             $this->sessionSecureCookieRow(),
             $this->appDebugRow(),
             $this->demoAccountsRow(),
@@ -356,6 +359,38 @@ class RunPreflight
         return filled(config('vkcrm.heartbeat_url'))
             ? $this->row('heartbeat_url', PreflightLevel::Green, __('preflight.heartbeat_url_ok'))
             : $this->row('heartbeat_url', PreflightLevel::Red, __('preflight.heartbeat_url_missing'));
+    }
+
+    /** Những `MAIL_SCHEME` mà transport SMTP của Laravel (Symfony Mailer) nhận; trống = để Laravel tự chọn. */
+    private const SUPPORTED_MAIL_SCHEMES = ['smtp', 'smtps'];
+
+    /**
+     * Lượt đọc lạnh hướng dẫn cài của bản 1.0 (§14 mục 8): bảng điều khiển email ghi "TLS/SSL" và
+     * hướng dẫn cũ viết `MAIL_ENCRYPTION=tls`, nên người cài dễ ghi `MAIL_SCHEME=tls`. Transport SMTP
+     * của Symfony Mailer chỉ nhận đúng `smtp`/`smtps`; mọi giá trị khác làm MỌI thư hỏng ngay lúc dựng
+     * kết nối (`UnsupportedSchemeException`) — ĐỎ, nêu giá trị. Trống (`null`, chuỗi rỗng): Laravel tự
+     * chọn theo cổng — XANH. Chỉ khi mailer mặc định dùng transport `smtp`: mailer khác không đọc biến
+     * này, nên không dòng nào. Đọc qua `config()`, nên vẫn kiểm được sau `config:cache`.
+     *
+     * @return list<array{key: string, level: PreflightLevel, message: string}>
+     */
+    private function mailSchemeRows(): array
+    {
+        $mailer = (string) config('mail.default');
+
+        if (config("mail.mailers.{$mailer}.transport") !== 'smtp') {
+            return [];
+        }
+
+        $scheme = config("mail.mailers.{$mailer}.scheme");
+
+        if (blank($scheme) || in_array($scheme, self::SUPPORTED_MAIL_SCHEMES, true)) {
+            return [$this->row('mail_scheme', PreflightLevel::Green, __('preflight.mail_scheme_ok'))];
+        }
+
+        return [$this->row('mail_scheme', PreflightLevel::Red, __('preflight.mail_scheme_unsupported', [
+            'value' => (string) $scheme,
+        ]))];
     }
 
     /**
@@ -657,6 +692,35 @@ class RunPreflight
         }
 
         return $this->row('mariadb_dump', PreflightLevel::Red, __('preflight.mariadb_dump_missing'));
+    }
+
+    /**
+     * `PROSPECT_RETENTION_MONTHS` CÓ giá trị mà {@see IntakeRequest::parseRetentionMonths()} không nhận
+     * (chữ, 0, số âm, số lẻ, quá trần {@see IntakeRequest::MAX_RETENTION_MONTHS}) → một dòng VÀNG nêu giá
+     * trị bị bỏ qua và số tháng đang dùng thật ({@see IntakeRequest::retentionMonths()}, tức mặc định).
+     * Lượt quét trước bản 1.0, rà soát Task 1 (m4): `2400` — gõ thừa một số 0 khi muốn giữ LÂU hơn —
+     * lặng lẽ thành 24 tháng, mà ẩn danh (`prospects.anonymise`) không lùi lại được. VÀNG chứ không ĐỎ:
+     * không màn hình nào vỡ, và hạn lưu là việc của chủ văn phòng, không phải điều kiện mở cổng.
+     *
+     * Ở MỌI `APP_ENV` như {@see self::backupNumericEnvRows()}. Đọc qua `config()` (tệp cấu hình không ép
+     * kiểu khoá này), nên vẫn kiểm được sau `config:cache`. Vắng mặt hoặc để trống: không dòng nào —
+     * đó là cách được ghi trong `.env.example` để dùng mặc định.
+     *
+     * @return list<array{key: string, level: PreflightLevel, message: string}>
+     */
+    private function prospectRetentionRows(): array
+    {
+        $raw = config('vkcrm.prospect_retention_months');
+
+        if (trim((string) $raw) === '' || IntakeRequest::parseRetentionMonths($raw) !== null) {
+            return [];
+        }
+
+        return [$this->row('prospect_retention_months', PreflightLevel::Yellow, __('preflight.prospect_retention_ignored', [
+            'value' => (string) $raw,
+            'months' => IntakeRequest::retentionMonths(),
+            'max' => IntakeRequest::MAX_RETENTION_MONTHS,
+        ]))];
     }
 
     /**

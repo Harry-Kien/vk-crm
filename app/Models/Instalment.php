@@ -338,6 +338,8 @@ class Instalment extends Model
      */
     protected function internalAttributes(): array
     {
-        return ['waived_reason', 'note', 'waived_by', 'percent_basis', 'triggered_by_stage_log_id', 'created_by', 'updated_by'];
+        // `trigger_stage_key`: khoá giai đoạn thô là định danh nội bộ (SPEC §8); cổng nói giai đoạn bằng
+        // tên (lượt quét §10 trước bản 1.0, minor m4 của M9 Task 10).
+        return ['waived_reason', 'note', 'waived_by', 'percent_basis', 'trigger_stage_key', 'triggered_by_stage_log_id', 'created_by', 'updated_by'];
     }
 }

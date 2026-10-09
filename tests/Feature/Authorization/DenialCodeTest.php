@@ -159,19 +159,16 @@ function editClientSnapshot(Client $client): string
 }
 
 /**
- * Cái mà `isPersistent: true` thật sự mua được. `Filament\Http\Middleware\Authenticate` tự nó
- * đã là middleware bền (Filament đăng ký sẵn ở `FilamentServiceProvider`), nên phiên của một
- * tài khoản vừa bị vô hiệu hoá bị chặn ngay ở request cập nhật kế tiếp dù ta có làm gì hay
- * không — SPEC §10.9 được giữ bởi Filament, không bởi middleware này. Thứ middleware này thêm
- * vào là HÌNH DẠNG câu trả lời của SPEC §10.10: nó đứng TRƯỚC `Authenticate` trong cùng đường
- * ống bền nên đổi cái 403 đó thành 404.
- *
- * Đã đo bằng mutation: bỏ `isPersistent` ở CẢ HAI panel thì test này đỏ với "Expected response
- * status code [404] but received 403" — 403, không phải 200, và không lần nào rò dữ liệu khách
- * hàng. Dòng `leaks` dưới đây vì vậy là lưới chắn cho một hồi quy nặng hơn, không phải mô tả
- * hành vi trước khi sửa.
+ * Tài khoản vừa bị vô hiệu hoá gửi request cập nhật kế tiếp. Trước lượt quét §10 trước bản 1.0,
+ * `Authenticate` (middleware bền của Filament) từ chối bằng 403 và `isPersistent: true` của middleware
+ * 404 đổi nó thành 404 — nhưng phiên VẪN đăng nhập. Từ lượt quét đó, `EndDisabledStaffSessions` (nhóm
+ * `web`, mà route cập nhật của Livewire dùng) đăng xuất guard `web` TRƯỚC `Authenticate`, nên request
+ * này là request của một khách vãng lai: 401 cho request JSON, như mọi người chưa đăng nhập — câu trả
+ * lời không phụ thuộc bản ghi nào (§10.10 không bị chạm), không dữ liệu, và phiên không còn (§10.9,
+ * `tests/Feature/Security/SessionCutSpec109Test.php`). Phần §10.10 của `isPersistent` vẫn được ghim
+ * bằng test "wrong panel" ngay dưới.
  */
-it('answers a livewire update from a deactivated account with 404', function () {
+it('signs a deactivated account out on its next livewire update and answers like any guest, without data', function () {
     $this->actingAs($this->admin, 'web');
     $snapshot = editClientSnapshot($this->client);
 
@@ -180,11 +177,15 @@ it('answers a livewire update from a deactivated account with 404', function () 
 
     $response = postPanelLivewireUpdate($snapshot);
 
-    $response->assertNotFound();
-    expect($response->getContent())->not->toContain($this->client->name);
+    $response->assertUnauthorized();
+    expect($response->getContent())->not->toContain($this->client->name)
+        ->and(auth('web')->check())->toBeFalse();
 });
 
-/** Cùng luật cho request cập nhật: khách cầm snapshot của /admin cũng chỉ nhận 404. */
+/**
+ * Cùng luật cho request cập nhật: khách cầm snapshot của /admin cũng chỉ nhận 404. Đây là chỗ đo phần
+ * §10.10 của `isPersistent: true`: bỏ nó ở cả hai panel thì `Authenticate` trả 403 thay vì 404.
+ */
 it('answers a livewire update from the wrong panel with 404', function () {
     $this->actingAs($this->admin, 'web');
     $snapshot = editClientSnapshot($this->client);

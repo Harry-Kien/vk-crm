@@ -165,7 +165,17 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
   - đĩa `private` và `.htaccess`, cùng đoạn cấu hình nginx tương ứng (hôm nay chỉ là chú thích, cần đưa vào `README.md`);
   - chữ ký URL 5 phút vẫn kèm kiểm tra policy trong controller.
 
-### - [ ] Task 5 — Sao lưu và khôi phục (§10 mục 8, R3)
+### - [x] Task 5 — Sao lưu và khôi phục (§10 mục 8, R3)
+
+> **Xong ở M8a** (kế hoạch `2026-09-26-m8a-backup-csp.md`, gộp a879d33), đối chiếu từng gạch ngày 2026-10-08
+> (nghiệm thu bản 1.0): đích rclone/Google Drive + `vkcrm:backup-check` (`BackupCheckCommandTest`); hai disk, một
+> disk hỏng thì disk kia vẫn nhận và thư nêu đúng disk (`BackupRunIntegrationTest`); `proc_open` và
+> `mariadb-dump`/`mysqldump` trong `vkcrm:preflight` (`RunPreflight`); archive mã hoá AES-256, giữ 30 bản
+> (`GuardBackupEncryptionTest`, `BackupCleanupTest`); lịch 02:00/08:00 ghim giờ (`Schedule/BackupScheduleTest`);
+> thư lỗi tiếng Việt qua sổ thư và hàng đợi (`BackupNotificationsTest`); phán quyết gói bàn giao: giữ trong bản
+> sao lưu cho tới khi chủ văn phòng chọn (`docs/SAO-LUU-KHOI-PHUC.md`, PROGRESS "Ghi chú M7"); khôi phục thật có
+> số đo và bước giải mã `id_number` (`tools/backup/restore-drill.sh`, bảng số đo trong `docs/SAO-LUU-KHOI-PHUC.md`).
+> Khôi phục thử trên máy chủ THẬT là việc của chủ văn phòng sau khi có máy chủ.
 
 - Đích theo R3: Google Drive ngay; máy chủ văn phòng thêm sau bằng cấu hình. Cài adapter Google Drive (hoặc phương án `rclone`) sau khi `--dry-run` đạt. Adapter SFTP chỉ cài khi văn phòng có máy chủ.
 - Test: một lượt sao lưu ra hai disk giả lập đều có bản; một disk hỏng thì disk kia vẫn nhận bản, và thư báo lỗi nêu đúng disk hỏng.
@@ -176,12 +186,15 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - Phán quyết có loại tài liệu gói bàn giao của M7 khỏi bản sao hay không (nó là bản sao thứ hai của tệp đã có).
 - Một lần khôi phục thật theo R3, có số đo và có bước giải mã `id_number`.
 
-### - [ ] Task 6 — Quét lại §10 mục 9 và 10 trên toàn hệ thống (R5)
+### - [x] Task 6 — Quét lại §10 mục 9 và 10 trên toàn hệ thống (R5)
 
 - Tài khoản bị vô hiệu mất phiên ở request kế tiếp, gồm đường Livewire và đường vô hiệu hoá tự động của `ExpireClientAccess` (M7 Task 5).
 - Mục 10: không tồn tại và không có quyền phải **không phân biệt được**, ở mọi màn hình đã có sau M0–M7 và M6.5, không chỉ ở portal.
   - Danh sách màn hình dựng từ router, không từ trí nhớ.
   - Ghi rõ ngoại lệ có chủ đích: chữ ký URL sai trả 403 (`routes/web.php`).
+- **Làm ở làn v1 (2026-10-08, trước bản 1.0):** `tests/Feature/Security/SessionCutSpec109Test.php`,
+  `tests/Feature/Security/NotFoundSpec1010Test.php`; kết quả và mọi việc mang sang ở `docs/PROGRESS.md`, Ghi chú M8,
+  "Lượt quét toàn hệ thống trước bản 1.0".
 
 ### - [x] Task 7 — `README.md` và hướng dẫn triển khai (§14 mục 8, R6)
 
@@ -196,7 +209,22 @@ Mở rộng `README.md` và `docs/CAI-DAT.md`. Nội dung:
 
 Nghiệm thu bằng một agent chưa đọc repo.
 
+> Ghi chú bản 1.0 (2026-10-08, sửa 2026-10-09): lượt nghiệm thu đó chưa do một agent chưa từng đọc kho đi. Lượt
+> đọc lạnh MÔ PHỎNG của làn v1 (agent đã đọc kho) KHÔNG thay được câu trên: sổ điều phối không ghi quyết định
+> nhận nó (rà soát cuối làn v1, I1) — xem Task 8 và PROGRESS, "Nghiệm thu bản 1.0".
+
 ### - [ ] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
+
+> **Làm ở làn `v1-acceptance-b` (tiêu chí 1–7) và làn `v1-acceptance` (đối chiếu trên cây đã gộp, tiêu chí 8),
+> 2026-10-08**, bản 1.0 = M0–M10 + M12 + M13 (M11, M14 gắn sau). Bằng chứng ở PROGRESS, mục "Nghiệm thu bản 1.0".
+> Tiêu chí 8 CHỜ (2026-10-09, rà soát cuối làn v1, I1): R6 đòi một agent chưa từng đọc kho. Agent làm Task 2 của
+> làn v1 (đã đọc kho) đã đi một lượt đọc lạnh MÔ PHỎNG theo đúng chữ của `README.md` + `docs/CAI-DAT.md` trên một
+> máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên bản mới", mỗi chỗ vấp sửa kèm một test
+> (`tests/Feature/Acceptance/InstallGuideColdReadTest.php`); nhưng lời giao duy nhất của người điều phối trong sổ
+> điều phối là "agent chưa từng đọc kho", và quyết định nhận lượt mô phỏng thay cho nó không được ghi ở đâu. Task
+> này tick khi lượt đọc của agent chưa từng đọc kho xong, hoặc khi người điều phối ghi quyết định đó vào sổ. `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
+> `bin/coverage` — một container `docker run --rm` bỏ đi, cài `pcov` bên trong, không đổi image, không đổi máy;
+> tóm tắt bằng `tools/coverage/summary.php`. CI giữ `coverage: none`.
 
 - Cài `pcov` trong container và CI. CI hôm nay đặt `coverage: none` (`spec-gap/spec-gap-10`).
 - Đo độ phủ `app/Actions/` và `app/Policies/` ≥ 80%, dán số.

@@ -36,6 +36,10 @@ use Throwable;
  * một câu, trên cùng một hồ sơ, bằng cùng một định nghĩa. `pending_review` KHÔNG phải "thiếu"
  * (khách đã nộp, quả bóng ở sân văn phòng) — ghim bằng test.
  *
+ * Thư khách đọc một tập HẸP hơn của cùng lớp: {@see ChecklistProgress::itemsToRemindClientOf()} bỏ đầu
+ * mục bản hợp đồng đã ký khi hợp đồng còn nháp hoặc chưa có (lượt quét §10 trước bản 1.0); tập đó rỗng
+ * thì không xếp job thư, còn thông báo 14 ngày cho luật sư vẫn đọc mọi đầu mục còn thiếu.
+ *
  * # Người nhận khách: R12 + chống trùng 3 ngày theo TỪNG người (R3 của kế hoạch M6)
  *
  * {@see ResolveClientRecipients} là chỗ DUY NHẤT nói tài khoản nào nhận thư về một hồ sơ: R12, rồi
@@ -176,7 +180,10 @@ class RemindMissingDocuments
             $resolver = app(ResolveClientRecipients::class);
             $accounts = $resolver->onPortal($matter, $resolver->recipientsFor($matter->client_id));
 
-            if ($accounts->contains(fn (ClientUser $account): bool => ! self::alreadyDelivered($matter, $account))) {
+            // Thư chỉ đi khi còn đầu mục ĐƯỢC ĐÒI khách (`itemsToRemindClientOf()` — không đòi bản hợp
+            // đồng đã ký khi hợp đồng còn nháp); thông báo 14 ngày ở trên vẫn đọc mọi đầu mục còn thiếu.
+            if (ChecklistProgress::itemsToRemindClientOf($matter)->isNotEmpty()
+                && $accounts->contains(fn (ClientUser $account): bool => ! self::alreadyDelivered($matter, $account))) {
                 // `->afterCommit()`: Laravel hoãn việc đẩy job tới khi transaction NÀY thật sự commit.
                 // Job tự đọc lại hồ sơ, danh sách còn thiếu VÀ người nhận lúc nó thật sự chạy — không
                 // tin ảnh chụp ở đây (xem docblock job).

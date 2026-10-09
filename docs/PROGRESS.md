@@ -11,13 +11,14 @@
 | M6 Thông báo + tác vụ định kỳ + heartbeat | ✅ Xong | 2026-10-01 | Task 1, 2, 5, 6 và một phần Task 3 có từ trước; phần còn lại (Task 3, 4, 7, 8, 9, 10) gộp từ làn `m6-rest` tại f491a2a. Suite 3438 xanh, CI xanh (SQLite + MariaDB). Thư cho khách (công bố tài liệu, từ chối giấy tờ, kích hoạt cổng, đã trả lời yêu cầu), báo nhân sự (yêu cầu/tệp mới, khách hỏi tiếp), CheckStaleMatters, RemindMissingDocuments, RemindUnseenUpdates, nút "Gửi lại" thư lỗi. Chi tiết và việc hoãn ở "Ghi chú M6" |
 | M6.5 Sửa lỗi quy trình | ✅ Xong | 2026-09-28 | Sửa 102 phát hiện của đợt kiểm tra 2026-09-24 (`docs/audits/2026-09-24-quy-trinh.md`: 90 xác nhận, 12 tranh chấp; bảng mã → task ở "Ghi chú M6.5") và CI đỏ từ 2026-09-22. 21 task, mỗi task qua rà soát Opus; rà soát toàn nhánh chia 3 vùng (1 Critical: nhật ký hệ thống lộ vụ restricted cho trưởng phòng) → 2 đợt sửa. Cổng merge: `test:mariadb` 2234/2234 xanh (2 bài đỏ do chạy chồng một CSDL test, chạy lại riêng 26/26 xanh), full suite 2228 xanh, pint sạch. Việc mang sang M8 Task 6: xem cuối "Ghi chú M6.5" |
 | M7 Bàn giao + lưu trữ + liên lạc + tìm kiếm | ✅ Xong | 2026-10-03 | Gộp 35ec313 (làn `m7-handover` + làn song song `m7-extras`), CI xanh (SQLite + MariaDB); suite 4317 xanh, MariaDB 636 xanh. Bàn giao một vụ và hàng loạt, lưu trữ khi kết thúc, gói bàn giao hồ sơ (MUC-LUC.pdf + zip), hết hạn tra cứu của khách, cảnh báo hạn lưu + ghi quyết định tiêu huỷ, rút tài liệu đã công bố, nhật ký liên lạc + nhật ký riêng của vụ, tìm kiếm, trang "Thông tin văn phòng". Việc sau gộp (thư gói bàn giao cho khách, pcntl trong preflight) đã gộp 75f1d40. Chi tiết ở "Ghi chú M7" |
-| M8 Bảo mật + backup + README triển khai | 🟡 Gần xong | 2026-10-01 | M8a (a879d33) và làn `m8b-security` (035c4d3) đã trên `main`, CI xanh: sao lưu mã hoá + diễn tập khôi phục, CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` chặn go-live + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Còn: Task 6 (rà soát §10 toàn hệ thống) và Task 8 (nghiệm thu) sau khi mọi làn đã gộp |
+| M8 Bảo mật + backup + README triển khai | 🟡 Còn §14 mục 8 | 2026-10-09 | M8a (a879d33) và làn `m8b-security` (035c4d3): sao lưu mã hoá + diễn tập khôi phục (Task 5, đối chiếu lại ngày 2026-10-08), CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Task 6 (rà soát §10 mục 9–10 toàn hệ thống) ở làn `v1-acceptance`, đo lại trên cây đã gộp M11 và M14 (`main` eefa40f): route M11 và trang "Kho tài liệu" của M14 đã xếp nhóm §10.10, nhân sự bị vô hiệu bị cắt ở `/oauth/authorize` và `/mcp`, đường tải tài liệu nằm trên kho Google Drive (M14) được quét lại cho §10.9 và §10.10. Task 8 (nghiệm thu SPEC §14): tiêu chí 1–7 có bằng chứng trên cây đã gộp M11 và M14 — cả bộ 8799 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây TRƯỚC khi gộp M11 và M14 (6448 xanh). M11 và M14 nằm trong cây được đo nhưng ngoài phạm vi nghiệm thu bản 1.0. Tiêu chí 8 CHỜ lượt đọc của một agent chưa từng đọc kho (R6), hoặc quyết định của người điều phối ghi vào sổ điều phối nhận lượt đọc lạnh mô phỏng (agent đã đọc kho) thay cho nó. Chi tiết ở "Nghiệm thu bản 1.0" |
 | M11 Máy chủ MCP (ChatGPT, Claude) | ✅ Xong | 2026-10-09 | Gộp làn `m11-mcp-server` (Task 0–17; Task 10, 11, 12, 16 làm song song ở làn `m11-mcp-tools`) cùng vòng sửa của rà soát cuối làn: nhân sự kết nối ChatGPT/Claude bằng tài khoản AI của mình qua OAuth (Passport 13.8), công tắc toàn văn phòng và từng người (mặc định TẮT), cờ AI từng vụ (mặc định không cho phép), 11 tool đọc + 4 tool ghi có mã xác nhận hai bước, nhật ký + giới hạn tần suất, trang "Kết nối AI", chính sách AI và hướng dẫn kết nối. Suite sau gộp 7514 xanh (một test hỏng theo ngày 2026-10-09 sửa trong lần gộp). Rà soát gộp ba góc nhìn: mục Nâng cấp của CAI-DAT tự mâu thuẫn — sửa trong lần gộp. Kết nối thật với ChatGPT/Claude: CHỜ máy chủ HTTPS công khai và tài khoản AI của văn phòng; hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025) trước khi bật |
 | M9 Hợp đồng dịch vụ + đợt thanh toán | ✅ Xong | 2026-10-04 | Gộp a65ba4c (Task 2–5, 7–9, 12), 4280a4c (làn `m9-rest`: Task 1, 11) và lần gộp làn `m9-final` (Task 6 đợt thu theo giai đoạn + đối soát 07:00, Task 10 khối thanh toán trên cổng khách + bảng kê trong gói bàn giao, Task 13 nghiệm thu toàn M9: dữ liệu mẫu, `billing:check-invariants` trong preflight, kịch bản nhập liệu khi đưa vào dùng); suite sau gộp 4519 xanh (32 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Việc nhỏ để lại (người nhận thư "gói sẵn sàng" theo quyền tải gói; ghi rõ bảng kê là ảnh chụp tại ngày lập gói) chuyển sang lượt quét M8 Task 6. Chi tiết ở "Ghi chú M9 → Làn m9f" |
 | M10 Tiếp nhận khách | ✅ Xong | 2026-10-04 | Gộp làn `m10-intake` (Task 1–8; Task 6, 7 làm song song ở làn `m10-t6`, `m10-t7`): phiếu tiếp nhận, kiểm tra xung đột lợi ích (Đỏ/Vàng/Xanh, khoá gọi lặp, nguồn thứ hai), thông báo bảo vệ dữ liệu (bản nháp chờ luật sư), chuyển thành khách + vụ việc (phí đã báo gợi ý vào hợp đồng), gộp/từ chối/xoá theo yêu cầu, đồng hồ phản hồi theo giờ làm việc, nhắc nội bộ mỗi 15 phút, ẩn danh tự động 03:30 theo hạn lưu, bảng điều khiển tiếp nhận, dữ liệu mẫu. Suite sau gộp 5242 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; bốn việc nhỏ (câu chữ hộp thoại xoá dữ liệu, khối hợp đồng trong bài nghiệm thu, đoạn nâng cấp M10 trong CAI-DAT, ghi chú §12) ở làn việc sau gộp `fu3`. Chi tiết ở "Ghi chú M10" |
 | M12 Ứng dụng điện thoại (PWA) + thông báo đẩy | ✅ Xong | 2026-10-07 | Gộp làn `m12-pwa-push` (Task 1–10 + vòng sửa của rà soát cuối làn): cài lên màn hình điện thoại (manifest, biểu tượng, service worker, trang ngoại tuyến, hướng dẫn cài), thông báo đẩy Web Push (khoá VAPID, đăng ký theo thiết bị, trang "Thông báo trên điện thoại", gỡ máy khi đăng xuất/cắt phiên, hàng đợi `push` + nhật ký gửi), nối vào bốn sự kiện của khách và bốn sự kiện của nhân sự (kể cả nhắc hạn, đợt thu quá hạn), "Gửi thử". Suite sau gộp 5790 xanh (33 bỏ qua, 1 risky có sẵn); composer audit sạch. Rà soát gộp ba góc nhìn: 2 lỗi xác nhận (đổi email cổng khách và "Đặt lại 2FA" chưa gỡ máy nhận thông báo) cùng các việc nhỏ chuyển sang làn việc sau gộp `fu4`. Kiểm tra trên máy thật (Android, iPhone): CHỜ CHỦ VĂN PHÒNG theo danh sách trong tài liệu |
 | M13 Theo dõi đội ngũ + hiệu suất | ✅ Xong | 2026-10-08 | Gộp làn `m13-team-performance` (Task 1–8; Task 3, 6 làm song song ở làn `m13-team-history`) cùng vòng sửa của rà soát cuối làn: quyền `performance.viewAny` (21 quyền), trang "Theo dõi đội ngũ" (N1–N11), trang của từng người, trang "Hiệu suất theo kỳ" (P1–P10, thời gian phản hồi theo giờ làm việc M10), lịch sử người giữ việc qua bàn giao, ảnh chụp số liệu 23:50 + biểu đồ 90 ngày; luật sư/chuyên viên chỉ thấy số của mình, không xếp hạng, không lộ vụ mật. Suite sau gộp 6273 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; việc nhỏ (seeder demo gửi thư bàn giao, câu chữ P8/biểu đồ so với "Kỳ đã đóng") chuyển sang làn nghiệm thu bản 1.0 |
 | M14 Google Drive làm kho tài liệu | ✅ Xong | 2026-10-09 | Gộp làn `m14-drive-storage` (Task 0–8; Task 5, 7 làm song song ở làn `m14-drive-ops`) cùng vòng sửa của rà soát cuối làn: công tắc `DOCUMENT_STORAGE` (mặc định `local` — máy chủ không dùng Drive không đổi gì), bộ kết nối Drive REST v3 của dự án + `google/auth`, đẩy tệp qua hàng đợi `storage` sau commit, tải về luôn đi qua CRM (kiểm quyền, cổng tiền M9, nhật ký tải) rồi mới mở luồng, gói bàn giao lấy từ Drive, trang 503 tiếng Việt, kiểm tra sẵn sàng + preflight + kiểm tra sức khoẻ hằng giờ, trang "Kho tài liệu", cổng hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025), lệnh bật/chuyển tệp cũ/kiểm/quay lui/dựng lại chỉ mục, bản sao ở máy chủ văn phòng có biên nhận. Suite sau gộp 8594 xanh. Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Chạy thật với Shared Drive và máy chủ văn phòng: CHỜ CHỦ VĂN PHÒNG (tài khoản dịch vụ Google Workspace, hồ sơ pháp lý) |
+| **Bản 1.0** (M0–M10 + M12 + M13) | 🟡 Còn §14 mục 8 | 2026-10-09 | Chủ văn phòng chốt 2026-10-08: M11, M14 gắn sau, không thuộc bản 1.0. Cả hai nay đã ở `main` — M11 (c166ec6) và M14 (eefa40f) — và đã gộp vào làn `v1-acceptance`: chúng NẰM TRONG cây được đo nhưng NGOÀI phạm vi nghiệm thu bản 1.0 (mỗi cái có nghiệm thu riêng của làn mình, dòng M11 và M14 ở trên); lượt quét §10.9/§10.10 của bản 1.0 phủ cả route M11, trang "Kho tài liệu" và đường tải tài liệu nằm trên kho của M14. Tiêu chí 1–7 của SPEC §14 có bằng chứng trên cây đã gộp M11 và M14 (làn `v1-acceptance` + `v1-acceptance-b`): cả bộ 8799 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây trước khi gộp M11 và M14; vòng migration thật trên MariaDB. Mục 8 (README + CAI-DAT) CHỜ: lượt đi theo kịch bản của làn v1b (ba chỗ vấp) và lượt đọc lạnh mô phỏng của làn v1 (mười chỗ vấp) đều do người đã đọc kho đi; R6 đòi một agent chưa từng đọc kho, và sổ điều phối không ghi quyết định nhận lượt mô phỏng thay cho nó. Chờ chủ văn phòng trước ngày mở cổng: máy chủ thật, ba thông tin pháp lý, đi tay trên Android/iPhone, luật sư duyệt thông báo bảo vệ dữ liệu và các hạn lưu, khôi phục thử trên máy chủ thật, gói bàn giao trong bản sao lưu. Chi tiết ở "Nghiệm thu bản 1.0" |
 
 **Thứ tự làm đã chốt với chủ văn phòng: M6.5 → phần còn lại của M6 → M7 → M8 → M11 → M9 → M10
 → M12** (ghi trong sổ tay điều phối M6.5 ngày 2026-09-25). Bảng trên xếp theo thứ tự này, không
@@ -2892,6 +2893,178 @@ test mới của bốn điểm trên: 5+1+2). `pint --test` sạch 599 tệp. Ba
     **2613 passed, 7 skipped, 0 failed** (11489 assertions, 1094 s; mốc trước 2604 — chênh +9 khớp
     số test mới 2+3+3+1); `test:mariadb` năm tệp đụng tới → 191 passed; `pint --test` sạch 639 tệp.
     Chi tiết ở `.superpowers/sdd/m8b/final-fix-report.md`, mục "## Fix round 1".
+
+### Lượt quét toàn hệ thống trước bản 1.0 (làn v1, Task 1 — M8 Task 6 và mọi việc mang sang, 2026-10-08)
+
+Chủ văn phòng chốt ngày 2026-10-08: **bản 1.0 = M0–M10 + M12 + M13** (M11 MCP và M14 Google Drive gắn sau). Làn
+`v1-acceptance` (worktree `D:\vkwt\lane-v1`), gốc `d54c445` (đỉnh làn M13 sau rà soát cuối, đã chứa `main`
+`7632242`). Brief: `.superpowers/sdd/v1/task-1-brief.md` (ngoài repo). Mỗi mục dưới đây: **sửa** (có test đỏ trước,
+xanh sau, mutation probe), **đã đóng trước** (kiểm lại, chỉ tên test), hoặc **ghi nhận** (lý do; việc của chủ văn
+phòng/luật sư nằm ở "Cần chủ văn phòng quyết" cuối mục).
+
+#### A1. §10.9 — tài khoản bị vô hiệu mất phiên ở request kế tiếp (R5), đo lại trên toàn hệ thống
+
+`tests/Feature/Security/SessionCutSpec109Test.php`: ba đường vô hiệu hoá tài khoản cổng (nút "Hoạt động" trên trang
+sửa tài khoản — qua Livewire; khách hàng bị xoá mềm; tác vụ đêm `client-access.expire` của M7 chạy bằng
+`schedule:test`) nhân bốn loại request kế tiếp của trình duyệt đang đăng nhập (tải trang hồ sơ trên cổng, request
+cập nhật Livewire của trang đang mở, `POST /portal/push/subscriptions` của M12, tải tài liệu bằng đường dẫn ký TRƯỚC
+lúc bị vô hiệu); và nhân sự bị vô hiệu trên trang sửa nhân sự với năm request (trang Tiếp nhận M10, "Theo dõi đội
+ngũ" M13, request Livewire của trang "Hiệu suất theo kỳ" M13, thiết bị M12, tải tài liệu). Mỗi ca khẳng định câu
+trả lời KHÔNG mang dữ liệu và phiên không còn đăng nhập; hai cặp dương (tài khoản còn hoạt động đi qua cùng các
+request, phiên còn nguyên).
+
+Hai lỗ, đã sửa:
+- **Route tải tài liệu** nằm ngoài panel nên `EnsurePortalAccountIsActive` không đứng trước nó: khách bị vô hiệu bấm
+  một đường dẫn ký từ trước nhận 404 nhưng phiên VẪN đăng nhập (3 ca đỏ). `DocumentDownloadController` gọi
+  `EnsurePortalAccountIsActive::endSession()` (tách ra từ middleware, cùng việc: đăng xuất guard `client`, huỷ phiên,
+  thay token, thông báo "tài khoản đã bị khoá"); câu trả lời vẫn 404.
+- **Nhân sự bị vô hiệu** nhận 404 ở mọi trang (`canAccessPanel()` sai) nhưng phiên vẫn đăng nhập — không tới được cả
+  trang đăng nhập, và bật lại tài khoản trả lại đúng phiên cũ (5 ca đỏ). Middleware mới `EndDisabledStaffSessions`
+  (đăng ký hai nơi như `RejectStaffSessionsFromBeforeReset`: nhóm `web` và middleware panel admin, sau
+  `StartSession`, trước `Authenticate`) đăng xuất guard `web` — không `invalidate()` cả phiên (cookie dùng chung với
+  cổng). Trang panel chuyển về `/admin/login`; request JSON (Livewire, thiết bị) nhận 401. `AdminPanelTest` "blocks
+  an inactive staff user" đổi thành "signs an inactive staff user out…" — đúng điều docblock cũ của chính test đó đã
+  hẹn ("câu trả lời tử tế cho họ là màn hình đăng nhập, thuộc về việc cài §10.9"). Ba test cũ ghim câu trả lời
+  404 cho request Livewire của nhân sự vừa bị vô hiệu (phiên vẫn còn) đỏ ở lần chạy cả bộ và được đổi theo phán
+  quyết này: `DenialCodeTest` (nay "signs a deactivated account out … answers like any guest": 401, không dữ liệu,
+  guard `web` trống; phần §10.10 của `isPersistent` vẫn đo bằng ca "wrong panel"), `SearchPageTest` (vế `inactive`
+  401 và đăng xuất, vế `role` giữ 404), `ErrorPageHomeLinkTest` (lần từ chối đổi sang "sai panel" để vẫn ra trang
+  lỗi 404 có nút về `/admin`). 401/302 ở đây là câu trả lời của mọi người chưa đăng nhập, không phụ thuộc bản ghi
+  nào — §10.10 không bị chạm.
+
+Không thuộc phiên: `manifest.webmanifest`, `sw.js`, trang ngoại tuyến (không đọc phiên), tệp tĩnh của Livewire.
+
+#### A2. §10.10 — "không tồn tại" và "không có quyền" không phân biệt được, danh sách dựng từ router
+
+`tests/Feature/Security/NotFoundSpec1010Test.php`. Test đầu đọc `Route::getRoutes()` và đòi MỌI route (gồm route
+Filament tự đăng ký, cổng khách, M10/M12/M13) nằm ở đúng một nhóm; một route mới chưa xếp nhóm làm test đỏ,
+và mọi route có tham số phải ở nhóm 1 hoặc là ngoại lệ có lý do.
+1. **Bản ghi theo id (13 route):** người không được xem mở id có thật và id bịa — cả hai 404, thân trang giống nhau
+   từng byte (sau khi bỏ token CSRF/nonce); cặp dương: người có quyền mở được đúng URL đó (13 ca). Thêm vụ
+   `restricted` với trưởng phòng.
+2. **Trang đóng với một vai (19 route):** người bị từ chối nhận đúng trang 404 của một đường dẫn không tồn tại dưới
+   `/admin`; admin mở được cả 19. Trong đó hai trang M13 (vòng sửa 1): "Hiệu suất theo kỳ" (`matter.view` hoặc
+   `performance.viewAny` — kế toán bị từ chối) và "Theo dõi đội ngũ" (chỉ `performance.viewAny`, tức admin và quản lý
+   — luật sư bị từ chối); cả hai `abort_unless(canAccess(), 404)` trong `boot()`. Phía cổng khách (Task 2,
+   rà soát lại r2): "Đổi mật khẩu" của cổng (`ChangePassword::canAccess()`, chỉ tài khoản còn nợ lần đổi mật khẩu đầu,
+   SPEC §8.1) — tài khoản đã kích hoạt nhận đúng trang 404 của một đường dẫn không tồn tại dưới `/portal`; tài khoản
+   còn phải đổi mở được. Tổng 20 route đóng.
+3. **Mở cho mọi vai nhân sự / mọi tài khoản khách đã kích hoạt (19 route)** (bảng tin, hồ sơ cá nhân, tìm kiếm, danh
+   sách vụ việc, danh mục loại vụ việc, trang thiết bị, đăng nhập/đăng xuất, ba route thiết bị M12 mỗi panel — gỡ thiết
+   bị của người khác và thiết bị không có trả cùng 404, có test). Lời "mở" được kiểm chứ không chỉ ghi: mọi route GET
+   của panel admin trong nhóm này trả 200 cho từng vai trong năm vai (trừ trang đăng nhập và trang buộc cài 2FA, vốn
+   chuyển hướng người đã đăng nhập), và mọi route GET của cổng trong nhóm (trừ trang đăng nhập) trả 200 cho một khách
+   một vụ và một khách hai vụ — một trang có cổng xếp nhầm vào đây làm test đỏ. Test phía cổng (Task 2) đỏ đúng một
+   lần như thế: "Đổi mật khẩu" của cổng từng nằm ở nhóm này, nay ở nhóm 2.
+4. **Ngoại lệ có chủ đích, liệt kê trong test (`spec1010Exceptions()`):** chữ ký URL sai trả **403** trên
+   `documents.download` và hai bí danh M12 (`routes/web.php` — nói về đường dẫn, không về bản ghi; test khẳng định 403
+   giống nhau cho id có thật và id bịa, và chữ ký đúng mà không được tải thì 404 như id không có); request cập nhật
+   Livewire (từ chối bên trong vòng đời component giữ 403, snapshot niêm HMAC — `AnswerDeniedPanelRequestsWithNotFound`,
+   `DenialCodeTest`); tải/xem trước tệp tạm của Livewire (URL ký do component cấp); tệp công khai PWA của M12; `/up`;
+   `/` chuyển hướng; tài nguyên JS/CSS của Livewire.
+
+Một lỗ, đã sửa: **`filament/exports/{export}/download` và `filament/imports/{import}/failed-rows/download`** (Filament
+đăng ký vô điều kiện; ứng dụng không dùng xuất/nhập và không có bảng `exports`/`imports`) trả **500** cho mọi id, kể cả
+khách vãng lai (2 ca đỏ). `routes/web.php` đè đúng hai URI đó, cùng tên route, bằng `App\Http\Controllers\RespondNotFound`
+(404, không chạm CSDL; lớp invokable để `route:cache` tuần tự hoá được).
+
+#### B. Việc mang sang — từng mục
+
+| Mục (nguồn) | Kết quả |
+|---|---|
+| Lịch 08:00: `backup.monitor` (hỏi rclone) giữ chân `instalments.remind`, `missing-documents.remind` (brief) | **Sửa.** `backup.monitor` `->runInBackground()`; `->then()` vẫn chạy qua `schedule:finish`. `BackupScheduleTest` ghim: chạy nền, và không tác vụ tiền cảnh nào đứng trước hai lượt nhắc thư lúc 08:00 thứ Hai là `backup.monitor`. |
+| Thư `client.missing_documents` đòi "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" khi hợp đồng còn nháp/chưa có (làn fu) | **Sửa.** `ChecklistProgress::itemsToRemindClientOf()` (thư khách) bỏ đầu mục đó khi vụ chưa có hợp đồng rời `draft` — cùng điều kiện dòng nhắc của tab tiền; `RemindMissingDocuments` không xếp thư khi tập đó rỗng, `SendMissingDocumentsMail` đọc lại đúng hàm đó lúc gửi. Thanh tiến độ, widget và thông báo 14 ngày cho luật sư giữ định nghĩa cũ. Tên đầu mục chuyển thành `Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME` (Action không được phụ thuộc Filament), `BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME` là bí danh. 5 ca mới ở `RemindMissingDocumentsTest`. |
+| Hộp xác nhận "Cấp lại mật khẩu" không nói gửi tới địa chỉ nào (brief) | **Sửa.** `modalDescription` nêu email ĐÃ LƯU (địa chỉ `IssuePortalAccess` gửi tới), không chữ đang gõ dở; `ClientUserResourceTest` "names the saved email address…". |
+| `SendPortalActivationMail::$reissue` với job xếp hàng bằng mã cũ (brief) | **Sửa** (job chịu được) **và tài liệu.** Thuộc tính khai riêng với mặc định của lớp `false` (thuộc tính constructor `readonly` không có giá trị khi hàng đợi giải tuần tự payload cũ → lỗi ở cả 5 lần thử, khách không nhận thư). Test dựng payload đúng hình dạng cũ. CAI-DAT "Nâng cấp lên bản mới" có gạch đầu dòng "Hàng đợi qua lần nâng cấp". |
+| M9 Task 10 m4 — `payments.reference`, `instalments.trigger_stage_key` chưa trong danh sách ẩn khi serialize dưới phiên cổng | **Sửa.** Thêm vào `internalAttributes()`; `PortalClosureTest`. |
+| M9 Task 10 m1 — nhánh khách của `PaymentPolicy::view`/`InstalmentPolicy::view` mở với dòng nạp thiếu cột (select hẹp) | **Sửa** (đo được: khoản thu đã huỷ và đợt đã huỷ nạp hẹp đều qua cổng). `ReadsPortalParents::ownColumnForGate()` đọc lại cột thiếu, không đọc được thì từ chối; `PortalClosureTest` có cặp dương. |
+| M10 — câu thông báo tiếp nhận viết cứng "24 tháng" | **Sửa (phần mã).** `App\Support\Intake\PrivacyNotice`: câu đọc `IntakeRequest::retentionMonths()`; phiên bản ghi kèm mang số tháng khi khác 24 (`2026-09-nhap-36t`; 24 giữ `2026-09-nhap` vì câu trùng từng chữ câu cũ) — đổi biến thì nút "Ghi nhận thông báo" hiện lại. Bốn nơi đọc qua lớp này. CAI-DAT bỏ lời dặn sửa tệp ngôn ngữ trên máy chủ (fu3 Task 2 m6) và nói đúng việc tính lại hạn khi gộp (m1). Câu chữ còn lại là việc luật sư (dưới). |
+| M10 — `PROSPECT_RETENTION_MONTHS` không có trần (tìm thấy trong lượt quét: phiên bản câu thông báo nay mang số tháng) | **Sửa.** Một chữ số gõ thừa (ví dụ `100000000`) làm phiên bản `2026-09-nhap-100000000t` dài 22 ký tự — cột `privacy_notice_version` 20 ký tự, MariaDB strict từ chối lần "Ghi nhận thông báo" — và ngày hạn lưu ra năm vô nghĩa. `IntakeRequest::MAX_RETENTION_MONTHS = 1200` (100 năm): quá trần về mặc định 24 như 0, số âm, chữ; 1200 đúng trần được nhận và phiên bản dài 18. `IntakeRetentionTest` (hai ca dữ liệu mới đỏ trước, ca 1200); `.env.example` và CAI-DAT nói trần. |
+| M10 — bản ghi còn mở không bao giờ có `retention_until` | **Ghi nhận → chủ văn phòng/luật sư.** Đây là quyết định nghiệp vụ (bản ghi còn mở có tự ẩn danh sau một thời gian không?), không phải lỗi mã; câu thông báo hiện hứa "tối đa :months tháng nếu không trở thành khách hàng". |
+| fu3 — modal xoá theo yêu cầu "KHÔNG khôi phục được" so với bản sao lưu | **Đã đóng ở fu3 Task 2 (m1)**: "KHÔNG hoàn tác được" + câu bản sao lưu; `CopyPromisesTest` ghim. |
+| fu3 m2/m7 — làm sạch sổ tra khách chạm dấu băm của bản ghi khác cùng số | **Ghi nhận, giữ hành vi.** Phán quyết: giữ "ẩn danh xoá hết, kể cả dấu băm" (mặc định R7b của kế hoạch M10, test `AnonymiseProspectTest` của fu3 ghim chính hành vi này). Cái giá: dòng tra khách của một khách hiện tại cùng số mất dấu băm (dòng trúng còn `matched_client_id`); câu modal nói đúng điều bị xoá ("dấu mã hoá số … trong nhật ký tra khách"). Đảo được nếu luật sư muốn giữ dấu băm cho số còn thuộc hồ sơ khác — cùng câu hỏi "giữ dấu băm" đang chờ luật sư. |
+| fu3 m4 — "ít nhất 30 ngày" / "giữ khoảng 30 ngày" | **Đã đóng ở fu3 Task 2**: "30 bản sao lưu đêm gần nhất, cộng khoảng 30 ngày trong Thùng rác"; không còn câu "giữ khoảng 30 ngày" nào ngoài kế hoạch M14 (ngoài phạm vi). |
+| fu3 Task 2 m2 — bảng kê gói bàn giao "sau ngày này" | **Sửa.** `handover.pdf.billing.as_of`: "Tính đến lúc lập gói (ngày …)", "sau lúc lập gói", kể cả miễn, huỷ, phụ lục; `BillingOnPortalTest`; SPEC §6.12 dòng sửa câu 2026-10-08. |
+| fu3 Task 2 m3 — tên test M10 nói mốc cũ, chỉ ghim chữ "luật sư" | **Sửa.** `InstallGuideM10UpgradeTest` đổi tên, ghim "TRƯỚC khi nhân sự bắt đầu dùng màn hình Tiếp nhận". |
+| fu4 minor 1 — `Gate::authorize()` trong action `forgetPushDevices` chưa có test riêng | **Ghi nhận.** Phòng thủ chiều sâu: Filament từ chối action đang ẩn, và `visible()` hỏi cùng Gate; cùng cách M8 đã ghi cho `unlockLogin`. |
+| fu4 minor 2 — `tools/pwa/*.cjs` bỏ `PHP_INI_SCAN_DIR` của khảo sát CSP | **Ghi nhận.** Công cụ khảo sát của nhà phát triển, không chạy trên máy chủ; `tools/csp` ngoài phạm vi (đã ghi ở làn fu4). |
+| fu4 minor 3 — mã lý do `push_device_removed` tiếng Anh trong modal nhật ký | **Sửa.** Nhãn `activity.reasons.push_device_removed.*` cho ba hằng `ForgetPushDevice::REASON_*`; `ActivityReasonLabelsTest` liệt kê chúng bằng phản chiếu (không có hậu tố `_REASON`) và đi qua modal thật. |
+| fu4 rà soát lại minor 1 — khe mili giây giữa lần đổi email và một request đổi mật khẩu đã qua kiểm băm | **Ghi nhận, chấp nhận.** Khe là thời gian của một transaction; đóng hẳn cần khoá dòng trong `changePassword()`. Lần "Cấp lại mật khẩu" kế tiếp hay lượt `queue.drain` ghi mật khẩu tạm đều cắt phiên đó. |
+| `EnvExampleTest` — test "risky" duy nhất (không khẳng định gì) | **Sửa.** Đọc tập `BRAND_*` có mặc định từ `config/vkcrm.php`; đòi không dòng trống nào đè mặc định và mỗi biến có dòng mẫu mang giá trị. Bộ test không còn test risky. |
+| M10 fr-m2 — phép quét §10.5 chưa có dữ liệu ở bảng tiếp nhận | **Sửa.** `SensitiveDataFlows` thêm một lần ghi tiếp nhận qua màn hình (CCCD người gọi và bên đối lập); `PersonalDataSpec105Test` và `BackupPersonalDataScanTest` quét hai số đó và khẳng định dạng lưu duy nhất là dấu băm. |
+| M13 rà soát cuối T5 m2, m3 — cột khách hàng và câu giải thích ba danh sách trên trang của một người | **Sửa.** Cột khách hàng theo cổng `matter.view` như cột tiêu đề; câu "Ba danh sách việc" chỉ khi trang có danh sách; `TeamMemberPageTest`. |
+| Rà soát gộp M13 vào `main` (controller, 2026-10-08) — `TeamPerformanceSeeder` bàn giao qua `ReassignMatters`, mà `finally{}` của nó luôn xếp `SendReassignmentDigest`: chạy dữ liệu mẫu xếp một thư `staff.matter_reassigned` thật | **Sửa.** Seeder gọi `ReassignMatter` (đúng lời gọi màn hình hàng loạt làm cho từng vụ, kể cả `expectedLeadId`) với `sendDigest: false` như `BillingSeeder`; `ReassignMatters` không đổi. `TeamPerformanceSeederTest` "hands over … without queueing a real reassignment mail": dòng `matter_reassigned` tới người nhận có, dòng nhật ký thư `staff.matter_reassigned` không có (hàng đợi test là `sync`; đỏ trước: 1). |
+| Rà soát gộp M13 vào `main` — câu "Kỳ đã đóng" (`performance.explain.closed_period`) hứa "mọi con số … kể cả ở kỳ đã qua" chỉ tính vụ người xem đang được xem, trái với P8, xu hướng 90 ngày và câu phạm vi: ba chỗ đó đọc `performance_snapshots` | **Sửa câu chữ, giữ mô hình ảnh chụp.** "Kỳ đã đóng" và câu xu hướng của trang một người thêm: cột "Xu hướng (đầu kỳ → cuối kỳ)" và hai biểu đồ đọc ảnh chụp hằng ngày, số của một ngày đã qua giữ nguyên như lúc chụp, nên vẫn gồm vụ đã bàn giao, đã huỷ hay người xem nay không còn được xem (cùng ý câu P8 đã có). SPEC R19 cùng câu (sửa câu 2026-10-08). Câu phạm vi R4 (`scope_note`) giữ nguyên — nó là câu cố định cho mọi người xem, và "Cách tính các con số" nói phần ảnh chụp. `ClosedPeriodStabilityTest` "says in the closed-period, trend and R19 sentences …" (đỏ trước). |
+| M9 N3 — `RegroupDocument` dời bằng chứng tiền khỏi nhóm D | **Đã đóng ở fu3 (mục D)**: `documents.regroup.billing_reference`, `DocumentsRelationManagerTest`. |
+| M9 N6 = r2 — "gõ mã rồi bấm Áp dụng bộ lọc" | **Đã đóng ở fu3 Task 2 (mục C)**: QUY-TRINH và `ReceivablesPageTest`. |
+| M9 N4 = Task 6 R1 — đợt thêm bằng phụ lục cho giai đoạn chưa chạm, rồi lần chuyển ghi lùi | **Ghi nhận.** Hiếm (cần cả phụ lục lẫn chuyển giai đoạn ghi lùi ngày), không đổi số tiền, chỉ làm đợt quá hạn từ lúc sinh; chủ văn phòng muốn thì thêm "sàn theo ngày phụ lục" cho từng dòng. |
+| M9 N5 — thứ tự listener `MatterStageChanged` | **Ghi nhận.** Lưới an toàn có sẵn (đối soát 07:00 `instalments.reconcile-stage`); câu "nuốt lỗi" chỉ nói về chính listener tiền. |
+| M9 Task 6 M1–M7 (sổ m9f) | **Ghi nhận** như lúc rà soát: giá thấp hoặc chỉ câu chữ, không đổi tiền, không lộ dữ liệu. |
+| M9 — `MatterChecklistItem` chưa `LogsActivity` | **Ghi nhận, giữ.** Các thay đổi quan trọng đã có `Audit::record` tường minh; thêm `LogsActivity` mở một loại `subject_type` mới phải ánh xạ ở `ActivityOwningMatter` — không có lợi cho bản 1.0. |
+| M6.5 — dòng `conflict_check_run` cho trưởng phòng đọc mã và tên bên của vụ `restricted` | **Ghi nhận, là ngoại lệ có chủ đích của SPEC §6.10** ("chỉ mã hồ sơ, loại vụ việc và vai … kể cả khi người dùng không có quyền trên vụ đó", đính chính 2026-09-16 thêm tên bên trùng và tầng khớp). Dòng nhật ký mang đúng năm trường đó, không tiêu đề, không tên khách của vụ kia ngoài tên bên trùng; trưởng phòng là người ghi đè Đỏ. Muốn siết (che khớp của vụ `restricted` trong modal nhật ký với người không xem được vụ đó) là quyết định của chủ văn phòng — dưới. |
+| M6.5 — ba đường có thể ra 500 khi đụng 1020 (`UploadStaffDocument`, `SubmitClientDocument`, pha lưu `OpenMatter`) | **Đã kiểm, đóng phần 1020.** Từ M7 Task 3 hai Action đầu mở transaction bằng `lockForUpdate()` trên `matters` (luật "câu đầu tiên là một lần đọc có khoá"), nên 1020 không xảy ra ở đó. Pha lưu của `OpenMatter` và deadlock 1213 dưới tải đồng thời chưa có test hai phiên: nếu xảy ra, transaction quay lui (không hỏng dữ liệu) và người dùng thấy trang lỗi, bấm lại; chấp nhận cho bản 1.0 (thứ tự khoá toàn cục giảm khả năng). |
+| M6.5 — câu "thử lại" của đồng bộ định danh khách không hiện và nói "chưa được lưu" | **Ghi nhận.** Đường chỉ chạy khi 1020/1213 xảy ra trong lúc sửa định danh khách (`ConcurrentChange::guard`); dữ liệu không hỏng, người dùng bấm lại. |
+| M6.5 — cuộc đua hẹp giữa `failed()` của job nhắc hạn và `CheckDeadlines`; khách mới tạo khi hộp cảnh báo xung đột đang mở không được dò trùng lại | **Ghi nhận.** Cả hai hẹp về thời gian; mốc vẫn được `deadlines.check` 30 phút sau thấy lại; khách trùng là trùng hồ sơ khách (không phải xung đột lợi ích), gộp tay được. |
+| M6.5 "Việc nhỏ hoãn lại" (Task 1–20) | **Đã đọc lại, không mục nào là lỗ §10 hay rò rỉ vụ `restricted`**; giữ làm việc dọn sau bản 1.0. Một mục chạm §10.9: `invalidate()` của `EnsurePortalAccountIsActive` cũng huỷ phiên nhân sự dùng chung cookie trên cùng trình duyệt — chấp nhận (nhân sự và khách hiếm khi dùng chung một trình duyệt; đăng nhập lại là đủ). |
+| M12 "chờ controller chốt" (Ghi chú M12) | **Ghi nhận.** `CurrentDeviceLogout` khi chính chủ đổi mật khẩu ở máy khác — giữ (máy cũ là máy có thể đã mất); "Gửi lại" của nhật ký thư cũng đẩy — giữ (push đi cùng thư); trang 429/500 mặc định trong cửa sổ app, câu `portal.inactive` không hiện trên đường Livewire — câu chữ, sau bản 1.0. M12 rà soát cuối (14 minor, sổ làn m12): (1), (2), (13), (14) đã đóng ở fu4, (3) một phần (gỡ do văn phòng ghi người bấm; gỡ lúc cắt phiên §10.9 vẫn ghi chủ máy); còn lại là hardening, giữ sau bản 1.0. |
+| M13 rà soát cuối m1 (lần mở lạnh vượt ngân sách R11), m2 (khoá bộ nhớ tạm không theo vai người xem), m3–m7 | **Ghi nhận.** m1 chờ chủ văn phòng chấp nhận số đo (dưới). m2: một admin bị hạ xuống trưởng phòng đọc số (không mã, tiêu đề, tên khách) của phạm vi cũ tối đa 5 phút — chấp nhận theo TTL. m3–m7 như ghi ở sổ M13. |
+| M7 (Ghi chú M7) — huỷ hồ sơ bỏ qua công nợ; đầu mục chờ duyệt kẹt khi đóng vụ; gói bàn giao nhân đôi bản sao lưu | **Chuyển chủ văn phòng** (dưới), không đổi hành vi. |
+
+#### Cần chủ văn phòng quyết (lượt quét trước bản 1.0)
+
+Không mục nào dưới đây chặn bản 1.0 về kỹ thuật; mỗi mục là một lựa chọn nghiệp vụ hay pháp lý mà mã đang theo một
+mặc định đã ghi.
+1. **Câu thông báo tiếp nhận (luật sư):** câu chữ bản nháp `2026-09-nhap`; con số `PROSPECT_RETENTION_MONTHS` (mặc định
+   24) — xác nhận TRƯỚC khi nhân sự dùng màn hình Tiếp nhận; "tối đa N tháng" tính từ ngày bản ghi ĐÓNG (từ chối, mất
+   liên lạc, gộp), không từ lần gọi đầu, và lượt 03:30 ẩn danh từ ngày sau hạn — người gọi để mở N tháng được giữ
+   khoảng N + thời gian mở; bản ghi còn mở không có hạn nào (có muốn tự đóng/ẩn danh bản ghi mở quá lâu không?); "yêu
+   cầu xoá bất cứ lúc nào" không đúng với bản ghi đã thành vụ việc (dữ liệu đi theo hồ sơ khách).
+2. **Giữ dấu băm sau ẩn danh (luật sư, câu hỏi #2 của R7b):** hôm nay ẩn danh và xoá theo yêu cầu xoá dấu băm SĐT/CCCD
+   khỏi sổ tra khách, kể cả dòng tra của hồ sơ khác cùng số (mục fu3 m2 ở bảng trên).
+3. **Huỷ hồ sơ (`RecordMatterDestruction`) không xét công nợ** (Ghi chú M7): có chặn huỷ khi còn khoản phải thu không?
+4. **Đầu mục "chờ duyệt" kẹt khi vụ đóng** (Ghi chú M7): danh mục vụ đã đóng là chỉ đọc; đầu mục khách đã nộp mà văn
+   phòng chưa duyệt ở lại "chờ duyệt" mãi. Duyệt nốt trước khi đóng, hay cho duyệt trên vụ đã đóng?
+5. **Gói bàn giao nhân đôi bản sao lưu** (Ghi chú M7, M8 Task 5): gói là bản sao thứ hai của tệp đã có; có loại gói khỏi
+   bản sao lưu đêm không (tiết kiệm dung lượng; gói sinh lại được)?
+6. **Nhật ký kiểm tra xung đột với vụ `restricted`** (bảng trên): giữ ngoại lệ §6.10 cho trưởng phòng, hay che mã và tên
+   bên của vụ `restricted` trong modal nhật ký với người không xem được vụ đó?
+7. **Thư "còn thiếu giấy tờ" khi chưa có hợp đồng** (bảng trên): mã không đòi bản hợp đồng đã ký khi vụ chưa có hợp đồng
+   nào rời nháp. Vụ không dùng module hợp đồng (hợp đồng giấy ngoài hệ thống) vì vậy không bao giờ được nhắc đầu mục đó
+   qua thư — đảo được nếu chủ văn phòng muốn nhắc cả khi chưa có hợp đồng.
+8. **Số đo R11 của M13** (rà soát cuối M13 m1): lần mở lạnh "Hiệu suất theo kỳ" theo quý khoảng 1,2–1,3 s (ngân sách 500
+   ms), trang của một người khoảng 0,3 s (200 ms); mở lại trong 5 phút nhanh nhờ bộ nhớ tạm. Chấp nhận, hay đổi R11?
+9. **Hai thư nhân sự không đẩy** (`staff.matter_reassigned`, `staff.intake_unanswered` — Ghi chú M12): giữ đề xuất của
+   làn M12 (không đẩy), hay đẩy?
+
+#### Số đo
+
+- Mutation probe cho từng điều kiện mới (bỏ điều kiện → đỏ → trả lại), 17 lần thử, cộng ba lần đỏ trước của
+  seeder, câu ảnh chụp và trần số tháng, ghi ở
+  `.superpowers/sdd/v1/task-1-report.md` (ngoài repo). Mỗi điều kiện đỏ riêng, kể cả hai cặp gộp chung một
+  test (`trigger_stage_key`/`reference`, cột khách hàng/câu danh sách) — đã thử tách từng vế.
+- Cả bộ lần 1 (`test --parallel --processes=2`, SQLite): 6377 passed, 33 skipped, 3 failed (63,5 phút). Ba ca đỏ
+  là ba test cũ ghim 404 cho nhân sự vừa bị vô hiệu (mục A1), đã đổi theo phán quyết §10.9.
+- Cả bộ lần 2 trên commit `1bb6acd`: **6380 passed, 33 skipped, 0 failed** (169735 khẳng định, 60,6 phút).
+- `test:mariadb` 23 tệp test đụng tới: 524 passed, 1 skipped (ca §10.5 sao lưu thật, cần công cụ ngoài; đã bỏ
+  qua từ trước), 685 giây.
+- `pint --test`: sạch, 1178 tệp.
+
+#### Sau rà soát lại Task 1 (làn v1, Task 2, 2026-10-08)
+
+- **Cả bộ trên `563996b`** (đỉnh Task 1 sau vòng sửa 1, mục r1 của rà soát lại): `test --parallel --processes=2`,
+  **6389 passed, 33 skipped, 0 failed** (169753 khẳng định, 3341 giây).
+- **m4 — `PROSPECT_RETENTION_MONTHS` bị bỏ qua lặng lẽ.** `vkcrm:preflight` in một dòng VÀNG ở mọi `APP_ENV` khi biến
+  có giá trị mà hạn lưu không nhận (`2400`, `24 tháng`, `0`, `-6`, `18.5`): nêu giá trị, số tháng đang dùng thật và
+  câu "ẩn danh không lấy lại được". Luật chọn số tháng không đổi (quá trần vẫn về 24 — hạn lưu là việc của chủ văn
+  phòng, mục 1 ở trên); `IntakeRequest::parseRetentionMonths()` là luật chung của model và dòng preflight.
+  `PreflightCommandTest` (5 ca đỏ trước, 5 ca âm); `.env.example` và README nói dòng VÀNG.
+- **r2 — "Đổi mật khẩu" của cổng xếp nhầm vào nhóm mở của §10.10.** Xem mục A2 (đã sửa số route).
+- **m2, m3 — request Livewire của nhân sự bị vô hiệu từ trình duyệt thật.** `SessionCutSpec109Test` có thêm ca gửi
+  đúng header của `livewire.js` (không `Accept: application/json`): chuyển về `/admin/login`, guard trống; câu chú
+  thích của ca JSON không còn tả hành vi không test nào đo.
+- **Gộp làn `v1-acceptance-b` (mục "Nghiệm thu bản 1.0") vào làn này chưa làm được**: môi trường từ chối lệnh
+  `git merge` của phiên làm Task 2. `git merge-tree` cho thấy gộp sạch (không xung đột). Người điều phối gộp, rồi chạy
+  lại cả bộ trên cây đã gộp.
 
 ## Ghi chú M7
 
@@ -8027,6 +8200,531 @@ Rà soát toàn nhánh (`948ce96..326ae30`): 0 Critical, 5 Important (I1–I5), 
   hành: `timeout` ngắt client, container vẫn chạy) và đỏ một test, `DemoDataSeederTest` "lets a seeded document actually
   download" (404) — nhiều khả năng vì hai tiến trình cùng worktree, cùng mã tiến trình song song, dùng chung thư mục đĩa giả `private` và `Storage::fake()` của bên này xoá
   tệp của bên kia. Chạy riêng tệp đó: 21 passed; lượt full suite đứng một mình ở trên xanh.
+
+## Nghiệm thu bản 1.0
+
+Làn `v1-acceptance-b` (`D:\vkwt\lane-v1b`), v1 Task 2 = M8 Task 8 (SPEC §14), chạy song song với lượt quét của
+làn v1 (Task 1). Base `d54c445`, ngày 2026-10-08. **Bản 1.0 = M0–M10 + M12 + M13** (chủ văn phòng chốt
+2026-10-08). **M11 (máy chủ MCP) và M14 (Google Drive làm kho tài liệu) KHÔNG thuộc bản 1.0**: chúng gắn vào
+sau, và §14 không bị đánh trượt vì chúng vắng mặt. Báo cáo đầy đủ của làn:
+`.superpowers/sdd/v1b/task-2-report.md`. Làn v1 gộp nhánh này vào nhánh của nó rồi đối chiếu lại tám tiêu chí
+trên cây đã gộp.
+
+**Đối chiếu trên cây đã gộp (làn `v1-acceptance`, v1 Task 2, 2026-10-08).** Người điều phối gộp
+`v1-acceptance-b` vào `v1-acceptance` ở 4d84a8c. Trên cây đó làn v1 đo lại cả bộ cùng độ phủ (`bin/coverage`),
+sửa các việc nhỏ của rà soát v1b (M4–M8, cùng M1, M2, M9), đi lượt đọc lạnh mô phỏng cho tiêu chí 8 và cập
+nhật bằng chứng của tiêu chí 1–5 và 8 bên dưới. Báo cáo: `.superpowers/sdd/v1/task-2-report.md`.
+
+### Tám tiêu chí SPEC §14, từng cái một
+
+1. **Mọi test §11 xanh và độ phủ đạt.** Bảng truy vết bên dưới: mỗi gạch đầu dòng §11 có tên test; cả bộ
+   xanh trên cây đã gộp M11 và M14 (2026-10-09: 8799 passed, 0 failed — mục "Gộp M14 và rà soát cuối làn v1,
+   vòng sửa 2" cuối phần này; trên cây chỉ gộp M11: 7705 passed, 0 failed, 33 skipped); trước khi gộp M11: 6448 passed, 0 failed, 33 skipped — lượt `bin/coverage` cả bộ của làn
+   v1, `--parallel --processes=2`, 3 645 s; lượt của làn v1b trước khi gộp: 6288 passed). Độ phủ đo bằng
+   `pcov` (mục "Độ phủ"): `app/Actions/` 97,96 %, `app/Policies/` 93,88 % (đích ≥ 80 %) — đo trên cây TRƯỚC khi
+   gộp M11 và M14; chưa đo lại trên cây đã gộp.
+2. **Một dòng cron, không Redis, không supervisor.** `tests/Feature/Acceptance/V1PlatformTest.php` (năm test,
+   đọc chính `composer.lock`, `.env.example`, lịch chạy thật, `docs/CAI-DAT.md` và `README.md`): mọi gói
+   production cài được trên PHP 8.3.0; không predis/horizon/octane/reverb/pulse/scout; hàng đợi, cache, phiên
+   đều `database`; ba hàng (`default`, `push`, `handover`) được chính lịch rút mỗi phút với
+   `--stop-when-empty` (làn v1 ghim thêm hàng `handover`, rà soát v1b M5); hướng dẫn đòi ĐÚNG MỘT dòng crontab
+   `* * * * * cd … && php artisan schedule:run`. Lượt đọc lạnh mô phỏng (mục 8) cài đúng dòng đó vào crontab của
+   `www-data` trên máy Ubuntu 24.04, chạy daemon `cron` của Ubuntu, và phút kế tiếp `system_health.
+   last_schedule_run_at` có giá trị, không job nào hỏng.
+3. **Luật sư chuyển giai đoạn → khách nhận thư, thấy trên cổng (và trên điện thoại).**
+   `tests/Feature/Acceptance/V1AcceptanceWalkTest.php` "§14.3 — one stage change by the lawyer mails the
+   client, reaches the phone, and shows on the portal, with no extra step": trên dữ liệu mẫu, `luatsu1@` bấm
+   "Chuyển giai đoạn" một lần (Livewire, có công bố) → đúng một thư tới `khach1@` (transport `array` thật,
+   sổ thư `client.stage_update` +1; phần HTML và phần chữ đã giải mã của thư mang nội dung công bố và không
+   mang ghi chú nội bộ — làn v1 đổi phép kiểm khỏi MIME thô, rà soát v1b M7), đúng một thông báo đẩy tới máy
+   của khách (kênh Web Push thật tới `FakePushServer`, sổ `client.stage_update` kênh push), trang hồ sơ trên
+   cổng hiện nội dung công bố và nhãn giai đoạn của khách. Bổ trợ: `StageUpdateNotificationTest` (M6),
+   `ClientEventPushTest` (M12). Xanh trên cây đã gộp (lượt quét của Task 1 đổi đường cắt phiên, không đổi
+   đường này).
+4. **Khách trên điện thoại: giấy tờ bị từ chối → nhận phản hồi.** Cùng tệp, "§14.4 — the client signs in,
+   sees what is missing, sends a photo, and hears back by mail and on the phone when it is rejected": đăng
+   nhập mật khẩu + mã một lần trong thư, thấy mục còn thiếu trong khối "Việc anh/chị cần làm", nộp một ảnh
+   JPEG cho đúng mục (mục rời khối đó khi đang chờ kiểm tra), luật sư từ chối kèm lý do trên tab Hồ sơ giấy tờ
+   → thư `client.document_rejected` (thân thư đã giải mã mang mã hồ sơ và nguyên văn lý do) + thông báo đẩy
+   `client.document_rejected`; trang hồ sơ hiện nguyên văn lý do, nhãn "Cần anh/chị gửi lại", nút "Gửi lại
+   giấy tờ này", và mục đó trở lại khối "Việc anh/chị cần làm" (làn v1 thêm các vế này, rà soát v1b M6). Đi
+   tay trên máy thật (Android, iPhone) vẫn CHỜ CHỦ VĂN PHÒNG (M12).
+5. **Không đường nào thấy dữ liệu khách khác hay nhóm D** (cổng, admin, thư, push, trang M13, bản xuất):
+   cổng — `Authorization/PortalIsolationSweepTest` (mọi bảng, hai tầng, tải có chữ ký, html/json, đếm, tìm),
+   `Portal/MatterProgressTest`, `MyMattersTest`, `MyRequestsTest`, `BillingOnPortalTest`,
+   `ClientAccessExpiryTest`; tải tệp — `Http/DocumentDownloadTest` "khách A gọi thẳng URL tài liệu của khách B
+   nhận 404"; nhóm D — `Authorization/DocumentAccessTest` "never reaches a group D document from the portal by
+   any path"; admin/vụ `restricted` — `Filament/MatterResourceTest`, `ActivityLogPageTest`,
+   `SearchPageTest` "vụ restricted không lộ…", `Acceptance/Spec11ScreenTraceTest`; thư —
+   `Mail/StageUpdateNotificationTest` "never tells an activated account belonging to a different client",
+   `DocumentPublishedNotificationTest` cùng loại; push — `Push/StaffEventPushTest` "tells the lock screen no
+   more about a restricted deadline than about an ordinary one", `PushDevicesPageTest`; trang M13 —
+   `Performance/PerformanceLeakSweepTest`, `RestrictedLeakSweepTest`, `PerformanceAccessTest`; bản xuất —
+   gói bàn giao (`BuildHandoverPackageTest` giải nén, `HandoverPackageMoneyAccessTest`), không có Exporter
+   nào của Filament (`StaffTwoFactorEscapeRoutesTest` §10.7). Lượt quét §10 mục 9–10 toàn hệ thống (M8 Task
+   6 — làn v1 Task 1 và các vòng sửa của nó, Ghi chú M8, "Lượt quét toàn hệ thống trước bản 1.0"):
+   `Security/NotFoundSpec1010Test` dựng danh sách màn hình từ router và xếp MỌI route vào một nhóm — trang
+   đóng với một vai (kể cả "Hiệu suất theo kỳ" với kế toán, "Theo dõi đội ngũ" với luật sư) và trang "Đổi mật
+   khẩu" của cổng với tài khoản đã kích hoạt trả đúng trang 404 của một đường dẫn không tồn tại; trang mở trả
+   200 cho từng vai trong năm vai và cho khách một vụ, hai vụ. `Security/SessionCutSpec109Test`: nhân sự hay
+   khách bị vô hiệu mất phiên ở request kế tiếp, kể cả request Livewire (đúng header của `livewire.js`) và
+   đường tải có chữ ký đã ký từ trước. `Models/Billing/PortalClosureTest`: hợp đồng nháp cùng đợt, khoản thu,
+   phụ lục của nó không bao giờ tới khách, và cột nội bộ của bốn model tiền không ra cổng.
+6. **Xung đột lợi ích chặn và để lại dấu vết (M10).** Năm gạch "Xung đột lợi ích" của bảng dưới; lúc tiếp
+   nhận: `Intake/IntakeConflictGatesTest`, luồng 2 của `IntakeAcceptanceWalkTest`, `RecordIntakeTest` "writes
+   exactly one conflict_check_run row per run…".
+7. **Gói bàn giao đầy đủ (M7 + bảng kê M9).** `Actions/Matter/BuildHandoverPackageTest` (giải nén: nhóm D,
+   tài liệu xoá mềm, nháp, bản đã rút vắng mặt; nhóm A theo version mới nhất đã chấp nhận; mục lục),
+   `Jobs/GenerateHandoverPackageTest`, `Http/HandoverPackageDownloadTest` (`data_exported`),
+   `Portal/BillingOnPortalTest` "prints the payment statement into the handover index, with only what the
+   portal shows", `Http/HandoverPackageMoneyAccessTest`.
+8. **`README.md` + `docs/CAI-DAT.md` đã nghiệm thu — CHỜ lượt đọc của một agent chưa từng đọc kho (R6).** Đã
+   có hai lượt đi, cả hai do người đã đọc kho đi, KHÔNG phải agent chưa từng đọc kho: lượt đi theo kịch bản
+   của làn v1b (ba chỗ vấp) và lượt đọc lạnh mô phỏng của agent làm Task 2 làn v1 — làm theo đúng chữ của hai
+   tài liệu, chỉ hai tài liệu, trên một máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên bản mới", cùng lối
+   cài máy dev của README (mười chỗ vấp, mỗi chỗ có test; mục "Lượt đọc lạnh mô phỏng" bên dưới). Ngày
+   2026-10-08 tiêu chí này từng được tick bằng lượt mô phỏng, ghi là "quyết định của người điều phối"; rà soát
+   cuối làn v1 (I1, 2026-10-09) thấy lời giao duy nhất của người điều phối trong sổ điều phối là "một agent
+   chưa từng đọc kho" và quyết định kia không được ghi ở đâu, nên tiêu chí trở về CHỜ. Nó tick khi lượt đọc của
+   agent chưa từng đọc kho xong, hoặc khi người điều phối ghi quyết định đó vào sổ. Chuỗi "Nâng cấp lên bản mới"
+   cuối cùng (sau vòng sửa 7204b34 và dòng `chmod` của vòng sửa này) được đi lại một lần trên máy Ubuntu 24.04
+   trống — mục "Gộp M11 và rà soát cuối làn v1, vòng sửa 1" bên dưới.
+
+### Độ phủ (SPEC §11, §14 mục 1)
+
+Đo ngày 2026-10-08 bằng `bin/coverage` (mới): một container `docker run --rm` trên đúng image
+`webdevops/php:8.3-alpine`, cài `pcov` 1.0.12 BÊN TRONG container (tarball tải từ pecl.php.net, bật bằng một tệp
+ini, `memory_limit=3G` cho tiến trình con của paratest), chạy cả bộ qua `bin/container-test` với
+`--coverage-clover`, rồi `tools/coverage/summary.php` (mới) tóm tắt theo dòng lệnh (`<line type="stmt">`).
+Không đổi image, không cài gì lên máy, không đụng container dev.
+
+| Thư mục | Làn v1b, trước khi gộp | **Làn v1, cây đã gộp (lượt cuối, 2026-10-09)** |
+|---|---|---|
+| `app/Actions/` | 7 044 / 7 191 = 97,96 % | **7 075 / 7 222 = 97,96 %** |
+| `app/Policies/` | 451 / 480 = 93,96 % | **460 / 490 = 93,88 %** |
+| cả `app/` | 21 705 / 22 135 = 98,06 % | 21 771 / 22 201 = 98,06 % |
+
+Lượt cuối của làn v1: `bin/coverage` trên cây cuối của v1 Task 2 — 6448 passed, 33 skipped, 0 failed, 170 147
+assertions, 3 645 s. Từ lượt này `bin/coverage` kiểm băm sha256 của tarball `pcov` trước khi cài (rà soát v1b M9),
+và `tools/coverage/summary.php` thoát 1 khi một thư mục không khớp dòng lệnh nào — không in "100 %" cho một báo
+cáo không đo gì (M4; `Deployment/CoverageSummaryTest`).
+
+Cả hai thư mục vượt đích 80 %, nên vòng này không phải viết test phủ thêm. Còn chưa phủ nhiều nhất:
+`BuildHandoverPackage` 25 dòng (84 %; nhánh lỗi ghi tệp/zip của đĩa thật), `ReassignMatter` 12 (90 %),
+`AddMatterDeadline` 9 (82 %), `DeleteStaffMember` 4 (75 %); `ChecklistTemplateItemPolicy` 0/5 (Repeater `->relationship()`
+của màn hình mẫu danh mục ghi dòng con thẳng qua Eloquent; cổng thật là `ChecklistTemplatePolicy`, ghi rõ trong
+`ChecklistTemplatesRelationManager`), `DocumentDownloadPolicy` 0/2 (chưa màn hình nào liệt kê bảng
+`document_downloads` qua policy này). Hai chỗ đó là policy chưa có người hỏi, không phải lỗ hổng. **CI không bật `pcov`** (`coverage: none` giữ nguyên,
+spec-gap-10): bộ test đã ~50 phút, đo phủ thêm ~62 phút (3 731 s và 3 645 s ở hai lượt trên); đo tay bằng `bin/coverage`
+trước mỗi bản phát hành.
+
+### Bảng truy vết SPEC §11 → test
+
+Tệp tính từ `tests/Feature/`. Mỗi gạch có ít nhất một test ở tầng Action/policy hay cổng HTTP; gạch nào
+có một màn hình người dùng bấm qua thì có thêm test ở màn hình đó. Bốn gạch trước đây chỉ có tầng
+policy/Action nay có thêm test màn hình trong `Acceptance/Spec11ScreenTraceTest.php` (đánh dấu **mới**; gạch
+nhóm B do làn v1 thêm, rà soát v1b M2). Hai gạch chỉ có tầng Action vì không có màn hình chọn nội dung: gói
+bàn giao (job dựng gói, luật sư chỉ tải về) và nhật ký của mỗi lần kiểm tra xung đột (ghi trong Action,
+màn hình chỉ gọi Action).
+
+| §11 | Test |
+|---|---|
+| Khách A gọi URL chi tiết vụ của khách B → 404 | `Portal/MatterProgressTest.php:588` "answers the matter of another client with 404, although the static page gate is open"; `Authorization/PortalIsolationSweepTest.php:1058` "answers the detail page of every matter the client may not read with 404" |
+| Khách A tải URL tài liệu của khách B → 404 | `Http/DocumentDownloadTest.php:426` "khách A gọi thẳng URL tài liệu của khách B nhận 404"; `Authorization/PortalIsolationSweepTest.php:444` "answers a signed download url of a hidden document with 404 and serves the own one" |
+| Danh sách hồ sơ của A không chứa vụ của B, kể cả lọc tay | `Authorization/ClientDataIsolationTest.php:26` "cannot be defeated by a manual client_id filter"; `Portal/MyMattersTest.php:137` "lists the matters of the signed in client and never those of another client", `:353` "ignores hand made filter parameters on both the mount and the query string" |
+| Nhóm D không xuất hiện trong truy vấn nào dưới guard `client` | `Authorization/DocumentAccessTest.php:173` "never reaches a group D document from the portal by any path"; `Authorization/PortalIsolationSweepTest.php:272`, `:397`; `Portal/MatterProgressTest.php:500` "keeps a group D document off the page even with both client flags on and the scope emptied" |
+| `PublishDocument` với nhóm D → exception, không đổi dữ liệu | `Actions/Document/PublishDocumentTest.php:105` "nhóm D không công bố được và không đổi một cột nào", `:206`; màn hình: `Filament/DocumentsRelationManagerTest.php:298` "never offers publish on a group D row, and does offer it on a group C row" |
+| Nhóm B `internal_draft`/`pending_approval` không công bố được | `Actions/Document/PublishDocumentTest.php:131`, `:142` (cặp dương `:152`); màn hình **mới**: `Acceptance/Spec11ScreenTraceTest.php` "§11 refuses to publish a group B document still in draft or awaiting approval from the documents tab, and publishes it once signed" |
+| HTML và JSON của cổng không chứa `internal_note` | `Portal/MatterProgressTest.php:562` "never leaks internal_note into the html or the json of the page"; `Authorization/InternalNotesTest.php:19`; `Authorization/PortalIsolationSweepTest.php:481` |
+| Luật sư không có tên trong `matter_user` không xem được vụ | `Authorization/MatterPolicyTest.php:30`, `:36`; màn hình: `Filament/ViewMatterTest.php:50` "returns 404 for a matter outside the actors scope", `Filament/MatterResourceTest.php:27` |
+| Vụ `restricted` chỉ lead và admin xem được | `Authorization/MatterPolicyTest.php:41`; `Authorization/DemoDataAuthorizationTest.php:80`; màn hình **mới**: `Acceptance/Spec11ScreenTraceTest.php` "§11 opens the page of a restricted matter for its lead lawyer and the admin only" (trưởng phòng, trợ lý đứng tên trong đội, kế toán, luật sư khác: 404) |
+| Kế toán không xem được nội dung hồ sơ | `Authorization/MatterPolicyTest.php:50`; `Filament/MatterResourceTest.php:63`; `Filament/DocumentsRelationManagerTest.php:341`, `ChecklistRelationManagerTest.php:170`; màn hình **mới**: `Acceptance/Spec11ScreenTraceTest.php` "§11 keeps the content of a matter from the accountant, who still finds it in the list" |
+| Chuyển giai đoạn sai `allowed_next` → exception | `Actions/TransitionMatterStageTest.php:70`, `:120`; màn hình: `Filament/TransitionStageActionTest.php:180` "still refuses a lawyer trying the same out-of-allowed_next stage through the form" |
+| Công bố với `public_content` dưới 30 ký tự → lỗi xác thực | `Actions/TransitionMatterStageTest.php:225`, `:651` (29 ký tự tiếng Việt), cặp dương `:250`; màn hình: `Filament/TransitionStageActionTest.php:269` |
+| Từ chối checklist item không kèm lý do → lỗi xác thực | `Actions/Document/ReviewChecklistItemTest.php:120` "từ chối không kèm lý do là lỗi xác thực"; `Filament/ChecklistRelationManagerTest.php:551` (lý do 19 ký tự); màn hình **mới**: `Acceptance/Spec11ScreenTraceTest.php` "§11 refuses to reject a checklist item without a reason on the documents tab, and changes nothing" (trống, rỗng, chỉ khoảng trắng) |
+| Job thông báo chạy hai lần chỉ gửi một email (`notified_at`) | `Mail/StageUpdateNotificationTest.php:237` "never tells the client twice about the same update", `:487`, `:577`; `Push/ClientEventPushTest.php:535` |
+| Khách nộp lại tạo version 2, version 1 còn | `Actions/Document/SubmitClientDocumentTest.php:294`; màn hình: `Portal/SubmitDocumentTest.php:1017` "creates version 2 pointing at version 1, and keeps version 1", `:435` |
+| Bị đơn trùng CCCD khách hiện hữu → chặn Đỏ, không lưu | `Actions/RunConflictCheckTest.php:38`; `Actions/OpenMatterTest.php:61`; màn hình: `Filament/CreateMatterTest.php:854`, `Filament/ViewMatterTest.php:216`; tiếp nhận: `Intake/IntakeConflictGatesTest.php` |
+| Manager ghi đè có lý do → lưu được, activity log chứa lý do | `Actions/OpenMatterTest.php:100`; màn hình: `Filament/CreateMatterTest.php:911` |
+| Trùng tên, khác CCCD và SĐT → chỉ Vàng, lưu sau xác nhận | `Actions/RunConflictCheckTest.php:105`; màn hình: `Filament/CreateMatterTest.php:951`, `Filament/ViewMatterTest.php:255` |
+| Hiện mã hồ sơ, không tiêu đề/nội dung/tài liệu | `Actions/RunConflictCheckTest.php:141`; màn hình: `Filament/CreateMatterTest.php:1002` |
+| Mọi lần kiểm tra đều có activity log, kể cả Xanh | `Actions/RunConflictCheckTest.php:85`; `Actions/OpenMatterTest.php:437` |
+| Vô hiệu hoá luật sư còn lead vụ đang mở → chặn, nêu số vụ | `Filament/UserResourceTest.php:234` "refuses to deactivate a lawyer who still leads open matters, with a reason naming how many to hand off" |
+| Bàn giao sinh `stage_logs` nội bộ, chuyển mốc CHƯA XONG, thư tổng hợp | `Filament/ReassignMatterActionTest.php:48`; `Jobs/SendReassignmentDigestTest.php` |
+| Gói bàn giao không chứa nhóm D (giải nén) | `Actions/Matter/BuildHandoverPackageTest.php:337` "giải nén: nhóm D, tài liệu đã xoá mềm và nhóm B còn nháp đều vắng mặt…", `:440` |
+| Quá `client_access_until` → rời cổng, còn nguyên trong admin | `Portal/ClientAccessExpiryTest.php:122`, `:159`, `:242` |
+| Tải `.svg` bị từ chối | `Support/FileGuardTest.php:55`; màn hình: `Portal/SubmitDocumentTest.php:869`; Action: `Actions/Document/UploadStaffDocumentTest.php:247` |
+| Tệp vượt 20 MB bị từ chối | `Support/FileGuardTest.php:66`; màn hình: `Portal/SubmitDocumentTest.php:893` |
+| Đuôi `.pdf`, MIME thật `application/x-dosexec` bị từ chối | `Support/FileGuardTest.php:74` (MZ + PE đủ để `finfo` nhận `application/x-dosexec`); màn hình: `Portal/SubmitDocumentTest.php:849` "binds a file guard refusal to the file field and creates nothing", `Filament/DocumentsRelationManagerTest.php:566` |
+| M13: vụ `restricted` không lộ qua con số | `Performance/PerformanceLeakSweepTest.php:134`, `:161`, `:186`, `:200`; `Performance/RestrictedLeakSweepTest.php:145`, `:202`, `:255`; `Performance/PerformanceTrendTest.php:313`, `:387` |
+| M13: kế toán 404 ở ba trang và widget xu hướng | `Performance/PerformanceAccessTest.php:124`; `Performance/PerformanceTrendWidgetAccessTest.php:76`; `Performance/PerformancePageTest.php:397` |
+| M13: luật sư/trợ lý chỉ thấy số của mình; 404 cùng một kiểu | `Performance/PerformanceAccessTest.php:112`, `:166`; `Performance/PerformancePageTest.php:381`; `Performance/DemoWalkthroughTest.php:156` |
+
+### Vòng migration thật trên MariaDB (2026-10-08, CSDL `vk_crm_lane_v1b`)
+
+`/d/vkwt/v1b-dev seed` (`migrate:fresh --seed`, 33,6 s, thoát 0; `DemoDataSeeder` 14,8 s) →
+`db:artisan migrate:reset --force` (58 migration lùi, 14,4 s, thoát 0) → `db:artisan migrate --force` (58
+migration, 17,8 s, thoát 0) → `db:artisan db:seed --force` (dữ liệu mẫu gieo lại sạch, 29,8 s, thoát 0). Sau
+lượt cuối: 27 vụ, 12 khách, 9 nhân sự, 12 lần tiếp nhận, 25 hợp đồng, 720 ảnh chụp hiệu suất, 58 dòng
+`migrations`.
+
+### Lượt đi theo kịch bản của người làm (KHÔNG phải người đọc chưa từng thấy kho)
+
+Ngày 2026-10-08, người làm Task 8 — đã đọc kho, đã đọc cả hai tài liệu — viết một kịch bản shell
+(`install-walk.sh`, trong scratchpad của phiên, không vào kho) chép lại chuỗi lệnh của "Cài lên máy chủ thật",
+rồi chạy nó trong một container `webdevops/php:8.3-alpine` bỏ đi sau đó, trên bản sao của `d54c445` lấy từ một
+git bundle, với CSDL tạm `vk_crm_lane_v1b_install` (đã xoá). Đây là lượt kiểm chữ có chạy lệnh, KHÔNG phải
+nghiệm thu theo R6: người viết kịch bản biết sẵn câu trả lời ở những chỗ một người lạ phải đoán.
+
+Đã đi (theo kịch bản):
+
+- Bước 1, chỉ phần kiểm: `php -m`, có `git`/`composer`/`mariadb-dump` không, các hàm `pcntl`.
+- Bước 2: `git clone` (từ git bundle, không từ GitHub) → `cp .env.example .env` → `composer install --no-dev
+  --optimize-autoloader`.
+- Bước 3: `key:generate`, điền `.env` theo bảng (giá trị giả: `APP_URL` `.test`, `MAIL_MAILER=log`, heartbeat
+  giả), `config:clear` + `webpush:vapid`.
+- Bước 5: `migrate --force` → `db:seed --force`.
+- Bước 6: `vkcrm:create-admin` với câu trả lời đưa vào bằng ống; `--no-interaction` từ chối đúng như tài liệu
+  nói.
+- Bước 7: `vkcrm:preflight` → `optimize`. Preflight: mọi dòng XANH trừ hai dòng do chính container thử: VÀNG
+  không gọi được `APP_URL` giả để thử đĩa `private`, ĐỎ thiếu `mariadb-dump` (Bước 1 bảo cài `mariadb-client`;
+  container thử không cài).
+- Bước 8: `schedule:list` (19 tác vụ) và một `schedule:run` gõ tay; không cài crontab, không đăng ký giám sát.
+- Bước 10: chỉ `vkcrm:backup-check` trên đĩa `local_backups`; không rclone/Google Drive, không khôi phục thử.
+
+Chưa đi:
+
+- Bước 1 phần chuẩn bị máy (cài gói, extension, `mariadb-client`, người dùng, tường lửa, gọi ra máy chủ push).
+- Bước 2 phần lấy quyền đọc kho riêng tư: deploy key, clone qua SSH, `core.sshCommand`.
+- Bước 4 (máy chủ web, HTTPS, hai mẫu trong `tools/deploy/`).
+- Bước 9 (đăng nhập lần đầu, cài 2FA, nhập thông tin văn phòng).
+- Bước 11 (mở cổng).
+- "Nâng cấp lên bản mới" (cả các đoạn nâng cấp M10, M12, M13).
+
+Ba chỗ người đọc phải đoán, đã sửa, mỗi chỗ một test trong `Acceptance/InstallGuideColdReadTest.php`:
+
+1. **Giá trị có dấu cách cần ngoặc kép** (quan sát được khi chạy). `BRAND_BAR_ASSOCIATION=Đoàn Luật sư tỉnh Đồng
+   Nai` không ngoặc kép làm MỌI lệnh `php artisan` chết với "The environment file is invalid!" (lượt chạy đầu
+   dừng ở đây). Bước 3 nay nói luật ngoặc kép kèm một dòng ví dụ Dotenv đọc được; dòng chú thích của
+   `BRAND_BAR_ASSOCIATION` trong `.env.example` nói cùng luật.
+2. **Kho là kho riêng tư** (tìm ra khi đọc, không quan sát được: lượt chạy clone từ git bundle, container không
+   có quyền GitHub). Đọc Bước 2 thấy `git clone https://github.com/Harry-Kien/vk-crm.git` mà không nói kho là
+   riêng tư; người ngoài chạy đúng dòng đó sẽ nhận "Repository not found" hoặc bị hỏi mật khẩu. Bước 2 nay nói
+   cách lấy quyền đọc: deploy key chỉ đọc (lệnh `ssh-keygen`, người giữ kho thêm khoá ở Settings → Deploy keys,
+   clone qua SSH với `core.sshCommand` để `git pull` lúc nâng cấp dùng lại); Bước 0 có thêm dòng hỏi người giữ
+   kho. Các lệnh mới này chưa chạy thử.
+3. **README thiếu quyền M13 khi nâng cấp** (tìm ra khi đối chiếu README với CAI-DAT). Gạch "Nâng cấp" của README
+   kể bảy quyền M9/M10, quên `performance.viewAny` — bỏ `db:seed --force` thì trang "Theo dõi đội ngũ" không hiện
+   với ai. Nay kể đủ tám quyền và nói M12 không thêm quyền nào, khớp CAI-DAT.
+
+Cùng lượt: dọn ba dòng Sail cũ không nơi nào đọc (`WWWUSER`, `WWWGROUP`, `VITE_APP_NAME`) khỏi `.env.example`
+(M8 Task 7 hứa dọn ở Task 8); `Deployment/EnvExampleTest` bỏ mục ngoại lệ "chưa dọn".
+
+### Lượt đọc lạnh mô phỏng (làn v1, Task 2, 2026-10-08) — chưa thay được R6 cho §14 mục 8
+
+**Ai đi, và vì sao gọi là mô phỏng.** Lượt này được đi như thể người điều phối đã giao nó thay cho "agent chưa
+từng đọc kho" của R6; sổ điều phối không ghi lời giao đó (rà soát cuối làn v1, I1, 2026-10-09), nên lượt này là
+bằng chứng phụ, không phải nghiệm thu §14 mục 8. Người đi: agent
+làm Task 2 của làn v1 — đã đọc kho (PROGRESS, các test, một phần mã), KHÔNG phải agent chưa từng đọc kho —
+làm theo đúng chữ của `README.md` + `docs/CAI-DAT.md`, chỉ hai tài liệu đó, gõ từng lệnh như tài liệu viết,
+ghi mọi chỗ lệnh dừng hay phải đoán. Khi một lệnh dừng, nó sửa theo cách một người cài hợp lý sẽ sửa rồi đi
+tiếp, và tài liệu được sửa cho chỗ đó. Máy: container `ubuntu:24.04` trống (bỏ đi sau đó), bản sao của
+4d84a8c lấy từ git bundle, hai người dùng như tài liệu nói (người quản trị `quantri` có `sudo`; PHP-FPM chạy
+bằng `www-data`), nginx 1.24 và PHP-FPM 8.3.6 của Ubuntu, `mariadb-client` 10.11; máy chủ cơ sở dữ liệu là
+`mariadb:11` của dự án (CSDL tạm `vk_crm_lane_v1_install`, đã xoá), thư ra `log`, chứng chỉ tự ký cho tên
+miền tạm `khachhang.test`.
+
+Đã đi (theo chữ):
+
+- Bước 1: cài PHP 8.3 + extension, `mariadb-client`, Composer, Git, nginx bằng `apt` (dòng `apt` nay có trong
+  tài liệu); đối chiếu cả danh sách extension với `php -m` và `php-fpm8.3 -m` (đủ); lệnh kiểm `pcntl` in
+  `[true,true,true,true]`; bốn lệnh `curl` tới máy chủ push in 404/404/405/406 (ĐẠT); sửa
+  `upload_max_filesize`/`post_max_size` của FPM; tạo CSDL và tài khoản theo khối SQL.
+- Bước 2: sinh deploy key bằng người quản trị, clone với `-c core.sshCommand=…` (từ git bundle), `cp
+  .env.example .env`, `composer install --no-dev --optimize-autoloader`, giao `storage/`, `bootstrap/cache/`
+  và `.env` cho `www-data`.
+- Bước 3: `key:generate`, điền `.env` theo bảng (bốn thông tin pháp lý có ngoặc kép), `config:clear` +
+  `webpush:vapid`, `VAPID_SUBJECT`.
+- Bước 4: chép mẫu nginx, sửa tên miền và đường dẫn chứng chỉ, `nginx -t`; `https://…/admin/login` và
+  `/portal/login` 200 (sau Bước 5), `http://` chuyển 301 sang `https://`, `/storage/app/private/`, `/.env`,
+  `/.git/config` 404, `/portal/sw.js` 200 kèm `Service-Worker-Allowed: /portal`, HSTS + CSP + `X-Frame-Options`
+  có mặt.
+- Bước 5: `migrate --force` (58 migration), `db:seed --force`; rồi phần demo: gieo `DemoDataSeeder`, chuỗi "Hết
+  demo, chuyển sang dùng thật" (kho hồ sơ còn đúng `.gitignore` và `.htaccess`).
+- Bước 6: `vkcrm:create-admin` từ chối `--no-interaction` đúng như tài liệu, tạo được quản trị viên (câu trả
+  lời đưa vào bằng ống), lần chạy thứ hai từ chối vì đã có một quản trị viên.
+- Bước 7: `vkcrm:preflight` — mười sáu dòng XANH, kể cả `storage/app/private` không phục vụ công khai (thử thật
+  qua nginx), zip AES-256, `mariadb-dump`; "Mọi điều kiện ra mắt đều đạt." — rồi `optimize`.
+- Bước 8: cài đúng dòng crontab bằng `sudo crontab -u www-data`, chạy daemon `cron`; phút kế tiếp
+  `system_health.last_schedule_run_at` có giá trị, `failed_jobs` rỗng.
+- Bước 10, phần không cần Google: `vkcrm:backup-check` (đĩa `local_backups` OK) và một lượt `backup:run` thật —
+  archive chứa bản dump CSDL và hai tệp của kho hồ sơ, cả ba mã hoá AES-256 (`mariadb-dump` 10.11 dump được
+  MariaDB 11).
+- Bước 11: đối chiếu điều kiện mở cổng — preflight xanh, backup-check xanh, cron đã chạy; hai điều kiện còn
+  lại (quản trị viên đã cài 2FA, đã khôi phục thử) thuộc phần chưa đi.
+- "Nâng cấp lên bản mới": chuỗi lệnh đủ dòng, hai lần (lần đầu theo chữ cũ thì dừng — chỗ vấp 5; lần sau theo
+  chữ mới, kể cả ngay sau khi gỡ gói dev), mọi lệnh thoát 0, trang lên lại 200.
+- Lối cài máy dev của README (Git Bash trên Windows, bản clone mới, cổng riêng): `composer install` qua
+  `docker run`, `bin/dev up -d`, `key:generate`, `migrate:fresh --seed`; `/admin/login`, `/portal/login`,
+  Mailpit 200; đếm dữ liệu mẫu trong CSDL. Môi trường đó đã dỡ (`docker compose down -v`).
+
+Chưa đi:
+
+- Bước 9: đăng nhập lần đầu, cài 2FA, mã khôi phục — cần gõ mật khẩu vào trình duyệt, việc agent không làm
+  trong môi trường này. Đường đó có test Livewire từ M8 Task 2; trang đăng nhập lên qua HTTPS (Bước 4).
+- Bước 2 phần GitHub thật: thêm deploy key vào kho và clone qua SSH (lượt đi clone từ git bundle).
+- Bước 10 phần Google Drive (`rclone`) và một lần khôi phục thử thật (`docs/SAO-LUU-KHOI-PHUC.md`).
+- Cài máy chủ MariaDB 11 trên Ubuntu (lượt đi dùng máy chủ `mariadb:11` của dự án); Apache; HTTPS thật bằng
+  Let's Encrypt; "Bản cập nhật M12" từ một máy chủ trước M12.
+
+Chỗ vấp đã sửa (mười, đều quan sát được trên máy thử — lệnh thật dừng ở đúng câu lỗi tài liệu nay trích; chỗ 3
+đo bằng chính transport thư của Laravel, chỗ 8 bằng đếm trong CSDL vừa gieo):
+
+1. **Thư mục mã nguồn và người giữ deploy key.** `git clone … /var/www/vk-crm` bằng người quản trị dừng ở
+   `could not create work tree dir '/var/www/vk-crm': Permission denied` (`/var/www` của `root`); Bước 2 cũ
+   còn gợi ý sinh deploy key bằng `www-data` (rà soát v1b M1). Nay: hai dòng `sudo mkdir`/`sudo chown` trước
+   khi clone, mọi lệnh Bước 2 và mọi `git pull` bằng người quản trị, bỏ ba dấu cách thừa trong dòng clone.
+   Test "§14.8 prepares the checkout directory for the admin user, who also owns the deploy key".
+2. **`.env` của ai.** Tài liệu bảo mọi `php artisan` chạy bằng `www-data`, mà `.env` do người quản trị chép
+   ra: `sudo -u www-data php artisan key:generate` dừng ở `file_put_contents(…/.env): Failed to open stream:
+   Permission denied`; một lần thử giao nhóm `www-data` rồi sửa `.env` bằng người quản trị làm `www-data`
+   mất quyền đọc, và mọi lệnh chạy như chưa có `.env` (`Database file at path … database.sqlite does not
+   exist`). Nay: đầu phần production nói hai người dùng làm gì; `.env` thuộc `www-data`, quyền `600`, sửa
+   bằng `sudo -u www-data nano .env`; README có gạch "Hai người dùng". Test "§14.8 hands .env to the PHP-FPM
+   user before key:generate, and says who runs what".
+3. **`MAIL_SCHEME`.** Bảng biến kể tên `MAIL_SCHEME` mà không nói giá trị; người cài ghi `tls`/`ssl` như
+   bảng điều khiển email ghi. Đo bằng chính transport của Laravel trên máy đó: `tls`, `ssl` → `The "tls"
+   scheme is not supported; supported schemes for mailer "smtp" are: "smtp", "smtps".` Nay: mục 4 của Bước
+   3, dòng chú thích trong `.env.example`, và `vkcrm:preflight` báo ĐỎ (dòng mới, `RunPreflight::
+   mailSchemeRows()`). Test "§14.8 tells the installer which MAIL_SCHEME values exist, and that tls or ssl
+   breaks every mail"; bốn test mới trong `Deployment/PreflightCommandTest` (một test đối chiếu luật của
+   preflight với chính transport của Laravel).
+4. **HTTP/2 trên nginx 1.24.** Mẫu viết `http2 on;` (nginx từ 1.25.1); `nginx -t` của Ubuntu 24.04 dừng ở
+   `unknown directive "http2"`. Nay: Bước 4 và một dòng chú thích ngay trong mẫu nói cách viết cho nginx cũ
+   (`listen 443 ssl http2;`), đã chạy thử trên 1.24. Test "§14.8 tells an Ubuntu 24.04 installer how to
+   enable HTTP/2 on nginx 1.24".
+5. **Chuỗi nâng cấp.** `composer install` bằng người quản trị dừng ở `Script @php artisan package:discover
+   --ansi handling the post-autoload-dump event returned with error code 1` (`bootstrap/cache/` đã thuộc
+   `www-data`); sửa bằng `--no-scripts` thì lần đầu gỡ gói (ngay sau phần demo) làm `package:discover` chết
+   ở `Class "Laravel\Pail\PailServiceProvider" not found` (danh sách gói cũ). Nay: chuỗi ghi đủ người chạy
+   từng dòng — `--no-scripts`, xoá hai tệp danh sách gói, `package:discover` bằng `www-data`,
+   `filament:assets` bằng người quản trị; README tóm tắt cùng chuỗi. Test "§14.8 runs the upgrade chain with
+   the right user on every line".
+6. **Git Bash.** Dòng `docker run … -w /var/www/html …` của README dừng ở `the working directory
+   'C:/Program Files/Git/var/www/html' is invalid`. Nay: `MSYS_NO_PATHCONV=1` ở đầu dòng, ở cả README và
+   CAI-DAT. Test "§14.8 gives a dev install that runs in Git Bash and generates the key before seeding".
+7. **Lối cài máy dev của CAI-DAT thiếu `key:generate`.** Gieo dữ liệu không khoá dừng ở `No application
+   encryption key has been specified.` (đo trên máy thử); CAI-DAT nay đi đúng chuỗi của README. Cùng test với
+   chỗ 6.
+8. **Con số dữ liệu mẫu.** README hứa 20 vụ, CAI-DAT 21 vụ / 12 khách / 8 nhân sự; CSDL vừa gieo có 27 vụ, 12
+   khách, 9 nhân sự (8 đăng nhập được), 16 tài khoản cổng; vụ chuyển từ tiếp nhận là vụ thứ 27, không phải
+   23. Test "§14.8 promises the demo data the seeder really builds" gieo `DatabaseSeeder` và so với chữ của
+   hai tài liệu.
+9. **Dữ liệu mẫu demo trên máy chủ thật.** `db:seed --class=DemoDataSeeder --force` dừng ở `Call to
+   undefined function Database\Seeders\fake()` — Faker là gói dev, Bước 2 cài `--no-dev`. Nay: cài gói dev
+   trước khi gieo, gỡ chúng trước chuỗi "Hết demo" (cả hai đã chạy thử). Test "§14.8 installs the dev
+   packages the demo data needs, and removes them before going live".
+10. **`rm` trong chuỗi "Hết demo".** Người quản trị chạy `rm -rf storage/app/private/[0-9]*` nhận `rm: cannot
+    remove 'storage/app/private/1': Permission denied` (tệp của `www-data`). Nay mọi dòng của chuỗi chạy
+    bằng `sudo -u www-data`; `Deployment/InstallGuideDemoDataTest` ghim đúng bốn dòng đó.
+
+Cũng sửa khi đọc (không có lệnh dừng): dòng `apt` cho Ubuntu 24.04 (tên gói khác tên extension), nguồn của
+MariaDB 11 trên Ubuntu 24.04 (kho gói của MariaDB), `sudo` cho `crontab -u www-data -e`, câu mở đầu hai phần
+cài (ngày đi thử, con số dữ liệu mẫu), `MAIL_SCHEME` trong danh sách preflight kiểm của Bước 7.
+
+### Cần chủ văn phòng quyết / làm (không chặn bản 1.0 trong kho; chặn ngày mở cổng thật)
+
+- **§14 mục 8 theo đúng chữ R6 — việc của người điều phối, còn chặn dấu ✅ của bản 1.0**: một agent chưa từng
+  đọc kho làm theo `README.md` + `docs/CAI-DAT.md` từ máy trống, clone thật từ GitHub bằng deploy key, đi cả
+  Bước 9 (2FA trên trình duyệt) và một lần khôi phục thử; hoặc người điều phối ghi vào sổ điều phối quyết định
+  nhận lượt mô phỏng ở trên thay cho việc này. Mỗi chỗ vấp của lượt thật là một lỗi tài liệu cần sửa kèm test.
+- **Máy chủ thật**: thuê VPS/hosting, tên miền `khachhang.luatvukhang.com`, HTTPS, SMTP có SPF/DKIM, chạy đúng
+  `docs/CAI-DAT.md` (Bước 0 là danh sách việc cần chuẩn bị, gồm thêm deploy key của máy chủ vào kho).
+- **Ba thông tin pháp lý còn trống**: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động (địa chỉ trụ sở đã
+  có); nhập ở trang "Thông tin văn phòng" hoặc `.env`. Xác nhận địa chỉ "Trả lời" `BRAND_REPLY_TO_ADDRESS`.
+- **Thiết bị thật**: đi tay app trên điện thoại Android và iPhone theo danh sách M12 (cài lên màn hình, bật
+  thông báo, nhận đẩy khi khoá màn hình).
+- **Luật sư duyệt**: thông báo bảo vệ dữ liệu cá nhân (bản nháp M10), hạn lưu người liên hệ không thành khách
+  (`PROSPECT_RETENTION_MONTHS`, mặc định 24 tháng), hạn lưu hồ sơ và quyết định tiêu huỷ (M7), giữ dấu băm sau
+  ẩn danh.
+- **Sao lưu**: tài khoản Google riêng cho sao lưu + hai chỗ cất `APP_KEY`/`BACKUP_ARCHIVE_PASSWORD`/khoá VAPID
+  ngoài máy chủ; một lần khôi phục thử trên máy chủ thật (`docs/SAO-LUU-KHOI-PHUC.md`). Quyết gói bàn giao có
+  nằm trong bản sao lưu hằng đêm không (ba lựa chọn ở "Cần chủ văn phòng quyết" của Ghi chú M7).
+- **Sau bản 1.0**: M11 (máy chủ MCP — đã ở `main` và trong cây đã gộp của làn này, ngoài phạm vi nghiệm thu
+  bản 1.0; còn gói ChatGPT Business+ cho quyền ghi, hồ sơ chuyển dữ liệu ra nước ngoài) và M14 (Shared Drive + tài khoản dịch vụ trên Google Workspace, ngày nộp hồ sơ chuyển dữ liệu theo
+  Luật 91/2025).
+
+### Kiểm chứng của làn
+
+- Độ phủ + cả bộ: `bin/coverage` → **6288 passed, 0 failed**, 33 skipped, 1 risky có sẵn (`EnvExampleTest` "không
+  biến BRAND_* có mặc định nào bị khai trống…"), 169 466 assertions, 3 731 s; số phủ ở mục "Độ phủ". Ba lượt
+  trước đó hỏng vì công cụ, không vì test: `pecl install pcov` trả "No releases available" (nay tải tarball),
+  `docker-php-ext-enable` treo trên chỉ mục apk (nay bật bằng tệp ini), và một tiến trình con cạn `memory_limit`
+  512M sau chừng một giờ (nay 3G).
+- ĐỎ trước khi sửa: `InstallGuideColdReadTest` 3 failed trên tài liệu gốc; trả `.env.example` gốc tạm thời →
+  `EnvExampleTest` "mọi dòng của .env.example đều được đọc ở đâu đó" đỏ ("Dòng .env.example không ai đọc:
+  WWWUSER, WWWGROUP, VITE_APP_NAME") và test ngoặc kép đỏ. Sau sửa: xanh.
+- Mutation probe (sửa mã sản phẩm, chạy test, trả lại): bỏ `matter.view` khỏi `MatterPolicy::view` → test kế
+  toán đỏ; bỏ `required()`/`minLength(20)` của ô lý do cùng hai luật trống/ngắn của `ReviewChecklistItem` → 3
+  ca đỏ; bỏ `--stop-when-empty` của worker hàng mặc định → `V1PlatformTest` đỏ; bỏ lời gọi `SendPushAlert` của
+  `NotifyClientOfChecklistItemRejected` → §14.4 đỏ; của `NotifyClientOfStageUpdate` → §14.3 đỏ. Vụ `restricted`
+  có HAI lớp độc lập: mở nhánh `restricted` của `scopeListableBy` một mình → test vẫn xanh, coi vụ `restricted`
+  như vụ thường trong `isListableBy` một mình → vẫn xanh, mở cả hai → đỏ (mỗi lớp tự đủ chặn).
+- Tập trung (SQLite): `tests/Feature/Acceptance` + `EnvExampleTest` + bốn test đọc hướng dẫn cài (M10, M12, M13,
+  dữ liệu mẫu): 47 passed, 1 risky có sẵn. MariaDB tuần tự (`test:mariadb`, `tests/Feature/Acceptance` +
+  `EnvExampleTest`): 21 passed, 1 risky có sẵn. `pint --test`: PASS 1178 tệp.
+- Vòng sửa 1 của rà soát (I1, 2026-10-08): hồ sơ §14 mục 8 nay gọi đúng tên lượt đi (kịch bản của người làm, đã
+  đọc kho; bước đã đi, bước chưa đi; chỗ vấp 2 tìm ra khi đọc), tiêu chí 8 và Task 8 của kế hoạch M8 ở trạng thái
+  CHỜ lượt đọc của agent chưa từng đọc kho; dòng M8 và dòng "Bản 1.0" của bảng thôi ✅. Test mới
+  `InstallGuideColdReadTest` "§14.8 records the install walk as a scripted walk…": ĐỎ trên hồ sơ cũ, xanh sau sửa;
+  tám mutation probe (dòng Bản 1.0 / M8 trở lại ✅, tick lại Task 8, bỏ Bước 9 khỏi danh sách chưa đi, bỏ việc
+  của người điều phối, bỏ "CHỜ" ở tiêu chí 8, bỏ "tìm ra khi đọc", trả tiêu đề cũ) đều đỏ. Cả bộ 6289 passed,
+  33 skipped, 1 risky có sẵn (3 666 s); MariaDB `InstallGuideColdReadTest` 4 passed; `pint --test` PASS.
+
+### Kiểm chứng của làn v1 (Task 2, cây đã gộp, 2026-10-08/09)
+
+- Cả bộ + độ phủ, lượt cuối trên cây cuối của Task 2: `bin/coverage` → **6448 passed, 0 failed**, 33 skipped,
+  170 147 assertions, 3 645 s; `app/Actions/` 97,96 %, `app/Policies/` 93,88 % (mục "Độ phủ"). Một lượt
+  `bin/coverage` trước đó, chạy trên cây đang sửa dở: 6424 passed, 0 failed.
+- MariaDB tuần tự (`test:mariadb`) trên bảy tệp test đã đổi hay mới (`PreflightCommandTest`,
+  `InstallGuideColdReadTest`, `Spec11ScreenTraceTest`, `V1AcceptanceWalkTest`, `V1PlatformTest`,
+  `InstallGuideDemoDataTest`, `CoverageSummaryTest`): 95 passed, 201,6 s. `pint --test`: PASS, 1184 tệp.
+- ĐỎ trước khi sửa: `CoverageSummaryTest` 2 failed trên `summary.php` cũ (báo cáo đường dẫn container đọc từ
+  thư mục khác in "0 / 0" rồi xanh; thư mục không khớp dòng nào in 100 % và thoát 0); `PreflightCommandTest
+  --filter=MAIL_SCHEME` 8 failed khi chưa gọi `mailSchemeRows()` (6 test đối chiếu với transport của Laravel
+  xanh từ đầu — chúng đo Laravel, không đo preflight).
+- Mutation probe (sửa mã, chạy test, trả lại; `git diff` của tệp bị sửa rỗng sau đó): bỏ tiền tố
+  `/var/www/html/` khỏi `summary.php` → 1 đỏ; bỏ cờ thất bại khi thư mục không khớp dòng nào → 1 đỏ; bỏ mục lịch
+  `queue.handover` (đổi sang hàng `default`) → `V1PlatformTest` đỏ; mục đã từ chối thôi "chờ ở khách" trong
+  `MatterProgress` → §14.4 đỏ ở bước 6; mục đang chờ kiểm tra coi như "chờ ở khách" → §14.4 đỏ ở bước 3; thư
+  `client.stage_update` mang ghi chú nội bộ thay cho nội dung công bố → §14.3 đỏ; đổi tên gạch "Nâng cấp" của
+  README → test M13 của README đỏ với câu báo lỗi thay vì đọc cả tệp (M8); tắt luật vòng đời nhóm B của
+  `PublishDocument` → test màn hình nhóm B mới của `Spec11ScreenTraceTest` đỏ.
+- Mutation probe của hồ sơ §14 mục 8 (`InstallGuideColdReadTest` "§14.8 records the simulated cold read…"): bỏ
+  câu "KHÔNG phải agent chưa từng đọc kho" khỏi tiêu chí 8 → đỏ; bỏ tick Task 8 của kế hoạch M8 → đỏ; đổi tên
+  một test được trích ở danh sách chỗ vấp → đỏ.
+
+### Gộp M11 và rà soát cuối làn v1, vòng sửa 1 (2026-10-09)
+
+Rà soát cuối làn v1 (`.superpowers/sdd/v1/progress.md`, "FINAL review") tìm một lỗi chặn gộp và ba việc quan trọng.
+Báo cáo đủ: `.superpowers/sdd/v1/final-fix-report.md`, mục "Fix round 1".
+
+- **C1 — `main` đã có M11.** `main` là c166ec6 (M11 đã gộp: `routes/ai.php`, route OAuth của Passport, `/mcp`,
+  `/.well-known/*`, đăng ký client động, hai trang "Kết nối AI"). Làn gộp `main` vào nhánh (72fe192; xung đột ở
+  `bootstrap/app.php`, `PreflightCommandTest`, README, CAI-DAT, PROGRESS — giữ cả hai phía). Trên cây đã gộp:
+  `NotFoundSpec1010Test` ĐỎ trước khi sửa (mười ba route M11 chưa xếp nhóm); nay hai trang "Kết nối AI" ở nhóm
+  đóng (luật sư, kế toán bị từ chối nhận đúng trang 404 của đường dẫn không tồn tại), các route còn lại là ngoại
+  lệ có lý do (không route M11 nào mang id trên URI), và hai phép so mới: mọi tool MCP nhận id — danh sách đọc
+  từ `tools/list` thật, mười hai tool kể cả bốn tool ghi — trả cùng câu "Không tìm thấy" cho vụ đội khác, vụ
+  hạn chế của chính người gọi, vụ chưa bật AI và id không có; nút "Thu hồi" của "Kết nối AI của tôi" với client
+  của người khác và client bịa cho cùng câu. `SessionCutSpec109Test` thêm màn hình đồng ý và nút "Đồng ý" của
+  `/oauth/authorize` và bearer `/mcp` (nút "Hoạt động" lẫn `is_active` ghi thẳng vào CSDL). Ca "Đồng ý" tìm ra
+  một lỗi: route của Passport khai `auth:web`, nên `Authenticate` chạy TRƯỚC `EndDisabledStaffSessions` và nhân
+  sự bị vô hiệu nhận 403 thay cho trang đăng nhập; sửa bằng `prependToPriorityList()` trong `bootstrap/app.php`.
+  Cả bộ trên cây đã gộp lộ thêm một xung đột về nghĩa giữa hai nhánh: hai ca của `Mcp/AuthorizeScreenTest` (M11)
+  đòi màn hình từ chối lý do "tài khoản bị vô hiệu hoá" cho một phiên còn đăng nhập, mà `EndDisabledStaffSessions`
+  (§10.9, làn này) đăng xuất phiên đó trước khi màn hình kịp dựng (302 về trang đăng nhập). Giữ §10.9: hai ca chuyển
+  sang test riêng "R2 + §10.9 tài khoản bị vô hiệu hoá: phiên bị cắt…" (về trang đăng nhập, không màn hình, không
+  mã, cả "Đồng ý" ép tay); lý do `Inactive` của màn hình đồng ý còn lại làm lớp thứ hai.
+  M11 nằm trong cây được đo nhưng ngoài phạm vi nghiệm thu bản 1.0 (chủ văn phòng chốt 2026-10-08); dòng M8 và
+  dòng "Bản 1.0" của bảng nói đúng điều đó.
+- **I1 — tiêu chí 8.** Trở về CHỜ (tiêu chí 8 ở trên, dòng M8, dòng "Bản 1.0", Task 8 của kế hoạch M8 bỏ tick):
+  lời giao duy nhất trong sổ điều phối là "một agent chưa từng đọc kho". Chuỗi nâng cấp cuối cùng được đi lại
+  một lần — xem gạch "Lượt đi lại chuỗi nâng cấp" dưới.
+- **I2 — bản sao `.env` trong cache cấu hình.** `php artisan optimize` ghi mọi giá trị của `.env` ra
+  `bootstrap/cache/config.php` với quyền theo `umask` (lượt đi dưới: `664`, người quản trị đọc được). CAI-DAT
+  Bước 7 và chuỗi nâng cấp nay có `sudo -u www-data chmod 600 bootstrap/cache/config.php` ngay sau MỌI
+  `optimize`; ba chỗ hứa giữ kín và README nói về tệp này.
+- **I3 — SPEC §12.** Đính chính 2026-10-09: vụ chuyển từ tiếp nhận là vụ thứ 27 (bốn vụ của
+  `TeamPerformanceSeeder`, M13); `InstallGuideColdReadTest` giữ SPEC cùng con số với README.
+- **Lượt đi lại chuỗi nâng cấp (2026-10-09, quan sát được).** Container `ubuntu:24.04` trống (bỏ đi sau đó),
+  nginx 1.24, PHP-FPM 8.3.6 của Ubuntu, người quản trị `quantri` có `sudo`, PHP-FPM bằng `www-data`, CSDL tạm
+  trên máy chủ `mariadb:11` của dự án (đã xoá). Bản A = 7204b34 (trước M11) cài theo CAI-DAT của chính nó
+  (preflight "Mọi điều kiện ra mắt đều đạt", `/admin/login` 200, `config.php` quyền `664`). Rồi nâng lên bản B
+  = đầu làn (M11 đã gộp, vòng sửa này) bằng ĐÚNG khối lệnh của CAI-DAT B — chép máy từ tệp, chạy từng dòng — cộng
+  hai bước của "Bản cập nhật M11": `sodium`/`curl` có sẵn (`php8.3-common`), `sudo -u www-data php artisan
+  passport:keys` ngay sau dòng `chown`. Mọi dòng thoát 0. Dòng `php artisan filament:assets` của người quản trị
+  chạy khi KHÔNG có cache cấu hình và người quản trị KHÔNG đọc được `.env` (`600`, của `www-data`): "Successfully
+  published assets!", thoát 0 (việc nhỏ m1 của lần rà soát lại Task 2, nay đã quan sát). `migrate --force`
+  chạy các migration M11, `db:seed --force`, `billing:check-invariants` sạch, preflight XANH, `optimize`,
+  `chmod 600`, `up`; sau đó `config.php` quyền `600` (người quản trị và một tài khoản khác đều không đọc được),
+  khoá Passport của `www-data` (`oauth-private.key` `600`), `/admin/login`, `/portal/login` 200, `POST /mcp` không
+  token 401, `schedule:run` bằng `www-data` chạy. **Một chỗ vấp:** `/.well-known/oauth-protected-resource/mcp`
+  trả `404` — cấu hình nginx chép từ mẫu trước M11 chặn mọi dotfile, kể cả `/.well-known/`, và mục "Bản cập nhật
+  M11" chỉ bảo "kiểm". Đổi đúng dòng `location ~ /\. {` thành `location ~ /\.(?!well-known/) {`, `nginx -t`,
+  nạp lại: JSON có `"resource"`, `/.well-known/.env`, `/.env`, `/.git/config` vẫn `404`. Mục "Bản cập nhật M11"
+  nay nói đúng dòng phải sửa (nginx và Apache) và lệnh kiểm; test `InstallGuideColdReadTest` "§14.8 tells a
+  pre-M11 server which line of its running web server config unblocks /.well-known". Lượt này do người đã đọc
+  kho đi, nên nó không thay được R6 cho tiêu chí 8.
+- **Sự cố trong lượt đi (đã báo người điều phối).** Lần chạy đầu của kịch bản cài bản A sửa `.env` hỏng (lệnh
+  `sed -i` của kịch bản cần tệp tạm trong thư mục của người quản trị), nên `.env` giữ giá trị mẫu `DB_DATABASE=
+  vk_crm` trên mạng Docker của dự án: `migrate --force` của bản A chạy 11 migration (2026_09_28_070001 …
+  2026_10_01_000001_add_conflict_red_pending_since…) trên CSDL dev chung `vk_crm`, rồi dừng ở migration băm lại
+  số giấy tờ (khác `APP_KEY`, "Không dòng matter_parties nào bị đổi"); `db:seed` (`APP_ENV=local`) cập nhật 17
+  tài khoản cổng demo rồi dừng ở `fake()`. Không xoá gì; không hoàn tác (rollback migration trên CSDL chung rủi ro
+  hơn). Lần migrate kế tiếp của máy dev chạy tiếp từ đó.
+- **Kiểm chứng:** cả bộ `test --parallel --processes=2 --passthru-php=-dmemory_limit=1536M` **7705 passed, 0 failed**,
+  33 skipped, 3 945 s. Hai lượt trước: một worker hết 512 MB bộ nhớ (như lượt cả bộ của M11 — từ đó thêm
+  `--passthru-php`), rồi 7703 passed, 2 failed (`AuthorizeScreenTest`, xung đột về nghĩa ở gạch C1). MariaDB tuần tự trên các tệp test đã đổi: 284 passed (`NotFoundSpec1010Test`, `SessionCutSpec109Test`, `InstallGuideColdReadTest`,
+  `AuthorizeScreenTest`, `PreflightCommandTest`; 422 s). `pint --test` PASS.
+
+### Gộp M14 và rà soát cuối làn v1, vòng sửa 2 (2026-10-09)
+
+Lần rà soát lại vòng sửa 1 tìm một lỗi chặn gộp cùng loại với C1 và một chỗ I2 còn sót. Báo cáo đủ:
+`.superpowers/sdd/v1/final-fix-report.md`, mục "Fix round 2".
+
+- **`main` đã có M14.** `main` là eefa40f (M14 Google Drive làm kho tài liệu, gộp 2026-10-09 lúc 12:00, trước khi
+  vòng sửa 1 kết thúc). Làn gộp `main` vào nhánh (3723c23). Có xung đột ở năm tệp, giữ cả hai phía:
+  - `DocumentDownloadController`: giữ import của M14 (`OpenStoredFile`, `StoredFileMissing`) và
+    `EnsurePortalAccountIsActive` của làn. `endSessionOfDisabledClient()` vẫn là dòng đầu của `__invoke()`, tức
+    là chạy trước mọi lần kiểm quyền và trước nhánh mở tệp từ kho của M14.
+  - `bootstrap/app.php`: giữ hai ngoại lệ kho của M14 và `EndDisabledStaffSessions`.
+  - README: giữ gạch "Kho tài liệu Google Drive (M14)" của main và gạch "Nâng cấp" có `chmod 600` của làn.
+  - CAI-DAT: câu dẫn chuỗi nâng cấp của làn, thêm vế "Bản cập nhật M14".
+  - PROGRESS: lấy dòng M14 ✅ của main, rồi viết lại hai dòng M8 và "Bản 1.0".
+
+  Trên cây đã gộp, `NotFoundSpec1010Test` ĐỎ trước khi sửa: route `filament.admin.pages.document-store` chưa xếp
+  nhóm. Đã sửa như sau:
+  - Trang "Kho tài liệu" (chỉ `settings.manage`) nay ở nhóm GATED. Một test riêng đòi cả bốn vai không phải
+    admin nhận đúng trang 404 của một đường dẫn không tồn tại, giống từng byte.
+  - Route tải tài liệu giữ tên cũ nhưng nay mở luồng từ Google Drive khi tệp nằm trên kho, nên phép so §10.10
+    chạy lại trên tài liệu nằm trên kho với adapter Drive thật (`Http::fake()` + `preventStrayRequests()`):
+    luật sư ngoài vụ và khách của khách hàng khác nhận cùng trang 404 như id không tồn tại, và không request
+    nào tới Google. Cặp dương: người được tải nhận đúng tệp qua đúng một request.
+  - `SessionCutSpec109Test`: khách bị vô hiệu (cả ba đường) và nhân sự bị vô hiệu bấm một đường dẫn tải đã ký
+    từ trước, trỏ tới tài liệu trên kho. Câu trả lời là 404, phiên kết thúc, không request nào tới Google và
+    không có dòng sổ tải. Cặp dương: tài khoản còn hoạt động tải được và vẫn đăng nhập.
+
+  Phần này không phải sửa mã. M14 nằm trong cây được đo nhưng ngoài phạm vi nghiệm thu bản 1.0 (chủ văn phòng
+  chốt 2026-10-08), và dòng M8 cùng dòng "Bản 1.0" nói đúng điều đó.
+- **I2 phần còn lại — dòng `chmod 600 bootstrap/cache/config.php` sau MỌI `optimize`, ở MỌI tài liệu.** Vòng 1
+  chỉ sửa CAI-DAT và README. Làm theo `docs/SAO-LUU-KHOI-PHUC.md` (sửa `.env` rồi chạy lại `optimize`) vẫn tạo
+  lại `config.php` với quyền `644`/`664`. Tài liệu M14 có thêm khoảng tám chỗ như vậy. Đã thêm dòng chmod ở:
+  - SAO-LUU: đoạn nạp lại cấu hình; Phụ lục D bước 11; "Dựng Kho mới"; bảng D dòng 8; biên nhận văn phòng.
+  - KHO-TAI-LIEU-GOOGLE-DRIVE: bảng Phụ lục A dòng 11; Phụ lục C bước 3 và 6; quay lui; `reindex`.
+  - CAI-DAT: "Bản cập nhật M14", bảng `DOCUMENT_STORAGE`, VAPID, hai biến của M10, `ADMIN_IP_ALLOWLIST`,
+    preflight, đầu phần production, shared hosting, Bước 2 và Bước 7.
+  - README: gạch preflight.
+  - Mười câu ứng dụng in cho người vận hành, trong `lang/vi/document_store.php`, `storage.php` và
+    `preflight.php` (`vkcrm:preflight`, `vkcrm:storage:*`).
+
+  Hai test mới trong `InstallGuideColdReadTest`, đỏ trước khi sửa:
+  - Test thứ nhất đi README và mọi `docs/*.md` trừ PROGRESS. Ở khối lệnh, dòng ngay sau `optimize` hay
+    `config:cache` phải là chmod. Ở văn xuôi, chmod phải đứng sau lần nhắc trong cùng đoạn, cùng gạch đầu dòng,
+    cùng mục hay cùng hàng bảng. Lúc đỏ, test liệt kê 33 chỗ.
+  - Test thứ hai đi mọi chuỗi trong `lang/vi`. Lúc đỏ, nó liệt kê 10 chuỗi.
+- **Kiểm chứng:** cả bộ `test --parallel --processes=2 --passthru-php=-dmemory_limit=1536M` trên cây đã
+  gộp M14 (đầu làn trước khi điền con số này): **8799 passed, 0 failed**, 36 skipped, 185 668 assertions, 4 304 s.
+  MariaDB tuần tự trên các tệp test đã đổi (`NotFoundSpec1010Test`, `SessionCutSpec109Test`,
+  `InstallGuideColdReadTest`) cùng `DocumentStorePageTest`, `PreflightCommandTest`: 257 passed, 396 s. `pint --test`
+  PASS. Mutation probe: bỏ dòng chmod ở SAO-LUU, ở Phụ lục C bước 6 hay ở một câu `lang/vi/storage.php`, hoặc ở khối
+  lệnh Bước 7 → test tương ứng đỏ; bỏ `endSessionOfDisabledClient()` → ba ca khách trên kho đỏ; bỏ lần kiểm
+  `Gate` của route tải → hai ca §10.10 trên kho đỏ; bỏ `EndDisabledStaffSessions` khỏi nhóm `web` → ca nhân sự
+  trên kho đỏ; cho mọi người qua cổng của "Kho tài liệu" → bốn ca vai đỏ.
+- **Chưa làm lại trên cây đã gộp M14:**
+  - Độ phủ `pcov`: số ở tiêu chí 1 vẫn là số đo trước khi gộp M11.
+  - Lượt đi chuỗi nâng cấp trên máy Ubuntu trống: lượt của vòng 1 đi tới cây đã gộp M11. "Bản cập nhật M14" là
+    tài liệu của làn M14 và không được đi lại ở vòng này.
 
 ## Ghi chú M14
 

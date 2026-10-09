@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\OutboundStatus;
+use App\Models\IntakeParty;
 use App\Models\MatterParty;
 use App\Support\Normalizer;
 use Illuminate\Support\Facades\Crypt;
@@ -117,6 +118,11 @@ it('§10.5 sau các luồng thật, không dạng nào của số CCCD, mật kh
         ->and($parties->firstWhere('is_our_client', false)->id_number_hash)
         ->toBe(Normalizer::idNumberHash(SensitiveDataFlows::OPPOSING_ID_NUMBER_TYPED));
 
+    // M10 (lượt quét trước bản 1.0): luồng tiếp nhận đã ghi đúng hai dấu băm — dạng lưu duy nhất.
+    expect($flows->intake->contact_id_number_hash)->toBe(Normalizer::idNumberHash(SensitiveDataFlows::INTAKE_CONTACT_ID_NUMBER_TYPED))
+        ->and(IntakeParty::query()->withoutGlobalScopes()->where('intake_request_id', $flows->intake->id)->sole()->id_number_hash)
+        ->toBe(Normalizer::idNumberHash(SensitiveDataFlows::INTAKE_OPPOSING_ID_NUMBER_TYPED));
+
     expect($flows->enrolledStaff->fresh()->two_factor_secret)->toBe($flows->twoFactorSecret)
         ->and($flows->recoveryCodes)->toHaveCount(8);
 
@@ -134,6 +140,8 @@ it('§10.5 sau các luồng thật, không dạng nào của số CCCD, mật kh
         ->digits('CCCD khách hàng lúc tạo', SensitiveDataFlows::CLIENT_ID_NUMBER_TYPED, SensitiveDataFlows::CLIENT_ID_NUMBER_LOOKUP)
         ->digits('CCCD khách hàng sau khi sửa', SensitiveDataFlows::CLIENT_ID_NUMBER_EDITED)
         ->digits('CCCD bên đối lập', SensitiveDataFlows::OPPOSING_ID_NUMBER_TYPED)
+        ->digits('CCCD người liên hệ (tiếp nhận)', SensitiveDataFlows::INTAKE_CONTACT_ID_NUMBER_TYPED)
+        ->digits('CCCD bên đối lập (tiếp nhận)', SensitiveDataFlows::INTAKE_OPPOSING_ID_NUMBER_TYPED)
         ->typed('mật khẩu nhân sự', SensitiveDataFlows::STAFF_PASSWORD)
         ->typed('mật khẩu sai gõ ở ô mật khẩu', SensitiveDataFlows::WRONG_STAFF_PASSWORD)
         ->typed('chuỗi gõ nhầm vào ô email (admin)', SensitiveDataFlows::TYPED_INTO_STAFF_EMAIL)

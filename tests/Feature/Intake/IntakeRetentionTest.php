@@ -14,6 +14,7 @@ use App\Enums\Role;
 use App\Models\IntakeRequest;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\Intake\PrivacyNotice;
 use Database\Seeders\RolesAndPermissionsSeeder;
 
 /*
@@ -175,7 +176,7 @@ it('reads the number of months from PROSPECT_RETENTION_MONTHS', function () {
  * Một giá trị vô nghĩa trong `.env` không được biến thành "ẩn danh ngay ngày mai": (int) 'abc' là 0.
  * Mặc định an toàn là 24 tháng (kế hoạch R7b), không phải 1.
  */
-it('falls back to 24 months when PROSPECT_RETENTION_MONTHS is missing, zero, negative or not a whole number', function (mixed $value) {
+it('falls back to 24 months when PROSPECT_RETENTION_MONTHS is missing, zero, negative, over 1200 or not a whole number', function (mixed $value) {
     config()->set('vkcrm.prospect_retention_months', $value);
 
     expect(IntakeRequest::retentionMonths())->toBe(24);
@@ -186,6 +187,10 @@ it('falls back to 24 months when PROSPECT_RETENTION_MONTHS is missing, zero, neg
     'negative' => ['-3'],
     'text' => ['abc'],
     'fraction' => ['2.5'],
+    // Lượt quét trước bản 1.0: số lớn vô lý (gõ thừa chữ số) — phiên bản câu thông báo mang số tháng
+    // (`PrivacyNotice::version()`, cột 20 ký tự) và ngày hạn lưu đều vỡ; trần 1.200 tháng (100 năm).
+    'beyond a hundred years' => ['1201'],
+    'absurdly large' => ['100000000'],
 ]);
 
 it('ships 24 months as the default when .env says nothing', function () {
@@ -202,4 +207,11 @@ it('keeps a retention date set explicitly in the same save, and stamps one when 
 
     expect($explicit->fresh()->retention_until->toDateString())->toBe('2027-01-01')
         ->and($implicit->fresh()->retention_until->toDateString())->toBe('2028-10-03');
+});
+
+it('accepts exactly 1200 months, whose notice version still fits the 20-character column', function () {
+    config()->set('vkcrm.prospect_retention_months', '1200');
+
+    expect(IntakeRequest::retentionMonths())->toBe(1200)
+        ->and(mb_strlen(PrivacyNotice::version()))->toBeLessThanOrEqual(20);
 });

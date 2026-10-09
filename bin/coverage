@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Đo độ phủ (SPEC §11, §14 mục 1: app/Actions/ và app/Policies/ ≥ 80%) trong một container BỎ ĐI:
+# `docker run --rm` trên đúng image của dự án (webdevops/php:8.3-alpine), cài pcov BÊN TRONG container
+# đó rồi chạy cả bộ test qua bin/container-test (liệt kê tệp tường minh — xem đầu tệp đó) với
+# --coverage-clover. Không sửa image, không cài gì lên máy, không đụng container dev đang chạy.
+# CI vẫn đặt `coverage: none`: bộ test đã ~50 phút trên máy dev, đo phủ thêm chừng gấp đôi.
+#
+# Usage (từ gốc kho, Git Bash trên Windows hoặc bash trên Linux/macOS):
+#   bin/coverage                         -> cả bộ, 2 tiến trình song song, rồi in bảng tóm tắt
+#   bin/coverage tests/Feature/Actions   -> chỉ những tệp/thư mục đó (số liệu khi đó chỉ là một phần)
+# Báo cáo: storage/logs/coverage-clover.xml (thư mục đã nằm trong .gitignore).
+# Tóm tắt: tools/coverage/summary.php — mã thoát 1 khi một trong hai thư mục dưới 80%.
+# Docker dùng chung: đừng chạy lệnh này song song với một lượt `bin/dev test` khác.
+set -euo pipefail
+export MSYS_NO_PATHCONV=1
+
+root="$(cd "$(dirname "$0")/.." && (pwd -W 2>/dev/null || pwd))"
+args=("$@")
+if [ ${#args[@]} -eq 0 ]; then args=(--parallel --processes=2); fi
+
+docker run --rm -i \
+  -v "${root}:/var/www/html" \
+  -w /var/www/html \
+  webdevops/php:8.3-alpine sh -c '
+    set -e
+    apk add --no-cache $PHPIZE_DEPS >/tmp/apk.log 2>&1 || { cat /tmp/apk.log; exit 1; }
+    # Tải tarball tường minh: "pecl install pcov" qua kênh REST đôi khi trả "No releases available"
+    # (đo ngày 2026-10-08) dù pecl.php.net vẫn lên; tệp tải về thì cài được.
+    wget -qO /tmp/pcov.tgz https://pecl.php.net/get/pcov-1.0.12.tgz
+    # Băm sha256 của đúng tarball đã đo ngày 2026-10-08: khác thì dừng, không cài một tệp lạ.
+    echo "23255c8c9335a9636ccb743f5302436a97a582a0bbde9869485be911bbc15da8  /tmp/pcov.tgz" | sha256sum -c - >/dev/null \
+      || { echo "pcov-1.0.12.tgz sai băm sha256 — dừng"; exit 1; }
+    pecl install /tmp/pcov.tgz >/tmp/pecl.log 2>&1 || { tail -20 /tmp/pecl.log; exit 1; }
+    # Bật bằng tay thay cho docker-php-ext-enable: lệnh đó tự "apk add binutils" và có lúc treo trên
+    # chỉ mục apk (đo ngày 2026-10-08). memory_limit 3G: mỗi tiến trình con của paratest giữ dữ liệu phủ
+    # của mọi tệp nó đã chạy, và 512M mặc định cạn sau chừng một giờ (đo ngày 2026-10-08).
+    printf "extension=pcov.so\npcov.enabled=1\npcov.directory=/var/www/html/app\nmemory_limit=3G\n" > /usr/local/etc/php/conf.d/zz-pcov.ini
+    php -m | grep -qx pcov || { echo "pcov không nạp được"; exit 1; }
+    rm -f storage/logs/coverage-clover.xml
+    status=0
+    sh bin/container-test "$@" --coverage-clover=storage/logs/coverage-clover.xml || status=$?
+    php tools/coverage/summary.php storage/logs/coverage-clover.xml
+    exit $status
+  ' coverage "${args[@]}"

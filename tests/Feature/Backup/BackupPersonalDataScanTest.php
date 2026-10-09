@@ -116,12 +116,16 @@ it('§10.5 bản sao lưu thật (dump + tệp, mở bằng mật khẩu) không
         ->and($dump)->toContain('INSERT INTO `matter_parties`')
         ->and($dump)->toContain($clientCiphertext)
         ->and($dump)->toContain((string) Normalizer::idNumberHash(SensitiveDataFlows::OPPOSING_ID_NUMBER_TYPED))
+        ->and($dump)->toContain((string) Normalizer::idNumberHash(SensitiveDataFlows::INTAKE_CONTACT_ID_NUMBER_TYPED))
         ->and($entries->filter(fn (string $name) => str_ends_with($name, '.pdf'))->count())->toBe(1);
 
     $scanner = SensitiveTraceScanner::make()
         ->digits('CCCD khách hàng lúc tạo', SensitiveDataFlows::CLIENT_ID_NUMBER_TYPED, SensitiveDataFlows::CLIENT_ID_NUMBER_LOOKUP)
         ->digits('CCCD khách hàng sau khi sửa', SensitiveDataFlows::CLIENT_ID_NUMBER_EDITED)
         ->digits('CCCD bên đối lập', SensitiveDataFlows::OPPOSING_ID_NUMBER_TYPED)
+        // Lượt quét trước bản 1.0 (fr-m2 rà soát cuối M10): hai số gõ ở màn hình Tiếp nhận.
+        ->digits('CCCD người liên hệ (tiếp nhận)', SensitiveDataFlows::INTAKE_CONTACT_ID_NUMBER_TYPED)
+        ->digits('CCCD bên đối lập (tiếp nhận)', SensitiveDataFlows::INTAKE_OPPOSING_ID_NUMBER_TYPED)
         ->typed('mật khẩu nhân sự', SensitiveDataFlows::STAFF_PASSWORD)
         ->typed('mật khẩu sai gõ ở ô mật khẩu', SensitiveDataFlows::WRONG_STAFF_PASSWORD)
         ->typed('chuỗi gõ nhầm vào ô email (admin)', SensitiveDataFlows::TYPED_INTO_STAFF_EMAIL)

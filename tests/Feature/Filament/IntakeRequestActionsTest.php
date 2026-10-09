@@ -17,6 +17,7 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Support\Intake\PrivacyNotice;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
@@ -232,7 +233,7 @@ it('records the privacy notice only when the box in the dialog is ticked', funct
 
     $this->actingAs($assistant, 'web');
     iraEdit($intake)
-        ->assertSee(__('intake.privacy_notice.text'))
+        ->assertSee(PrivacyNotice::text())
         ->callAction(TestAction::make('recordPrivacyNotice')->schemaComponent('privacyActions'), data: ['privacy_notice' => false])
         ->assertHasActionErrors(['privacy_notice']);
 
@@ -940,4 +941,49 @@ it('leaves the phone and role of a record with no pending red to the assistant w
         ->assertHasNoFormErrors();
 
     expect($intake->fresh()->contact_phone_normalized)->toBe('84901777888');
+});
+
+/*
+ * Lượt quét trước bản 1.0 (việc của luật sư/chủ văn phòng ở Ghi chú M10, phần là MÃ): câu thông báo
+ * đọc cho người gọi viết cứng "24 tháng" trong khi hạn lưu thật đọc `PROSPECT_RETENTION_MONTHS`
+ * (`IntakeRequest::retentionMonths()`). Đổi biến thì câu nói sai. Nay câu đọc chính con số đó, và
+ * phiên bản ghi kèm mỗi lần ghi nhận mang con số khi nó khác số mà bản chữ gốc được viết với — để vẫn
+ * biết mỗi người đã nghe câu nào (luật "đổi chữ thì đổi version").
+ */
+it('reads the retention period of the privacy notice from the configured number of months', function () {
+    config(['vkcrm.prospect_retention_months' => 36]);
+    $assistant = iraStaff();
+
+    $this->actingAs($assistant, 'web');
+    test()->livewire(CreateIntakeRequest::class)
+        ->assertSee(PrivacyNotice::text())
+        ->assertSee('36 tháng')
+        ->assertDontSee('24 tháng');
+
+    $intake = iraRecord($assistant);
+    iraEdit($intake)
+        ->assertSee('36 tháng')
+        ->callAction(TestAction::make('recordPrivacyNotice')->schemaComponent('privacyActions'), data: ['privacy_notice' => true])
+        ->assertHasNoErrors();
+
+    expect($intake->fresh()->privacy_notice_version)->toBe(__('intake.privacy_notice.version').'-36t');
+});
+
+it('keeps the original notice version when the retention period is the one the text was written for', function () {
+    config(['vkcrm.prospect_retention_months' => PrivacyNotice::BASE_MONTHS]);
+    $assistant = iraStaff();
+    $intake = iraRecord($assistant);
+
+    $this->actingAs($assistant, 'web');
+    iraEdit($intake)
+        ->assertSee(PrivacyNotice::BASE_MONTHS.' tháng')
+        ->callAction(TestAction::make('recordPrivacyNotice')->schemaComponent('privacyActions'), data: ['privacy_notice' => true])
+        ->assertHasNoErrors();
+
+    expect($intake->fresh()->privacy_notice_version)->toBe(PrivacyNotice::version())
+        ->and(mb_strlen(PrivacyNotice::version()))->toBeLessThanOrEqual(20);
+
+    // Một bản ghi đã nghe câu 24 tháng rồi văn phòng đổi sang 12: nút ghi nhận hiện lại.
+    config(['vkcrm.prospect_retention_months' => 12]);
+    iraEdit($intake->fresh())->assertActionVisible(TestAction::make('recordPrivacyNotice')->schemaComponent('privacyActions'));
 });

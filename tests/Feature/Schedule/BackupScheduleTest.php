@@ -2,6 +2,7 @@
 
 use App\Actions\Backup\CheckRcloneRemoteFreshness;
 use Illuminate\Console\Scheduling\Event;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
@@ -110,4 +111,39 @@ it('§10.8 backup:clean gọi backup:run dù thất bại, không chỉ khi thà
     Artisan::shouldReceive('call')->once()->with('backup:run');
 
     app()->call($after[0]);
+});
+
+/*
+ * Lượt quét §10 trước bản 1.0 (việc mang sang "M8 Task 6"): ba tác vụ cùng chạy lúc 08:00, và
+ * `schedule:run` chạy các mục của một phút LẦN LƯỢT trong cùng tiến trình, theo thứ tự khai báo.
+ * `backup.monitor` khai báo TRƯỚC `instalments.remind` và — thứ Hai/Tư/Sáu — trước
+ * `missing-documents.remind`; lượt `->then()` của nó hỏi đích rclone qua mạng (`rclone lsjson`, tới
+ * `vkcrm.backup.rclone.timeout` giây). Chạy nền thì không lượt hỏi Google Drive nào giữ chân hai lượt
+ * nhắc thư đứng sau; `->then()` vẫn chạy (Laravel gọi nó qua `schedule:finish` khi tiến trình nền
+ * kết thúc, kèm mã thoát).
+ */
+it('§10.8 backup.monitor chạy nền, nên không giữ chân hai lượt nhắc thư cùng phút 08:00', function () {
+    $event = backupScheduleEvent('backup.monitor', 'backup:monitor');
+
+    expect($event->runInBackground)->toBeTrue();
+
+    // Thứ Hai 08:00: mọi tác vụ cùng phút chạy TIỀN CẢNH đứng trước hai lượt nhắc thư không được là
+    // một tác vụ gọi ra ngoài máy chủ.
+    $this->travelTo(Carbon::parse('2026-10-12 08:00:00'));
+
+    $due = collect(Schedule::events())->filter(fn (Event $e) => $e->isDue(app()))->values();
+    $names = $due->map(fn (Event $e) => $e->description)->all();
+
+    expect($names)->toContain('backup.monitor', 'instalments.remind', 'missing-documents.remind');
+
+    foreach (['instalments.remind', 'missing-documents.remind'] as $mailer) {
+        $blocking = $due
+            ->takeUntil(fn (Event $e) => $e->description === $mailer)
+            ->reject(fn (Event $e) => $e->runInBackground)
+            ->map(fn (Event $e) => $e->description)
+            ->values()
+            ->all();
+
+        expect($blocking)->not->toContain('backup.monitor');
+    }
 });

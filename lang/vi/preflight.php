@@ -39,6 +39,11 @@ return [
         .'ngừng chạy (SPEC §2). Đăng ký một dịch vụ giám sát cron miễn phí và điền URL vào đây.',
     'heartbeat_url_ok' => 'HEARTBEAT_URL đã khai báo.',
 
+    'mail_scheme_unsupported' => 'MAIL_SCHEME=:value không phải giá trị Laravel nhận — MỌI thư sẽ hỏng ngay '
+        .'lúc dựng kết nối. Chỉ có ba cách ghi: smtps cho cổng 465, smtp hoặc để trống (null) cho cổng 587/25 '
+        .'(STARTTLS tự bật). Không ghi tls hay ssl dù nhà cung cấp email gọi như vậy (docs/CAI-DAT.md, Bước 3, mục 4).',
+    'mail_scheme_ok' => 'MAIL_SCHEME hợp lệ cho thư qua SMTP.',
+
     'session_secure_cookie_off' => 'SESSION_SECURE_COOKIE giải ra khác true (config(\'session.'
         .'secure\') = :value) — cookie phiên có thể bị gửi qua kết nối http không mã hoá. Để '
         .'trống biến này trên máy chủ thật (mặc định tự bật true ngoài local/testing), hoặc đặt '
@@ -105,7 +110,8 @@ return [
         .'TẮT: không ai bật được, hệ thống không gửi (email vẫn đi bình thường). Sinh MỘT lần cho '
         .'máy chủ này: php artisan config:clear, rồi php artisan webpush:vapid, điền '
         .'VAPID_SUBJECT=mailto:<hộp thư có người đọc của văn phòng>, chạy lại php artisan '
-        .'vkcrm:preflight rồi php artisan optimize, và cất VAPID_PRIVATE_KEY cùng chỗ với APP_KEY.',
+        .'vkcrm:preflight rồi php artisan optimize và chmod 600 bootstrap/cache/config.php, và cất VAPID_PRIVATE_KEY cùng '
+        .'chỗ với APP_KEY.',
     'vapid_invalid' => 'VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY sai định dạng (khoá công khai 65 byte, '
         .'khoá riêng 32 byte, mã base64url) — thông báo đẩy đang TẮT. Dán lại đúng cặp khoá đã cất. '
         .'Đừng sinh cặp mới nếu đã có người bật thông báo: khoá mới làm mọi đăng ký cũ chết, và sau '
@@ -144,6 +150,12 @@ return [
         .'này bị ép kiểu (int) lặng lẽ ở nơi đọc nó, nên một lỗi gõ ở đây không hiện ra ngay mà '
         .'chỉ đổi hành vi (ví dụ ":value" có thể bị cắt còn một số nhỏ hơn nhiều so với ý định). '
         .'Sửa lại thành một số nguyên, hoặc để trống để dùng mặc định.',
+
+    // Lượt quét trước bản 1.0 (rà soát Task 1, m4) — RunPreflight::prospectRetentionRows().
+    'prospect_retention_ignored' => 'PROSPECT_RETENTION_MONTHS có giá trị ":value" — không phải một số '
+        .'nguyên từ 1 đến :max, nên bị bỏ qua: hạn lưu dữ liệu của người không thành khách đang là '
+        .':months tháng (mặc định). Hết hạn đó dữ liệu bị ẩn danh và không lấy lại được. Sửa thành số '
+        .'tháng chủ văn phòng đã chọn, hoặc để trống để dùng mặc định.',
 
     // M9 Task 13 — tầng 4 của bất biến tổng tiền, xem RunPreflight::billingInvariantsRow().
     'billing_invariants_mismatch' => 'Có :count hợp đồng đang có hiệu lực mà tổng các đợt thanh '

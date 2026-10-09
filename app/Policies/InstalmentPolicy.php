@@ -45,7 +45,12 @@ class InstalmentPolicy
             /** @var Contract|null $contract */
             $contract = $this->parentWithoutPortalScope($instalment, 'contract');
 
-            return $instalment->status !== InstalmentStatus::Cancelled
+            // Đọc qua `ownColumnForGate()`: một dòng nạp thiếu cột `status` không được coi là "chưa
+            // huỷ" (lượt quét §10 trước bản 1.0).
+            [$known, $status] = $this->ownColumnForGate($instalment, 'status');
+
+            return $known
+                && $status !== InstalmentStatus::Cancelled
                 && $contract !== null
                 && $user->can('view', $contract);
         }

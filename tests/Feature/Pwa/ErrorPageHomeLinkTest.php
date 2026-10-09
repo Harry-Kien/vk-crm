@@ -154,6 +154,11 @@ it('sends a refused admin page back to the internal app, not to the client login
  * một instance ứng dụng, nên panel mà lượt GET đặt sẽ còn đó và làm test xanh giả — xoá nó đi thì
  * chỉ `SetUpPanel` của chính lượt POST mới làm test xanh, đúng như trên máy chủ thật (mỗi request
  * một tiến trình).
+ *
+ * Lần từ chối là "sai panel" (một tài khoản cổng cầm snapshot của trang admin, khuôn
+ * `DenialCodeTest`). Trước lượt quét §10 trước bản 1.0 test dùng một quản trị viên vừa bị vô hiệu
+ * hoá; nay người đó bị đăng xuất ở chính request này (`EndDisabledStaffSessions`, §10.9) và nhận câu
+ * trả lời của người chưa đăng nhập, không phải trang lỗi 404.
  */
 it('sends a refused Livewire update of an admin page back to the internal app', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
@@ -166,8 +171,7 @@ it('sends a refused Livewire update of an admin page back to the internal app', 
         ->first(fn (string $decoded): bool => (json_decode($decoded, true)['memo']['name'] ?? null) === EditClient::class);
     expect($snapshot)->not->toBeNull();
 
-    $admin->update(['is_active' => false]);
-    $this->actingAs($admin->fresh(), 'web');
+    $this->actingAs($this->clientUser, 'web');
     Filament::setCurrentPanel(null);
 
     // Đúng header mà `livewire.js` gửi (`Content-type: application/json`, `X-Livewire: 1`) và KHÔNG

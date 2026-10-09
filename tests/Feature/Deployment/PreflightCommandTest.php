@@ -10,9 +10,11 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Queue\Worker;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Passport\Passport;
+use Symfony\Component\Mailer\Exception\UnsupportedSchemeException;
 use Tests\Support\WebPushTestKeys;
 
 /*
@@ -1069,3 +1071,120 @@ it('§preflight M11 VÀNG khi mcp.enabled bật mà chưa ghi ngày nộp hồ s
         ->and(Artisan::output())->toContain($line('green', __('preflight.mcp_filing_date_ok', ['date' => '01/10/2026'])))
         ->not->toContain(__('preflight.mcp_filing_date_missing'));
 });
+
+/**
+ * Lượt quét trước bản 1.0, rà soát Task 1 (m4): `IntakeRequest::retentionMonths()` lặng lẽ dùng mặc định
+ * 24 tháng cho mọi giá trị `PROSPECT_RETENTION_MONTHS` nó không nhận — kể cả `2400`, lỗi gõ của người
+ * muốn giữ LÂU hơn. Ẩn danh (`prospects.anonymise`) không lùi lại được, nên preflight nói ra: một dòng
+ * VÀNG nêu giá trị bị bỏ qua và số tháng đang dùng thật, ở MỌI `APP_ENV` như ba biến số sao lưu. Không
+ * đổi luật chọn số tháng — hạn lưu là việc của chủ văn phòng và luật sư.
+ */
+it('§preflight PROSPECT_RETENTION_MONTHS có giá trị mà hạn lưu không nhận là VÀNG, nêu giá trị và số tháng đang dùng, bất kể APP_ENV', function (string $value) {
+    config(['app.env' => 'testing', 'vkcrm.prospect_retention_months' => $value]);
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.prospect_retention_ignored', [
+            'value' => $value,
+            'months' => 24,
+            'max' => 1200,
+        ]))
+        ->and($output)->toContain(__('preflight.levels.yellow'));
+})->with([
+    'quá trần (gõ thừa một số 0)' => ['2400'],
+    'có chữ' => ['24 tháng'],
+    'số không' => ['0'],
+    'số âm' => ['-6'],
+    'số lẻ' => ['18.5'],
+]);
+
+it('§preflight PROSPECT_RETENTION_MONTHS hợp lệ, để trống hoặc vắng mặt không sinh dòng nào', function (mixed $value) {
+    config(['app.env' => 'testing', 'vkcrm.prospect_retention_months' => $value]);
+
+    Artisan::call('vkcrm:preflight');
+
+    expect(Artisan::output())->not->toContain('PROSPECT_RETENTION_MONTHS');
+})->with([
+    'số tháng hợp lệ dạng chuỗi' => ['36'],
+    'đúng trần' => ['1200'],
+    'mặc định của tệp cấu hình' => [24],
+    'để trống' => [''],
+    'vắng mặt' => [null],
+]);
+
+/*
+ * Lượt đọc lạnh hướng dẫn cài (bản 1.0, §14 mục 8, 2026-10-08): bảng điều khiển email của nhà cung cấp
+ * ghi "Mã hoá: TLS/SSL" và nhiều hướng dẫn cũ viết `MAIL_ENCRYPTION=tls`, nên người cài dễ ghi
+ * `MAIL_SCHEME=tls`. Laravel chỉ nhận `smtp`/`smtps` (hay để trống): mọi giá trị khác làm MỌI thư
+ * hỏng ngay lúc dựng kết nối. Preflight báo ĐỎ trước ngày mở cổng.
+ */
+function preflightSmtpConfig(?string $scheme): array
+{
+    return [
+        'mail.default' => 'smtp',
+        'mail.mailers.smtp.scheme' => $scheme,
+        'mail.mailers.smtp.host' => 'smtp.preflight.example.test',
+        'mail.mailers.smtp.port' => 587,
+    ];
+}
+
+it('§preflight production MAIL_SCHEME mà Laravel không nhận (tls, ssl…) là ĐỎ, nêu giá trị, mã thoát khác 0', function (string $scheme) {
+    config(preflightGreenProductionConfig());
+    config(preflightSmtpConfig($scheme));
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain(__('preflight.mail_scheme_unsupported', ['value' => $scheme]))
+        ->and($output)->not->toContain(__('preflight.mail_scheme_ok'));
+})->with(['tls', 'ssl', 'starttls', 'SMTPS']);
+
+it('§preflight production MAIL_SCHEME smtp, smtps hay để trống là XANH', function (?string $scheme) {
+    config(preflightGreenProductionConfig());
+    config(preflightSmtpConfig($scheme));
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.mail_scheme_ok'))
+        ->and($output)->not->toContain('MAIL_SCHEME=');
+})->with(['smtp', 'smtps', 'để trống' => [null], 'chuỗi rỗng' => ['']]);
+
+it('§preflight không có dòng MAIL_SCHEME khi thư không đi qua SMTP', function () {
+    config(preflightGreenProductionConfig());
+    config(['mail.default' => 'log', 'mail.mailers.smtp.scheme' => 'tls']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($output)->not->toContain(__('preflight.mail_scheme_ok'))
+        ->and($output)->not->toContain(__('preflight.mail_scheme_unsupported', ['value' => 'tls']));
+});
+
+it('§preflight dòng MAIL_SCHEME nói đúng điều Laravel làm: giá trị ĐỎ thì dựng kết nối thư hỏng, giá trị XANH thì không', function (?string $scheme, bool $red) {
+    config(preflightSmtpConfig($scheme));
+    app('mail.manager')->purge('smtp');
+
+    $build = fn () => Mail::mailer('smtp')->getSymfonyTransport();
+
+    $red
+        ? expect($build)->toThrow(UnsupportedSchemeException::class)
+        : expect($build())->not->toBeNull();
+})->with([
+    'tls' => ['tls', true],
+    'ssl' => ['ssl', true],
+    'SMTPS' => ['SMTPS', true],
+    'smtp' => ['smtp', false],
+    'smtps' => ['smtps', false],
+    'để trống' => [null, false],
+]);

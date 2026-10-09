@@ -44,7 +44,12 @@ class PaymentPolicy
             /** @var Instalment|null $instalment */
             $instalment = $this->parentWithoutPortalScope($payment, 'instalment');
 
-            return $payment->voided_at === null
+            // Đọc qua `ownColumnForGate()`: một dòng nạp thiếu cột `voided_at` không được coi là "chưa
+            // huỷ" (lượt quét §10 trước bản 1.0).
+            [$known, $voidedAt] = $this->ownColumnForGate($payment, 'voided_at');
+
+            return $known
+                && $voidedAt === null
                 && $instalment !== null
                 && $user->can('view', $instalment);
         }

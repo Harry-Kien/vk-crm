@@ -20,13 +20,16 @@ Yêu cầu: Docker Desktop và Git. Không cần cài PHP hay Composer trên má
 
 ```bash
 cp .env.example .env
-docker run --rm -v "$PWD:/var/www/html" -w /var/www/html webdevops/php:8.3-alpine composer install
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD:/var/www/html" -w /var/www/html webdevops/php:8.3-alpine composer install
 bin/dev up -d
 bin/dev artisan key:generate
 bin/dev artisan migrate:fresh --seed
 ```
 
-Trên Windows dùng Git Bash (lệnh `bin/dev` là script bash).
+Trên Windows dùng Git Bash (lệnh `bin/dev` là script bash). `MSYS_NO_PATHCONV=1` giữ nguyên
+`/var/www/html` — thiếu nó Git Bash đổi đường dẫn đó thành `C:/Program Files/Git/var/www/html` và
+Docker từ chối; trên Linux/macOS biến đó vô hại. Máy đã chạy một bản khác (cổng 80, 3306, 1025, 8025
+bị chiếm): đổi cổng trong `.env` trước — `docs/CAI-DAT.md`, "Chạy nhiều bản cùng lúc".
 
 | Panel | URL | Tài khoản demo | Vai trò | Mật khẩu |
 |---|---|---|---|---|
@@ -46,8 +49,11 @@ sau bước mật khẩu — đọc ở Mailpit. Tài khoản demo và secret n�
 (`APP_ENV=local`): seed của máy chủ thật không tạo tài khoản nào. Chi tiết: `docs/CAI-DAT.md`,
 "Tài khoản dùng thử".
 
-Dữ liệu mẫu có 20 vụ việc với các tình huống cố ý: vụ 1–3 quá hạn cập nhật, vụ 4–5 có hạn trong 3 ngày,
-vụ 6–9 thiếu giấy tờ, vụ 10–14 có tài liệu chờ duyệt, vụ 20 xung đột lợi ích với khách hàng số 2.
+Sau `migrate:fresh --seed` dữ liệu mẫu có 27 vụ việc, 12 khách hàng, 16 tài khoản cổng khách và 9
+nhân sự (8 tài khoản ở bảng trên, cộng một luật sư "đã nghỉ việc" của M13, không đăng nhập được).
+Hai mươi vụ đầu mang các tình huống cố ý: vụ 1–3 quá hạn cập nhật, vụ 4–5 có hạn trong 3 ngày,
+vụ 6–9 thiếu giấy tờ, vụ 10–14 có tài liệu chờ duyệt, vụ 20 xung đột lợi ích với khách hàng số 2;
+các vụ sau là vụ mật, vụ của trang hiệu suất (M13) và vụ chuyển từ tiếp nhận (M10).
 Từ M4, seeder tạo TỆP THẬT trên đĩa `private` (qua đúng hai Action nộp tệp, không ghi thẳng), nên
 nút tải về trong bản demo tải ra tệp thật chứ không 404.
 
@@ -125,7 +131,7 @@ riêng sau M10).
 
 | Biến `.env` | Mặc định | Ý nghĩa |
 |---|---|---|
-| `PROSPECT_RETENTION_MONTHS` | `24` | Số tháng giữ dữ liệu của người KHÔNG thành khách (tính từ lúc bị từ chối, không theo tiếp hay bị gộp), rồi tác vụ `prospects.anonymise` (03:30 hằng ngày) tự ẩn danh. Số nguyên dương; trống, 0, âm hay chữ thì dùng 24. Con số chờ luật sư của văn phòng xác nhận. |
+| `PROSPECT_RETENTION_MONTHS` | `24` | Số tháng giữ dữ liệu của người KHÔNG thành khách (tính từ lúc bị từ chối, không theo tiếp hay bị gộp), rồi tác vụ `prospects.anonymise` (03:30 hằng ngày) tự ẩn danh. Số nguyên dương, tối đa 1200; trống, 0, âm, chữ hay quá 1200 thì dùng 24 (một giá trị có mặt mà bị bỏ qua thì `vkcrm:preflight` báo VÀNG). Con số chờ luật sư của văn phòng xác nhận. |
 | `INTAKE_RESPONSE_HOURS` | `4` | Ngưỡng phản hồi lần đầu, tính bằng GIỜ LÀM VIỆC. Bản ghi còn "Mới" quá ngưỡng thì tác vụ `intakes.remind-unanswered` (mỗi 15 phút) báo người được giao — không có thì trưởng phòng/quản trị, cuối cùng là admin — bằng chuông và thư (thư chỉ mang mã, nguồn, thời gian chờ và liên kết; không tên, SĐT hay câu chuyện), và bản ghi hiện ở widget "Liên hệ chưa ai gọi lại". Trống, 0, âm hay chữ thì dùng 4. |
 
 **Giờ làm việc** viết thẳng trong `config/vkcrm.php` (khoá `business_hours`), không qua `.env`:
@@ -141,7 +147,7 @@ lại `php artisan db:seed --force` (dữ liệu tham chiếu, an toàn chạy l
 hữu Vũ Thị Em); *Trịnh Văn Hùng* và *Lưu Thị Nga* — một cặp đối nhau, lần gọi sau ra Vàng vì lần gọi
 trước; *Kiều Văn Chờ* — quá hạn phản hồi, hiện trên trang chủ của `troly1@`; *Mạc Văn Kiện* — đã bị
 từ chối vì xung đột (người ghi là `troly1@`, chỉ thấy "Văn phòng từ chối"; `quanly@` thấy lý do);
-*Phạm Thị Dung* — khách cũ gọi về việc mới, đã chuyển thành vụ (vụ thứ 23, luật sư `luatsu2@`, phí
+*Phạm Thị Dung* — khách cũ gọi về việc mới, đã chuyển thành vụ (vụ thứ 27, vụ cuối của dữ liệu mẫu; luật sư `luatsu2@`, phí
 đã báo hiện sẵn ở form soạn hợp đồng); *Đặng Thị Thu Hương* — đã báo giá, chờ `luatsu1@` chuyển
 thành vụ; và một bản đã ẩn danh vì quá hạn lưu.
 
@@ -180,17 +186,29 @@ Tóm tắt những điều không được bỏ qua:
   `zip` `zlib` `pdo_mysql` (nên có thêm `gd`). `curl` bắt buộc từ M12 (gói thông báo đẩy), `sodium`
   là của máy chủ MCP (M11, kết nối AI cho nhân sự). MariaDB 11, gói `mariadb-client`
   (`mariadb-dump`), và `rclone` cho sao lưu Google Drive. Không cần Redis, Supervisor hay Node.js.
+- **Hai người dùng:** người quản trị (tài khoản SSH có `sudo`, không phải `www-data`) giữ mã nguồn —
+  `git clone`/`git pull`, `composer install`, deploy key; `www-data` (người chạy PHP-FPM) chạy mọi
+  `php artisan …` (`sudo -u www-data php artisan …`) và là chủ của `storage/`, `bootstrap/cache/` và
+  `.env` (quyền `600`; sửa bằng `sudo -u www-data nano .env`). Bản sao của `.env` mà `php artisan
+  optimize` ghi ra `bootstrap/cache/config.php` mặc định ai trên máy cũng đọc được: sau MỖI
+  `optimize` chạy `sudo -u www-data chmod 600 bootstrap/cache/config.php`. Trên shared hosting (không có `sudo`,
+  PHP chạy bằng chính tài khoản SSH) một tài khoản làm cả hai việc: bỏ `sudo` và `sudo -u www-data`
+  khỏi mọi lệnh, bỏ các dòng `chown`, vẫn `chmod 600 .env` — `docs/CAI-DAT.md`, đoạn "Shared hosting"
+  ở đầu phần production.
 - **Thứ tự cài:** `cp .env.example .env` → `composer install --no-dev --optimize-autoloader` →
+  giao `storage/`, `bootstrap/cache/` và `.env` cho `www-data` →
   `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) và điền `.env`
-  (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`…) → cấu hình máy chủ web
+  (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`, `MAIL_SCHEME` là `smtps`
+  hoặc `smtp` — không bao giờ `tls`/`ssl`…) → cấu hình máy chủ web
   từ mẫu đã chạy thử
   `tools/deploy/nginx.conf.example` hoặc `tools/deploy/apache-vhost.conf.example` (HTTPS, HSTS,
   header cho tệp tĩnh, chặn `storage/`) → `php artisan migrate --force` →
   `php artisan db:seed --force` (chỉ dữ liệu tham chiếu) → **`php artisan vkcrm:create-admin`**
   (quản trị viên đầu tiên, hỏi tương tác, mật khẩu nhập ẩn; 2FA bắt buộc ở lần đăng nhập đầu) →
-  **`php artisan vkcrm:preflight`** → `php artisan optimize`.
+  **`php artisan vkcrm:preflight`** → `php artisan optimize` → `chmod 600 bootstrap/cache/config.php`.
 - **`php artisan vkcrm:preflight` phải xanh TRƯỚC khi mở cổng và sau MỖI lần nâng cấp**, và chạy
-  TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp). Nó kiểm
+  TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp), rồi `chmod 600
+  bootstrap/cache/config.php` ngay sau nó. Nó kiểm
   `TRUSTED_PROXIES`, `HEARTBEAT_URL`, cookie phiên chỉ qua https, `APP_DEBUG`, extension PHP,
   `storage/app/private` có lộ ra web không, và điều kiện máy chủ cho sao lưu. Một ngoại lệ duy
   nhất: dòng "bất biến tiền" (hợp đồng lệch tổng, dưới) vẫn ĐỎ và mã thoát vẫn 1, nhưng KHÔNG chặn
@@ -229,19 +247,23 @@ Tóm tắt những điều không được bỏ qua:
   `vkcrm:storage:migrate`. Năm mục lịch mới (`queue.storage`, `storage.push-pending`,
   `storage.purge-staged`, `storage.health`, `storage.office-receipts`) chạy trong chính dòng cron.
   Chi tiết: `docs/CAI-DAT.md` ("Bản cập nhật M14") và `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
-- **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader`
-  → `chown -R www-data:www-data storage bootstrap/cache` → `php artisan migrate --force` →
-  `php artisan db:seed --force` → `php artisan billing:check-invariants` →
-  `php artisan optimize:clear` → `php artisan vkcrm:preflight` → `php artisan optimize` →
-  `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu.
-  Chi tiết: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
+- **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader
+  --no-scripts` → xoá `bootstrap/cache/config.php`, `packages.php` và `services.php` → `php artisan
+  package:discover` → `php artisan filament:assets` (bằng người quản trị) →
+  `chown -R www-data:www-data storage bootstrap/cache` → `php artisan optimize:clear` (TRƯỚC
+  `migrate`: cache cấu hình của bản cũ làm migration đọc cấu hình mới ra null) →
+  `php artisan migrate --force` → `php artisan db:seed --force` →
+  `php artisan billing:check-invariants` → `php artisan vkcrm:preflight` → `php artisan optimize` →
+  `chmod 600 bootstrap/cache/config.php` → `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu. Chuỗi đủ người chạy từng
+  dòng, để chép nguyên khối: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
     (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) và
-    **ba quyền tiếp nhận** của M10 (`intake.create`, `intake.viewAny`, `intake.convert`) tới một máy
-    chủ đã có dữ liệu — bỏ bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay
-    tab "Hợp đồng và thanh toán", và menu Tiếp nhận không hiện với ai (vai trò chưa mang quyền nào
-    trong bảy quyền đó).
+    **ba quyền tiếp nhận** của M10 (`intake.create`, `intake.viewAny`, `intake.convert`) và
+    **quyền theo dõi đội ngũ** của M13 (`performance.viewAny`) tới một máy chủ đã có dữ liệu — bỏ
+    bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay tab "Hợp
+    đồng và thanh toán", menu Tiếp nhận không hiện với ai, và trang "Theo dõi đội ngũ" không hiện với
+    ai (vai trò chưa mang quyền nào trong tám quyền đó). Bản M12 không thêm quyền nào.
   - Bản M10 (tiếp nhận) thêm hai tác vụ lịch dưới dòng cron sẵn có — `intakes.remind-unanswered`
     mỗi 15 phút, và `prospects.anonymise` lúc 03:30, ẩn danh (không hoàn tác được) người liên hệ
     không thành khách đã quá hạn lưu — cùng hai biến `.env` tuỳ chọn, `PROSPECT_RETENTION_MONTHS`

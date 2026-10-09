@@ -30,6 +30,7 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\Money;
+use App\Support\Intake\PrivacyNotice;
 use App\Support\Normalizer;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
@@ -154,7 +155,7 @@ class EditIntakeRequest extends EditRecord
                 Section::make(__('intake.sections.privacy'))
                     ->columnSpanFull()
                     ->schema([
-                        Text::make(__('intake.privacy_notice.text')),
+                        Text::make(PrivacyNotice::text()),
                         Text::make(fn (): string => $this->privacyStatus()),
                         Actions::make([$this->recordPrivacyNoticeAction()])->key('privacyActions'),
                     ]),
@@ -304,8 +305,8 @@ class EditIntakeRequest extends EditRecord
             ->label(__('intake.actions.record_privacy_notice'))
             ->visible(fn (): bool => ! $this->intake()->isClosedToChanges()
                 && ($this->intake()->privacy_notice_acknowledged_at === null
-                    || $this->intake()->privacy_notice_version !== (string) __('intake.privacy_notice.version')))
-            ->modalDescription(__('intake.privacy_notice.text'))
+                    || $this->intake()->privacy_notice_version !== PrivacyNotice::version()))
+            ->modalDescription(PrivacyNotice::text())
             ->schema([
                 Checkbox::make('privacy_notice')
                     ->label(__('intake.fields.privacy_notice'))
