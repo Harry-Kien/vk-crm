@@ -60,7 +60,8 @@ use Illuminate\Validation\ValidationException;
  *     quyền hiện seed trùng nhau; (c) `public_content` tối thiểu 30 ký tự (mb_strlen, không phải
  *     byte) — ném lỗi xác thực, không cắt bớt.
  *  5. Tạo `StageLog`; `expected_next_update_at` để trống thì tự tính từ `default_next_update_days`
- *     của giai đoạn MỚI (giai đoạn hiện tại, trong trường hợp cùng giai đoạn). `created_by` /
+ *     của giai đoạn MỚI (giai đoạn hiện tại, trong trường hợp cùng giai đoạn) — TRỪ khi giai đoạn đó
+ *     `is_terminal`: khi ấy cột là `null` bất kể gửi lên gì (làn fm B3). `created_by` /
  *     `updated_by` được gán TƯỜNG MINH từ `$actor` — Action nhận actor rõ ràng để kiểm tra quyền,
  *     nên dòng trong sổ pháp lý append-only này phải ghi đúng actor đó, không suy luận (có thể
  *     sai, hoặc rỗng) từ `auth()` ambient như `HasBlameable` mặc định làm.
@@ -78,7 +79,9 @@ use Illuminate\Validation\ValidationException;
  *     Bước 6 và 7 dùng CHUNG một lệnh `update()` để không tạo hai dòng "updated" riêng của
  *     spatie/laravel-activitylog cho một thao tác của luật sư (xem bước 8).
  *  8. Ghi activity log — luôn ghi, kể cả khi không có gì bất thường, và ghi rõ nếu bước 1 đã bị
- *     một admin bỏ qua (`bypassed_allowed_next`), để dấu vết không bị mất. Causer được truyền
+ *     một admin bỏ qua (`bypassed_allowed_next`), để dấu vết không bị mất. Làn fm B4: bỏ qua
+ *     `allowed_next` hay MỞ LẠI một vụ đã kết thúc (`reopened`) đòi ghi chú nội bộ tối thiểu
+ *     {@see self::OVERRIDE_REASON_MIN} ký tự làm lý do, chép vào `override_reason`. Causer được truyền
  *     tường minh là `$actor`, cùng lý do với bước 5.
  *
  * **Bước 0 (`stage/stage-05`, Review Focus 4, M6.5 Task 10) — khoá dòng `matters` TRƯỚC MỌI THỨ
@@ -104,6 +107,9 @@ use Illuminate\Validation\ValidationException;
 class TransitionMatterStage
 {
     use ReadsWithoutPortalScope;
+
+    /** Làn fm B4: độ dài tối thiểu của lý do khi mở lại vụ đã kết thúc hoặc bỏ qua `allowed_next`. */
+    public const OVERRIDE_REASON_MIN = 20;
 
     public function handle(
         Matter $matter,
@@ -157,6 +163,22 @@ class TransitionMatterStage
             // Bước 2: Action tự kiểm tra quyền, không dựa vào caller đã kiểm tra hay chưa.
             Gate::forUser($actor)->authorize('transitionStage', $matter);
 
+            // Làn fm B4: mở lại một vụ đã kết thúc, hay bỏ qua `allowed_next` (chỉ admin), là ngoại lệ
+            // của luồng thường — phải có lý do ghi lại, tối thiểu OVERRIDE_REASON_MIN ký tự trong
+            // ghi chú nội bộ, và lý do đó đi vào nhật ký (`override_reason`).
+            $reopening = ! $isSameStage && $matter->isClosed() && ! $targetStageConfig->is_terminal;
+            $overrideReason = null;
+
+            if ($bypassedAllowedNext || $reopening) {
+                $overrideReason = trim((string) $internalNote);
+
+                if (mb_strlen($overrideReason) < self::OVERRIDE_REASON_MIN) {
+                    throw ValidationException::withMessages([
+                        'internal_note' => [__('lifecycle.override.reason_required', ['min' => self::OVERRIDE_REASON_MIN])],
+                    ]);
+                }
+            }
+
             // Bước 3 (xem docblock lớp): occurred_at là một ngày thật (I6), và không được ở tương
             // lai. So theo ngày, không giờ — DatePicker chỉ gửi ngày, và today()/Carbon::instance()
             // đều đọc múi giờ ứng dụng đã đặt qua config('app.timezone').
@@ -200,6 +222,13 @@ class TransitionMatterStage
             // I6: chuỗi rỗng là "không có ngày" ⇒ tự tính, như null.
             $expectedNextUpdateAt = $this->parsedDate($expectedNextUpdateAt, 'expected_next_update_at')
                 ?? now()->addDays($targetStageConfig->default_next_update_days);
+
+            // Làn fm B3: giai đoạn đích là giai đoạn kết thúc (đóng vụ, hay cập nhật trên vụ đã đóng)
+            // thì không hẹn khách "tin tiếp theo" nào — vụ không còn bước tiếp theo để hẹn. Form ẩn ô
+            // này cho trường hợp đó; Action bỏ mọi giá trị gửi lên.
+            if ($targetStageConfig->is_terminal) {
+                $expectedNextUpdateAt = null;
+            }
 
             $stageLog = new StageLog([
                 'matter_id' => $matter->id,
@@ -313,6 +342,8 @@ class TransitionMatterStage
                 'publish' => $publish,
                 'published_to_portal' => $publishedToPortal,
                 'bypassed_allowed_next' => $bypassedAllowedNext,
+                'reopened' => $reopening,
+                'override_reason' => $overrideReason,
             ], $actor);
 
             return $stageLog;

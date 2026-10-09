@@ -53,7 +53,11 @@ class AddUpdateAction extends Action
             $this->publicContentField($this->stageTemplate($matter, $stageKey)),
             $this->nextStepField(),
             $this->clientActionField(),
-            $this->expectedNextUpdateAtField($this->stageDefaultNextUpdateAt($matter, $stageKey)),
+            // Làn fm B3: vụ đứng ở giai đoạn kết thúc thì không hẹn tin tiếp theo.
+            $this->expectedNextUpdateAtField(
+                $this->stageDefaultNextUpdateAt($matter, $stageKey),
+                fn (): bool => (bool) $matter->currentStage()?->is_terminal,
+            ),
             $this->publishToggleField($matter),
             $this->noActivatedAccountWarning($matter),
             $this->matterNotOnPortalWarning($matter),
@@ -66,7 +70,7 @@ class AddUpdateAction extends Action
                 'publicContent' => $get('public_content'),
                 'nextStep' => $get('next_step'),
                 'clientAction' => $get('client_action'),
-                'expectedNextUpdateAt' => $this->expectedNextUpdateAtState($get),
+                'expectedNextUpdateAt' => $matter->currentStage()?->is_terminal ? null : $this->expectedNextUpdateAtState($get),
                 'willPublish' => (bool) $get('publish'),
             ]),
         ];

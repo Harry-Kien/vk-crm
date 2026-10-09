@@ -199,12 +199,20 @@ trait BuildsStageUpdateSchema
             ->columnSpanFull();
     }
 
-    protected function expectedNextUpdateAtField(?string $default): DatePicker
+    /**
+     * Làn fm B3: `$hidden` (closure trả `true` khi giai đoạn đích là giai đoạn kết thúc) ẩn ô — vụ đã
+     * kết thúc không hẹn khách tin tiếp theo nào. Ô ẩn không được gửi; `TransitionMatterStage` tự đặt
+     * `null` cho giai đoạn kết thúc, nên ô này chỉ là phần "cho người dùng thấy".
+     *
+     * @param  (Closure(Get): bool)|null  $hidden
+     */
+    protected function expectedNextUpdateAtField(?string $default, ?Closure $hidden = null): DatePicker
     {
         return DatePicker::make('expected_next_update_at')
             ->label(__('matters.transition_form.expected_next_update_at'))
             ->live()
             ->default($default)
+            ->hidden(fn (Get $get): bool => $hidden !== null && $hidden($get))
             ->native(false);
     }
 

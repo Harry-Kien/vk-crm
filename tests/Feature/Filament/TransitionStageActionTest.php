@@ -721,6 +721,8 @@ it('on the transition-stage form the off-portal warning matches who is mailed: k
 
     $component->setTableActionData([
         'to_stage' => $toStage,
+        // Làn fm B4: mở lại vụ (sang `intake`) đòi lý do trong ghi chú nội bộ.
+        'internal_note' => 'Mở lại vụ theo chỉ đạo của quản trị viên, ghi lý do đầy đủ.',
         'public_content' => 'Văn phòng cập nhật lại giai đoạn hồ sơ để anh chị theo dõi.',
         'publish' => true,
     ])->callMountedTableAction()->assertHasNoTableActionErrors();

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\Actions;
 
+use App\Actions\TransitionMatterStage;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema;
 use App\Models\Matter;
@@ -158,6 +159,19 @@ class TransitionStageAction extends Action
             });
     }
 
+    /** Làn fm B4: cùng điều kiện `TransitionMatterStage` đòi lý do — đi ngoài `allowed_next`, hoặc mở lại vụ đã kết thúc. */
+    private function needsOverrideReason(Matter $matter, ?string $toStage): bool
+    {
+        $current = $matter->currentStage();
+
+        if ($toStage === null || $current === null || $toStage === $current->key) {
+            return false;
+        }
+
+        return ! $current->allows($toStage)
+            || ($matter->isClosed() && ! $this->targetKeepsMatterClosed($matter, $toStage));
+    }
+
     protected function buildSchema(Matter $matter): array
     {
         return [
@@ -187,11 +201,20 @@ class TransitionStageAction extends Action
                     }
                 }),
             $this->occurredAtField(),
-            $this->internalNoteField(),
+            // Làn fm B4: mở lại vụ đã kết thúc hay đi ngoài `allowed_next` đòi lý do trong ghi chú nội
+            // bộ — cổng thật ở `TransitionMatterStage`, đây là phần "cho người dùng thấy".
+            $this->internalNoteField()
+                ->required(fn (Get $get): bool => $this->needsOverrideReason($matter, $get('to_stage')))
+                ->minLength(fn (Get $get): ?int => $this->needsOverrideReason($matter, $get('to_stage'))
+                    ? TransitionMatterStage::OVERRIDE_REASON_MIN
+                    : null)
+                ->helperText(fn (Get $get): string => $this->needsOverrideReason($matter, $get('to_stage'))
+                    ? __('lifecycle.override.hint', ['min' => TransitionMatterStage::OVERRIDE_REASON_MIN])
+                    : __('matters.transition_form.internal_note_hint')),
             $this->publicContentField(null),
             $this->nextStepField(),
             $this->clientActionField(),
-            $this->expectedNextUpdateAtField(null),
+            $this->expectedNextUpdateAtField(null, fn (Get $get): bool => $this->targetKeepsMatterClosed($matter, $get('to_stage'))),
             $this->publishToggleField($matter),
             $this->closingSafeguards($matter),
             $this->noActivatedAccountWarning($matter),
@@ -204,7 +227,10 @@ class TransitionStageAction extends Action
                 'publicContent' => $get('public_content'),
                 'nextStep' => $get('next_step'),
                 'clientAction' => $get('client_action'),
-                'expectedNextUpdateAt' => $this->expectedNextUpdateAtState($get),
+                // Làn fm B3: giai đoạn kết thúc không hẹn tin tiếp theo — bản xem trước cũng không.
+                'expectedNextUpdateAt' => $this->targetKeepsMatterClosed($matter, $get('to_stage'))
+                    ? null
+                    : $this->expectedNextUpdateAtState($get),
                 'willPublish' => (bool) $get('publish'),
             ]),
         ];

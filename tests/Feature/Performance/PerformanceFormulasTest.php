@@ -147,7 +147,8 @@ function m13bPfClose(Matter $matter, User $actor, string $at, string $toStage = 
     test()->travelTo(Carbon::parse($at));
 
     app(TransitionMatterStage::class)->handle(
-        $matter->fresh(), $actor, $toStage, Carbon::parse($at)->toDateString(), null, null, null, null, null, false,
+        // Làn fm B4: mở lại vụ đã kết thúc đòi lý do trong ghi chú nội bộ (đóng vụ thì ghi chú tuỳ ý).
+        $matter->fresh(), $actor, $toStage, Carbon::parse($at)->toDateString(), 'Mở lại vụ theo chỉ đạo của quản trị viên, ghi lý do đầy đủ.', null, null, null, null, false,
     );
 }
 

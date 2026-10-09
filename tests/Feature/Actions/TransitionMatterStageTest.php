@@ -1087,7 +1087,8 @@ it('clears a stuck closed_at when the matter moves into a non-terminal stage', f
 
     app(TransitionMatterStage::class)->handle(
         matter: $matter, actor: $admin, toStage: 'collecting', occurredAt: now(),
-        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        // Làn fm B4: mở lại vụ đã kết thúc đòi lý do trong ghi chú nội bộ.
+        internalNote: 'Mở lại vụ theo chỉ đạo của quản trị viên, ghi lý do đầy đủ.', publicContent: null, nextStep: null, clientAction: null,
         expectedNextUpdateAt: null, publish: false,
     );
 

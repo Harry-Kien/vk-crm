@@ -97,6 +97,12 @@ return [
         'published_not_visible' => 'Đã công bố, nhưng khách chưa thấy tài liệu vì vụ đã hết hạn tra cứu. Gia hạn tra cứu ở trang vụ để khách xem được.',
     ],
 
+    // B4 — mở lại vụ đã kết thúc hoặc đi ngoài luồng giai đoạn thông thường (TransitionMatterStage).
+    'override' => [
+        'hint' => 'Bắt buộc: ghi lý do mở lại vụ hoặc đi ngoài luồng thông thường (tối thiểu :min ký tự). Lý do được ghi vào nhật ký. Chỉ nội bộ, khách không đọc được.',
+        'reason_required' => 'Mở lại vụ đã kết thúc hoặc đi ngoài luồng giai đoạn thông thường cần ghi lý do trong ghi chú nội bộ, tối thiểu :min ký tự.',
+    ],
+
     // Tab "Mốc thời hạn" và hai Action AddMatterDeadline/UpdateDeadline trên vụ đã kết thúc.
     'deadlines' => [
         'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm hay sửa mốc được nữa; muốn đặt mốc mới, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',
