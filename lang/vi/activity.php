@@ -241,6 +241,11 @@ return [
         // (Task 1, chủ thể rỗng, `page = team_overview`), trang của một người khác (Task 5, chủ thể
         // là người đó), "Hiệu suất theo kỳ" với `performance.viewAny` (Task 6, `properties` mang kỳ).
         'performance_viewed' => 'Xem số liệu hiệu suất của nhân sự',
+
+        // --- Làn fm (sửa sau kiểm tra nghiệp vụ 2026-10-09, vòng đời vụ việc) ---
+        // A2: app/Actions/Matter/RetractStageLog.php — chủ thể là dòng tiến độ.
+        'stage_log_retracted' => 'Rút dòng tiến độ khỏi cổng khách',
+        // --- hết khối làn fm ---
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

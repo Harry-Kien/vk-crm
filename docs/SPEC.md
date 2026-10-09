@@ -412,10 +412,19 @@ Bảng quan trọng nhất hệ thống. Chỉ thêm, không sửa, không xoá.
 | is_published | boolean default false | |
 | published_at | timestamp nullable | |
 | notified_at | timestamp nullable | Chống gửi trùng thông báo |
+| retracted_at, retracted_by, retraction_reason | timestamp / FK users / text, nullable | Làn fm A2 (2026-10-09): dấu vết "Rút khỏi cổng" — lý do chỉ nội bộ |
 | created_by | FK users | |
 
 Ràng buộc ở tầng Action, có test: **`is_published = true` thì `public_content`
 bắt buộc không rỗng và tối thiểu 30 ký tự.**
+
+**Rút khỏi cổng (đính chính 2026-10-09, làn fm A2).** "Chỉ thêm, không sửa, không xoá" áp cho
+NỘI DUNG của dòng. Một dòng đã công bố nhầm (ví dụ cập nhật của khách khác) được rút qua
+`RetractStageLog`: người có `stageLog.publish` nhập lý do (≥ 20 ký tự, chỉ nội bộ), Action đặt
+`is_published = false` và ba cột dấu vết, ghi `stage_log_retracted`. Dòng biến khỏi cổng, khỏi mục
+lục gói bàn giao và không được gửi thư nữa (cả ba chỗ đọc `is_published`); nhân sự vẫn đọc được nội
+dung cũ, gạch ngang, kèm ai rút và lý do. Không có đường công bố lại một dòng đã rút; thư đã gửi
+không thu hồi được.
 
 ### 4.9 `checklist_templates` và `checklist_template_items`
 

@@ -23,8 +23,14 @@ class StageLog extends Model
     use HidesInternalAttributesFromPortal;
     use RestrictedToClientPortal;
 
-    /** Các cột được phép đổi sau khi ghi: chỉ trạng thái công bố và thông báo. */
-    public const MUTABLE = ['is_published', 'published_at', 'notified_at', 'updated_by', 'updated_at'];
+    /**
+     * Các cột được phép đổi sau khi ghi: chỉ trạng thái công bố, thông báo, và (làn fm A2) dấu vết
+     * rút khỏi cổng của `App\Actions\Matter\RetractStageLog` — không cột nội dung nào.
+     */
+    public const MUTABLE = [
+        'is_published', 'published_at', 'notified_at', 'updated_by', 'updated_at',
+        'retracted_at', 'retracted_by', 'retraction_reason',
+    ];
 
     protected $fillable = [
         'matter_id', 'from_stage', 'to_stage', 'occurred_at', 'internal_note', 'public_content',
@@ -39,6 +45,7 @@ class StageLog extends Model
             'is_published' => 'boolean',
             'published_at' => 'datetime',
             'notified_at' => 'datetime',
+            'retracted_at' => 'datetime',
         ];
     }
 
@@ -74,6 +81,18 @@ class StageLog extends Model
     public function author(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** Người rút dòng này khỏi cổng (làn fm A2) — kể cả tài khoản đã xoá mềm, để tên vẫn hiện. */
+    public function retractor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'retracted_by')->withTrashed();
+    }
+
+    /** Dòng đã bị rút khỏi cổng khách (làn fm A2). */
+    public function isRetracted(): bool
+    {
+        return $this->retracted_at !== null;
     }
 
     public function views(): HasMany
@@ -119,9 +138,9 @@ class StageLog extends Model
         return $query->whereBetween($this->qualifyColumn('occurred_at'), $bounds);
     }
 
-    /** SPEC §4.8: internal_note chỉ dành cho nội bộ. */
+    /** SPEC §4.8: internal_note chỉ dành cho nội bộ; dấu vết rút khỏi cổng (làn fm A2) cũng vậy. */
     protected function internalAttributes(): array
     {
-        return ['internal_note'];
+        return ['internal_note', 'retracted_at', 'retracted_by', 'retraction_reason'];
     }
 }

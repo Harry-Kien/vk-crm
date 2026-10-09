@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Matter\RetractStageLog;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Filament\Admin\Resources\Matters\Actions\AddUpdateAction;
@@ -11,16 +12,19 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\Concerns\ManagesAiDraf
 use App\Models\StageLog;
 use App\Models\StageLogDraft;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Textarea;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\EmbeddedTable;
 use Filament\Schemas\Components\RenderHook;
 use Filament\Schemas\Schema;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 
@@ -181,8 +185,14 @@ class StageLogsRelationManager extends RelationManager
                 TransitionStageAction::make(),
                 AddUpdateAction::make(),
             ])
+            ->recordActions([
+                $this->retractAction(),
+            ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query)
-                ->with(['views' => fn (HasMany $views): HasMany => $views->orderBy('viewed_at')]));
+                ->with([
+                    'views' => fn (HasMany $views): HasMany => $views->orderBy('viewed_at'),
+                    'retractor',
+                ]));
     }
 
     /**
@@ -250,6 +260,10 @@ class StageLogsRelationManager extends RelationManager
      */
     public static function renderPublicContent(?string $content, StageLog $record): HtmlString
     {
+        if ($record->isRetracted()) {
+            return static::renderRetracted($content, $record);
+        }
+
         if (! $record->is_published) {
             return new HtmlString('');
         }
@@ -357,5 +371,66 @@ class StageLogsRelationManager extends RelationManager
             'text' => __('matters.stage_log_fields.not_viewed'),
             'highlighted' => $daysSincePublished > 5,
         ];
+    }
+
+    /**
+     * Làn fm, mục A2 — "Rút khỏi cổng": đưa một dòng ĐANG công bố ra khỏi tầm mắt khách
+     * ({@see RetractStageLog}). Cổng hiển thị là `StageLogPolicy::publish` (trợ lý không có
+     * `stageLog.publish` nên không thấy nút); `->visible()` là trạng thái dòng (đang công bố, chưa
+     * rút). Action tự hỏi lại cả hai dưới khoá. Ô lý do không đặt `minLength()`: ngưỡng chỉ ở Action
+     * (đếm sau khi gỡ khoảng trắng Unicode), lời từ chối về đúng ô qua `ReportsActionFailures`;
+     * `maxLength()` bằng trần chủ động của Action.
+     */
+    private function retractAction(): Action
+    {
+        return Action::make('retractStageLog')
+            ->label(__('lifecycle.stage_log.action'))
+            ->icon(Heroicon::OutlinedEyeSlash)
+            ->color('danger')
+            ->modalHeading(__('lifecycle.stage_log.modal_heading'))
+            ->modalDescription(__('lifecycle.stage_log.modal_description'))
+            ->modalSubmitActionLabel(__('lifecycle.stage_log.submit'))
+            ->authorize(fn (StageLog $record): bool => Gate::allows('publish', $record->setRelation('matter', $this->getOwnerRecord())))
+            ->visible(fn (StageLog $record): bool => $record->is_published && ! $record->isRetracted())
+            ->schema([
+                Textarea::make('retraction_reason')
+                    ->label(__('lifecycle.stage_log.reason'))
+                    ->helperText(__('lifecycle.stage_log.reason_help', ['min' => RetractStageLog::REASON_MIN]))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(RetractStageLog::REASON_MAX),
+            ])
+            ->successNotificationTitle(__('lifecycle.stage_log.success'))
+            ->action(fn (Action $action, StageLog $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(RetractStageLog::class)->handle(
+                    stageLog: $record,
+                    actor: Auth::user(),
+                    reason: (string) ($data['retraction_reason'] ?? ''),
+                ),
+            ));
+    }
+
+    /**
+     * Ô "nội dung công bố" của một dòng ĐÃ RÚT (làn fm A2): nội dung cũ vẫn đọc được cho nhân sự (sổ
+     * chỉ ghi thêm), gạch ngang, kèm ai rút, lúc nào và lý do. Kiểu dáng bằng `style=` trên biến CSS
+     * của Filament, cùng lý do {@see self::renderInternalNote()}.
+     */
+    public static function renderRetracted(?string $content, StageLog $record): HtmlString
+    {
+        return new HtmlString(sprintf(
+            '<div style="border-radius:0.375rem;padding:0.5rem;font-size:0.875rem;'
+            .'border:1px dashed var(--danger-600)">'
+            .'<span style="font-weight:600;color:var(--danger-600)">%s</span>'
+            .'<p style="margin-top:0.25rem;white-space:pre-line">%s</p>'
+            .'<p style="margin-top:0.25rem;white-space:pre-line;text-decoration:line-through;'
+            .'color:color-mix(in srgb, var(--gray-500) 90%%, transparent)">%s</p></div>',
+            e(__('lifecycle.stage_log.retracted_marker', [
+                'date' => $record->retracted_at?->format('H:i d/m/Y'),
+                'by' => $record->retractor?->name ?? __('lifecycle.stage_log.unknown_actor'),
+            ])),
+            e(__('lifecycle.stage_log.retracted_reason', ['reason' => $record->retraction_reason])),
+            e($content ?? ''),
+        ));
     }
 }

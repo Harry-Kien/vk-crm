@@ -26,6 +26,26 @@ return [
         'confirm_required' => 'Hãy tích xác nhận trước khi kết thúc vụ việc.',
     ],
 
+    // A2 — "Rút khỏi cổng" một dòng tiến độ đã công bố (App\Actions\Matter\RetractStageLog). Lý do
+    // là chữ NỘI BỘ: dòng biến hẳn khỏi cổng, khách không đọc thấy gì về nó nữa.
+    'stage_log' => [
+        'action' => 'Rút khỏi cổng',
+        'modal_heading' => 'Rút dòng tiến độ khỏi cổng khách hàng',
+        'modal_description' => 'Khách sẽ không còn thấy dòng này trên cổng, và nó không vào mục lục gói bàn giao. Dòng vẫn nằm trong sổ tiến độ nội bộ (không xoá, không sửa). Thư báo đã gửi thì không thu hồi được. Muốn khách đọc nội dung đúng, hãy đăng một cập nhật mới.',
+        'submit' => 'Rút khỏi cổng',
+        'success' => 'Đã rút dòng tiến độ khỏi cổng khách hàng.',
+        'reason' => 'Lý do rút (chỉ nội bộ)',
+        'reason_help' => 'Khách không đọc được lý do này. Tối thiểu :min ký tự.',
+        'reason_min' => 'Lý do rút cần tối thiểu :min ký tự.',
+        'reason_max' => 'Lý do rút dài tối đa :max ký tự.',
+        'retracted_marker' => 'Đã rút khỏi cổng lúc :date bởi :by',
+        'retracted_reason' => 'Lý do: :reason',
+        'unknown_actor' => 'tài khoản đã xoá',
+        'not_published' => 'Dòng tiến độ này chưa công bố cho khách nên không có gì để rút.',
+        'already_retracted' => 'Dòng tiến độ này đã được rút khỏi cổng trước đó.',
+        'missing' => 'Không mở được dòng tiến độ này.',
+    ],
+
     // Tab "Mốc thời hạn" và hai Action AddMatterDeadline/UpdateDeadline trên vụ đã kết thúc.
     'deadlines' => [
         'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm hay sửa mốc được nữa; muốn đặt mốc mới, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',
