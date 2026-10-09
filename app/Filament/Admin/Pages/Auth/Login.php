@@ -13,6 +13,7 @@ use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\MultiFactor\MultiFactorChallenge;
 use Filament\Auth\Pages\Login as BaseLogin;
 use Filament\Facades\Filament;
+use Filament\Schemas\Schema;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Validation\ValidationException;
 use LogicException;
@@ -125,6 +126,28 @@ class Login extends BaseLogin
     protected function getMultiFactorChallenge(): MultiFactorChallenge
     {
         return StaffMultiFactorChallenge::make();
+    }
+
+    /**
+     * Sửa sau kiểm tra nghiệp vụ toàn hệ thống (làn fb, mục A4): bỏ hẳn ô "Ghi nhớ đăng nhập" khỏi
+     * trang đăng nhập nội bộ, cùng cách {@see \App\Filament\Portal\Pages\Auth\Login::form()} đã làm
+     * cho cổng khách (`portal/portal-1`). Ghi đè NGUYÊN `form()`, không chỉ ẩn ô: một trường ẩn vẫn
+     * dehydrate được, còn khi không có component thì `Schema::validate()` không có luật nào cho khoá
+     * `remember`, nên `$data['remember'] ?? false` của lớp cha luôn là `false` — kể cả khi request bị
+     * chỉnh tay gửi `remember=1` qua state thô của Livewire.
+     *
+     * Hệ quả nếu còn: `SessionGuard` phát cookie recaller sống 400 ngày (mặc định của framework),
+     * và mỗi phiên mới trên máy đó vào thẳng hồ sơ khách mà không hỏi mật khẩu lẫn mã 2FA — trái
+     * SPEC §10 mục 7. Cookie đã phát trước bản sửa bị vô hiệu bởi migration
+     * `2026_10_09_300002_forget_staff_remember_tokens`.
+     */
+    public function form(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+                $this->getEmailFormComponent(),
+                $this->getPasswordFormComponent(),
+            ]);
     }
 
     public function authenticate(): ?LoginResponse
