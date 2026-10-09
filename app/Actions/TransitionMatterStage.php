@@ -8,6 +8,7 @@ use App\Events\MatterStageChanged as MatterStageChangedEvent;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
+use App\Exceptions\MatterRecordDestroyed;
 use App\Exceptions\MatterStageChanged;
 use App\Models\Matter;
 use App\Models\StageLog;
@@ -135,6 +136,12 @@ class TransitionMatterStage
 
             if ($matter->stage !== $expectedFromStage) {
                 throw MatterStageChanged::make($matter);
+            }
+
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không nhận dòng tiến độ nào nữa, kể cả
+            // đường bỏ qua của quản trị viên (mở lại một hồ sơ đã tiêu huỷ là sai lịch sử).
+            if ($matter->isRecordDestroyed()) {
+                throw MatterRecordDestroyed::make();
             }
 
             $fromStage = $matter->stage;

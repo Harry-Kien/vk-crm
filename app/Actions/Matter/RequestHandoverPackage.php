@@ -6,6 +6,7 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\HandoverPackageStatus;
 use App\Exceptions\HandoverPackageBusy;
 use App\Exceptions\HandoverPackageUnavailable;
+use App\Exceptions\MatterRecordDestroyed;
 use App\Jobs\GenerateHandoverPackage;
 use App\Listeners\SyncMatterArchiveOnStageChange;
 use App\Models\Document;
@@ -111,6 +112,15 @@ class RequestHandoverPackage
                 }
 
                 throw HandoverPackageUnavailable::noArchive();
+            }
+
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ — không sinh (lại) gói, tự động hay bấm tay.
+            if ($archive->destroyed_at !== null) {
+                if ($automatic) {
+                    return null;
+                }
+
+                throw MatterRecordDestroyed::make();
             }
 
             if ($automatic && $archive->handover_status !== null) {

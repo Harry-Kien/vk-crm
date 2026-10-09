@@ -103,6 +103,11 @@ return [
         'reason_required' => 'Mở lại vụ đã kết thúc hoặc đi ngoài luồng giai đoạn thông thường cần ghi lý do trong ghi chú nội bộ, tối thiểu :min ký tự.',
     ],
 
+    // B2 — hồ sơ đã ghi quyết định tiêu huỷ là trạng thái khoá (MatterRecordDestroyed).
+    'destroyed' => [
+        'refused' => 'Hồ sơ này đã ghi quyết định tiêu huỷ: không chuyển giai đoạn, không sinh lại gói bàn giao, không công bố hay tải lên tài liệu được nữa.',
+    ],
+
     // Tab "Mốc thời hạn" và hai Action AddMatterDeadline/UpdateDeadline trên vụ đã kết thúc.
     'deadlines' => [
         'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm hay sửa mốc được nữa; muốn đặt mốc mới, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',

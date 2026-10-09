@@ -212,6 +212,8 @@ class ViewMatter extends ViewRecord
             ->modalSubmitActionLabel(__('handover.action.submit'))
             ->visible(fn (): bool => $this->getRecord()->isClosed()
                 && ($archive = $this->handoverArchive()) !== null
+                // Làn fm B2: hồ sơ đã tiêu huỷ không sinh lại gói.
+                && $archive->destroyed_at === null
                 && Gate::allows('generateHandover', $archive))
             ->disabled(fn (): bool => ($archive = $this->handoverArchive()) !== null
                 && RequestHandoverPackage::isRunning($archive))

@@ -39,7 +39,9 @@ trait BuildsStageUpdateSchema
     {
         $this->size(Size::Large)
             ->modalWidth(Width::FourExtraLarge)
-            ->visible(fn (RelationManager $livewire): bool => Gate::allows('transitionStage', $livewire->getOwnerRecord()))
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không nhận dòng tiến độ nào nữa.
+            ->visible(fn (RelationManager $livewire): bool => Gate::allows('transitionStage', $livewire->getOwnerRecord())
+                && ! $livewire->getOwnerRecord()->isRecordDestroyed())
             ->schema(fn (RelationManager $livewire): array => $this->buildSchema($livewire->getOwnerRecord()))
             ->successNotificationTitle(__($successMessageKey))
             ->action(function (Action $action, array $data, RelationManager $livewire): void {

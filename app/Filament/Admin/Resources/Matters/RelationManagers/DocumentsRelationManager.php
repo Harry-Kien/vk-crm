@@ -434,6 +434,8 @@ class DocumentsRelationManager extends RelationManager
             ->icon(Heroicon::OutlinedArrowUpTray)
             ->modalHeading(__('documents.tab.actions.upload_heading'))
             ->authorize(fn (): bool => Gate::allows('create', [Document::class, $this->getOwnerRecord()]))
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không nhận tài liệu mới.
+            ->visible(fn (): bool => ! $this->getOwnerRecord()->isRecordDestroyed())
             ->schema([
                 FileUpload::make('file')
                     ->label(__('documents.tab.fields.file'))
@@ -648,7 +650,9 @@ class DocumentsRelationManager extends RelationManager
             // M7 Task 7: tài liệu đã rút không công bố lại được (`PublishDocument` từ chối) — nút
             // ở đó chỉ dẫn tới một lời từ chối.
             ->visible(fn (Document $record): bool => ! $record->group->isInternal()
-                && $record->status !== DocumentStatus::Retracted)
+                && $record->status !== DocumentStatus::Retracted
+                // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không công bố thêm gì.
+                && ! $this->getOwnerRecord()->isRecordDestroyed())
             ->fillForm(fn (Document $record): array => [
                 'client_can_view' => $record->isReleasedToPortal() ? $record->client_can_view : true,
                 'client_can_download' => $record->isReleasedToPortal() ? $record->client_can_download : true,
