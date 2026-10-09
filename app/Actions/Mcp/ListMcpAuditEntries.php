@@ -21,7 +21,8 @@ use Spatie\Activitylog\Models\Activity;
  *
  * Đúng các sự kiện của {@see self::EVENTS}: mỗi lần gọi tool (`mcp_tool_called`, Task 8), đồng ý / từ
  * chối một kết nối (Task 4), làm mới một kết nối (`mcp_token_refreshed`, Task 17), thu hồi kết nối, đổi chế độ, cam kết chính sách (Task 6), đổi cấu hình
- * toàn hệ thống ({@see UpdateAiSettings}). Không dòng nhật ký nào khác của hệ thống.
+ * toàn hệ thống ({@see UpdateAiSettings}), và (làn fb, SPEC §16.7) cờ AI của vụ, dùng hay bỏ nháp AI,
+ * xác nhận mốc hạn do AI tạo. Không dòng nhật ký nào khác của hệ thống.
  *
  *  - Lọc theo người (`$userId`): dòng mà người đó là causer (người sở hữu token, người bấm) HOẶC chủ
  *    thể (người bị đổi chế độ, bị thu hồi kết nối).
@@ -52,6 +53,13 @@ final class ListMcpAuditEntries
         'ai_access_changed',
         'ai_policy_acknowledged',
         'ai_settings_updated',
+        // Làn fb (mục B, SPEC §16.7 "cũng ghi"): cờ AI của vụ (ai xác nhận khách đồng ý), dùng hay bỏ
+        // nháp AI, xác nhận mốc hạn AI tạo — văn phòng cần thấy chúng ngay trên trang này khi lập
+        // hồ sơ đánh giá tác động.
+        'matter_ai_access_changed',
+        'mcp_draft_used',
+        'mcp_draft_discarded',
+        'deadline_ai_confirmed',
     ];
 
     /** Khoá `properties` đã có cột riêng trên màn hình, không lặp lại trong "chi tiết". */

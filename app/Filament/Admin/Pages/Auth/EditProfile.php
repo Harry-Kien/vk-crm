@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Pages\Auth;
 use App\Actions\Mcp\RevokeAiConnections;
 use App\Enums\AiRevocationReason;
 use App\Models\User;
+use App\Support\Audit;
 use Filament\Auth\Pages\EditProfile as BaseEditProfile;
 use Filament\Schemas\Components\Component;
 use Illuminate\Database\Eloquent\Model;
@@ -118,6 +119,10 @@ class EditProfile extends BaseEditProfile
             $updated = parent::handleRecordUpdate($record, $data);
 
             if (array_key_exists('password', $data)) {
+                // Làn fb (mục B): tự đổi mật khẩu để lại dấu vết, như lần admin đặt lại
+                // (`user_password_reset`, EditUser). Không ghi mật khẩu, chỉ ghi sự kiện.
+                Audit::record('user_password_changed', $updated, ['via' => 'self'], $updated);
+
                 app(RevokeAiConnections::class)->handle($updated, AiRevocationReason::PasswordChanged, $updated);
             }
 

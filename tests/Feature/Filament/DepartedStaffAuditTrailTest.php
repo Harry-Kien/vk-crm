@@ -124,3 +124,23 @@ it('keeps the name of a deleted staff member in the causer column of a matter\'s
     Livewire::test(MatterActivityRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class])
         ->assertTableColumnStateSet('causer_name', __('staff_access.departed_name', ['name' => 'Luật Sư Đã Nghỉ']), $row);
 });
+
+/*
+| Làn fb, mục B (SPEC §16.7): khối Nhật ký MCP gồm cả bốn sự kiện pháp lý của kênh AI — cờ AI của vụ,
+| dùng/bỏ nháp AI, xác nhận mốc hạn AI tạo — không chỉ các lần gọi tool.
+*/
+it('lists the matter AI flag, AI draft and AI deadline confirmation events in the MCP audit block', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->departed->id]);
+
+    foreach (['matter_ai_access_changed', 'mcp_draft_used', 'mcp_draft_discarded', 'deadline_ai_confirmed'] as $event) {
+        Audit::record($event, $matter, ['matter_id' => $matter->id], $this->departed);
+    }
+
+    $this->actingAs($this->admin, 'web');
+
+    Livewire::test(AiConnections::class)
+        ->assertSee(__('activity.events.matter_ai_access_changed'))
+        ->assertSee(__('activity.events.mcp_draft_used'))
+        ->assertSee(__('activity.events.mcp_draft_discarded'))
+        ->assertSee(__('activity.events.deadline_ai_confirmed'));
+});

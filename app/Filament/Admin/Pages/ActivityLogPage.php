@@ -20,11 +20,13 @@ use App\Support\Mcp\ToolCallContext;
 use App\Support\SensitivePropertyFilter;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Pagination\Paginator;
@@ -119,6 +121,10 @@ class ActivityLogPage extends Page implements HasTable
                     ->sortable(),
                 TextColumn::make('log_name')
                     ->label(__('activity.page.columns.log_name'))
+                    // Làn fb (mục B): nhãn tiếng Việt của nhóm khi có, mã thô khi không.
+                    ->formatStateUsing(fn (?string $state): ?string => $state !== null && Lang::has('audit_trail.log_names.'.$state)
+                        ? __('audit_trail.log_names.'.$state)
+                        : $state)
                     ->badge(),
                 TextColumn::make('event')
                     ->label(__('activity.page.columns.event'))
@@ -128,7 +134,14 @@ class ActivityLogPage extends Page implements HasTable
                     ->state(fn (Activity $record): string => ActivityPeople::name($record->causer) ?? __('activity.page.system_causer')),
                 TextColumn::make('subject_type')
                     ->label(__('activity.page.columns.subject'))
-                    ->formatStateUsing(fn (?string $state): ?string => $state ? class_basename($state) : null)
+                    // Làn fb (mục B): nhãn tiếng Việt của LOẠI đối tượng ("Vụ việc", "Tài liệu"…)
+                    // thay bí danh morph tiếng Anh. Chỉ loại, không định danh (mã hồ sơ, tên người):
+                    // định danh vẫn chỉ đi qua liên kết, thứ đã hỏi `Gate::view` của người xem.
+                    ->formatStateUsing(fn (?string $state): ?string => match (true) {
+                        $state === null => null,
+                        Lang::has('audit_trail.subjects.'.$state) => __('audit_trail.subjects.'.$state),
+                        default => class_basename($state),
+                    })
                     ->url(fn (Activity $record): ?string => $this->subjectUrl($record)),
                 TextColumn::make('description')
                     ->label(__('activity.page.columns.description'))
@@ -153,6 +166,7 @@ class ActivityLogPage extends Page implements HasTable
                     ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
                         ? $query->where('properties->channel', $data['value'])
                         : $query),
+                ...$this->auditTrailFilters(),
             ])
             ->recordActions([
                 Action::make('viewProperties')
@@ -180,6 +194,80 @@ class ActivityLogPage extends Page implements HasTable
             ])
             ->defaultSort('id', 'desc')
             ->paginated([25, 50, 100]);
+    }
+
+    /**
+     * Bốn bộ lọc tra cứu (làn fb, mục B — "trang Nhật ký hệ thống không tra được"): người thực
+     * hiện (kể cả nhân sự đã nghỉ việc, {@see ActivityPeople::staffOptions()}), loại sự kiện (nhãn
+     * tiếng Việt của `activity.events`), khoảng ngày, và hồ sơ.
+     *
+     * Mọi bộ lọc chỉ THU HẸP truy vấn đã qua {@see ActivityOwningMatter::scopeVisibleTo()} — không
+     * bộ lọc nào nới được nó. Ô "Hồ sơ" chỉ liệt kê mã của vụ người xem `listableBy()` được (một
+     * trưởng phòng không thấy mã của vụ `restricted` không phải của mình), và lọc bằng đúng
+     * {@see ActivityOwningMatter::scopeOwnedBy()} mà tab "Nhật ký" của vụ dùng; một id vụ ngoài tầm
+     * gửi lên bằng tay thì không ra dòng nào. Nói thẳng: điều kiện `listableBy()` trong `query()`
+     * là phòng thủ chiều sâu — gỡ nó đi test "forces the id of a restricted matter" vẫn xanh, vì
+     * `scopeVisibleTo()` đã bỏ dòng của vụ đó trước.
+     *
+     * @return list<SelectFilter|Filter>
+     */
+    private function auditTrailFilters(): array
+    {
+        return [
+            SelectFilter::make('causer')
+                ->label(__('audit_trail.filters.causer'))
+                ->options(fn (): array => ActivityPeople::staffOptions())
+                ->searchable()
+                ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
+                    ? $query->where('causer_type', (new User)->getMorphClass())->where('causer_id', (int) $data['value'])
+                    : $query),
+            SelectFilter::make('event')
+                ->label(__('audit_trail.filters.event'))
+                ->options(fn (): array => collect((array) __('activity.events'))
+                    ->filter(fn (mixed $label): bool => is_string($label))
+                    ->sort()
+                    ->all())
+                ->searchable()
+                ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
+                    ? $query->where('event', $data['value'])
+                    : $query),
+            Filter::make('created_between')
+                ->label(__('audit_trail.filters.created_between'))
+                ->schema([
+                    DatePicker::make('from')->label(__('audit_trail.filters.created_from')),
+                    DatePicker::make('until')->label(__('audit_trail.filters.created_until')),
+                ])
+                ->query(fn (Builder $query, array $data): Builder => $query
+                    ->when($data['from'] ?? null, fn (Builder $q, string $date): Builder => $q->whereDate('created_at', '>=', $date))
+                    ->when($data['until'] ?? null, fn (Builder $q, string $date): Builder => $q->whereDate('created_at', '<=', $date))),
+            SelectFilter::make('matter')
+                ->label(__('audit_trail.filters.matter'))
+                ->options(fn (): array => Matter::query()
+                    ->listableBy(Auth::user())
+                    ->orderByDesc('id')
+                    ->limit(200)
+                    ->pluck('code', 'id')
+                    ->all())
+                ->searchable()
+                ->query(function (Builder $query, array $data): Builder {
+                    if (! filled($data['value'] ?? null)) {
+                        return $query;
+                    }
+
+                    $viewer = Auth::user();
+                    $matter = $viewer instanceof User
+                        ? Matter::query()->listableBy($viewer)->find((int) $data['value'])
+                        : null;
+
+                    if ($matter === null) {
+                        return $query->whereRaw('1 = 0');
+                    }
+
+                    ActivityOwningMatter::scopeOwnedBy($query, $matter, $viewer);
+
+                    return $query;
+                }),
+        ];
     }
 
     /**
