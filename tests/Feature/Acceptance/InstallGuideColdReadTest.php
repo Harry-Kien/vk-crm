@@ -369,6 +369,36 @@ it('§14.8 tells a shared-hosting installer how to read the sudo lines', functio
 });
 
 /**
+ * Rà soát cuối làn v1, vòng sửa 1 (I1): lượt đi lại chuỗi nâng cấp cuối cùng, ngày 2026-10-09, từ bản
+ * trước M11 (7204b34) lên cây đã gộp M11, trên máy Ubuntu 24.04 trống với nginx 1.24 cấu hình chép từ
+ * mẫu TRƯỚC M11 (quan sát được). Mọi lệnh của chuỗi thoát 0, preflight XANH, trang lên lại 200 — nhưng
+ * `/.well-known/oauth-protected-resource/mcp` trả `404`: luật chặn dotfile cũ của máy chủ web chặn luôn
+ * metadata OAuth, nên không nhân sự nào kết nối được AI. Mục "Bản cập nhật M11" trước đó chỉ bảo "kiểm";
+ * nay nó nói đúng dòng phải sửa trong cấu hình đang chạy (nginx và Apache) và lệnh kiểm. Đổi dòng nginx
+ * như mục này viết, `nginx -t`, nạp lại: JSON có `"resource"`, `/.well-known/.env` vẫn `404` (đo cùng lượt).
+ */
+it('§14.8 tells a pre-M11 server which line of its running web server config unblocks /.well-known', function () {
+    $upgrade = igcSection(igcFile('docs/CAI-DAT.md'), '## Nâng cấp lên bản mới', '### Bản cập nhật M12');
+    $m11 = str_replace("\n", ' ', substr($upgrade, (int) strpos($upgrade, '- **Bản cập nhật M11')));
+    $m11 = preg_replace('/\s+/u', ' ', substr($m11, 0, (int) strpos($m11, '- Đọc phần ghi chú nâng cấp')));
+
+    $nginx = igcFile('tools/deploy/nginx.conf.example');
+    $apache = igcFile('tools/deploy/apache-vhost.conf.example');
+
+    // Tiền đề: hai mẫu mới mang luật mới, không còn luật cũ.
+    expect($nginx)->toContain('location ~ /\.(?!well-known/) {')
+        ->not->toContain('location ~ /\. {')
+        ->and($apache)->toContain('RedirectMatch 404 "/\.(?!well-known/)"')
+        ->not->toContain('RedirectMatch 404 "/\."'."\n");
+
+    expect($m11)->toContain('dòng `location ~ /\. {` thành `location ~ /\.(?!well-known/) {`')
+        ->toContain('`sudo nginx -t`')
+        ->toContain('dòng `RedirectMatch 404 "/\."` thành `RedirectMatch 404 "/\.(?!well-known/)"`')
+        ->toContain('Bước 4, mục 6')
+        ->toContain('`/.well-known/.env` vẫn `404`');
+});
+
+/**
  * Gap 9 (quan sát được). Dòng `docker run … -w /var/www/html …` của README chạy trong Git Bash (README
  * bảo người dùng Windows dùng Git Bash) thì Docker từ chối "the working directory 'C:/Program
  * Files/Git/var/www/html' is invalid". Cả README và lối cài máy dev của CAI-DAT phải có
@@ -503,16 +533,18 @@ it('§14.8 installs the dev packages the demo data needs, and removes them befor
 });
 
 /**
- * Hồ sơ nghiệm thu nói đúng điều đã làm. R6 của kế hoạch M8 đòi một agent chưa từng đọc kho; ngày
- * 2026-10-08 người điều phối quyết định nhận thay vào đó một lượt đọc lạnh MÔ PHỎNG — agent làm Task 2
- * của làn v1 làm theo chữ của README + CAI-DAT trên máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp
- * lên bản mới". §14 mục 8 vì vậy được tick, và hồ sơ phải nói đúng ba điều: đó là lượt MÔ PHỎNG do
- * người đã đọc kho đi (không phải agent chưa từng đọc kho), theo quyết định của người điều phối; bước
- * nào chưa đi (đăng nhập + 2FA trên trình duyệt, deploy key với GitHub thật, khôi phục thử, cài máy chủ
- * MariaDB); và mỗi chỗ vấp có test, tám chỗ ở tệp này. Test này thay test cũ "keeps the cold read pending"
- * (rà soát v1b, R1), trong cùng commit tick §14 mục 8.
+ * Hồ sơ nghiệm thu nói đúng điều đã làm. R6 của kế hoạch M8 đòi một agent chưa từng đọc kho. Ngày
+ * 2026-10-08 §14 mục 8 từng được tick bằng một lượt đọc lạnh MÔ PHỎNG — agent làm Task 2 của làn v1 (đã
+ * đọc kho) làm theo chữ của README + CAI-DAT trên máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên
+ * bản mới" — ghi là "quyết định của người điều phối". Rà soát cuối làn v1 (I1, 2026-10-09): lời giao duy
+ * nhất của người điều phối trong sổ điều phối là "agent chưa từng đọc kho", quyết định kia không được ghi,
+ * nên tiêu chí 8 về CHỜ. Hồ sơ phải nói đúng: dòng M8 và dòng "Bản 1.0" chưa ✅ và nói còn §14 mục 8; tiêu
+ * chí 8 CHỜ, gọi lượt mô phỏng là của người đã đọc kho; Task 8 của kế hoạch M8 chưa tick; lượt mô phỏng
+ * vẫn kể đúng bước đã đi, bước chưa đi, và mỗi chỗ vấp có test (tám chỗ ở tệp này). Test này thay test
+ * "ticks criterion 8 with it" của commit e8b6fd4; khi lượt đọc của R6 xong (hay quyết định được ghi vào
+ * sổ), commit tick §14 mục 8 lật test này cùng lúc.
  */
-it('§14.8 records the simulated cold read for what it is, and ticks criterion 8 with it', function () {
+it('§14.8 records the simulated cold read for what it is, and keeps criterion 8 pending without R6\'s read', function () {
     $progress = igcFile('docs/PROGRESS.md');
 
     preg_match('/^\| \*\*Bản 1\.0\*\*.*$/m', $progress, $v1Row);
@@ -521,11 +553,11 @@ it('§14.8 records the simulated cold read for what it is, and ticks criterion 8
         ->and($m8Row)->not->toBeEmpty('Không thấy dòng M8 trong bảng milestone');
 
     foreach ([$v1Row[0], $m8Row[0]] as $text) {
-        expect($text)->toContain('| ✅')
+        expect($text)->toContain('| 🟡 Còn §14 mục 8 |')
+            ->and($text)->not->toContain('| ✅')
             ->and($text)->toContain('mô phỏng')
-            ->and($text)->toContain('người điều phối')
-            ->and($text)->not->toContain('cài thật từ máy trống')
-            ->and($text)->not->toContain('CHỜ một lượt đọc');
+            ->and($text)->toContain('chưa từng đọc kho')
+            ->and($text)->toContain('M11');
     }
 
     $acceptance = substr($progress, (int) strpos($progress, '## Nghiệm thu bản 1.0'));
@@ -533,12 +565,13 @@ it('§14.8 records the simulated cold read for what it is, and ticks criterion 8
 
     preg_match('/^8\. .*(?:\n {3}.*)*/m', $section, $criterion8);
     expect($criterion8)->not->toBeEmpty('Không thấy tiêu chí 8')
-        ->and($criterion8[0])->toContain('✅')
+        ->and($criterion8[0])->toContain('CHỜ lượt đọc của một agent chưa từng đọc kho (R6)')
         ->and($criterion8[0])->toContain('mô phỏng')
         ->and($criterion8[0])->toContain('KHÔNG phải agent chưa từng đọc kho')
-        ->and($criterion8[0])->not->toContain('CHỜ');
+        ->and($criterion8[0])->not->toContain('✅');
 
     $walk = igcSection($acceptance, '### Lượt đọc lạnh mô phỏng', '### Cần chủ văn phòng quyết / làm');
+    expect($walk)->toContain('chưa thay được R6');
 
     foreach (['Bước 1', 'Bước 2', 'Bước 3', 'Bước 4', 'Bước 5', 'Bước 6', 'Bước 7', 'Bước 8', 'Bước 10', 'Bước 11', 'Nâng cấp lên bản mới'] as $step) {
         expect($walk)->toContain($step);
@@ -562,6 +595,6 @@ it('§14.8 records the simulated cold read for what it is, and ticks criterion 8
     }
 
     $plan = igcFile('docs/superpowers/plans/2026-09-21-m8-security-and-launch.md');
-    expect($plan)->toContain('### - [x] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)')
-        ->and($plan)->not->toContain('### - [ ] Task 8');
+    expect($plan)->toContain('### - [ ] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)')
+        ->and($plan)->not->toContain('### - [x] Task 8');
 });

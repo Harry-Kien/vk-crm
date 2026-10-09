@@ -11,14 +11,14 @@
 | M6 Thông báo + tác vụ định kỳ + heartbeat | ✅ Xong | 2026-10-01 | Task 1, 2, 5, 6 và một phần Task 3 có từ trước; phần còn lại (Task 3, 4, 7, 8, 9, 10) gộp từ làn `m6-rest` tại f491a2a. Suite 3438 xanh, CI xanh (SQLite + MariaDB). Thư cho khách (công bố tài liệu, từ chối giấy tờ, kích hoạt cổng, đã trả lời yêu cầu), báo nhân sự (yêu cầu/tệp mới, khách hỏi tiếp), CheckStaleMatters, RemindMissingDocuments, RemindUnseenUpdates, nút "Gửi lại" thư lỗi. Chi tiết và việc hoãn ở "Ghi chú M6" |
 | M6.5 Sửa lỗi quy trình | ✅ Xong | 2026-09-28 | Sửa 102 phát hiện của đợt kiểm tra 2026-09-24 (`docs/audits/2026-09-24-quy-trinh.md`: 90 xác nhận, 12 tranh chấp; bảng mã → task ở "Ghi chú M6.5") và CI đỏ từ 2026-09-22. 21 task, mỗi task qua rà soát Opus; rà soát toàn nhánh chia 3 vùng (1 Critical: nhật ký hệ thống lộ vụ restricted cho trưởng phòng) → 2 đợt sửa. Cổng merge: `test:mariadb` 2234/2234 xanh (2 bài đỏ do chạy chồng một CSDL test, chạy lại riêng 26/26 xanh), full suite 2228 xanh, pint sạch. Việc mang sang M8 Task 6: xem cuối "Ghi chú M6.5" |
 | M7 Bàn giao + lưu trữ + liên lạc + tìm kiếm | ✅ Xong | 2026-10-03 | Gộp 35ec313 (làn `m7-handover` + làn song song `m7-extras`), CI xanh (SQLite + MariaDB); suite 4317 xanh, MariaDB 636 xanh. Bàn giao một vụ và hàng loạt, lưu trữ khi kết thúc, gói bàn giao hồ sơ (MUC-LUC.pdf + zip), hết hạn tra cứu của khách, cảnh báo hạn lưu + ghi quyết định tiêu huỷ, rút tài liệu đã công bố, nhật ký liên lạc + nhật ký riêng của vụ, tìm kiếm, trang "Thông tin văn phòng". Việc sau gộp (thư gói bàn giao cho khách, pcntl trong preflight) đã gộp 75f1d40. Chi tiết ở "Ghi chú M7" |
-| M8 Bảo mật + backup + README triển khai | ✅ Xong | 2026-10-08 | M8a (a879d33) và làn `m8b-security` (035c4d3): sao lưu mã hoá + diễn tập khôi phục (Task 5, đối chiếu lại ngày 2026-10-08), CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Task 6 (rà soát §10 mục 9–10 toàn hệ thống) ở làn `v1-acceptance`. Task 8 (nghiệm thu SPEC §14): tiêu chí 1–7 ở làn `v1-acceptance-b`, đối chiếu lại trên cây đã gộp ở làn `v1-acceptance` — cả bộ 6448 xanh dưới `pcov`, độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 %; tiêu chí 8 bằng một lượt đọc lạnh mô phỏng theo quyết định của người điều phối (agent làm Task 2 làn v1, đã đọc kho — không phải agent chưa từng đọc kho như R6 viết), đi máy Ubuntu 24.04 trống từ Bước 1 tới "Nâng cấp lên bản mới": mười chỗ vấp đã sửa, mỗi chỗ có test. Chi tiết ở "Nghiệm thu bản 1.0" |
+| M8 Bảo mật + backup + README triển khai | 🟡 Còn §14 mục 8 | 2026-10-09 | M8a (a879d33) và làn `m8b-security` (035c4d3): sao lưu mã hoá + diễn tập khôi phục (Task 5, đối chiếu lại ngày 2026-10-08), CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Task 6 (rà soát §10 mục 9–10 toàn hệ thống) ở làn `v1-acceptance`, đo lại trên cây đã gộp M11 (`main` c166ec6): route M11 đã xếp nhóm §10.10, nhân sự bị vô hiệu bị cắt ở `/oauth/authorize` và `/mcp`. Task 8 (nghiệm thu SPEC §14): tiêu chí 1–7 có bằng chứng trên cây đã gộp M11 — cả bộ 7705 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây TRƯỚC khi gộp M11 (6448 xanh). Tiêu chí 8 CHỜ lượt đọc của một agent chưa từng đọc kho (R6), hoặc quyết định của người điều phối ghi vào sổ điều phối nhận lượt đọc lạnh mô phỏng (agent đã đọc kho) thay cho nó. Chi tiết ở "Nghiệm thu bản 1.0" |
 | M11 Máy chủ MCP (ChatGPT, Claude) | ✅ Xong | 2026-10-09 | Gộp làn `m11-mcp-server` (Task 0–17; Task 10, 11, 12, 16 làm song song ở làn `m11-mcp-tools`) cùng vòng sửa của rà soát cuối làn: nhân sự kết nối ChatGPT/Claude bằng tài khoản AI của mình qua OAuth (Passport 13.8), công tắc toàn văn phòng và từng người (mặc định TẮT), cờ AI từng vụ (mặc định không cho phép), 11 tool đọc + 4 tool ghi có mã xác nhận hai bước, nhật ký + giới hạn tần suất, trang "Kết nối AI", chính sách AI và hướng dẫn kết nối. Suite sau gộp 7514 xanh (một test hỏng theo ngày 2026-10-09 sửa trong lần gộp). Rà soát gộp ba góc nhìn: mục Nâng cấp của CAI-DAT tự mâu thuẫn — sửa trong lần gộp. Kết nối thật với ChatGPT/Claude: CHỜ máy chủ HTTPS công khai và tài khoản AI của văn phòng; hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025) trước khi bật |
 | M9 Hợp đồng dịch vụ + đợt thanh toán | ✅ Xong | 2026-10-04 | Gộp a65ba4c (Task 2–5, 7–9, 12), 4280a4c (làn `m9-rest`: Task 1, 11) và lần gộp làn `m9-final` (Task 6 đợt thu theo giai đoạn + đối soát 07:00, Task 10 khối thanh toán trên cổng khách + bảng kê trong gói bàn giao, Task 13 nghiệm thu toàn M9: dữ liệu mẫu, `billing:check-invariants` trong preflight, kịch bản nhập liệu khi đưa vào dùng); suite sau gộp 4519 xanh (32 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Việc nhỏ để lại (người nhận thư "gói sẵn sàng" theo quyền tải gói; ghi rõ bảng kê là ảnh chụp tại ngày lập gói) chuyển sang lượt quét M8 Task 6. Chi tiết ở "Ghi chú M9 → Làn m9f" |
 | M10 Tiếp nhận khách | ✅ Xong | 2026-10-04 | Gộp làn `m10-intake` (Task 1–8; Task 6, 7 làm song song ở làn `m10-t6`, `m10-t7`): phiếu tiếp nhận, kiểm tra xung đột lợi ích (Đỏ/Vàng/Xanh, khoá gọi lặp, nguồn thứ hai), thông báo bảo vệ dữ liệu (bản nháp chờ luật sư), chuyển thành khách + vụ việc (phí đã báo gợi ý vào hợp đồng), gộp/từ chối/xoá theo yêu cầu, đồng hồ phản hồi theo giờ làm việc, nhắc nội bộ mỗi 15 phút, ẩn danh tự động 03:30 theo hạn lưu, bảng điều khiển tiếp nhận, dữ liệu mẫu. Suite sau gộp 5242 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; bốn việc nhỏ (câu chữ hộp thoại xoá dữ liệu, khối hợp đồng trong bài nghiệm thu, đoạn nâng cấp M10 trong CAI-DAT, ghi chú §12) ở làn việc sau gộp `fu3`. Chi tiết ở "Ghi chú M10" |
 | M12 Ứng dụng điện thoại (PWA) + thông báo đẩy | ✅ Xong | 2026-10-07 | Gộp làn `m12-pwa-push` (Task 1–10 + vòng sửa của rà soát cuối làn): cài lên màn hình điện thoại (manifest, biểu tượng, service worker, trang ngoại tuyến, hướng dẫn cài), thông báo đẩy Web Push (khoá VAPID, đăng ký theo thiết bị, trang "Thông báo trên điện thoại", gỡ máy khi đăng xuất/cắt phiên, hàng đợi `push` + nhật ký gửi), nối vào bốn sự kiện của khách và bốn sự kiện của nhân sự (kể cả nhắc hạn, đợt thu quá hạn), "Gửi thử". Suite sau gộp 5790 xanh (33 bỏ qua, 1 risky có sẵn); composer audit sạch. Rà soát gộp ba góc nhìn: 2 lỗi xác nhận (đổi email cổng khách và "Đặt lại 2FA" chưa gỡ máy nhận thông báo) cùng các việc nhỏ chuyển sang làn việc sau gộp `fu4`. Kiểm tra trên máy thật (Android, iPhone): CHỜ CHỦ VĂN PHÒNG theo danh sách trong tài liệu |
 | M13 Theo dõi đội ngũ + hiệu suất | ✅ Xong | 2026-10-08 | Gộp làn `m13-team-performance` (Task 1–8; Task 3, 6 làm song song ở làn `m13-team-history`) cùng vòng sửa của rà soát cuối làn: quyền `performance.viewAny` (21 quyền), trang "Theo dõi đội ngũ" (N1–N11), trang của từng người, trang "Hiệu suất theo kỳ" (P1–P10, thời gian phản hồi theo giờ làm việc M10), lịch sử người giữ việc qua bàn giao, ảnh chụp số liệu 23:50 + biểu đồ 90 ngày; luật sư/chuyên viên chỉ thấy số của mình, không xếp hạng, không lộ vụ mật. Suite sau gộp 6273 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; việc nhỏ (seeder demo gửi thư bàn giao, câu chữ P8/biểu đồ so với "Kỳ đã đóng") chuyển sang làn nghiệm thu bản 1.0 |
 | M14 Google Drive làm kho tài liệu | 🟡 Đang làm | | Chủ văn phòng quyết 2026-10-04: Shared Drive của văn phòng làm kho phía sau CRM, chỉ CRM đọc/ghi qua tài khoản dịch vụ; quyền theo vụ, vụ mật, nhật ký tải giữ nguyên. Kế hoạch `docs/superpowers/plans/2026-10-04-m14-google-drive-storage.md` (đã qua một vòng rà soát Opus). Adapter Drive REST v3 của dự án + `google/auth`; tải về luôn đi qua CRM; bản sao thứ hai ở máy chủ văn phòng; preflight ĐỎ khi bật Drive trên production mà chưa ghi ngày hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025). Việc của chủ văn phòng: tạo Shared Drive + tài khoản dịch vụ theo hướng dẫn trong kế hoạch |
-| **Bản 1.0** (M0–M10 + M12 + M13) | ✅ Nghiệm thu trong kho | 2026-10-08 | Chủ văn phòng chốt 2026-10-08; M11, M14 gắn sau, không thuộc bản 1.0. Tám tiêu chí SPEC §14 có bằng chứng trên cây đã gộp (làn `v1-acceptance` + `v1-acceptance-b`); cả bộ 6448 xanh dưới `pcov`, `app/Actions/` 97,96 %, `app/Policies/` 93,88 %; vòng migration thật trên MariaDB. Mục 8 (README + CAI-DAT): lượt đi theo kịch bản của làn v1b (ba chỗ vấp) và lượt đọc lạnh mô phỏng của làn v1 (mười chỗ vấp), cả hai do người đã đọc kho đi — người điều phối quyết định nhận lượt mô phỏng thay cho "agent chưa từng đọc kho" của R6. Chờ chủ văn phòng trước ngày mở cổng: máy chủ thật, ba thông tin pháp lý, đi tay trên Android/iPhone, luật sư duyệt thông báo bảo vệ dữ liệu và các hạn lưu, khôi phục thử trên máy chủ thật, gói bàn giao trong bản sao lưu. Chi tiết ở "Nghiệm thu bản 1.0" |
+| **Bản 1.0** (M0–M10 + M12 + M13) | 🟡 Còn §14 mục 8 | 2026-10-09 | Chủ văn phòng chốt 2026-10-08: M11, M14 gắn sau, không thuộc bản 1.0. M11 nay đã ở `main` (c166ec6) và đã gộp vào làn `v1-acceptance`: nó NẰM TRONG cây được đo nhưng NGOÀI phạm vi nghiệm thu bản 1.0 (M11 có nghiệm thu riêng của làn M11, dòng M11 ở trên); lượt quét §10.9/§10.10 của bản 1.0 phủ cả route M11. Tiêu chí 1–7 của SPEC §14 có bằng chứng trên cây đã gộp M11 (làn `v1-acceptance` + `v1-acceptance-b`): cả bộ 7705 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây trước khi gộp M11; vòng migration thật trên MariaDB. Mục 8 (README + CAI-DAT) CHỜ: lượt đi theo kịch bản của làn v1b (ba chỗ vấp) và lượt đọc lạnh mô phỏng của làn v1 (mười chỗ vấp) đều do người đã đọc kho đi; R6 đòi một agent chưa từng đọc kho, và sổ điều phối không ghi quyết định nhận lượt mô phỏng thay cho nó. Chờ chủ văn phòng trước ngày mở cổng: máy chủ thật, ba thông tin pháp lý, đi tay trên Android/iPhone, luật sư duyệt thông báo bảo vệ dữ liệu và các hạn lưu, khôi phục thử trên máy chủ thật, gói bàn giao trong bản sao lưu. Chi tiết ở "Nghiệm thu bản 1.0" |
 
 **Thứ tự làm đã chốt với chủ văn phòng: M6.5 → phần còn lại của M6 → M7 → M8 → M11 → M9 → M10
 → M12** (ghi trong sổ tay điều phối M6.5 ngày 2026-09-25). Bảng trên xếp theo thứ tự này, không
@@ -8218,9 +8218,11 @@ nhật bằng chứng của tiêu chí 1–5 và 8 bên dưới. Báo cáo: `.su
 ### Tám tiêu chí SPEC §14, từng cái một
 
 1. **Mọi test §11 xanh và độ phủ đạt.** Bảng truy vết bên dưới: mỗi gạch đầu dòng §11 có tên test; cả bộ
-   xanh trên cây đã gộp (6448 passed, 0 failed, 33 skipped — lượt `bin/coverage` cả bộ của làn
+   xanh trên cây đã gộp M11 (2026-10-09: 7705 passed, 0 failed, 33 skipped — mục "Gộp M11 và rà soát cuối làn v1,
+   vòng sửa 1" cuối phần này); trước khi gộp M11: 6448 passed, 0 failed, 33 skipped — lượt `bin/coverage` cả bộ của làn
    v1, `--parallel --processes=2`, 3 645 s; lượt của làn v1b trước khi gộp: 6288 passed). Độ phủ đo bằng
-   `pcov` (mục "Độ phủ"): `app/Actions/` 97,96 %, `app/Policies/` 93,88 % (đích ≥ 80 %).
+   `pcov` (mục "Độ phủ"): `app/Actions/` 97,96 %, `app/Policies/` 93,88 % (đích ≥ 80 %) — đo trên cây TRƯỚC khi
+   gộp M11; chưa đo lại trên cây đã gộp.
 2. **Một dòng cron, không Redis, không supervisor.** `tests/Feature/Acceptance/V1PlatformTest.php` (năm test,
    đọc chính `composer.lock`, `.env.example`, lịch chạy thật, `docs/CAI-DAT.md` và `README.md`): mọi gói
    production cài được trên PHP 8.3.0; không predis/horizon/octane/reverb/pulse/scout; hàng đợi, cache, phiên
@@ -8276,14 +8278,17 @@ nhật bằng chứng của tiêu chí 1–5 và 8 bên dưới. Báo cáo: `.su
    `Jobs/GenerateHandoverPackageTest`, `Http/HandoverPackageDownloadTest` (`data_exported`),
    `Portal/BillingOnPortalTest` "prints the payment statement into the handover index, with only what the
    portal shows", `Http/HandoverPackageMoneyAccessTest`.
-8. **`README.md` + `docs/CAI-DAT.md` đã nghiệm thu — ✅, bằng một lượt đọc lạnh mô phỏng.** R6 của kế hoạch M8
-   viết "một agent chưa từng đọc kho". Ngày 2026-10-08 người điều phối quyết định nhận thay vào đó một lượt
-   mô phỏng: agent làm Task 2 của làn v1 — người đã đọc kho, KHÔNG phải agent chưa từng đọc kho — làm theo
-   đúng chữ của hai tài liệu, chỉ hai tài liệu, trên một máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên
-   bản mới", cùng lối cài máy dev của README. Mười chỗ vấp đã sửa, mỗi chỗ có test (mục "Lượt đọc lạnh mô
-   phỏng" bên dưới); ba chỗ vấp của lượt đi theo kịch bản ở làn v1b đã sửa trước đó. Bước chưa đi và lý do
-   cũng ở mục đó. Muốn đúng chữ R6 (một agent chưa từng đọc kho, clone thật từ GitHub bằng deploy key) thì
-   đó là một lượt thêm, ghi ở "Cần chủ văn phòng quyết / làm".
+8. **`README.md` + `docs/CAI-DAT.md` đã nghiệm thu — CHỜ lượt đọc của một agent chưa từng đọc kho (R6).** Đã
+   có hai lượt đi, cả hai do người đã đọc kho đi, KHÔNG phải agent chưa từng đọc kho: lượt đi theo kịch bản
+   của làn v1b (ba chỗ vấp) và lượt đọc lạnh mô phỏng của agent làm Task 2 làn v1 — làm theo đúng chữ của hai
+   tài liệu, chỉ hai tài liệu, trên một máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên bản mới", cùng lối
+   cài máy dev của README (mười chỗ vấp, mỗi chỗ có test; mục "Lượt đọc lạnh mô phỏng" bên dưới). Ngày
+   2026-10-08 tiêu chí này từng được tick bằng lượt mô phỏng, ghi là "quyết định của người điều phối"; rà soát
+   cuối làn v1 (I1, 2026-10-09) thấy lời giao duy nhất của người điều phối trong sổ điều phối là "một agent
+   chưa từng đọc kho" và quyết định kia không được ghi ở đâu, nên tiêu chí trở về CHỜ. Nó tick khi lượt đọc của
+   agent chưa từng đọc kho xong, hoặc khi người điều phối ghi quyết định đó vào sổ. Chuỗi "Nâng cấp lên bản mới"
+   cuối cùng (sau vòng sửa 7204b34 và dòng `chmod` của vòng sửa này) được đi lại một lần trên máy Ubuntu 24.04
+   trống — mục "Gộp M11 và rà soát cuối làn v1, vòng sửa 1" bên dưới.
 
 ### Độ phủ (SPEC §11, §14 mục 1)
 
@@ -8415,9 +8420,11 @@ Ba chỗ người đọc phải đoán, đã sửa, mỗi chỗ một test trong
 Cùng lượt: dọn ba dòng Sail cũ không nơi nào đọc (`WWWUSER`, `WWWGROUP`, `VITE_APP_NAME`) khỏi `.env.example`
 (M8 Task 7 hứa dọn ở Task 8); `Deployment/EnvExampleTest` bỏ mục ngoại lệ "chưa dọn".
 
-### Lượt đọc lạnh mô phỏng (làn v1, Task 2, 2026-10-08) — nghiệm thu §14 mục 8
+### Lượt đọc lạnh mô phỏng (làn v1, Task 2, 2026-10-08) — chưa thay được R6 cho §14 mục 8
 
-**Ai đi, và vì sao gọi là mô phỏng.** Người điều phối giao, thay cho "agent chưa từng đọc kho" của R6: agent
+**Ai đi, và vì sao gọi là mô phỏng.** Lượt này được đi như thể người điều phối đã giao nó thay cho "agent chưa
+từng đọc kho" của R6; sổ điều phối không ghi lời giao đó (rà soát cuối làn v1, I1, 2026-10-09), nên lượt này là
+bằng chứng phụ, không phải nghiệm thu §14 mục 8. Người đi: agent
 làm Task 2 của làn v1 — đã đọc kho (PROGRESS, các test, một phần mã), KHÔNG phải agent chưa từng đọc kho —
 làm theo đúng chữ của `README.md` + `docs/CAI-DAT.md`, chỉ hai tài liệu đó, gõ từng lệnh như tài liệu viết,
 ghi mọi chỗ lệnh dừng hay phải đoán. Khi một lệnh dừng, nó sửa theo cách một người cài hợp lý sẽ sửa rồi đi
@@ -8527,10 +8534,10 @@ cài (ngày đi thử, con số dữ liệu mẫu), `MAIL_SCHEME` trong danh sá
 
 ### Cần chủ văn phòng quyết / làm (không chặn bản 1.0 trong kho; chặn ngày mở cổng thật)
 
-- **§14 mục 8 theo đúng chữ R6, nếu muốn**: một agent chưa từng đọc kho làm theo `README.md` +
-  `docs/CAI-DAT.md` từ máy trống, clone thật từ GitHub bằng deploy key, đi cả Bước 9 (2FA trên trình duyệt) và
-  một lần khôi phục thử. Người điều phối đã nhận lượt mô phỏng ở trên thay cho việc này (2026-10-08); lượt
-  thật vẫn có ích trước ngày mở cổng, và mỗi chỗ vấp của nó là một lỗi tài liệu cần sửa kèm test.
+- **§14 mục 8 theo đúng chữ R6 — việc của người điều phối, còn chặn dấu ✅ của bản 1.0**: một agent chưa từng
+  đọc kho làm theo `README.md` + `docs/CAI-DAT.md` từ máy trống, clone thật từ GitHub bằng deploy key, đi cả
+  Bước 9 (2FA trên trình duyệt) và một lần khôi phục thử; hoặc người điều phối ghi vào sổ điều phối quyết định
+  nhận lượt mô phỏng ở trên thay cho việc này. Mỗi chỗ vấp của lượt thật là một lỗi tài liệu cần sửa kèm test.
 - **Máy chủ thật**: thuê VPS/hosting, tên miền `khachhang.luatvukhang.com`, HTTPS, SMTP có SPF/DKIM, chạy đúng
   `docs/CAI-DAT.md` (Bước 0 là danh sách việc cần chuẩn bị, gồm thêm deploy key của máy chủ vào kho).
 - **Ba thông tin pháp lý còn trống**: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động (địa chỉ trụ sở đã
@@ -8543,8 +8550,8 @@ cài (ngày đi thử, con số dữ liệu mẫu), `MAIL_SCHEME` trong danh sá
 - **Sao lưu**: tài khoản Google riêng cho sao lưu + hai chỗ cất `APP_KEY`/`BACKUP_ARCHIVE_PASSWORD`/khoá VAPID
   ngoài máy chủ; một lần khôi phục thử trên máy chủ thật (`docs/SAO-LUU-KHOI-PHUC.md`). Quyết gói bàn giao có
   nằm trong bản sao lưu hằng đêm không (ba lựa chọn ở "Cần chủ văn phòng quyết" của Ghi chú M7).
-- **Sau bản 1.0**: M11 (máy chủ MCP — gói ChatGPT Business+ cho quyền ghi, hồ sơ chuyển dữ liệu ra nước
-  ngoài) và M14 (Shared Drive + tài khoản dịch vụ trên Google Workspace, ngày nộp hồ sơ chuyển dữ liệu theo
+- **Sau bản 1.0**: M11 (máy chủ MCP — đã ở `main` và trong cây đã gộp của làn này, ngoài phạm vi nghiệm thu
+  bản 1.0; còn gói ChatGPT Business+ cho quyền ghi, hồ sơ chuyển dữ liệu ra nước ngoài) và M14 (Shared Drive + tài khoản dịch vụ trên Google Workspace, ngày nộp hồ sơ chuyển dữ liệu theo
   Luật 91/2025).
 
 ### Kiểm chứng của làn
@@ -8596,3 +8603,68 @@ cài (ngày đi thử, con số dữ liệu mẫu), `MAIL_SCHEME` trong danh sá
 - Mutation probe của hồ sơ §14 mục 8 (`InstallGuideColdReadTest` "§14.8 records the simulated cold read…"): bỏ
   câu "KHÔNG phải agent chưa từng đọc kho" khỏi tiêu chí 8 → đỏ; bỏ tick Task 8 của kế hoạch M8 → đỏ; đổi tên
   một test được trích ở danh sách chỗ vấp → đỏ.
+
+### Gộp M11 và rà soát cuối làn v1, vòng sửa 1 (2026-10-09)
+
+Rà soát cuối làn v1 (`.superpowers/sdd/v1/progress.md`, "FINAL review") tìm một lỗi chặn gộp và ba việc quan trọng.
+Báo cáo đủ: `.superpowers/sdd/v1/final-fix-report.md`, mục "Fix round 1".
+
+- **C1 — `main` đã có M11.** `main` là c166ec6 (M11 đã gộp: `routes/ai.php`, route OAuth của Passport, `/mcp`,
+  `/.well-known/*`, đăng ký client động, hai trang "Kết nối AI"). Làn gộp `main` vào nhánh (72fe192; xung đột ở
+  `bootstrap/app.php`, `PreflightCommandTest`, README, CAI-DAT, PROGRESS — giữ cả hai phía). Trên cây đã gộp:
+  `NotFoundSpec1010Test` ĐỎ trước khi sửa (mười ba route M11 chưa xếp nhóm); nay hai trang "Kết nối AI" ở nhóm
+  đóng (luật sư, kế toán bị từ chối nhận đúng trang 404 của đường dẫn không tồn tại), các route còn lại là ngoại
+  lệ có lý do (không route M11 nào mang id trên URI), và hai phép so mới: mọi tool MCP nhận id — danh sách đọc
+  từ `tools/list` thật, mười hai tool kể cả bốn tool ghi — trả cùng câu "Không tìm thấy" cho vụ đội khác, vụ
+  hạn chế của chính người gọi, vụ chưa bật AI và id không có; nút "Thu hồi" của "Kết nối AI của tôi" với client
+  của người khác và client bịa cho cùng câu. `SessionCutSpec109Test` thêm màn hình đồng ý và nút "Đồng ý" của
+  `/oauth/authorize` và bearer `/mcp` (nút "Hoạt động" lẫn `is_active` ghi thẳng vào CSDL). Ca "Đồng ý" tìm ra
+  một lỗi: route của Passport khai `auth:web`, nên `Authenticate` chạy TRƯỚC `EndDisabledStaffSessions` và nhân
+  sự bị vô hiệu nhận 403 thay cho trang đăng nhập; sửa bằng `prependToPriorityList()` trong `bootstrap/app.php`.
+  Cả bộ trên cây đã gộp lộ thêm một xung đột về nghĩa giữa hai nhánh: hai ca của `Mcp/AuthorizeScreenTest` (M11)
+  đòi màn hình từ chối lý do "tài khoản bị vô hiệu hoá" cho một phiên còn đăng nhập, mà `EndDisabledStaffSessions`
+  (§10.9, làn này) đăng xuất phiên đó trước khi màn hình kịp dựng (302 về trang đăng nhập). Giữ §10.9: hai ca chuyển
+  sang test riêng "R2 + §10.9 tài khoản bị vô hiệu hoá: phiên bị cắt…" (về trang đăng nhập, không màn hình, không
+  mã, cả "Đồng ý" ép tay); lý do `Inactive` của màn hình đồng ý còn lại làm lớp thứ hai.
+  M11 nằm trong cây được đo nhưng ngoài phạm vi nghiệm thu bản 1.0 (chủ văn phòng chốt 2026-10-08); dòng M8 và
+  dòng "Bản 1.0" của bảng nói đúng điều đó.
+- **I1 — tiêu chí 8.** Trở về CHỜ (tiêu chí 8 ở trên, dòng M8, dòng "Bản 1.0", Task 8 của kế hoạch M8 bỏ tick):
+  lời giao duy nhất trong sổ điều phối là "một agent chưa từng đọc kho". Chuỗi nâng cấp cuối cùng được đi lại
+  một lần — xem gạch "Lượt đi lại chuỗi nâng cấp" dưới.
+- **I2 — bản sao `.env` trong cache cấu hình.** `php artisan optimize` ghi mọi giá trị của `.env` ra
+  `bootstrap/cache/config.php` với quyền theo `umask` (lượt đi dưới: `664`, người quản trị đọc được). CAI-DAT
+  Bước 7 và chuỗi nâng cấp nay có `sudo -u www-data chmod 600 bootstrap/cache/config.php` ngay sau MỌI
+  `optimize`; ba chỗ hứa giữ kín và README nói về tệp này.
+- **I3 — SPEC §12.** Đính chính 2026-10-09: vụ chuyển từ tiếp nhận là vụ thứ 27 (bốn vụ của
+  `TeamPerformanceSeeder`, M13); `InstallGuideColdReadTest` giữ SPEC cùng con số với README.
+- **Lượt đi lại chuỗi nâng cấp (2026-10-09, quan sát được).** Container `ubuntu:24.04` trống (bỏ đi sau đó),
+  nginx 1.24, PHP-FPM 8.3.6 của Ubuntu, người quản trị `quantri` có `sudo`, PHP-FPM bằng `www-data`, CSDL tạm
+  trên máy chủ `mariadb:11` của dự án (đã xoá). Bản A = 7204b34 (trước M11) cài theo CAI-DAT của chính nó
+  (preflight "Mọi điều kiện ra mắt đều đạt", `/admin/login` 200, `config.php` quyền `664`). Rồi nâng lên bản B
+  = đầu làn (M11 đã gộp, vòng sửa này) bằng ĐÚNG khối lệnh của CAI-DAT B — chép máy từ tệp, chạy từng dòng — cộng
+  hai bước của "Bản cập nhật M11": `sodium`/`curl` có sẵn (`php8.3-common`), `sudo -u www-data php artisan
+  passport:keys` ngay sau dòng `chown`. Mọi dòng thoát 0. Dòng `php artisan filament:assets` của người quản trị
+  chạy khi KHÔNG có cache cấu hình và người quản trị KHÔNG đọc được `.env` (`600`, của `www-data`): "Successfully
+  published assets!", thoát 0 (việc nhỏ m1 của lần rà soát lại Task 2, nay đã quan sát). `migrate --force`
+  chạy các migration M11, `db:seed --force`, `billing:check-invariants` sạch, preflight XANH, `optimize`,
+  `chmod 600`, `up`; sau đó `config.php` quyền `600` (người quản trị và một tài khoản khác đều không đọc được),
+  khoá Passport của `www-data` (`oauth-private.key` `600`), `/admin/login`, `/portal/login` 200, `POST /mcp` không
+  token 401, `schedule:run` bằng `www-data` chạy. **Một chỗ vấp:** `/.well-known/oauth-protected-resource/mcp`
+  trả `404` — cấu hình nginx chép từ mẫu trước M11 chặn mọi dotfile, kể cả `/.well-known/`, và mục "Bản cập nhật
+  M11" chỉ bảo "kiểm". Đổi đúng dòng `location ~ /\. {` thành `location ~ /\.(?!well-known/) {`, `nginx -t`,
+  nạp lại: JSON có `"resource"`, `/.well-known/.env`, `/.env`, `/.git/config` vẫn `404`. Mục "Bản cập nhật M11"
+  nay nói đúng dòng phải sửa (nginx và Apache) và lệnh kiểm; test `InstallGuideColdReadTest` "§14.8 tells a
+  pre-M11 server which line of its running web server config unblocks /.well-known". Lượt này do người đã đọc
+  kho đi, nên nó không thay được R6 cho tiêu chí 8.
+- **Sự cố trong lượt đi (đã báo người điều phối).** Lần chạy đầu của kịch bản cài bản A sửa `.env` hỏng (lệnh
+  `sed -i` của kịch bản cần tệp tạm trong thư mục của người quản trị), nên `.env` giữ giá trị mẫu `DB_DATABASE=
+  vk_crm` trên mạng Docker của dự án: `migrate --force` của bản A chạy 11 migration (2026_09_28_070001 …
+  2026_10_01_000001_add_conflict_red_pending_since…) trên CSDL dev chung `vk_crm`, rồi dừng ở migration băm lại
+  số giấy tờ (khác `APP_KEY`, "Không dòng matter_parties nào bị đổi"); `db:seed` (`APP_ENV=local`) cập nhật 17
+  tài khoản cổng demo rồi dừng ở `fake()`. Không xoá gì; không hoàn tác (rollback migration trên CSDL chung rủi ro
+  hơn). Lần migrate kế tiếp của máy dev chạy tiếp từ đó.
+- **Kiểm chứng:** cả bộ `test --parallel --processes=2 --passthru-php=-dmemory_limit=1536M` **7705 passed, 0 failed**,
+  33 skipped, 3 945 s. Hai lượt trước: một worker hết 512 MB bộ nhớ (như lượt cả bộ của M11 — từ đó thêm
+  `--passthru-php`), rồi 7703 passed, 2 failed (`AuthorizeScreenTest`, xung đột về nghĩa ở gạch C1). MariaDB tuần tự trên các tệp test đã đổi: 284 passed (`NotFoundSpec1010Test`, `SessionCutSpec109Test`, `InstallGuideColdReadTest`,
+  `AuthorizeScreenTest`, `PreflightCommandTest`; 422 s). `pint --test` PASS.
+

@@ -240,9 +240,10 @@ SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi
   2026-10-07). Nên có thêm, chưa bắt buộc: `gd` (preflight báo VÀNG nếu thiếu). Kiểm nhanh:
   `php -m`. Trên **Ubuntu 24.04** một dòng cài đủ PHP, các extension trên (tên gói
   khác tên extension: `dom`, `xmlreader` nằm trong `php8.3-xml`, `pdo_mysql` trong `php8.3-mysql`;
-  phần còn lại có sẵn trong `php8.3-common`), `mariadb-client`, Composer 2, Git và nginx — đã chạy
-  thử ngày 2026-10-08 trên một máy Ubuntu 24.04 trống, trước khi bản M11 thêm `sodium`; sau khi cài,
-  `php -m | grep -i sodium` phải in `sodium` (thiếu thì `composer install` từ chối chạy):
+  phần còn lại, kể cả `sodium` của M11, có sẵn trong `php8.3-common`), `mariadb-client`, Composer 2,
+  Git và nginx — đã chạy thử ngày 2026-10-08 trên một máy Ubuntu 24.04 trống, và lại ngày 2026-10-09
+  (`php -m` lẫn `php-fpm8.3 -m` in `sodium`):
+
   ```bash
   sudo apt install php8.3-fpm php8.3-cli php8.3-intl php8.3-mbstring php8.3-xml php8.3-zip php8.3-curl php8.3-mysql php8.3-gd mariadb-client composer git nginx
   ```
@@ -1182,8 +1183,14 @@ sudo -u www-data php artisan up
   bằng `www-data` như mọi dòng `php artisan` của chuỗi: chạy bằng người quản trị hay `root` thì khoá
   riêng (quyền 600) mang chủ là người đó, PHP-FPM không đọc được, trong khi `vkcrm:preflight` chạy
   bằng chính người đó vẫn XANH;
-  (3) cất hai tệp khoá cùng `APP_KEY` (Bước 3); (4) kiểm `/.well-known/` (Bước 4, mục 6) và tường
-  lửa (mục "Máy chủ MCP"). `migrate --force` chỉ thêm bảng và cột; mọi vụ việc đã có nhận cờ AI "không cho phép",
+  (3) cất hai tệp khoá cùng `APP_KEY` (Bước 3); (4) **máy chủ web đứng theo mẫu cũ** (chép trước M11)
+  chặn cả `/.well-known/`: lượt đi nâng cấp ngày 2026-10-09 (nginx 1.24, cấu hình chép từ mẫu trước
+  M11) nhận `404` ở `/.well-known/oauth-protected-resource/mcp` dù mọi lệnh của chuỗi thoát 0 và
+  preflight XANH. Sửa luật chặn dotfile trong cấu hình ĐANG CHẠY như mẫu mới — nginx: dòng
+  `location ~ /\. {` thành `location ~ /\.(?!well-known/) {`, rồi `sudo nginx -t` và
+  `sudo systemctl reload nginx`; Apache: dòng `RedirectMatch 404 "/\."` thành
+  `RedirectMatch 404 "/\.(?!well-known/)"`, rồi nạp lại Apache — rồi kiểm đúng hai lệnh `curl` của Bước 4, mục 6 (JSON có `"resource"`; `/.well-known/.env`
+  vẫn `404`); (5) tường lửa (mục "Máy chủ MCP"). `migrate --force` chỉ thêm bảng và cột; mọi vụ việc đã có nhận cờ AI "không cho phép",
   và mọi công tắc AI mặc định tắt, nên sau bản cập nhật chưa ai kết nối được AI, chưa vụ nào lên AI,
   cho tới khi chủ văn phòng bật.
 - Đọc phần ghi chú nâng cấp của bản mới trong `docs/PROGRESS.md` TRƯỚC khi chạy: một bản có thể

@@ -209,18 +209,20 @@ Mở rộng `README.md` và `docs/CAI-DAT.md`. Nội dung:
 
 Nghiệm thu bằng một agent chưa đọc repo.
 
-> Ghi chú bản 1.0 (2026-10-08): lượt nghiệm thu đó không do một agent chưa từng đọc kho đi. Người điều phối quyết
-> định nhận một lượt đọc lạnh MÔ PHỎNG thay cho câu trên — xem Task 8 và PROGRESS, "Nghiệm thu bản 1.0", "Lượt
-> đọc lạnh mô phỏng".
+> Ghi chú bản 1.0 (2026-10-08, sửa 2026-10-09): lượt nghiệm thu đó chưa do một agent chưa từng đọc kho đi. Lượt
+> đọc lạnh MÔ PHỎNG của làn v1 (agent đã đọc kho) KHÔNG thay được câu trên: sổ điều phối không ghi quyết định
+> nhận nó (rà soát cuối làn v1, I1) — xem Task 8 và PROGRESS, "Nghiệm thu bản 1.0".
 
-### - [x] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
+### - [ ] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
 
 > **Làm ở làn `v1-acceptance-b` (tiêu chí 1–7) và làn `v1-acceptance` (đối chiếu trên cây đã gộp, tiêu chí 8),
 > 2026-10-08**, bản 1.0 = M0–M10 + M12 + M13 (M11, M14 gắn sau). Bằng chứng ở PROGRESS, mục "Nghiệm thu bản 1.0".
-> Tiêu chí 8: R6 đòi một agent chưa từng đọc kho; người điều phối quyết định nhận thay vào đó một lượt đọc lạnh mô
-> phỏng — agent làm Task 2 của làn v1 (đã đọc kho) làm theo đúng chữ của `README.md` + `docs/CAI-DAT.md` trên một
-> máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên bản mới"; mỗi chỗ vấp sửa kèm một test
-> (`tests/Feature/Acceptance/InstallGuideColdReadTest.php`). `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
+> Tiêu chí 8 CHỜ (2026-10-09, rà soát cuối làn v1, I1): R6 đòi một agent chưa từng đọc kho. Agent làm Task 2 của
+> làn v1 (đã đọc kho) đã đi một lượt đọc lạnh MÔ PHỎNG theo đúng chữ của `README.md` + `docs/CAI-DAT.md` trên một
+> máy Ubuntu 24.04 trống, từ Bước 1 tới "Nâng cấp lên bản mới", mỗi chỗ vấp sửa kèm một test
+> (`tests/Feature/Acceptance/InstallGuideColdReadTest.php`); nhưng lời giao duy nhất của người điều phối trong sổ
+> điều phối là "agent chưa từng đọc kho", và quyết định nhận lượt mô phỏng thay cho nó không được ghi ở đâu. Task
+> này tick khi lượt đọc của agent chưa từng đọc kho xong, hoặc khi người điều phối ghi quyết định đó vào sổ. `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
 > `bin/coverage` — một container `docker run --rm` bỏ đi, cài `pcov` bên trong, không đổi image, không đổi máy;
 > tóm tắt bằng `tools/coverage/summary.php`. CI giữ `coverage: none`.
 
