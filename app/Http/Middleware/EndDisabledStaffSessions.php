@@ -26,6 +26,9 @@ use Symfony\Component\HttpFoundation\Response;
  * Đăng ký ở HAI nơi như middleware kia: nhóm `web` (`bootstrap/app.php` — request cập nhật Livewire,
  * route tải tài liệu, mọi route ngoài panel) và `AdminPanelProvider::middleware()` (route trang panel),
  * SAU `StartSession`, TRƯỚC `Authenticate` — người bị đăng xuất nhận trang đăng nhập, không phải 404.
+ * "Trước `Authenticate`" giữ được cả ở route khai `auth:web` trong danh sách của chính route (ba route
+ * `/oauth/authorize` của Passport, M11) nhờ dòng `prependToPriorityList()` trong `bootstrap/app.php`;
+ * thiếu dòng đó, "Đồng ý" của người bị vô hiệu hoá trả 403 thay cho trang đăng nhập.
  * Test: `tests/Feature/Security/SessionCutSpec109Test.php`.
  */
 final class EndDisabledStaffSessions

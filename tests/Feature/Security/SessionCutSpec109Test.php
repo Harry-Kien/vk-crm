@@ -15,13 +15,17 @@ use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\User;
+use App\Support\Mcp\McpEndpoint;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Laravel\Passport\Passport;
 use Livewire\Livewire;
+use Tests\Support\McpOAuth;
+use Tests\Support\McpToolCall;
 use Tests\Support\WebPushTestKeys;
 
 /*
@@ -41,6 +45,11 @@ use Tests\Support\WebPushTestKeys;
 | tải tài liệu. Trước lượt quét này nhân sự bị vô hiệu nhận 404 ở mọi trang nhưng phiên vẫn đăng nhập
 | (`EndDisabledStaffSessions` đăng xuất nó, như `EnsurePortalAccountIsActive` đăng xuất khách).
 |
+| M11 (gộp `main` c166ec6 vào làn, rà soát cuối vòng sửa 1, C1): màn hình đồng ý OAuth và nút "Đồng
+| ý" (`/oauth/authorize`, nhóm `web`) nằm trong cùng danh sách request kế tiếp của nhân sự; bearer
+| token `/mcp` (không phiên, không cookie) có test riêng cuối tệp, cho cả nút "Hoạt động" lẫn
+| `is_active` ghi thẳng vào CSDL (không qua Action, nên không token nào bị thu hồi).
+|
 | Mọi request đi qua HTTP thật. Sau khi cắt, `actingAs($tàiKhoản->fresh())` mô phỏng một request mới
 | đọc lại tài khoản từ CSDL (guard của bộ test giữ đối tượng cũ trong bộ nhớ giữa các request).
 */
@@ -49,6 +58,8 @@ beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
     config(WebPushTestKeys::config());
     config(['media-library.prefix' => 'test-'.Str::random(16)]);
+    McpOAuth::useTestKeys();
+    McpOAuth::openServer();
 
     $this->admin = User::factory()->withRole(Role::Admin)->create();
     $this->lead = User::factory()->withRole(Role::Lawyer)->create();
@@ -224,16 +235,52 @@ dataset('spec109 staff next requests', [
     'tải tài liệu bằng đường dẫn ký trước lúc bị vô hiệu' => [function (array $before): void {
         test()->get($before['download'])->assertNotFound();
     }],
+    'mở màn hình đồng ý OAuth /oauth/authorize (M11)' => [function (array $before): void {
+        $response = test()->get($before['authorize']);
+
+        $response->assertRedirect(McpEndpoint::staffLoginUrl());
+        expect((string) $response->getContent())->not->toContain('name="auth_token"');
+    }],
+    'bấm "Đồng ý" trên màn hình đồng ý mở trước lúc bị vô hiệu (M11)' => [function (array $before): void {
+        expect($before['auth_token'])->toBeString()->not->toBe('');
+
+        test()->post('/oauth/authorize', ['auth_token' => $before['auth_token']])
+            ->assertRedirect(McpEndpoint::staffLoginUrl());
+
+        expect(Passport::authCode()->newQuery()->count())->toBe(0);
+    }],
 ]);
 
+/** URL `/oauth/authorize` hợp lệ (PKCE S256) cho một client MCP vừa đăng ký. */
+function spec109AuthorizeUrl(): string
+{
+    $client = McpOAuth::client();
+
+    return '/oauth/authorize?'.http_build_query([
+        'response_type' => 'code',
+        'client_id' => $client->getKey(),
+        'redirect_uri' => $client->redirect_uris[0],
+        'scope' => 'mcp:use',
+        'state' => 'spec109-'.Str::random(12),
+        'code_challenge' => McpOAuth::pkce()['challenge'],
+        'code_challenge_method' => 'S256',
+    ]);
+}
+
 it('cắt phiên nhân sự bị vô hiệu trên màn hình ở request kế tiếp', function (Closure $next) {
-    $manager = User::factory()->withRole(Role::Manager)->create();
+    $manager = User::factory()->withRole(Role::Manager)->withAiAccess()->create();
 
     $this->actingAs($manager, 'web');
+
+    $authorize = spec109AuthorizeUrl();
+    $screen = $this->get($authorize)->assertOk();
+    preg_match('/name="auth_token" value="([^"]+)"/', (string) $screen->getContent(), $match);
 
     $before = [
         'snapshot' => spec109Snapshot($this->get(Performance::getUrl(panel: 'admin'))->assertOk()->getContent(), Performance::class),
         'download' => $this->document->downloadUrlFor($manager),
+        'authorize' => $authorize,
+        'auth_token' => $match[1] ?? null,
     ];
 
     Livewire::actingAs($this->admin, 'web')
@@ -253,10 +300,13 @@ it('cắt phiên nhân sự bị vô hiệu trên màn hình ở request kế ti
 
 /** Cặp dương cho nhân sự: tài khoản còn hoạt động đi qua cùng các request và còn đăng nhập. */
 it('giữ nguyên phiên nhân sự còn hoạt động', function () {
-    $manager = User::factory()->withRole(Role::Manager)->create();
+    $manager = User::factory()->withRole(Role::Manager)->withAiAccess()->create();
 
     $this->actingAs($manager, 'web');
     $snapshot = spec109Snapshot($this->get(Performance::getUrl(panel: 'admin'))->assertOk()->getContent(), Performance::class);
+
+    // M11: màn hình đồng ý hiện (không chuyển về trang đăng nhập), kèm mã của form.
+    expect((string) $this->get(spec109AuthorizeUrl())->assertOk()->getContent())->toContain('name="auth_token"');
 
     $this->get(IntakeRequestResource::getUrl('index', panel: 'admin'))->assertOk();
     $this->get('/admin/team')->assertOk();
@@ -266,3 +316,41 @@ it('giữ nguyên phiên nhân sự còn hoạt động', function () {
 
     expect(auth('web')->check())->toBeTrue();
 });
+
+/*
+| M11 — bearer token `/mcp` của nhân sự bị vô hiệu. `/mcp` không có phiên (ngoài nhóm `web`), nên
+| thứ cắt nó là `EnsureMcpAccess` (`McpAccess::refusal()` đọc `is_active` của người sở hữu token ở
+| MỖI request), không phải `EndDisabledStaffSessions`. Hai đường: nút "Hoạt động" trên trang sửa nhân
+| sự (thu hồi luôn token, R8) và `is_active` ghi thẳng vào CSDL — đường thứ hai giữ token còn sống
+| trong `oauth_access_tokens`, nên chỉ điều kiện `is_active` đứng giữa token và dữ liệu.
+*/
+dataset('spec109 staff mcp cuts', [
+    'nút "Hoạt động" trên trang sửa nhân sự' => [function (User $staff): void {
+        Filament::setCurrentPanel('admin');
+
+        Livewire::actingAs(test()->admin, 'web')
+            ->test(EditUser::class, ['record' => $staff->getKey()])
+            ->fillForm(['is_active' => false])
+            ->call('save')
+            ->assertHasNoFormErrors();
+    }],
+    'is_active ghi thẳng vào CSDL (token không bị thu hồi)' => [function (User $staff): void {
+        $staff->forceFill(['is_active' => false])->save();
+
+        expect(DB::table('oauth_access_tokens')->where('user_id', $staff->id)->where('revoked', false)->count())->toBe(1);
+    }],
+]);
+
+it('cắt bearer token /mcp của nhân sự bị vô hiệu ở request kế tiếp (M11)', function (Closure $cut) {
+    $staff = User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
+    $token = McpOAuth::accessToken($this, $staff);
+
+    // Cặp dương ngay trước lúc cắt: cùng token gọi được tool.
+    McpToolCall::call($this, $token, 'whoami')->assertOk()->assertJsonPath('result.isError', false);
+
+    $cut($staff);
+
+    expect($staff->fresh()->is_active)->toBeFalse();
+
+    McpToolCall::refused($this, $token, 'whoami');
+})->with('spec109 staff mcp cuts');

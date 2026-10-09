@@ -1,9 +1,13 @@
 <?php
 
+use App\Enums\AiAccessMode;
+use App\Enums\CommunicationType;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\Role;
+use App\Filament\Admin\Pages\MyAiConnections;
 use App\Models\Client;
+use App\Models\ClientRequest;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\IntakeRequest;
@@ -11,11 +15,19 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\OutboundMessage;
 use App\Models\User;
+use App\Support\Mcp\McpIds;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Facades\Filament;
 use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Livewire\Livewire;
+use Tests\Support\McpOAuth;
+use Tests\Support\McpReadWorld;
+use Tests\Support\McpToolCall;
 use Tests\Support\WebPushTestKeys;
 
 /*
@@ -40,7 +52,12 @@ use Tests\Support\WebPushTestKeys;
 |  4. EXCEPTION — ngoại lệ có chủ đích, mỗi cái một lý do (xem `spec1010Exceptions()`): chữ ký URL
 |     sai trả 403 (`routes/web.php`, nói về ĐƯỜNG DẪN chứ không về bản ghi — test riêng dưới đây
 |     khẳng định 403 đó giống nhau cho id có thật và id bịa), tài nguyên tĩnh và công khai của PWA,
-|     route của Livewire, `/up`, `/` chuyển hướng.
+|     route của Livewire, `/up`, `/` chuyển hướng, và các route của máy chủ MCP (M11).
+|
+| M11 (gộp `main` c166ec6 vào làn, rà soát cuối vòng sửa 1, C1): không route nào của M11 mang id trên
+| URI. Id của M11 nằm ở hai chỗ khác, và mỗi chỗ có phép so riêng dưới đây: tham số của tool trên
+| `POST /mcp` (danh sách tool đọc từ `tools/list`, không từ trí nhớ) và đối số `client` của nút "Thu
+| hồi" trên trang "Kết nối AI của tôi". Hai trang "Kết nối AI" thuộc nhóm GATED.
 */
 
 const SPEC1010_MISSING_ID = 987654;
@@ -98,6 +115,11 @@ function spec1010GatedPages(): array
         'filament.admin.resources.outbound-messages.index' => Role::Accountant,
         'filament.admin.resources.users.index' => Role::Lawyer,
         'filament.admin.resources.users.create' => Role::Lawyer,
+        // M11 — "Kết nối AI" (công tắc, chế độ AI từng người, nhật ký MCP): chỉ `settings.manage`.
+        'filament.admin.pages.ket-noi-ai' => Role::Lawyer,
+        // M11 — "Kết nối AI của tôi": người giữ được quyền AI (`McpAccess::canHold()`, tức
+        // `matter.view`); kế toán không có.
+        'filament.admin.pages.ket-noi-ai-cua-toi' => Role::Accountant,
     ];
 }
 
@@ -176,6 +198,18 @@ function spec1010Exceptions(): array
         '/' => 'chuyển hướng tới /portal',
         'up' => 'kiểm tra sống của Laravel',
         'livewire-asset' => 'tệp JS/CSS của Livewire',
+        // M11 — máy chủ MCP. Không route nào mang id trên URI.
+        'mcp' => 'POST /mcp (M11): id nằm trong tham số của tool, không trên URL; vụ/yêu cầu có thật mà người gọi không được thấy và id không có trả cùng câu "Không tìm thấy" — test riêng',
+        'mcp.metadata.protected-resource' => 'metadata OAuth công khai (M11), nội dung cố định dựng từ cấu hình',
+        'mcp.metadata.protected-resource.mcp' => 'metadata OAuth công khai (M11), nội dung cố định dựng từ cấu hình',
+        'mcp.metadata.authorization-server' => 'metadata OAuth công khai (M11), nội dung cố định dựng từ cấu hình',
+        'mcp.metadata.authorization-server.mcp' => 'metadata OAuth công khai (M11), nội dung cố định dựng từ cấu hình',
+        'mcp.oauth.register' => 'đăng ký client động công khai (M11, RFC 7591): tạo client, không đọc bản ghi nào',
+        'passport.token' => 'đổi mã uỷ quyền / refresh token lấy access token (M11): lỗi theo RFC 6749, không đọc bản ghi của văn phòng',
+        'passport.token.refresh' => 'làm mới cookie laravel_token của Passport (M11); cookie đó không mở được /mcp (OAuthRoutesStaffSessionTest)',
+        'passport.authorizations.authorize' => 'màn hình đồng ý OAuth (M11): không id trên URL, client_id là định danh công khai của client; phiên nhân sự bị vô hiệu bị cắt ở đây — SessionCutSpec109Test',
+        'passport.authorizations.approve' => 'nút "Đồng ý" (M11): đọc yêu cầu uỷ quyền trong phiên, không id trên URL',
+        'passport.authorizations.deny' => 'nút "Từ chối" (M11): đọc yêu cầu uỷ quyền trong phiên, không id trên URL',
     ];
 }
 
@@ -483,4 +517,119 @@ it('trả cùng 404 khi gỡ thiết bị của người khác và thiết bị 
         ->and($missing->getStatusCode())->toBe(404)
         // Thân JSON ở môi trường test mang dấu vết ngăn xếp (APP_DEBUG): so câu trả lời, không so dòng.
         ->and($other->json('message'))->toBe($missing->json('message'));
+});
+
+/*
+ * M11 — id trên `POST /mcp` nằm trong tham số của tool. Danh sách tool đọc từ `tools/list` THẬT
+ * (người gọi đọc-ghi, hai công tắc bật, nên có cả bốn tool ghi), không từ trí nhớ: mọi tool có một
+ * tham số đầu vào là id (`id` hoặc `…_id`) phải có mặt trong `spec1010McpIdTools()` — một tool mới
+ * nhận id mà không ai xếp làm test đỏ, như route mới ở test đầu tệp.
+ *
+ * Với từng tool: vụ (hay yêu cầu của vụ) có thật mà người gọi không được thấy qua MCP — vụ đội khác,
+ * vụ hạn chế do CHÍNH người gọi phụ trách, vụ chưa bật AI — và id không tồn tại cho cùng một
+ * `result`, đúng câu "Không tìm thấy". Cặp dương: cùng tham số với vụ của chính người gọi không ra
+ * câu đó (tham số hợp lệ, nên câu "Không tìm thấy" ở trên đến từ phạm vi, không từ bước kiểm tham
+ * số). Mỗi tool lùi đồng hồ của ứng dụng thêm một phút (`travel`) để giới hạn tần suất của tool ghi
+ * (10 lần một phút) không xen vào phép so; token vẫn còn hạn (bộ kiểm token đọc đồng hồ hệ thống).
+ */
+
+/**
+ * Tool nhận id → [tên tham số, loại id, các tham số khác cho một lần gọi hợp lệ].
+ *
+ * @return array<string, array{0: string, 1: string, 2: array<string, mixed>}>
+ */
+function spec1010McpIdTools(): array
+{
+    return [
+        'fetch' => ['id', McpIds::MATTER, []],
+        'get_matter' => ['id', McpIds::MATTER, []],
+        'list_matter_updates' => ['matter_id', McpIds::MATTER, []],
+        'list_deadlines' => ['matter_id', McpIds::MATTER, []],
+        'get_checklist' => ['matter_id', McpIds::MATTER, []],
+        'list_documents' => ['matter_id', McpIds::MATTER, []],
+        'list_client_requests' => ['matter_id', McpIds::MATTER, []],
+        'get_client_request' => ['id', McpIds::REQUEST, []],
+        'create_deadline' => ['matter_id', McpIds::MATTER, ['name' => 'Nộp bản tự khai', 'due_date' => today()->addDays(60)->toDateString()]],
+        'log_communication' => ['matter_id', McpIds::MATTER, ['type' => CommunicationType::Meeting->value, 'occurred_at' => now()->subDay()->toIso8601String(), 'summary' => 'Gặp khách trao đổi hồ sơ']],
+        'draft_progress_update' => ['matter_id', McpIds::MATTER, ['public_content' => 'Văn phòng đã nộp hồ sơ.', 'idempotency_key' => 'spec1010-progress-01']],
+        'draft_request_reply' => ['request_id', McpIds::REQUEST, ['content' => 'Văn phòng đã nhận yêu cầu.', 'idempotency_key' => 'spec1010-reply-0001']],
+    ];
+}
+
+it('M11 /mcp: mọi tool nhận id trả cùng câu "Không tìm thấy" cho vụ có thật mà người gọi không được thấy và cho id không tồn tại (danh sách tool từ tools/list)', function () {
+    McpOAuth::useTestKeys();
+    McpOAuth::openServer(write: true);
+    $world = McpReadWorld::build();
+    $world->lead->forceFill(['ai_access' => AiAccessMode::ReadWrite])->save();
+    $token = McpOAuth::accessToken($this, $world->lead);
+
+    $withId = collect(McpToolCall::listTools($this, $token)->assertOk()->json('result.tools'))
+        ->filter(fn (array $tool): bool => collect(array_keys($tool['inputSchema']['properties'] ?? []))
+            ->contains(fn (string $property): bool => $property === 'id' || str_ends_with($property, '_id')))
+        ->pluck('name')
+        ->sort()->values()->all();
+
+    expect($withId)->toBe(collect(array_keys(spec1010McpIdTools()))->sort()->values()->all(), 'tool nhận id chưa được xếp vào spec1010McpIdTools()')
+        ->and($withId)->toContain('create_deadline', 'draft_request_reply');
+
+    $notFound = [['type' => 'text', 'text' => __('mcp.tool_errors.not_found')]];
+
+    foreach (spec1010McpIdTools() as $tool => [$parameter, $kind, $rest]) {
+        $this->travel(61)->seconds();
+
+        $record = fn (Matter $matter): int => $kind === McpIds::REQUEST
+            ? ClientRequest::factory()->create(['matter_id' => $matter->id])->id
+            : $matter->id;
+        $call = fn (int $id): array => McpToolCall::call($this, $token, $tool, [...$rest, $parameter => McpIds::encode($kind, $id)])
+            ->assertOk()
+            ->json('result');
+
+        $missing = $call(SPEC1010_MISSING_ID);
+
+        expect($missing['content'])->toBe($notFound, $tool)
+            ->and($missing['isError'])->toBeTrue($tool);
+
+        foreach ($world->hiddenFromLead() as $case => $matter) {
+            expect($call($record($matter)))->toBe($missing, "{$tool}: {$case}");
+        }
+
+        // Cặp dương: vụ của chính người gọi, cùng tham số.
+        expect($call($record($world->matter))['content'] ?? null)->not->toBe($notFound, "{$tool}: vụ của chính mình");
+    }
+});
+
+/*
+ * M11 — nút "Thu hồi" của trang "Kết nối AI của tôi" mang đối số `client` (`oauth_clients.id`). Thu
+ * hồi bằng id của một client mà NGƯỜI KHÁC đang kết nối và bằng id không tồn tại: cùng thông báo,
+ * không token nào của người kia bị chạm.
+ */
+it('M11 "Kết nối AI của tôi": thu hồi theo client của người khác và theo client không tồn tại cho cùng câu trả lời, không thu hồi gì của người kia', function () {
+    McpOAuth::useTestKeys();
+    McpOAuth::openServer();
+    Filament::setCurrentPanel('admin');
+
+    $owner = User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
+    $other = User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
+    $client = McpOAuth::client();
+    McpOAuth::accessToken($this, $owner, $client);
+
+    $live = fn (): int => DB::table('oauth_access_tokens')->where('user_id', $owner->id)->where('revoked', false)->count();
+    expect($live())->toBe(1);
+
+    foreach ([(string) $client->getKey(), (string) Str::uuid()] as $clientId) {
+        Livewire::actingAs($other, 'web')
+            ->test(MyAiConnections::class)
+            ->callAction('revokeConnection', arguments: ['client' => $clientId])
+            ->assertNotified(__('ai_connections.actions.nothing_revoked'));
+    }
+
+    expect($live())->toBe(1);
+
+    // Cặp dương: chính người kết nối thu hồi được, và nhận câu khác.
+    Livewire::actingAs($owner, 'web')
+        ->test(MyAiConnections::class)
+        ->callAction('revokeConnection', arguments: ['client' => (string) $client->getKey()])
+        ->assertNotified(__('ai_connections.actions.revoked'));
+
+    expect($live())->toBe(0);
 });
