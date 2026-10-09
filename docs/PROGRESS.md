@@ -11,14 +11,14 @@
 | M6 Thông báo + tác vụ định kỳ + heartbeat | ✅ Xong | 2026-10-01 | Task 1, 2, 5, 6 và một phần Task 3 có từ trước; phần còn lại (Task 3, 4, 7, 8, 9, 10) gộp từ làn `m6-rest` tại f491a2a. Suite 3438 xanh, CI xanh (SQLite + MariaDB). Thư cho khách (công bố tài liệu, từ chối giấy tờ, kích hoạt cổng, đã trả lời yêu cầu), báo nhân sự (yêu cầu/tệp mới, khách hỏi tiếp), CheckStaleMatters, RemindMissingDocuments, RemindUnseenUpdates, nút "Gửi lại" thư lỗi. Chi tiết và việc hoãn ở "Ghi chú M6" |
 | M6.5 Sửa lỗi quy trình | ✅ Xong | 2026-09-28 | Sửa 102 phát hiện của đợt kiểm tra 2026-09-24 (`docs/audits/2026-09-24-quy-trinh.md`: 90 xác nhận, 12 tranh chấp; bảng mã → task ở "Ghi chú M6.5") và CI đỏ từ 2026-09-22. 21 task, mỗi task qua rà soát Opus; rà soát toàn nhánh chia 3 vùng (1 Critical: nhật ký hệ thống lộ vụ restricted cho trưởng phòng) → 2 đợt sửa. Cổng merge: `test:mariadb` 2234/2234 xanh (2 bài đỏ do chạy chồng một CSDL test, chạy lại riêng 26/26 xanh), full suite 2228 xanh, pint sạch. Việc mang sang M8 Task 6: xem cuối "Ghi chú M6.5" |
 | M7 Bàn giao + lưu trữ + liên lạc + tìm kiếm | ✅ Xong | 2026-10-03 | Gộp 35ec313 (làn `m7-handover` + làn song song `m7-extras`), CI xanh (SQLite + MariaDB); suite 4317 xanh, MariaDB 636 xanh. Bàn giao một vụ và hàng loạt, lưu trữ khi kết thúc, gói bàn giao hồ sơ (MUC-LUC.pdf + zip), hết hạn tra cứu của khách, cảnh báo hạn lưu + ghi quyết định tiêu huỷ, rút tài liệu đã công bố, nhật ký liên lạc + nhật ký riêng của vụ, tìm kiếm, trang "Thông tin văn phòng". Việc sau gộp (thư gói bàn giao cho khách, pcntl trong preflight) đã gộp 75f1d40. Chi tiết ở "Ghi chú M7" |
-| M8 Bảo mật + backup + README triển khai | 🟡 Còn §14 mục 8 | 2026-10-09 | M8a (a879d33) và làn `m8b-security` (035c4d3): sao lưu mã hoá + diễn tập khôi phục (Task 5, đối chiếu lại ngày 2026-10-08), CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Task 6 (rà soát §10 mục 9–10 toàn hệ thống) ở làn `v1-acceptance`, đo lại trên cây đã gộp M11 (`main` c166ec6): route M11 đã xếp nhóm §10.10, nhân sự bị vô hiệu bị cắt ở `/oauth/authorize` và `/mcp`. Task 8 (nghiệm thu SPEC §14): tiêu chí 1–7 có bằng chứng trên cây đã gộp M11 — cả bộ 7705 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây TRƯỚC khi gộp M11 (6448 xanh). Tiêu chí 8 CHỜ lượt đọc của một agent chưa từng đọc kho (R6), hoặc quyết định của người điều phối ghi vào sổ điều phối nhận lượt đọc lạnh mô phỏng (agent đã đọc kho) thay cho nó. Chi tiết ở "Nghiệm thu bản 1.0" |
+| M8 Bảo mật + backup + README triển khai | 🟡 Còn §14 mục 8 | 2026-10-09 | M8a (a879d33) và làn `m8b-security` (035c4d3): sao lưu mã hoá + diễn tập khôi phục (Task 5, đối chiếu lại ngày 2026-10-08), CSP enforce, ép HTTPS + HSTS, `TRUSTED_PROXIES` + `vkcrm:preflight`, giới hạn IP admin, 2FA bắt buộc cho nhân sự, giới hạn đăng nhập/tải tệp, quét dữ liệu cá nhân, hướng dẫn triển khai + `vkcrm:create-admin`. Task 6 (rà soát §10 mục 9–10 toàn hệ thống) ở làn `v1-acceptance`, đo lại trên cây đã gộp M11 và M14 (`main` eefa40f): route M11 và trang "Kho tài liệu" của M14 đã xếp nhóm §10.10, nhân sự bị vô hiệu bị cắt ở `/oauth/authorize` và `/mcp`, đường tải tài liệu nằm trên kho Google Drive (M14) được quét lại cho §10.9 và §10.10. Task 8 (nghiệm thu SPEC §14): tiêu chí 1–7 có bằng chứng trên cây đã gộp M11 và M14 — cả bộ 8799 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây TRƯỚC khi gộp M11 và M14 (6448 xanh). M11 và M14 nằm trong cây được đo nhưng ngoài phạm vi nghiệm thu bản 1.0. Tiêu chí 8 CHỜ lượt đọc của một agent chưa từng đọc kho (R6), hoặc quyết định của người điều phối ghi vào sổ điều phối nhận lượt đọc lạnh mô phỏng (agent đã đọc kho) thay cho nó. Chi tiết ở "Nghiệm thu bản 1.0" |
 | M11 Máy chủ MCP (ChatGPT, Claude) | ✅ Xong | 2026-10-09 | Gộp làn `m11-mcp-server` (Task 0–17; Task 10, 11, 12, 16 làm song song ở làn `m11-mcp-tools`) cùng vòng sửa của rà soát cuối làn: nhân sự kết nối ChatGPT/Claude bằng tài khoản AI của mình qua OAuth (Passport 13.8), công tắc toàn văn phòng và từng người (mặc định TẮT), cờ AI từng vụ (mặc định không cho phép), 11 tool đọc + 4 tool ghi có mã xác nhận hai bước, nhật ký + giới hạn tần suất, trang "Kết nối AI", chính sách AI và hướng dẫn kết nối. Suite sau gộp 7514 xanh (một test hỏng theo ngày 2026-10-09 sửa trong lần gộp). Rà soát gộp ba góc nhìn: mục Nâng cấp của CAI-DAT tự mâu thuẫn — sửa trong lần gộp. Kết nối thật với ChatGPT/Claude: CHỜ máy chủ HTTPS công khai và tài khoản AI của văn phòng; hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025) trước khi bật |
 | M9 Hợp đồng dịch vụ + đợt thanh toán | ✅ Xong | 2026-10-04 | Gộp a65ba4c (Task 2–5, 7–9, 12), 4280a4c (làn `m9-rest`: Task 1, 11) và lần gộp làn `m9-final` (Task 6 đợt thu theo giai đoạn + đối soát 07:00, Task 10 khối thanh toán trên cổng khách + bảng kê trong gói bàn giao, Task 13 nghiệm thu toàn M9: dữ liệu mẫu, `billing:check-invariants` trong preflight, kịch bản nhập liệu khi đưa vào dùng); suite sau gộp 4519 xanh (32 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Việc nhỏ để lại (người nhận thư "gói sẵn sàng" theo quyền tải gói; ghi rõ bảng kê là ảnh chụp tại ngày lập gói) chuyển sang lượt quét M8 Task 6. Chi tiết ở "Ghi chú M9 → Làn m9f" |
 | M10 Tiếp nhận khách | ✅ Xong | 2026-10-04 | Gộp làn `m10-intake` (Task 1–8; Task 6, 7 làm song song ở làn `m10-t6`, `m10-t7`): phiếu tiếp nhận, kiểm tra xung đột lợi ích (Đỏ/Vàng/Xanh, khoá gọi lặp, nguồn thứ hai), thông báo bảo vệ dữ liệu (bản nháp chờ luật sư), chuyển thành khách + vụ việc (phí đã báo gợi ý vào hợp đồng), gộp/từ chối/xoá theo yêu cầu, đồng hồ phản hồi theo giờ làm việc, nhắc nội bộ mỗi 15 phút, ẩn danh tự động 03:30 theo hạn lưu, bảng điều khiển tiếp nhận, dữ liệu mẫu. Suite sau gộp 5242 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; bốn việc nhỏ (câu chữ hộp thoại xoá dữ liệu, khối hợp đồng trong bài nghiệm thu, đoạn nâng cấp M10 trong CAI-DAT, ghi chú §12) ở làn việc sau gộp `fu3`. Chi tiết ở "Ghi chú M10" |
 | M12 Ứng dụng điện thoại (PWA) + thông báo đẩy | ✅ Xong | 2026-10-07 | Gộp làn `m12-pwa-push` (Task 1–10 + vòng sửa của rà soát cuối làn): cài lên màn hình điện thoại (manifest, biểu tượng, service worker, trang ngoại tuyến, hướng dẫn cài), thông báo đẩy Web Push (khoá VAPID, đăng ký theo thiết bị, trang "Thông báo trên điện thoại", gỡ máy khi đăng xuất/cắt phiên, hàng đợi `push` + nhật ký gửi), nối vào bốn sự kiện của khách và bốn sự kiện của nhân sự (kể cả nhắc hạn, đợt thu quá hạn), "Gửi thử". Suite sau gộp 5790 xanh (33 bỏ qua, 1 risky có sẵn); composer audit sạch. Rà soát gộp ba góc nhìn: 2 lỗi xác nhận (đổi email cổng khách và "Đặt lại 2FA" chưa gỡ máy nhận thông báo) cùng các việc nhỏ chuyển sang làn việc sau gộp `fu4`. Kiểm tra trên máy thật (Android, iPhone): CHỜ CHỦ VĂN PHÒNG theo danh sách trong tài liệu |
 | M13 Theo dõi đội ngũ + hiệu suất | ✅ Xong | 2026-10-08 | Gộp làn `m13-team-performance` (Task 1–8; Task 3, 6 làm song song ở làn `m13-team-history`) cùng vòng sửa của rà soát cuối làn: quyền `performance.viewAny` (21 quyền), trang "Theo dõi đội ngũ" (N1–N11), trang của từng người, trang "Hiệu suất theo kỳ" (P1–P10, thời gian phản hồi theo giờ làm việc M10), lịch sử người giữ việc qua bàn giao, ảnh chụp số liệu 23:50 + biểu đồ 90 ngày; luật sư/chuyên viên chỉ thấy số của mình, không xếp hạng, không lộ vụ mật. Suite sau gộp 6273 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; việc nhỏ (seeder demo gửi thư bàn giao, câu chữ P8/biểu đồ so với "Kỳ đã đóng") chuyển sang làn nghiệm thu bản 1.0 |
 | M14 Google Drive làm kho tài liệu | ✅ Xong | 2026-10-09 | Gộp làn `m14-drive-storage` (Task 0–8; Task 5, 7 làm song song ở làn `m14-drive-ops`) cùng vòng sửa của rà soát cuối làn: công tắc `DOCUMENT_STORAGE` (mặc định `local` — máy chủ không dùng Drive không đổi gì), bộ kết nối Drive REST v3 của dự án + `google/auth`, đẩy tệp qua hàng đợi `storage` sau commit, tải về luôn đi qua CRM (kiểm quyền, cổng tiền M9, nhật ký tải) rồi mới mở luồng, gói bàn giao lấy từ Drive, trang 503 tiếng Việt, kiểm tra sẵn sàng + preflight + kiểm tra sức khoẻ hằng giờ, trang "Kho tài liệu", cổng hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025), lệnh bật/chuyển tệp cũ/kiểm/quay lui/dựng lại chỉ mục, bản sao ở máy chủ văn phòng có biên nhận. Suite sau gộp 8594 xanh. Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Chạy thật với Shared Drive và máy chủ văn phòng: CHỜ CHỦ VĂN PHÒNG (tài khoản dịch vụ Google Workspace, hồ sơ pháp lý) |
-| **Bản 1.0** (M0–M10 + M12 + M13) | 🟡 Còn §14 mục 8 | 2026-10-09 | Chủ văn phòng chốt 2026-10-08: M11, M14 gắn sau, không thuộc bản 1.0. M11 nay đã ở `main` (c166ec6) và đã gộp vào làn `v1-acceptance`: nó NẰM TRONG cây được đo nhưng NGOÀI phạm vi nghiệm thu bản 1.0 (M11 có nghiệm thu riêng của làn M11, dòng M11 ở trên); lượt quét §10.9/§10.10 của bản 1.0 phủ cả route M11. Tiêu chí 1–7 của SPEC §14 có bằng chứng trên cây đã gộp M11 (làn `v1-acceptance` + `v1-acceptance-b`): cả bộ 7705 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây trước khi gộp M11; vòng migration thật trên MariaDB. Mục 8 (README + CAI-DAT) CHỜ: lượt đi theo kịch bản của làn v1b (ba chỗ vấp) và lượt đọc lạnh mô phỏng của làn v1 (mười chỗ vấp) đều do người đã đọc kho đi; R6 đòi một agent chưa từng đọc kho, và sổ điều phối không ghi quyết định nhận lượt mô phỏng thay cho nó. Chờ chủ văn phòng trước ngày mở cổng: máy chủ thật, ba thông tin pháp lý, đi tay trên Android/iPhone, luật sư duyệt thông báo bảo vệ dữ liệu và các hạn lưu, khôi phục thử trên máy chủ thật, gói bàn giao trong bản sao lưu. Chi tiết ở "Nghiệm thu bản 1.0" |
+| **Bản 1.0** (M0–M10 + M12 + M13) | 🟡 Còn §14 mục 8 | 2026-10-09 | Chủ văn phòng chốt 2026-10-08: M11, M14 gắn sau, không thuộc bản 1.0. Cả hai nay đã ở `main` — M11 (c166ec6) và M14 (eefa40f) — và đã gộp vào làn `v1-acceptance`: chúng NẰM TRONG cây được đo nhưng NGOÀI phạm vi nghiệm thu bản 1.0 (mỗi cái có nghiệm thu riêng của làn mình, dòng M11 và M14 ở trên); lượt quét §10.9/§10.10 của bản 1.0 phủ cả route M11, trang "Kho tài liệu" và đường tải tài liệu nằm trên kho của M14. Tiêu chí 1–7 của SPEC §14 có bằng chứng trên cây đã gộp M11 và M14 (làn `v1-acceptance` + `v1-acceptance-b`): cả bộ 8799 xanh, 0 đỏ; độ phủ `app/Actions/` 97,96 %, `app/Policies/` 93,88 % đo dưới `pcov` trên cây trước khi gộp M11 và M14; vòng migration thật trên MariaDB. Mục 8 (README + CAI-DAT) CHỜ: lượt đi theo kịch bản của làn v1b (ba chỗ vấp) và lượt đọc lạnh mô phỏng của làn v1 (mười chỗ vấp) đều do người đã đọc kho đi; R6 đòi một agent chưa từng đọc kho, và sổ điều phối không ghi quyết định nhận lượt mô phỏng thay cho nó. Chờ chủ văn phòng trước ngày mở cổng: máy chủ thật, ba thông tin pháp lý, đi tay trên Android/iPhone, luật sư duyệt thông báo bảo vệ dữ liệu và các hạn lưu, khôi phục thử trên máy chủ thật, gói bàn giao trong bản sao lưu. Chi tiết ở "Nghiệm thu bản 1.0" |
 
 **Thứ tự làm đã chốt với chủ văn phòng: M6.5 → phần còn lại của M6 → M7 → M8 → M11 → M9 → M10
 → M12** (ghi trong sổ tay điều phối M6.5 ngày 2026-09-25). Bảng trên xếp theo thứ tự này, không
@@ -8218,11 +8218,11 @@ nhật bằng chứng của tiêu chí 1–5 và 8 bên dưới. Báo cáo: `.su
 ### Tám tiêu chí SPEC §14, từng cái một
 
 1. **Mọi test §11 xanh và độ phủ đạt.** Bảng truy vết bên dưới: mỗi gạch đầu dòng §11 có tên test; cả bộ
-   xanh trên cây đã gộp M11 (2026-10-09: 7705 passed, 0 failed, 33 skipped — mục "Gộp M11 và rà soát cuối làn v1,
-   vòng sửa 1" cuối phần này); trước khi gộp M11: 6448 passed, 0 failed, 33 skipped — lượt `bin/coverage` cả bộ của làn
+   xanh trên cây đã gộp M11 và M14 (2026-10-09: 8799 passed, 0 failed — mục "Gộp M14 và rà soát cuối làn v1,
+   vòng sửa 2" cuối phần này; trên cây chỉ gộp M11: 7705 passed, 0 failed, 33 skipped); trước khi gộp M11: 6448 passed, 0 failed, 33 skipped — lượt `bin/coverage` cả bộ của làn
    v1, `--parallel --processes=2`, 3 645 s; lượt của làn v1b trước khi gộp: 6288 passed). Độ phủ đo bằng
    `pcov` (mục "Độ phủ"): `app/Actions/` 97,96 %, `app/Policies/` 93,88 % (đích ≥ 80 %) — đo trên cây TRƯỚC khi
-   gộp M11; chưa đo lại trên cây đã gộp.
+   gộp M11 và M14; chưa đo lại trên cây đã gộp.
 2. **Một dòng cron, không Redis, không supervisor.** `tests/Feature/Acceptance/V1PlatformTest.php` (năm test,
    đọc chính `composer.lock`, `.env.example`, lịch chạy thật, `docs/CAI-DAT.md` và `README.md`): mọi gói
    production cài được trên PHP 8.3.0; không predis/horizon/octane/reverb/pulse/scout; hàng đợi, cache, phiên
@@ -8667,6 +8667,64 @@ Báo cáo đủ: `.superpowers/sdd/v1/final-fix-report.md`, mục "Fix round 1".
   33 skipped, 3 945 s. Hai lượt trước: một worker hết 512 MB bộ nhớ (như lượt cả bộ của M11 — từ đó thêm
   `--passthru-php`), rồi 7703 passed, 2 failed (`AuthorizeScreenTest`, xung đột về nghĩa ở gạch C1). MariaDB tuần tự trên các tệp test đã đổi: 284 passed (`NotFoundSpec1010Test`, `SessionCutSpec109Test`, `InstallGuideColdReadTest`,
   `AuthorizeScreenTest`, `PreflightCommandTest`; 422 s). `pint --test` PASS.
+
+### Gộp M14 và rà soát cuối làn v1, vòng sửa 2 (2026-10-09)
+
+Lần rà soát lại vòng sửa 1 tìm một lỗi chặn gộp cùng loại với C1 và một chỗ I2 còn sót. Báo cáo đủ:
+`.superpowers/sdd/v1/final-fix-report.md`, mục "Fix round 2".
+
+- **`main` đã có M14.** `main` là eefa40f (M14 Google Drive làm kho tài liệu, gộp 2026-10-09 lúc 12:00, trước khi
+  vòng sửa 1 kết thúc). Làn gộp `main` vào nhánh (3723c23). Có xung đột ở năm tệp, giữ cả hai phía:
+  - `DocumentDownloadController`: giữ import của M14 (`OpenStoredFile`, `StoredFileMissing`) và
+    `EnsurePortalAccountIsActive` của làn. `endSessionOfDisabledClient()` vẫn là dòng đầu của `__invoke()`, tức
+    là chạy trước mọi lần kiểm quyền và trước nhánh mở tệp từ kho của M14.
+  - `bootstrap/app.php`: giữ hai ngoại lệ kho của M14 và `EndDisabledStaffSessions`.
+  - README: giữ gạch "Kho tài liệu Google Drive (M14)" của main và gạch "Nâng cấp" có `chmod 600` của làn.
+  - CAI-DAT: câu dẫn chuỗi nâng cấp của làn, thêm vế "Bản cập nhật M14".
+  - PROGRESS: lấy dòng M14 ✅ của main, rồi viết lại hai dòng M8 và "Bản 1.0".
+
+  Trên cây đã gộp, `NotFoundSpec1010Test` ĐỎ trước khi sửa: route `filament.admin.pages.document-store` chưa xếp
+  nhóm. Đã sửa như sau:
+  - Trang "Kho tài liệu" (chỉ `settings.manage`) nay ở nhóm GATED. Một test riêng đòi cả bốn vai không phải
+    admin nhận đúng trang 404 của một đường dẫn không tồn tại, giống từng byte.
+  - Route tải tài liệu giữ tên cũ nhưng nay mở luồng từ Google Drive khi tệp nằm trên kho, nên phép so §10.10
+    chạy lại trên tài liệu nằm trên kho với adapter Drive thật (`Http::fake()` + `preventStrayRequests()`):
+    luật sư ngoài vụ và khách của khách hàng khác nhận cùng trang 404 như id không tồn tại, và không request
+    nào tới Google. Cặp dương: người được tải nhận đúng tệp qua đúng một request.
+  - `SessionCutSpec109Test`: khách bị vô hiệu (cả ba đường) và nhân sự bị vô hiệu bấm một đường dẫn tải đã ký
+    từ trước, trỏ tới tài liệu trên kho. Câu trả lời là 404, phiên kết thúc, không request nào tới Google và
+    không có dòng sổ tải. Cặp dương: tài khoản còn hoạt động tải được và vẫn đăng nhập.
+
+  Phần này không phải sửa mã. M14 nằm trong cây được đo nhưng ngoài phạm vi nghiệm thu bản 1.0 (chủ văn phòng
+  chốt 2026-10-08), và dòng M8 cùng dòng "Bản 1.0" nói đúng điều đó.
+- **I2 phần còn lại — dòng `chmod 600 bootstrap/cache/config.php` sau MỌI `optimize`, ở MỌI tài liệu.** Vòng 1
+  chỉ sửa CAI-DAT và README. Làm theo `docs/SAO-LUU-KHOI-PHUC.md` (sửa `.env` rồi chạy lại `optimize`) vẫn tạo
+  lại `config.php` với quyền `644`/`664`. Tài liệu M14 có thêm khoảng tám chỗ như vậy. Đã thêm dòng chmod ở:
+  - SAO-LUU: đoạn nạp lại cấu hình; Phụ lục D bước 11; "Dựng Kho mới"; bảng D dòng 8; biên nhận văn phòng.
+  - KHO-TAI-LIEU-GOOGLE-DRIVE: bảng Phụ lục A dòng 11; Phụ lục C bước 3 và 6; quay lui; `reindex`.
+  - CAI-DAT: "Bản cập nhật M14", bảng `DOCUMENT_STORAGE`, VAPID, hai biến của M10, `ADMIN_IP_ALLOWLIST`,
+    preflight, đầu phần production, shared hosting, Bước 2 và Bước 7.
+  - README: gạch preflight.
+  - Mười câu ứng dụng in cho người vận hành, trong `lang/vi/document_store.php`, `storage.php` và
+    `preflight.php` (`vkcrm:preflight`, `vkcrm:storage:*`).
+
+  Hai test mới trong `InstallGuideColdReadTest`, đỏ trước khi sửa:
+  - Test thứ nhất đi README và mọi `docs/*.md` trừ PROGRESS. Ở khối lệnh, dòng ngay sau `optimize` hay
+    `config:cache` phải là chmod. Ở văn xuôi, chmod phải đứng sau lần nhắc trong cùng đoạn, cùng gạch đầu dòng,
+    cùng mục hay cùng hàng bảng. Lúc đỏ, test liệt kê 33 chỗ.
+  - Test thứ hai đi mọi chuỗi trong `lang/vi`. Lúc đỏ, nó liệt kê 10 chuỗi.
+- **Kiểm chứng:** cả bộ `test --parallel --processes=2 --passthru-php=-dmemory_limit=1536M` trên cây đã
+  gộp M14 (đầu làn trước khi điền con số này): **8799 passed, 0 failed**, 36 skipped, 185 668 assertions, 4 304 s.
+  MariaDB tuần tự trên các tệp test đã đổi (`NotFoundSpec1010Test`, `SessionCutSpec109Test`,
+  `InstallGuideColdReadTest`) cùng `DocumentStorePageTest`, `PreflightCommandTest`: 257 passed, 396 s. `pint --test`
+  PASS. Mutation probe: bỏ dòng chmod ở SAO-LUU, ở Phụ lục C bước 6 hay ở một câu `lang/vi/storage.php`, hoặc ở khối
+  lệnh Bước 7 → test tương ứng đỏ; bỏ `endSessionOfDisabledClient()` → ba ca khách trên kho đỏ; bỏ lần kiểm
+  `Gate` của route tải → hai ca §10.10 trên kho đỏ; bỏ `EndDisabledStaffSessions` khỏi nhóm `web` → ca nhân sự
+  trên kho đỏ; cho mọi người qua cổng của "Kho tài liệu" → bốn ca vai đỏ.
+- **Chưa làm lại trên cây đã gộp M14:**
+  - Độ phủ `pcov`: số ở tiêu chí 1 vẫn là số đo trước khi gộp M11.
+  - Lượt đi chuỗi nâng cấp trên máy Ubuntu trống: lượt của vòng 1 đi tới cây đã gộp M11. "Bản cập nhật M14" là
+    tài liệu của làn M14 và không được đi lại ở vòng này.
 
 ## Ghi chú M14
 
