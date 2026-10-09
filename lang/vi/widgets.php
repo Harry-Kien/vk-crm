@@ -144,17 +144,17 @@ return [
         ],
         'over_time' => [
             'heading' => 'Doanh thu theo thời gian',
-            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
+            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
             'filter_month' => 'Theo tháng',
             'filter_quarter' => 'Theo quý',
             'filter_year' => 'Theo năm',
             // Lượt rà soát cuối M9, M4: nhãn một cột khi xem theo quý.
             'quarter_label' => 'Quý :quarter/:year',
-            'series' => 'Doanh thu đã thu',
+            'series' => 'Tiền đã thu (đã gồm thuế GTGT nếu có)',
         ],
         'by_stage' => [
-            'heading' => 'Doanh thu đã thu theo đợt/giai đoạn',
-            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, gộp theo giai đoạn kích hoạt đợt, kể cả tiền đã thu của hợp đồng sau đó bị huỷ. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
+            'heading' => 'Tiền đã thu theo đợt/giai đoạn (đã gồm thuế GTGT nếu có)',
+            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, gộp theo giai đoạn kích hoạt đợt, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
             'bucket_label' => ':type — :stage',
             'on_signing_bucket' => 'Tạm ứng khi ký hợp đồng (mọi loại vụ việc)',
             'due_date_bucket' => 'Đến hạn theo ngày cụ thể, không theo giai đoạn (mọi loại vụ việc)',

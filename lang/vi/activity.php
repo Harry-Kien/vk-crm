@@ -245,6 +245,15 @@ return [
         // --- Làn fb (sửa sau kiểm tra nghiệp vụ toàn hệ thống, 2026-10-09) -------------------
         // App\Actions\Billing\UnwaiveInstalment (mục A2).
         'instalment_unwaived' => 'Bỏ miễn đợt thanh toán',
+        // App\Actions\Billing\RescheduleInstalment (mục B, khách xin khất).
+        'instalment_rescheduled' => 'Dời ngày đến hạn của đợt thanh toán',
+        // Mục B — nhân sự tự đổi mật khẩu (EditProfile), tự cài 2FA và tự tạo lại mã khôi phục
+        // (App\Filament\Admin\Auth\StaffAppAuthentication).
+        'user_password_changed' => 'Nhân sự tự đổi mật khẩu',
+        'staff_two_factor_enabled' => 'Nhân sự cài xác thực hai lớp',
+        'staff_recovery_codes_regenerated' => 'Nhân sự tạo lại mã khôi phục hai lớp',
+        // App\Actions\User\SuspendStaffAccess (mục A5).
+        'staff_access_suspended' => 'Khoá truy cập nhân sự ngay (chưa bàn giao)',
         // --- Hết khối làn fb ----------------------------------------------------------------
     ],
 
@@ -301,6 +310,8 @@ return [
             'email_changed' => 'Đổi email tài khoản cổng: gỡ mọi máy của người giữ địa chỉ cũ',
             'two_factor_reset' => 'Đặt lại 2FA: gỡ mọi máy của nhân sự',
             'office' => 'Văn phòng gỡ theo yêu cầu của khách (mất hoặc đổi máy)',
+            // Làn fb, mục A5: ForgetPushDevice::REASON_STAFF_SUSPENDED.
+            'staff_suspended' => 'Khoá truy cập ngay: gỡ mọi máy của nhân sự',
         ],
     ],
 ];

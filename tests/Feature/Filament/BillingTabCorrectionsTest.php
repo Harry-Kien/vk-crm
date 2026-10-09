@@ -260,3 +260,156 @@ it('refuses to unwaive an instalment of a contract that is no longer active, in 
     Notification::assertNotified(__('actions.failed_title'));
     expect($instalment->fresh()->status)->toBe(InstalmentStatus::Waived);
 });
+
+// =================================================================================================
+// A1 — hợp đồng đã huỷ không khoá vĩnh viễn vụ việc
+// =================================================================================================
+
+function fbCancel(Contract $contract): Contract
+{
+    $contract->forceFill(['status' => ContractStatus::Cancelled, 'ended_at' => today()->toDateString(), 'ended_reason' => str_repeat('a', 20)])->save();
+
+    return $contract;
+}
+
+it('offers "draft a new contract" once the contract is cancelled, drafts it, and shows only the new schedule with the old code as history', function () {
+    [$old, $oldInstalment] = fbActiveContract($this->matter);
+    fbCancel($old);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->assertActionVisible(TestAction::make('draftContract')->table())
+        ->assertActionHasLabel(TestAction::make('draftContract')->table(), __('billing_corrections.redraft.label'))
+        ->assertSee(__('billing_corrections.redraft.cancelled_hint'))
+        ->callAction(TestAction::make('draftContract')->table(), data: [
+            'total_amount' => '40.000.000',
+            'instalments' => [
+                ['name' => 'Ký lại trọn gói', 'amount' => '40.000.000', 'trigger_type' => 'due_date', 'due_date' => today()->addDays(30)->toDateString()],
+            ],
+        ])
+        ->assertHasNoActionErrors();
+
+    $new = Contract::query()->where('matter_id', $this->matter->id)->where('status', ContractStatus::Draft->value)->sole();
+
+    $this->matter->refresh();
+
+    fbBillingTab($this->matter)
+        ->assertCanSeeTableRecords($new->instalments)
+        ->assertCanNotSeeTableRecords([$oldInstalment])
+        ->assertSee(__('billing_corrections.redraft.previous_line', [
+            'code' => $old->code,
+            'status' => ContractStatus::Cancelled->label(),
+            'date' => today()->format('d/m/Y'),
+            'collected' => Money::format(0),
+        ]))
+        ->assertActionHidden(TestAction::make('draftContract')->table());
+
+    expect($old->fresh()->status)->toBe(ContractStatus::Cancelled);
+});
+
+it('keeps the draft button hidden while the matter has an active contract', function () {
+    fbActiveContract($this->matter);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)->assertActionHidden(TestAction::make('draftContract')->table());
+});
+
+it('warns about the consequences in the cancel modal, with the amount that will no longer be tracked', function () {
+    [, $instalment] = fbActiveContract($this->matter);
+    Payment::factory()->for($instalment)->create(['amount' => 10_000_000]);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->mountAction(TestAction::make('cancelContract')->table())
+        ->assertMountedActionModalSee(__('billing_corrections.cancel.description', [
+            'outstanding' => Money::format(20_000_000),
+        ]));
+});
+
+it('records the reason and the amount left untracked on the contract cancellation audit row', function () {
+    [$contract, $instalment] = fbActiveContract($this->matter);
+    Payment::factory()->for($instalment)->create(['amount' => 10_000_000]);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->callAction(TestAction::make('cancelContract')->table(), data: [
+            'reason' => 'Hai bên thanh lý, sẽ ký lại với điều khoản mới.',
+        ])
+        ->assertHasNoActionErrors();
+
+    $audit = Activity::query()->where('event', 'contract_cancelled')->sole();
+
+    expect($contract->fresh()->status)->toBe(ContractStatus::Cancelled)
+        ->and($audit->properties['reason'])->toBe('Hai bên thanh lý, sẽ ký lại với điều khoản mới.')
+        ->and($audit->properties['outstanding_untracked'])->toBe(20_000_000);
+});
+
+// =================================================================================================
+// Mục B — dời hạn đợt (khách xin khất)
+// =================================================================================================
+
+it('moves the due date of a pending instalment through the reschedule button, with a reason and an audit row', function () {
+    [, $instalment] = fbActiveContract($this->matter);
+    $previous = $instalment->due_date->toDateString();
+    $newDate = today()->addDays(20)->toDateString();
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->assertActionVisible(TestAction::make('rescheduleInstalment')->table($instalment))
+        ->callAction(TestAction::make('rescheduleInstalment')->table($instalment), data: [
+            'due_date' => $newDate,
+            'reason' => 'Khách xin khất 20 ngày, luật sư phụ trách đồng ý.',
+        ])
+        ->assertHasNoActionErrors();
+
+    $fresh = $instalment->fresh();
+
+    expect($fresh->due_date->toDateString())->toBe($newDate)
+        ->and($fresh->status)->toBe(InstalmentStatus::Pending)
+        ->and($fresh->amount)->toBe(30_000_000);
+
+    $audit = Activity::query()->where('event', 'instalment_rescheduled')->sole();
+
+    expect($audit->causer_id)->toBe($this->lead->id)
+        ->and($audit->properties['from'])->toBe($previous)
+        ->and($audit->properties['to'])->toBe($newDate)
+        ->and($audit->properties['reason'])->toBe('Khách xin khất 20 ngày, luật sư phụ trách đồng ý.');
+});
+
+it('refuses to reschedule to the same date or without a 20-character reason', function () {
+    [, $instalment] = fbActiveContract($this->matter);
+    $previous = $instalment->due_date->toDateString();
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->callAction(TestAction::make('rescheduleInstalment')->table($instalment), data: [
+            'due_date' => $previous,
+            'reason' => 'Khách xin khất 20 ngày, luật sư phụ trách đồng ý.',
+        ])
+        ->assertHasActionErrors(['due_date']);
+
+    fbBillingTab($this->matter)
+        ->callAction(TestAction::make('rescheduleInstalment')->table($instalment), data: [
+            'due_date' => today()->addDays(9)->toDateString(),
+            'reason' => 'khất',
+        ])
+        ->assertHasActionErrors(['reason']);
+
+    expect($instalment->fresh()->due_date->toDateString())->toBe($previous);
+});
+
+it('offers the reschedule button only on a pending instalment that already has a due date', function () {
+    [$contract, $instalment] = fbActiveContract($this->matter);
+    $instalment->forceFill(['status' => InstalmentStatus::Paid])->save();
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->assertActionHidden(TestAction::make('rescheduleInstalment')->table($instalment));
+});

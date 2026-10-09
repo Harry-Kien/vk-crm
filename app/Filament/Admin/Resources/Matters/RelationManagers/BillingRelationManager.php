@@ -9,6 +9,7 @@ use App\Actions\Billing\CompleteContract;
 use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
+use App\Actions\Billing\RescheduleInstalment;
 use App\Actions\Billing\UnwaiveInstalment;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Actions\Billing\VoidPayment;
@@ -227,7 +228,12 @@ class BillingRelationManager extends RelationManager
             'contract_id',
             'id',
             'id',
-        ))->orderBy('sequence');
+        ))
+            // Làn fb, mục A1: vụ có thể có thêm những hợp đồng ĐÃ HUỶ trước bản hiện hành — bảng chỉ
+            // là lịch thu của bản hiện hành (`Matter::contract()`, bản mới nhất); bản huỷ trước đó
+            // hiện thành một dòng lịch sử ở đầu bảng ({@see self::previousContractsBlock()}).
+            ->where('contracts.id', $matter->contract?->getKey())
+            ->orderBy('sequence');
     }
 
     public function table(Table $table): Table
@@ -287,6 +293,7 @@ class BillingRelationManager extends RelationManager
                 $this->recordPaymentAction(),
                 $this->waiveInstalmentAction(),
                 $this->unwaiveInstalmentAction(),
+                $this->rescheduleInstalmentAction(),
                 $this->voidPaymentAction(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query, 'contract.matter')
@@ -312,6 +319,13 @@ class BillingRelationManager extends RelationManager
             e(__('billing.tab.summary.status')),
             e($contract->status->label()),
         );
+        if ($contract->status === ContractStatus::Cancelled) {
+            $lines[] = sprintf(
+                '<p style="color:var(--warning-600);font-weight:600">%s</p>',
+                e(__('billing_corrections.redraft.cancelled_hint')),
+            );
+        }
+
         $lines[] = static::amountsLine($contract);
         $lines[] = static::totalsLine($matter, $contract);
 
@@ -329,6 +343,7 @@ class BillingRelationManager extends RelationManager
         }
 
         $lines[] = static::amendmentsBlock($contract);
+        $lines[] = static::previousContractsBlock($matter, $contract);
 
         return new HtmlString(implode('', $lines));
     }
@@ -417,6 +432,39 @@ class BillingRelationManager extends RelationManager
         );
     }
 
+    /**
+     * Những hợp đồng TRƯỚC bản hiện hành của vụ — luôn là bản đã huỷ (làn fb, mục A1: vụ chỉ soạn
+     * được hợp đồng mới khi mọi bản trước đã huỷ). Mỗi bản một dòng: mã, trạng thái, ngày kết thúc,
+     * số đã thu chưa huỷ. Rỗng khi vụ chỉ có một hợp đồng.
+     */
+    private static function previousContractsBlock(Matter $matter, Contract $current): string
+    {
+        $previous = $matter->contracts()->whereKeyNot($current->getKey())->orderByDesc('id')->get();
+
+        if ($previous->isEmpty()) {
+            return '';
+        }
+
+        $items = $previous->map(fn (Contract $contract): string => sprintf(
+            '<li>%s</li>',
+            e(__('billing_corrections.redraft.previous_line', [
+                'code' => $contract->code,
+                'status' => $contract->status->label(),
+                'date' => $contract->ended_at?->format('d/m/Y') ?? '—',
+                'collected' => Money::format((int) Payment::query()
+                    ->whereHas('instalment', fn (Builder $query) => $query->where('contract_id', $contract->id))
+                    ->whereNull('voided_at')
+                    ->sum('amount')),
+            ])),
+        ))->implode('');
+
+        return sprintf(
+            '<p style="font-weight:600">%s</p><ul>%s</ul>',
+            e(__('billing_corrections.redraft.previous_heading')),
+            $items,
+        );
+    }
+
     // =============================================================================================
     // Nội dung mỗi dòng.
     // =============================================================================================
@@ -490,7 +538,8 @@ class BillingRelationManager extends RelationManager
     // =============================================================================================
 
     /**
-     * Soạn hợp đồng cho vụ chưa có hợp đồng nào. Chỉ `fixed_fee` — không có ô chọn cách tính phí,
+     * Soạn hợp đồng cho vụ chưa có hợp đồng nào — hoặc chỉ có hợp đồng ĐÃ HUỶ (làn fb, mục A1: nút
+     * đổi nhãn thành "Soạn hợp đồng mới"). Chỉ `fixed_fee` — không có ô chọn cách tính phí,
      * vì M9 chỉ cài đặt một loại đó ({@see BillingModelNotSupported} vì vậy không tới được từ màn
      * hình này, chỉ từ dữ liệu ghi thẳng).
      */
@@ -499,10 +548,12 @@ class BillingRelationManager extends RelationManager
         $matter = $this->getOwnerRecord();
 
         return Action::make('draftContract')
-            ->label(__('billing.tab.actions.draft'))
+            ->label(fn (): string => $matter->contract?->status === ContractStatus::Cancelled
+                ? __('billing_corrections.redraft.label')
+                : __('billing.tab.actions.draft'))
             ->icon(Heroicon::OutlinedDocumentPlus)
             ->modalHeading(__('billing.tab.actions.draft_heading'))
-            ->visible(fn (): bool => $matter->contract === null)
+            ->visible(fn (): bool => $matter->contract === null || $matter->contract->status === ContractStatus::Cancelled)
             ->authorize(fn (): bool => Gate::allows('create', [Contract::class, $matter]))
             // M10 Task 4 (R3): vụ đến từ một lần tiếp nhận thì phí đã báo lúc đó hiện sẵn làm GỢI Ý tổng
             // giá trị — chỉ là giá trị mặc định của ô (`DraftContract` không đổi, người soạn sửa được).
@@ -513,12 +564,18 @@ class BillingRelationManager extends RelationManager
                 function () use ($matter, $data): Contract {
                     $total = Money::parse((string) ($data['total_amount'] ?? ''), 'total_amount');
 
-                    return app(DraftContract::class)->handle(
+                    $contract = app(DraftContract::class)->handle(
                         Auth::user(),
                         $matter,
                         ['total_amount' => $total, 'vat_rate_percent' => static::intOrNull($data['vat_rate_percent'] ?? null)],
                         static::parsedInstalmentRows($data['instalments'] ?? [], $total, 'instalments'),
                     );
+
+                    // Bản hiện hành vừa đổi (có thể từ một bản đã huỷ sang bản nháp mới) — quan hệ
+                    // đã nạp trên vụ không được giữ bản cũ cho phần còn lại của lần vẽ này.
+                    $matter->unsetRelation('contract');
+
+                    return $contract;
                 },
             ));
     }
@@ -673,6 +730,13 @@ class BillingRelationManager extends RelationManager
             ->icon(Heroicon::OutlinedXCircle)
             ->color('danger')
             ->modalHeading(__('billing.tab.actions.cancel_heading'))
+            // Làn fb (mục A1 + B): modal nói hậu quả — số còn phải thu sẽ không còn được theo dõi,
+            // không hoàn tác được, muốn ký lại thì soạn hợp đồng mới sau khi huỷ.
+            ->modalDescription(fn (): string => __('billing_corrections.cancel.description', [
+                'outstanding' => Money::format($matter->contract === null ? 0 : BillingSummary::sumOutstanding(
+                    BillingSummary::pendingInstalmentsQuery()->where('contract_id', $matter->contract->getKey())
+                )),
+            ]))
             // Cấu trúc, không trạng thái — xem chú thích ở `activateContractAction()`.
             ->visible(fn (): bool => $matter->contract !== null)
             ->authorize(fn (): bool => $matter->contract !== null && Gate::allows('update', $matter->contract))
@@ -919,6 +983,46 @@ class BillingRelationManager extends RelationManager
             ->action(fn (Action $action, Instalment $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(UnwaiveInstalment::class)->handle(Auth::user(), $record, $data['reason'] ?? ''),
+            ));
+    }
+
+    /**
+     * "Dời hạn" (làn fb, mục B — khách xin khất) qua {@see RescheduleInstalment}: đổi `due_date` của
+     * một đợt còn chờ thu, có lý do và nhật ký `instalment_rescheduled`.
+     *
+     * Hiện trên đợt `pending` đã có ngày đến hạn — lọc theo TRẠNG THÁI có chủ đích, cùng lý lẽ "Bỏ
+     * miễn": cuộc đua duy nhất làm nút tự ẩn lúc bấm là đợt vừa rời `pending` (đã thu đủ, đã miễn,
+     * đã huỷ) — lúc đó không còn gì để khất, bỏ ngang không để lại điều gì sai.
+     */
+    private function rescheduleInstalmentAction(): Action
+    {
+        return Action::make('rescheduleInstalment')
+            ->label(__('billing_corrections.reschedule.label'))
+            ->icon(Heroicon::OutlinedCalendarDays)
+            ->color('gray')
+            ->modalHeading(__('billing_corrections.reschedule.heading'))
+            ->modalDescription(fn (Instalment $record): string => __('billing_corrections.reschedule.description', [
+                'name' => $record->name,
+                'amount' => Money::format($record->amount),
+                'due_date' => $record->due_date?->format('d/m/Y') ?? '—',
+            ]))
+            ->visible(fn (Instalment $record): bool => $record->status === InstalmentStatus::Pending && $record->due_date !== null)
+            ->authorize(fn (Instalment $record): bool => Gate::allows('reschedule', $record))
+            ->schema([
+                DatePicker::make('due_date')
+                    ->label(__('billing_corrections.reschedule.field'))
+                    ->default(fn (Instalment $record): ?string => $record->due_date?->toDateString())
+                    ->native(false)
+                    ->required(),
+                Textarea::make('reason')
+                    ->label(__('billing.tab.fields.reason'))
+                    ->helperText(__('billing.tab.fields.reason_help'))
+                    ->required(),
+            ])
+            ->successNotificationTitle(__('billing_corrections.reschedule.success'))
+            ->action(fn (Action $action, Instalment $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(RescheduleInstalment::class)->handle(Auth::user(), $record, $data['due_date'] ?? null, $data['reason'] ?? ''),
             ));
     }
 

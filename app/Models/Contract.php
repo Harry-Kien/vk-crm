@@ -196,6 +196,8 @@ class Contract extends Model
      */
     protected function internalAttributes(): array
     {
-        return ['ended_reason', 'note', 'activated_by', 'created_by', 'updated_by'];
+        // `open_matter_id` (làn fb, mục A1): cột sinh chỉ để CSDL chốt "một hợp đồng chưa huỷ cho
+        // một vụ", không có nghĩa gì với khách.
+        return ['ended_reason', 'note', 'activated_by', 'created_by', 'updated_by', 'open_matter_id'];
     }
 }

@@ -73,4 +73,14 @@ class InstalmentPolicy
         return $this->canSeeBilling($user, $instalment->contract->matter)
             && $user->can(Permission::ContractManage->value);
     }
+
+    /**
+     * "Dời hạn đợt" (`RescheduleInstalment`, làn fb mục B): khách xin khất là một quyết định về
+     * điều khoản thương mại, cùng trục với {@see self::waive()} — `contract.manage` cộng "thấy tiền
+     * của vụ". Kế toán (chỉ `payment.record`) không tự dời hạn.
+     */
+    public function reschedule(User|ClientUser $user, Instalment $instalment): bool
+    {
+        return $this->waive($user, $instalment);
+    }
 }

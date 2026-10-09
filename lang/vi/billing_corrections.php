@@ -8,6 +8,17 @@
 return [
     'errors' => [
         'instalment_not_waived' => 'Không thể bỏ miễn đợt ":name": đợt này đang ở trạng thái ":status", không phải "đã miễn".',
+        'instalment_not_reschedulable' => 'Không thể dời hạn đợt ":name": đợt này đang ở trạng thái ":status" — chỉ dời được đợt còn chờ thu.',
+    ],
+
+    'reschedule' => [
+        'label' => 'Dời hạn',
+        'heading' => 'Dời ngày đến hạn của đợt',
+        'description' => 'Đợt ":name" (:amount) đang đến hạn ngày :due_date. Số tiền và trạng thái giữ nguyên; công nợ, nhắc quá hạn và cổng khách đọc theo ngày mới.',
+        'field' => 'Ngày đến hạn mới',
+        'success' => 'Đã dời ngày đến hạn.',
+        'no_due_date_yet' => 'Đợt ":name" chưa có ngày đến hạn (đợt theo giai đoạn chưa tới giai đoạn kích hoạt) — chưa có gì để dời.',
+        'same_date' => 'Ngày đến hạn mới trùng ngày cũ.',
     ],
 
     'waive' => [
@@ -28,5 +39,16 @@ return [
         'option_reference' => ':date — :amount (:method), mã :reference, ghi lúc :recorded_at',
         'option_voided' => ':date — :amount (:method) — đã huỷ',
         'field' => 'Khoản thu cần huỷ',
+    ],
+
+    'redraft' => [
+        'label' => 'Soạn hợp đồng mới',
+        'cancelled_hint' => 'Hợp đồng này đã huỷ. Muốn ký lại với điều khoản mới, bấm "Soạn hợp đồng mới"; hợp đồng đã huỷ và các khoản đã thu của nó ở lại làm lịch sử.',
+        'previous_heading' => 'Hợp đồng trước của vụ',
+        'previous_line' => ':code — :status ngày :date — đã thu :collected',
+    ],
+
+    'cancel' => [
+        'description' => 'Sau khi huỷ, :outstanding còn phải thu sẽ không còn được theo dõi công nợ, nhắc quá hạn hay hiện trên cổng khách; các khoản đã thu giữ nguyên. Không hoàn tác được. Muốn ký lại với điều khoản mới, huỷ hợp đồng này rồi bấm "Soạn hợp đồng mới".',
     ],
 ];

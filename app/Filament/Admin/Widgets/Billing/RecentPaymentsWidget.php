@@ -217,7 +217,9 @@ class RecentPaymentsWidget extends TableWidget
 
         return Client::query()
             ->whereHas('matters', fn (Builder $matter) => $matter->listableBy($user)
-                ->whereHas('contract.instalments.payments', fn (Builder $payment) => $payment
+                // `contracts` (mọi hợp đồng, kể cả bản đã huỷ — làn fb, mục A1), không `contract`
+                // (chỉ bản mới nhất): khoản thu trên một hợp đồng đã huỷ vẫn là khoản thu thật.
+                ->whereHas('contracts.instalments.payments', fn (Builder $payment) => $payment
                     ->whereNull('voided_at')
                     ->where('paid_on', '>=', today()->subDays(self::WINDOW_DAYS)->toDateString())))
             ->orderBy('name')
