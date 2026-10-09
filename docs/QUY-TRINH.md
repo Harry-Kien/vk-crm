@@ -121,6 +121,7 @@ một khách hàng khác.
 | **Ghi lại cuộc gọi, buổi làm việc với khách** | Tab **Liên lạc**, ghi một cuộc gọi trong dưới 15 giây | **[Có kế hoạch]** M7, mới bổ sung 2026-09-22 |
 | Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Có kế hoạch]** M6 |
 | Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Có kế hoạch]** M7: màn hình bàn giao hàng loạt, và thư tổng hợp mốc hạn cho người nhận |
+| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau qua Bàn giao hàng loạt; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
 
 ---
 
@@ -154,6 +155,22 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 | Nhìn bức tranh tiền: đã thu trên tổng, còn phải thu | Trang **Doanh thu**: vành khuyên đã thu / còn phải thu / quá hạn, doanh thu theo thời gian, theo đợt/giai đoạn, cơ cấu theo 12 lĩnh vực, tải theo luật sư, hồ sơ đã kết thúc còn công nợ; lọc theo kỳ, luật sư, lĩnh vực. Mỗi biểu đồ ghi rõ nó lọc theo ngày ký hay ngày tiền về, theo luật sư lúc thu hay luật sư hiện tại | **[Xong]** M9 Task 9 |
 | Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ | **[Xong]** M9 |
 
+### Sửa sai và thay đổi trên một hợp đồng đã ký (sửa sau kiểm tra 2026-10-09, làn fb)
+
+Mọi thao tác dưới đây ở tab **Hợp đồng và thanh toán** của vụ, cần lý do ít nhất 20 ký tự và để lại
+một dòng trong nhật ký hệ thống.
+
+- **Khách xin khất một đợt:** bấm **Dời hạn** trên dòng của đợt còn chờ thu, chọn ngày đến hạn mới.
+  Số tiền và trạng thái giữ nguyên; công nợ, nhắc quá hạn và cổng khách đọc theo ngày mới. Đợt theo
+  giai đoạn chưa tới giai đoạn thì chưa có ngày để dời.
+- **Miễn nhầm một đợt:** bấm **Bỏ miễn** trên dòng đó — đợt quay lại chờ thu theo đúng hạn cũ. Modal
+  **Miễn** nay ghi rõ tên đợt, giá trị, số đã thu và phần sẽ thôi đòi trước khi xác nhận.
+- **Ký lại hợp đồng với điều khoản mới, hoặc kích hoạt nhầm khi khách chưa ký:** **Huỷ hợp đồng**
+  (modal ghi rõ số còn phải thu sẽ không còn được theo dõi), rồi bấm **Soạn hợp đồng mới**. Hợp đồng
+  đã huỷ và các khoản đã thu của nó ở lại làm lịch sử (một dòng "Hợp đồng trước của vụ" ở đầu tab);
+  lịch thu, công nợ, nhắc quá hạn và khối tiền trên cổng khách theo hợp đồng mới. Một vụ không bao
+  giờ có hai hợp đồng chưa huỷ cùng lúc.
+
 ### Kế toán ghi tiền
 
 1. Kế toán mở **Công nợ** (menu trái). Trang chỉ có mã hồ sơ, loại vụ việc, tên khách hàng, tên
@@ -174,9 +191,10 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
    danh sách chưa đổi. Lý do ít nhất 20 ký tự. Khoản đã huỷ không bị xoá, chỉ ra khỏi mọi
    tổng; trạng thái đợt lùi lại đúng như trước. Hợp đồng đã hoàn tất thì không huỷ khoản thu được.
    Vụ hạn chế không có trên trang của kế toán: quản trị viên huỷ ở chính mục này (khoản cũ hơn 90
-   ngày: cũng gõ mã hồ sơ rồi bấm "Áp dụng bộ lọc"); luật sư phụ trách huỷ trên tab **Hợp đồng và thanh toán** của vụ, nhưng nút ở đó chỉ huỷ khoản
-   **mới nhất** chưa huỷ của đợt — muốn huỷ một khoản cũ hơn thì huỷ lần lượt từ mới về cũ rồi ghi
-   lại những khoản đúng.
+   ngày: cũng gõ mã hồ sơ rồi bấm "Áp dụng bộ lọc"); luật sư phụ trách huỷ trên tab **Hợp đồng và
+   thanh toán** của vụ: nút **Huỷ khoản thu** ở đó cũng có ô chọn đúng khoản (ngày tiền về, số tiền,
+   cách nhận, mã giao dịch, lúc ghi), mặc định là khoản **ghi vào hệ thống gần nhất** — không phải
+   khoản có ngày tiền về muộn nhất (sửa sau kiểm tra 2026-10-09, làn fb).
 5. Doanh thu của một khoản thu tính cho **luật sư phụ trách lúc tiền về**; bàn giao vụ sau đó không
    dời khoản đã thu sang người mới (phần còn phải thu thì theo người mới).
 
