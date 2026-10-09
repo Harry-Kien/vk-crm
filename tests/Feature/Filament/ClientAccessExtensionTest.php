@@ -47,7 +47,7 @@ beforeEach(function () {
  *
  * @return array{0: User, 1: Matter, 2: ClientUser}
  */
-function expiredClosedMatter(): array
+function fmExpiredClosedMatter(): array
 {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->atStage('closed')->create([
@@ -66,7 +66,7 @@ function expiredClosedMatter(): array
 }
 
 it('shows the client access deadline and that it has passed on the overview tab', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
 
     $this->actingAs($lawyer, 'web');
 
@@ -77,7 +77,7 @@ it('shows the client access deadline and that it has passed on the overview tab'
 });
 
 it('lets the lead lawyer extend the client access with a reason, which puts the matter back on the portal', function () {
-    [$lawyer, $matter, $clientUser] = expiredClosedMatter();
+    [$lawyer, $matter, $clientUser] = fmExpiredClosedMatter();
 
     expect(Gate::forUser($clientUser)->allows('view', $matter))->toBeFalse();
 
@@ -104,7 +104,7 @@ it('lets the lead lawyer extend the client access with a reason, which puts the 
 });
 
 it('keeps the extension out of reach of a team member who is not the lead', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
     $associate = User::factory()->withRole(Role::Lawyer)->create();
     $matter->addTeamMember($associate, MatterRole::Associate);
 
@@ -131,7 +131,7 @@ it('hides the extension on an open matter and refuses it in the action', functio
 });
 
 it('refuses a date that is not later than both today and the current deadline, or too far away', function (string $until) {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
 
     $this->actingAs($lawyer, 'web');
 
@@ -147,14 +147,14 @@ it('refuses a date that is not later than both today and the current deadline, o
 ]);
 
 it('requires a reason for the extension', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
 
     expect(fn () => app(ExtendClientAccess::class)->handle($matter, $lawyer, '2026-07-05', '  '))
         ->toThrow(ValidationException::class);
 });
 
 it('keeps an extended deadline when the archive row is synced again', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
     app(ExtendClientAccess::class)->handle($matter, $lawyer, '2026-07-05', 'Khách xin thêm thời gian để tải.');
 
     app(SyncMatterArchive::class)->handle($matter->getKey(), $lawyer);
@@ -163,7 +163,7 @@ it('keeps an extended deadline when the archive row is synced again', function (
 });
 
 /** @return list<string> */
-function publishDialogWarnings(Testable $component): array
+function fmPublishDialogWarnings(Testable $component): array
 {
     $formName = $component->instance()->getMountedActionSchemaName();
     /** @var Schema $schema */
@@ -176,7 +176,7 @@ function publishDialogWarnings(Testable $component): array
         ->all();
 }
 
-function authorityDocument(Matter $matter): Document
+function fmAuthorityDocument(Matter $matter): Document
 {
     $document = Document::factory()->for($matter)->group(DocumentGroup::Authority)->create();
     $document->addMedia(UploadedFile::fake()->createWithContent('nguon.pdf', '%PDF-1.4 noi dung that'))
@@ -188,15 +188,15 @@ function authorityDocument(Matter $matter): Document
 }
 
 it('warns on the publish dialog when the client access has expired, and does not claim success', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
-    $document = authorityDocument($matter);
+    [$lawyer, $matter] = fmExpiredClosedMatter();
+    $document = fmAuthorityDocument($matter);
 
     $this->actingAs($lawyer, 'web');
 
     $manager = $this->livewire(DocumentsRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class]);
     $manager->mountAction(TestAction::make('publish')->table($document));
 
-    expect(publishDialogWarnings($manager))->toContain(__('lifecycle.access.publish_warning', ['date' => '30/05/2026']));
+    expect(fmPublishDialogWarnings($manager))->toContain(__('lifecycle.access.publish_warning', ['date' => '30/05/2026']));
 
     $this->livewire(DocumentsRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class])
         ->callAction(TestAction::make('publish')->table($document), data: ['client_can_view' => true, 'client_can_download' => true])
@@ -205,20 +205,20 @@ it('warns on the publish dialog when the client access has expired, and does not
 });
 
 it('shows no expiry warning on the publish dialog while the client can still look the matter up', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
     MatterArchive::query()->where('matter_id', $matter->id)->update(['client_access_until' => '2026-06-05']);
-    $document = authorityDocument($matter);
+    $document = fmAuthorityDocument($matter);
 
     $this->actingAs($lawyer, 'web');
 
     $manager = $this->livewire(DocumentsRelationManager::class, ['ownerRecord' => $matter->fresh(), 'pageClass' => ViewMatter::class]);
     $manager->mountAction(TestAction::make('publish')->table($document));
 
-    expect(publishDialogWarnings($manager))->not->toContain(__('lifecycle.access.publish_warning', ['date' => '05/06/2026']));
+    expect(fmPublishDialogWarnings($manager))->not->toContain(__('lifecycle.access.publish_warning', ['date' => '05/06/2026']));
 });
 
 it('refuses to extend a reopened matter that still has its archive row', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
     $matter->forceFill(['closed_at' => null, 'stage' => 'intake'])->save();
     MatterArchive::query()->where('matter_id', $matter->id)->update(['client_access_until' => null]);
 
@@ -227,7 +227,7 @@ it('refuses to extend a reopened matter that still has its archive row', functio
 });
 
 it('never shortens a deadline that is still running', function () {
-    [$lawyer, $matter] = expiredClosedMatter();
+    [$lawyer, $matter] = fmExpiredClosedMatter();
     MatterArchive::query()->where('matter_id', $matter->id)->update(['client_access_until' => '2026-06-20']);
 
     expect(fn () => app(ExtendClientAccess::class)->handle($matter, $lawyer, '2026-06-10', 'Khách xin thêm thời gian để tải.'))

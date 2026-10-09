@@ -37,7 +37,7 @@ beforeEach(function () {
 });
 
 /** @return array{0: User, 1: Matter} */
-function destroyedMatter(): array
+function fmDestroyedMatter(): array
 {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $matter = Matter::factory()->atStage('closed')->create(['closed_at' => now()->subYears(11)]);
@@ -54,7 +54,7 @@ function destroyedMatter(): array
     return [$admin, $matter->fresh()];
 }
 
-function destroyedDocument(Matter $matter): Document
+function fmDestroyedDocument(Matter $matter): Document
 {
     $document = Document::factory()->for($matter)->group(DocumentGroup::Authority)->create();
     $document->addMedia(UploadedFile::fake()->createWithContent('nguon.pdf', '%PDF-1.4 noi dung that'))
@@ -66,7 +66,7 @@ function destroyedDocument(Matter $matter): Document
 }
 
 it('refuses every stage move on a destroyed record, including the admin bypass', function () {
-    [$admin, $matter] = destroyedMatter();
+    [$admin, $matter] = fmDestroyedMatter();
 
     expect(fn () => app(TransitionMatterStage::class)->handle(
         $matter, $admin, 'intake', today(), 'Mở lại hồ sơ đã tiêu huỷ để kiểm tra lại.', null, null, null, null, false,
@@ -78,7 +78,7 @@ it('refuses every stage move on a destroyed record, including the admin bypass',
 
 it('refuses to regenerate the handover package of a destroyed record', function () {
     Queue::fake();
-    [$admin, $matter] = destroyedMatter();
+    [$admin, $matter] = fmDestroyedMatter();
 
     expect(fn () => app(RequestHandoverPackage::class)->handle($matter->getKey(), $admin))
         ->toThrow(MatterRecordDestroyed::class);
@@ -89,8 +89,8 @@ it('refuses to regenerate the handover package of a destroyed record', function 
 });
 
 it('refuses to publish or upload documents on a destroyed record', function () {
-    [$admin, $matter] = destroyedMatter();
-    $document = destroyedDocument($matter);
+    [$admin, $matter] = fmDestroyedMatter();
+    $document = fmDestroyedDocument($matter);
 
     expect(fn () => app(PublishDocument::class)->handle(
         document: $document, actor: $admin, clientCanView: true, clientCanDownload: true,
@@ -107,8 +107,8 @@ it('refuses to publish or upload documents on a destroyed record', function () {
 });
 
 it('hides the handover, stage and document buttons on a destroyed record', function () {
-    [$admin, $matter] = destroyedMatter();
-    $document = destroyedDocument($matter);
+    [$admin, $matter] = fmDestroyedMatter();
+    $document = fmDestroyedDocument($matter);
 
     $this->actingAs($admin, 'web');
 
@@ -129,7 +129,7 @@ it('keeps the buttons on a closed record that is not destroyed', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $matter = Matter::factory()->atStage('closed')->create(['closed_at' => now()->subMonth()]);
     MatterArchive::factory()->create(['matter_id' => $matter->id]);
-    $document = destroyedDocument($matter);
+    $document = fmDestroyedDocument($matter);
 
     $this->actingAs($admin, 'web');
 

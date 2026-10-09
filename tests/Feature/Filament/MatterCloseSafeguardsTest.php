@@ -37,7 +37,7 @@ beforeEach(function () {
     Filament::setCurrentPanel('admin');
 });
 
-function closeFormData(array $overrides = []): array
+function fmCloseFormData(array $overrides = []): array
 {
     return [
         'to_stage' => 'closed',
@@ -72,13 +72,13 @@ it('lists the open work and the reopen rule when the lawyer picks a closing stag
     ])->mountTableAction('transitionStage');
 
     // Chưa chọn giai đoạn kết thúc: chưa có khối cảnh báo.
-    expect(closingTexts($component))->toBeNull();
+    expect(fmClosingTexts($component))->toBeNull();
 
     $component->setTableActionData(['to_stage' => 'appeal']);
-    expect(closingTexts($component))->toBeNull();
+    expect(fmClosingTexts($component))->toBeNull();
 
     $component->setTableActionData(['to_stage' => 'closed']);
-    $texts = implode("\n", closingTexts($component));
+    $texts = implode("\n", fmClosingTexts($component));
 
     expect($texts)->toContain('Hạn kháng cáo bản án sơ thẩm (hạn 20/12/2026)')
         ->not->toContain('Hạn đã xong từ trước')
@@ -100,7 +100,7 @@ it('does not show the closing block when an admin moves a closed matter between 
     ])->mountTableAction('transitionStage')
         ->setTableActionData(['to_stage' => 'closed']);
 
-    expect(closingTexts($component))->toBeNull();
+    expect(fmClosingTexts($component))->toBeNull();
 });
 
 /**
@@ -110,7 +110,7 @@ it('does not show the closing block when an admin moves a closed matter between 
  *
  * @return list<string>|null
  */
-function closingTexts(Testable $component): ?array
+function fmClosingTexts(Testable $component): ?array
 {
     $formName = $component->instance()->getMountedActionSchemaName();
     /** @var Schema $schema */
@@ -156,7 +156,7 @@ it('refuses to close the matter until the confirmation box is ticked, then close
     $this->livewire(StageLogsRelationManager::class, [
         'ownerRecord' => $matter,
         'pageClass' => ViewMatter::class,
-    ])->callTableAction('transitionStage', data: closeFormData())
+    ])->callTableAction('transitionStage', data: fmCloseFormData())
         ->assertHasTableActionErrors(['confirm_close']);
 
     expect($matter->fresh()->isClosed())->toBeFalse()
@@ -165,7 +165,7 @@ it('refuses to close the matter until the confirmation box is ticked, then close
     $this->livewire(StageLogsRelationManager::class, [
         'ownerRecord' => $matter,
         'pageClass' => ViewMatter::class,
-    ])->callTableAction('transitionStage', data: closeFormData(['confirm_close' => true]))
+    ])->callTableAction('transitionStage', data: fmCloseFormData(['confirm_close' => true]))
         ->assertHasNoTableActionErrors();
 
     expect($matter->fresh()->isClosed())->toBeTrue();
@@ -180,7 +180,7 @@ it('does not ask for the closing confirmation on a non-closing stage', function 
     $this->livewire(StageLogsRelationManager::class, [
         'ownerRecord' => $matter,
         'pageClass' => ViewMatter::class,
-    ])->callTableAction('transitionStage', data: closeFormData(['to_stage' => 'appeal']))
+    ])->callTableAction('transitionStage', data: fmCloseFormData(['to_stage' => 'appeal']))
         ->assertHasNoTableActionErrors();
 
     expect($matter->fresh()->stage)->toBe('appeal');

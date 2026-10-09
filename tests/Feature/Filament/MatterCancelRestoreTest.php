@@ -29,10 +29,10 @@ beforeEach(function () {
     Filament::setCurrentPanel('admin');
 });
 
-const CANCEL_REASON = 'Mở nhầm khách hàng, mở lại vụ việc đúng.';
+const FM_CANCEL_REASON = 'Mở nhầm khách hàng, mở lại vụ việc đúng.';
 
 /** @return list<string> */
-function mountedTexts(Testable $component): array
+function fmMountedTexts(Testable $component): array
 {
     $formName = $component->instance()->getMountedActionSchemaName();
     /** @var Schema $schema */
@@ -55,7 +55,7 @@ it('refuses to cancel a closed matter, in the action and on the edit screen', fu
         ->assertActionHidden('cancelMatter');
 
     try {
-        app(CancelMatter::class)->handle($matter, $admin, CANCEL_REASON);
+        app(CancelMatter::class)->handle($matter, $admin, FM_CANCEL_REASON);
         $this->fail('Không ném ValidationException.');
     } catch (ValidationException $exception) {
         expect($exception->errors())->toBe(['reason' => [__('lifecycle.cancel.closed_refused')]]);
@@ -69,7 +69,7 @@ it('refuses to cancel a reopened matter that already has an archive row', functi
     $matter = Matter::factory()->create(['closed_at' => null]);
     MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => null]);
 
-    expect(fn () => app(CancelMatter::class)->handle($matter, $admin, CANCEL_REASON))
+    expect(fn () => app(CancelMatter::class)->handle($matter, $admin, FM_CANCEL_REASON))
         ->toThrow(ValidationException::class);
 
     expect($matter->fresh()->trashed())->toBeFalse();
@@ -82,7 +82,7 @@ it('shows the open deadlines, the portal state and the way back on the cancel di
 
     $this->actingAs($admin, 'web');
 
-    $texts = implode("\n", mountedTexts(
+    $texts = implode("\n", fmMountedTexts(
         $this->livewire(EditMatter::class, ['record' => $matter->getKey()])->mountAction('cancelMatter'),
     ));
 
@@ -95,7 +95,7 @@ it('lets an admin list cancelled matters and restore one with a reason', functio
     $admin = User::factory()->withRole(Role::Admin)->create();
     $cancelled = Matter::factory()->create();
     $live = Matter::factory()->create();
-    app(CancelMatter::class)->handle($cancelled, $admin, CANCEL_REASON);
+    app(CancelMatter::class)->handle($cancelled, $admin, FM_CANCEL_REASON);
 
     $this->actingAs($admin, 'web');
 
@@ -124,7 +124,7 @@ it('lets an admin list cancelled matters and restore one with a reason', functio
 it('asks for a reason before restoring', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $cancelled = Matter::factory()->create();
-    app(CancelMatter::class)->handle($cancelled, $admin, CANCEL_REASON);
+    app(CancelMatter::class)->handle($cancelled, $admin, FM_CANCEL_REASON);
 
     $this->actingAs($admin, 'web');
 
@@ -142,7 +142,7 @@ it('keeps cancelled matters and the restore path away from everyone but an admin
     $admin = User::factory()->withRole(Role::Admin)->create();
     $manager = User::factory()->withRole(Role::Manager)->create();
     $cancelled = Matter::factory()->create();
-    app(CancelMatter::class)->handle($cancelled, $admin, CANCEL_REASON);
+    app(CancelMatter::class)->handle($cancelled, $admin, FM_CANCEL_REASON);
 
     $this->actingAs($manager, 'web');
 

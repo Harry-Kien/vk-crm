@@ -23,7 +23,7 @@ beforeEach(function () {
     Filament::setCurrentPanel('admin');
 });
 
-function editFormData(Matter $matter, array $overrides = []): array
+function fmEditFormData(Matter $matter, array $overrides = []): array
 {
     return [
         'title' => $matter->title,
@@ -59,7 +59,7 @@ it('edits the internal note and the opening date, and logs which fields changed'
     $this->actingAs($lawyer, 'web');
 
     $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
-        ->fillForm(editFormData($matter, [
+        ->fillForm(fmEditFormData($matter, [
             'description_internal' => 'Đã sửa: khách đồng ý hoà giải.',
             'opened_at' => '2026-09-28',
         ]))
@@ -86,7 +86,7 @@ it('refuses an opening date in the future', function () {
     $this->actingAs($lawyer, 'web');
 
     $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
-        ->fillForm(editFormData($matter, ['opened_at' => '2026-10-10']))
+        ->fillForm(fmEditFormData($matter, ['opened_at' => '2026-10-10']))
         ->call('save')
         ->assertHasFormErrors(['opened_at']);
 
@@ -101,14 +101,14 @@ it('refuses an opening date after the closing date, and accepts the closing day 
     $this->actingAs($admin, 'web');
 
     $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
-        ->fillForm(editFormData($matter, ['opened_at' => '2026-09-16']))
+        ->fillForm(fmEditFormData($matter, ['opened_at' => '2026-09-16']))
         ->call('save')
         ->assertHasFormErrors(['opened_at']);
 
     expect($matter->fresh()->opened_at->toDateString())->toBe('2026-08-01');
 
     $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
-        ->fillForm(editFormData($matter, ['opened_at' => '2026-09-15']))
+        ->fillForm(fmEditFormData($matter, ['opened_at' => '2026-09-15']))
         ->call('save')
         ->assertHasNoFormErrors();
 

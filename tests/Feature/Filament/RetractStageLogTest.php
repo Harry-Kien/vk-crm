@@ -30,7 +30,7 @@ beforeEach(function () {
     Filament::setCurrentPanel('admin');
 });
 
-function publishedLine(Matter $matter, User $author): StageLog
+function fmPublishedLine(Matter $matter, User $author): StageLog
 {
     return StageLog::factory()->for($matter)->create([
         'from_stage' => $matter->stage,
@@ -42,12 +42,12 @@ function publishedLine(Matter $matter, User $author): StageLog
     ]);
 }
 
-const RETRACT_REASON = 'Đăng nhầm cập nhật của một vụ khác sang vụ này.';
+const FM_RETRACT_REASON = 'Đăng nhầm cập nhật của một vụ khác sang vụ này.';
 
 it('retracts a published progress line through the timeline, keeping the row and logging who and why', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
-    $line = publishedLine($matter, $lawyer);
+    $line = fmPublishedLine($matter, $lawyer);
 
     $this->actingAs($lawyer, 'web');
 
@@ -55,7 +55,7 @@ it('retracts a published progress line through the timeline, keeping the row and
         'ownerRecord' => $matter,
         'pageClass' => ViewMatter::class,
     ])->assertTableActionVisible('retractStageLog', $line)
-        ->callTableAction('retractStageLog', $line, data: ['retraction_reason' => RETRACT_REASON])
+        ->callTableAction('retractStageLog', $line, data: ['retraction_reason' => FM_RETRACT_REASON])
         ->assertHasNoTableActionErrors();
 
     $fresh = StageLog::query()->withoutGlobalScope(ClientPortalScope::class)->find($line->id);
@@ -64,7 +64,7 @@ it('retracts a published progress line through the timeline, keeping the row and
         ->and($fresh->is_published)->toBeFalse()
         ->and($fresh->retracted_at)->not->toBeNull()
         ->and($fresh->retracted_by)->toBe($lawyer->id)
-        ->and($fresh->retraction_reason)->toBe(RETRACT_REASON)
+        ->and($fresh->retraction_reason)->toBe(FM_RETRACT_REASON)
         // Nội dung gốc không bị sửa: sổ tiến độ chỉ ghi thêm.
         ->and($fresh->public_content)->toBe($line->public_content);
 
@@ -83,13 +83,13 @@ it('takes the retracted line off the client portal and never mails it', function
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
     $clientUser = ClientUser::factory()->activated()->create(['client_id' => $matter->client_id]);
-    $line = publishedLine($matter, $lawyer);
+    $line = fmPublishedLine($matter, $lawyer);
 
     $portalQuery = fn () => tap(StageLog::query()->withoutGlobalScope(ClientPortalScope::class), fn ($q) => (new StageLog)->applyClientPortalConstraints($q, $clientUser));
 
     expect($portalQuery()->whereKey($line->id)->exists())->toBeTrue();
 
-    app(RetractStageLog::class)->handle($line, $lawyer, RETRACT_REASON);
+    app(RetractStageLog::class)->handle($line, $lawyer, FM_RETRACT_REASON);
 
     expect($portalQuery()->whereKey($line->id)->exists())->toBeFalse()
         ->and(app(NotifyClientOfStageUpdate::class)->handle($line->fresh()))->toBe(0);
@@ -103,7 +103,7 @@ it('hides the retract button from an assistant, who cannot publish to clients', 
     $assistant = User::factory()->withRole(Role::Assistant)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
     $matter->addTeamMember($assistant, MatterRole::Assistant);
-    $line = publishedLine($matter, $lawyer);
+    $line = fmPublishedLine($matter, $lawyer);
 
     $this->actingAs($assistant, 'web');
 
@@ -112,7 +112,7 @@ it('hides the retract button from an assistant, who cannot publish to clients', 
         'pageClass' => ViewMatter::class,
     ])->assertTableActionHidden('retractStageLog', $line);
 
-    expect(fn () => app(RetractStageLog::class)->handle($line, $assistant, RETRACT_REASON))
+    expect(fn () => app(RetractStageLog::class)->handle($line, $assistant, FM_RETRACT_REASON))
         ->toThrow(AuthorizationException::class);
 });
 
@@ -120,8 +120,8 @@ it('offers no retract button on an internal line or one already retracted, and t
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
     $internal = StageLog::factory()->for($matter)->create(['is_published' => false]);
-    $retracted = publishedLine($matter, $lawyer);
-    app(RetractStageLog::class)->handle($retracted, $lawyer, RETRACT_REASON);
+    $retracted = fmPublishedLine($matter, $lawyer);
+    app(RetractStageLog::class)->handle($retracted, $lawyer, FM_RETRACT_REASON);
 
     $this->actingAs($lawyer, 'web');
 
@@ -132,16 +132,16 @@ it('offers no retract button on an internal line or one already retracted, and t
         ->assertTableActionHidden('retractStageLog', $retracted->fresh());
 
     // Hai câu khác nhau: "chưa công bố" và "đã rút trước đó" — người bấm biết vì sao.
-    expect(fn () => app(RetractStageLog::class)->handle($internal, $lawyer, RETRACT_REASON))
+    expect(fn () => app(RetractStageLog::class)->handle($internal, $lawyer, FM_RETRACT_REASON))
         ->toThrow(StageLogNotRetractable::class, __('lifecycle.stage_log.not_published'))
-        ->and(fn () => app(RetractStageLog::class)->handle($retracted, $lawyer, RETRACT_REASON))
+        ->and(fn () => app(RetractStageLog::class)->handle($retracted, $lawyer, FM_RETRACT_REASON))
         ->toThrow(StageLogNotRetractable::class, __('lifecycle.stage_log.already_retracted'));
 });
 
 it('asks for a real reason on the retract dialog', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
-    $line = publishedLine($matter, $lawyer);
+    $line = fmPublishedLine($matter, $lawyer);
 
     $this->actingAs($lawyer, 'web');
 
@@ -157,12 +157,12 @@ it('asks for a real reason on the retract dialog', function () {
 it('marks a retracted line on the staff timeline with when and why', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Rút Dòng']);
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
-    $line = publishedLine($matter, $lawyer);
-    app(RetractStageLog::class)->handle($line, $lawyer, RETRACT_REASON);
+    $line = fmPublishedLine($matter, $lawyer);
+    app(RetractStageLog::class)->handle($line, $lawyer, FM_RETRACT_REASON);
 
     $html = StageLogsRelationManager::renderPublicContent($line->fresh()->public_content, $line->fresh())->toHtml();
 
-    expect($html)->toContain(e(RETRACT_REASON))
+    expect($html)->toContain(e(FM_RETRACT_REASON))
         ->toContain(e(__('lifecycle.stage_log.retracted_marker', [
             'date' => $line->fresh()->retracted_at->format('H:i d/m/Y'),
             'by' => 'Luật sư Rút Dòng',

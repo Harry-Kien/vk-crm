@@ -66,11 +66,11 @@ it('hides the expected-date field on the transition form once a closing stage is
     ])->mountTableAction('transitionStage')
         ->setTableActionData(['to_stage' => 'appeal']);
 
-    expect(expectedDateField($component)->isVisible())->toBeTrue();
+    expect(fmExpectedDateField($component)->isVisible())->toBeTrue();
 
     $component->setTableActionData(['to_stage' => 'closed']);
 
-    expect(expectedDateField($component)->isVisible())->toBeFalse();
+    expect(fmExpectedDateField($component)->isVisible())->toBeFalse();
 });
 
 it('hides the expected-date field on "add update" for a closed matter', function () {
@@ -84,7 +84,7 @@ it('hides the expected-date field on "add update" for a closed matter', function
         'pageClass' => ViewMatter::class,
     ])->mountTableAction('addUpdate');
 
-    expect(expectedDateField($component)->isVisible())->toBeFalse();
+    expect(fmExpectedDateField($component)->isVisible())->toBeFalse();
 });
 
 it('prints no "expected" line on the portal of a closed matter, even for an old line that carried one', function () {
@@ -115,7 +115,7 @@ it('prints no "expected" line on the portal of a closed matter, even for an old 
         ->assertSee(__('portal_progress.timeline.expected', ['date' => $date]), escape: false);
 });
 
-function expectedDateField($component): DatePicker
+function fmExpectedDateField($component): DatePicker
 {
     $formName = $component->instance()->getMountedActionSchemaName();
     /** @var Schema $schema */

@@ -21,9 +21,9 @@ beforeEach(function () {
     Filament::setCurrentPanel('admin');
 });
 
-const OVERRIDE_REASON = 'Khách kháng cáo bản án, mở lại hồ sơ để tiếp tục.';
+const FM_OVERRIDE_REASON = 'Khách kháng cáo bản án, mở lại hồ sơ để tiếp tục.';
 
-function overrideTransition(Matter $matter, User $actor, string $to, ?string $note)
+function fmOverrideTransition(Matter $matter, User $actor, string $to, ?string $note)
 {
     return app(TransitionMatterStage::class)->handle($matter->fresh(), $actor, $to, today(), $note, null, null, null, null, false);
 }
@@ -33,7 +33,7 @@ it('refuses to reopen a closed matter without a reason of at least 20 characters
     $matter = Matter::factory()->atStage('closed')->create(['closed_at' => now()->subDays(3)]);
 
     try {
-        overrideTransition($matter, $admin, 'appeal', $note);
+        fmOverrideTransition($matter, $admin, 'appeal', $note);
         $this->fail('Không ném ValidationException.');
     } catch (ValidationException $exception) {
         expect($exception->errors())->toHaveKey('internal_note');
@@ -50,13 +50,13 @@ it('reopens with a reason and logs it as the override reason', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $matter = Matter::factory()->atStage('closed')->create(['closed_at' => now()->subDays(3)]);
 
-    overrideTransition($matter, $admin, 'appeal', OVERRIDE_REASON);
+    fmOverrideTransition($matter, $admin, 'appeal', FM_OVERRIDE_REASON);
 
     $activity = Activity::query()->where('event', 'matter_stage_transitioned')->latest('id')->first();
 
     expect($matter->fresh()->isClosed())->toBeFalse()
         ->and($activity->properties['reopened'])->toBeTrue()
-        ->and($activity->properties['override_reason'])->toBe(OVERRIDE_REASON);
+        ->and($activity->properties['override_reason'])->toBe(FM_OVERRIDE_REASON);
 });
 
 it('asks an admin for a reason when skipping the allowed path, but not a lawyer on the normal path', function () {
@@ -65,10 +65,10 @@ it('asks an admin for a reason when skipping the allowed path, but not a lawyer 
     $skipped = Matter::factory()->atStage('intake')->create();
     $normal = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
 
-    expect(fn () => overrideTransition($skipped, $admin, 'drafting', null))->toThrow(ValidationException::class);
+    expect(fn () => fmOverrideTransition($skipped, $admin, 'drafting', null))->toThrow(ValidationException::class);
 
-    overrideTransition($skipped, $admin, 'drafting', OVERRIDE_REASON);
-    overrideTransition($normal, $lawyer, 'collecting_documents', null);
+    fmOverrideTransition($skipped, $admin, 'drafting', FM_OVERRIDE_REASON);
+    fmOverrideTransition($normal, $lawyer, 'collecting_documents', null);
 
     $activity = Activity::query()->where('event', 'matter_stage_transitioned')->where('subject_id', $normal->id)->latest('id')->first();
 
@@ -89,7 +89,7 @@ it('does not ask for a reason when a closed matter only moves to another closing
     $matter->matterType->stages()->where('key', 'closed')->update(['allowed_next' => ['archived']]);
     $matter->matterType->unsetRelation('stages');
 
-    overrideTransition($matter, $admin, 'archived', null);
+    fmOverrideTransition($matter, $admin, 'archived', null);
 
     expect($matter->fresh()->stage)->toBe('archived');
 });
@@ -124,9 +124,9 @@ it('asks for a reason when a lawyer reopens through an allowed path out of a clo
     $matter->matterType->stages()->where('key', 'closed')->update(['allowed_next' => ['appeal']]);
     $matter->matterType->unsetRelation('stages');
 
-    expect(fn () => overrideTransition($matter, $lawyer, 'appeal', null))->toThrow(ValidationException::class);
+    expect(fn () => fmOverrideTransition($matter, $lawyer, 'appeal', null))->toThrow(ValidationException::class);
 
-    overrideTransition($matter, $lawyer, 'appeal', OVERRIDE_REASON);
+    fmOverrideTransition($matter, $lawyer, 'appeal', FM_OVERRIDE_REASON);
 
     expect($matter->fresh()->isClosed())->toBeFalse();
 });
