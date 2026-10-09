@@ -3,10 +3,15 @@
 namespace App\Actions\Matter;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Actions\Storage\MaterialiseStoredFile;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\HandoverPackageStatus;
+use App\Exceptions\DocumentStorageMisconfigured;
+use App\Exceptions\DocumentStorageUnavailable;
 use App\Exceptions\HandoverPackageFailed;
+use App\Exceptions\StoredFileChanged;
+use App\Exceptions\StoredFileMissing;
 use App\Jobs\GenerateHandoverPackage;
 use App\Jobs\SendHandoverPackageReady;
 use App\Models\ClientUser;
@@ -17,7 +22,9 @@ use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Files\FileGuard;
+use App\Support\Files\FreeSpace;
 use App\Support\Handover\HandoverEntry;
+use App\Support\Storage\DocumentStore;
 use ErrorException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -107,7 +114,12 @@ use ZipArchive;
  *  - zip lớn hơn trần MỘT tệp của kho (`FileIsTooBig`; trần là `MEDIA_MAX_FILE_SIZE_MB`, mặc định
  *    2048 MB — `config/media-library.php`) → `tooLarge()`;
  *  - medialibrary không lưu được zip (mọi `FileCannotBeAdded` khác, thường là
- *    `DiskCannotBeAccessed` khi đĩa từ chối ghi) → `storeFailed()`.
+ *    `DiskCannotBeAccessed` khi đĩa từ chối ghi) → `storeFailed()`;
+ *  - M14 (kế hoạch R12): máy chủ không đủ chỗ trống, khi đo được → `insufficientWorkSpace()`; kho tài
+ *    liệu sập (kể cả bản tải về thiếu byte) → `storageUnavailable()` (tệp vẫn ở kho, luật sư bấm sinh
+ *    lại); cấu hình kho hỏng → `storageMisconfigured()` và bản trên kho đã bị đổi →
+ *    `storageChanged()` (rà soát cuối vòng sửa 1, I7: sinh lại không giúp, câu bảo báo quản trị). Xem
+ *    {@see self::buildZip()}.
  *
  * # Dấu của lần yêu cầu
  *
@@ -132,9 +144,14 @@ class BuildHandoverPackage
     /** Tên mục lục ở gốc zip — cố định, khách và test đều tìm theo tên này. */
     public const INDEX_ENTRY = 'MUC-LUC.pdf';
 
+    /** Biên chỗ trống cộng thêm của lần kiểm R12 (M14): 50 MB — {@see self::ensureWorkSpace()}. */
+    public const FREE_SPACE_MARGIN_BYTES = 50 * 1024 * 1024;
+
     public function __construct(
         private CollectHandoverEntries $collect,
         private RenderHandoverIndex $render,
+        private FreeSpace $freeSpace,
+        private MaterialiseStoredFile $materialiseStoredFile,
     ) {}
 
     /**
@@ -163,7 +180,15 @@ class BuildHandoverPackage
                 throw HandoverPackageFailed::notClosed();
             }
 
-            $entries = $this->collect->handle($matter, $archive);
+            try {
+                $entries = $this->collect->handle($matter, $archive);
+            } catch (DocumentStorageMisconfigured $exception) {
+                // M14: `exists()` của kho đọc chỉ mục, không gọi mạng — nhưng adapter dựng lười, nên
+                // một cấu hình kho hỏng hiện ra ở đây. Cùng câu với cấu hình hỏng lúc tải về.
+                throw HandoverPackageFailed::storageMisconfigured($exception);
+            } catch (DocumentStorageUnavailable $exception) {
+                throw HandoverPackageFailed::storageUnavailable($exception);
+            }
 
             try {
                 $zipPath = $this->buildZip($workDirectory, $matter, $entries);
@@ -212,19 +237,38 @@ class BuildHandoverPackage
     /**
      * Dựng zip trong thư mục tạm và kiểm nó đọc lại được với đúng số entry. Trả đường dẫn zip.
      *
+     * M14 (kế hoạch R12), theo thứ tự:
+     *  1. kiểm chỗ trống khi đo được ({@see self::ensureWorkSpace()});
+     *  2. cho mỗi entry một đường dẫn cục bộ đã kiểm ({@see MaterialiseStoredFile}): tệp ở vùng đệm
+     *     dùng thẳng, tệp trên kho được tải về `src/<NN>` và kiểm cỡ + md5 — TẤT CẢ trước khi mở zip,
+     *     để một lỗi kho không bao giờ gặp một zip đang mở dở;
+     *  3. nén, đóng, kiểm zip đọc lại được với đúng số entry, như trước M14;
+     *  4. xoá `src/` NGAY, trước `store()`: medialibrary CHÉP zip vào `private/<id>/` rồi mới xoá nguồn,
+     *     nên còn `src/` thì đỉnh chỗ dùng là `src` + zip + bản chép ≈ 3T; xoá trước thì đỉnh là
+     *     max(`src` + zip, zip + bản chép) ≈ 2T — đúng con số của bước 1.
+     *
      * @param  Collection<int, HandoverEntry>  $entries
      */
     private function buildZip(string $workDirectory, Matter $matter, Collection $entries): string
     {
         // Lần chạy trước của CÙNG yêu cầu (bị giết, không tới được `finally`) có thể đã để lại
-        // tệp dở ở đây: `MUC-LUC.pdf` bị `File::put()` ghi đè, zip được mở với `OVERWRITE`, và
-        // `finally` của `handle()` xoá cả thư mục.
+        // tệp dở ở đây: `MUC-LUC.pdf` bị `File::put()` ghi đè, zip được mở với `OVERWRITE`, `src/<NN>`
+        // bị ghi đè, và `finally` của `handle()` xoá cả thư mục.
         File::ensureDirectoryExists($workDirectory);
+
+        $this->ensureWorkSpace($workDirectory, $entries);
 
         $indexPath = $workDirectory.DIRECTORY_SEPARATOR.self::INDEX_ENTRY;
 
         if (File::put($indexPath, $this->render->handle($matter, $entries)) === false) {
             throw HandoverPackageFailed::indexFailed();
+        }
+
+        $sourceDirectory = $workDirectory.DIRECTORY_SEPARATOR.'src';
+        $sources = [];
+
+        foreach ($entries as $entry) {
+            $sources[$entry->number] = $this->materialise($entry, $sourceDirectory);
         }
 
         $zipPath = $workDirectory.DIRECTORY_SEPARATOR.'package.zip';
@@ -244,7 +288,7 @@ class BuildHandoverPackage
         }
 
         foreach ($entries as $entry) {
-            if (! $zip->addFile($entry->sourcePath, $entry->zipPath, 0, 0, $flags)) {
+            if (! $zip->addFile($sources[$entry->number], $entry->zipPath, 0, 0, $flags)) {
                 $zip->close();
 
                 throw HandoverPackageFailed::zipFailed();
@@ -269,7 +313,83 @@ class BuildHandoverPackage
             throw HandoverPackageFailed::zipFailed();
         }
 
+        // Bước 4 của docblock: `src/` đi TRƯỚC `store()`.
+        File::deleteDirectory($sourceDirectory);
+
         return $zipPath;
+    }
+
+    /**
+     * M14 (kế hoạch R12), bước 1 của {@see self::buildZip()}: với T = tổng cỡ tệp nguồn (theo dòng
+     * `media`), cần `free(thư mục làm việc) >= 2T + 50 MB` (bản tải về + zip) và `free(gốc đĩa private)
+     * >= T + 50 MB` (bản chép của medialibrary). Hai đường cùng một ổ thì điều đầu bao điều sau. Thiếu
+     * → {@see HandoverPackageFailed::insufficientWorkSpace()}, trước khi tải hay nén gì.
+     *
+     * Đo qua {@see FreeSpace}: `null` khi `disk_free_space` bị tắt (nhiều shared hosting tắt nó, và gọi
+     * một hàm bị tắt là `Error` — gói sẽ hỏng cả ở chế độ `local`). Không đo được thì BỎ kiểm chỗ đó,
+     * log `warning` một lần; preflight `disk_free_space_available` báo VÀNG.
+     *
+     * @param  Collection<int, HandoverEntry>  $entries
+     */
+    private function ensureWorkSpace(string $workDirectory, Collection $entries): void
+    {
+        $total = (int) $entries->sum(fn (HandoverEntry $entry): int => $entry->size);
+        $margin = self::FREE_SPACE_MARGIN_BYTES;
+        $unmeasured = false;
+
+        foreach ([
+            [$workDirectory, 2 * $total + $margin],
+            [Storage::disk(DocumentStore::STAGING_DISK)->path(''), $total + $margin],
+        ] as [$path, $needed]) {
+            $free = $this->freeSpace->bytes($path);
+
+            if ($free === null) {
+                $unmeasured = true;
+
+                continue;
+            }
+
+            if ($free < $needed) {
+                throw HandoverPackageFailed::insufficientWorkSpace($needed, $free);
+            }
+        }
+
+        if ($unmeasured) {
+            Log::warning(__('storage.read.log.free_space_unknown'), ['total_bytes' => $total]);
+        }
+    }
+
+    /**
+     * Bước 2 của {@see self::buildZip()}: đường dẫn cục bộ đã kiểm của một entry. Đọc lại dòng `media`
+     * (một lượt đẩy có thể vừa đổi nó sang kho; bản vùng đệm vẫn còn qua ân hạn, R2 — đọc lại thì dùng
+     * đúng nơi dòng đang trỏ). Phân loại lỗi kho cho luật sư:
+     *  - tệp không còn (dòng đã mất, kho 404, vùng đệm trống) → `missingFile()` nêu tiêu đề, như trước;
+     *  - kho sập, hay bản tải về THIẾU byte → `storageUnavailable()`: bấm sinh lại;
+     *  - cấu hình kho hỏng → `storageMisconfigured()`; bản tải về đủ byte mà lệch
+     *    ({@see StoredFileChanged}) → `storageChanged()` nêu tiêu đề: báo quản trị (I7).
+     */
+    private function materialise(HandoverEntry $entry, string $sourceDirectory): string
+    {
+        $media = Media::query()->find($entry->mediaId);
+
+        if ($media === null) {
+            throw HandoverPackageFailed::missingFile($entry->title);
+        }
+
+        try {
+            return $this->materialiseStoredFile->handle(
+                $media,
+                $sourceDirectory.DIRECTORY_SEPARATOR.str_pad((string) $entry->number, 2, '0', STR_PAD_LEFT),
+            );
+        } catch (StoredFileMissing) {
+            throw HandoverPackageFailed::missingFile($entry->title);
+        } catch (StoredFileChanged $exception) {
+            throw HandoverPackageFailed::storageChanged($entry->title, $exception);
+        } catch (DocumentStorageMisconfigured $exception) {
+            throw HandoverPackageFailed::storageMisconfigured($exception);
+        } catch (DocumentStorageUnavailable $exception) {
+            throw HandoverPackageFailed::storageUnavailable($exception);
+        }
     }
 
     /**

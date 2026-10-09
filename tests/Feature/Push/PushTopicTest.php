@@ -438,7 +438,8 @@ function pushTopicMailTemplates(): array
  * trong danh sách "cố ý không đẩy" ngay dưới — không mẫu nào lọt giữa hai bên vì một milestone sau thêm
  * thư mà không ai quyết có đẩy hay không. Lần gộp M7 + M10 vào nhánh là chỗ đã lọt:
  * `staff.handover_ready` (nay nối), `staff.matter_reassigned` và `staff.intake_unanswered` (cố ý không
- * đẩy, test ngay trên). Thêm một mẫu thư mới = thêm nó vào một trong hai bên, có chủ ý.
+ * đẩy, test ngay trên). Lần gộp `main` vào làn M14 lọt tiếp tám mẫu `staff.document_store_alert.*` (cố ý
+ * không đẩy). Thêm một mẫu thư mới = thêm nó vào một trong hai bên, có chủ ý.
  *
  * Mutation probe (báo cáo vòng sửa cuối): bỏ case `StaffHandoverReady` khỏi `PushTopic` → ĐỎ (mẫu
  * `staff.handover_ready` không thuộc bên nào).
@@ -450,6 +451,17 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.backup_alert.backup_failed',
         'staff.backup_alert.cleanup_failed',
         'staff.backup_alert.unhealthy',
+        // M14 (gộp `main` 7632242 vào làn M14): cảnh báo kho tài liệu là thư vận hành cho quản trị viên,
+        // không về một hồ sơ nào — cố ý không đẩy, cùng hạng `staff.backup_alert.*`.
+        'staff.document_store_alert.misconfigured',
+        'staff.document_store_alert.not_enabled',
+        'staff.document_store_alert.office_copy_error',
+        'staff.document_store_alert.office_copy_stale',
+        'staff.document_store_alert.push_backlog',
+        'staff.document_store_alert.sharing_drift',
+        'staff.document_store_alert.transfer_blocked',
+        'staff.document_store_alert.transfer_dossier_due',
+        'staff.document_store_alert.unavailable',
         'staff.intake_unanswered',
         'staff.matter_reassigned',
         'staff.stale_matter',

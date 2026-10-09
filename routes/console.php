@@ -6,6 +6,8 @@ use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\ExpireClientAccess;
 use App\Actions\Schedule\FlagRetentionExpiry;
+use App\Actions\Schedule\PurgeStagedDocumentCopies;
+use App\Actions\Schedule\PushPendingDocumentFiles;
 use App\Actions\Schedule\ReconcileStageTriggeredInstalments;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\RemindMissingDocuments;
@@ -301,30 +303,34 @@ Schedule::command('queue:work --queue=push --stop-when-empty --max-time=50')
  * (có thể vài trăm MB, vài phút) — nếu nó chạy trong mục `queue.drain` ở trên, nó giữ lượt
  * `withoutOverlapping` của mục đó và thư nhắc mốc thời hạn (rủi ro nghề nghiệp cao nhất của hệ
  * thống, xem `deadlines.check`) phải đứng chờ. Mục này chạy trên kết nối `handover`
- * (`config/queue.php`, `retry_after` 900 giây) và hàng `handover`, còn `queue.drain` vẫn chỉ rút
+ * (`config/queue.php`, `retry_after` 1500 giây) và hàng `handover`, còn `queue.drain` vẫn chỉ rút
  * hàng `default`.
  *
- * `--timeout=600` khớp `GenerateHandoverPackage::$timeout` (worker ưu tiên `$timeout` của job,
+ * M14 (kế hoạch R12): job nay còn TẢI tệp từ kho Google Drive về thư mục làm việc trước khi nén (tới
+ * 2 GB), nên ba con số của mục này cùng tăng: `--timeout` 600 → 1200, khoá 15 → 25 phút, và
+ * `retry_after` 900 → 1500 (`QueueHandoverScheduleTest` ghim cả ba cùng quan hệ của chúng).
+ *
+ * `--timeout=1200` khớp `GenerateHandoverPackage::$timeout` (worker ưu tiên `$timeout` của job,
  * cờ này chỉ là tầng thứ hai cho job nào không khai). Cả hai giờ chết chỉ có tác dụng khi PHP dòng
  * lệnh có ext-pcntl; thiếu thì `vkcrm:preflight` báo VÀNG, còn có pcntl mà hàm của nó bị chặn
  * (`disable_functions`) thì báo ĐỎ, vì khi đó mọi `queue:work` — cả mục này lẫn `queue.drain` — chết
  * ngay khi khởi động (việc sau gộp M7, `RunPreflight::pcntlRow()`). `--max-time=50` chỉ chặn việc
  * NHẬN job mới
- * sau 50 giây — nó không cắt một job đang chạy. Khoá chống chồng lấn hết hạn sau 15 phút: dài hơn
- * một lần chạy tối đa (600 giây) để không hai worker cùng dựng gói, và ngắn hơn 1440 phút mặc định
+ * sau 50 giây — nó không cắt một job đang chạy. Khoá chống chồng lấn hết hạn sau 25 phút: dài hơn
+ * một lần chạy tối đa (1200 giây) để không hai worker cùng dựng gói, và ngắn hơn 1440 phút mặc định
  * để một tiến trình bị giết giữa chừng (giới hạn CPU của shared hosting) không khoá hàng cả ngày.
  *
  * `runInBackground()`: `schedule:run` chạy các mục của một phút LẦN LƯỢT trong cùng tiến trình. Chạy
- * tiền cảnh, một lần dựng gói tới 600 giây sẽ bắt mọi mục đăng ký SAU mục này trong cùng phút
+ * tiền cảnh, một lần dựng gói tới 1200 giây sẽ bắt mọi mục đăng ký SAU mục này trong cùng phút
  * đứng chờ — gồm các tác vụ hằng ngày của M7 Task 5/6 được thêm vào cuối tệp. Chạy nền thì khoá
  * `withoutOverlapping` vẫn giữ tới khi lệnh nền kết thúc (Laravel gỡ khoá ở `schedule:finish`).
  * Mục `queue.drain` ở trên không đổi (ngoài phạm vi task này): nó ngừng nhận job sau 50 giây và
  * các job của nó là thư, ngắn.
  */
-Schedule::command('queue:work handover --queue=handover --stop-when-empty --max-time=50 --timeout=600')
+Schedule::command('queue:work handover --queue=handover --stop-when-empty --max-time=50 --timeout=1200')
     ->everyMinute()
     ->name('queue.handover')
-    ->withoutOverlapping(15)
+    ->withoutOverlapping(25)
     ->runInBackground();
 
 /**
@@ -360,6 +366,49 @@ Schedule::call(new ExpireClientAccess)
 Schedule::call(new FlagRetentionExpiry)
     ->dailyAt('01:00')
     ->name('retention.flag')
+    ->withoutOverlapping(60);
+
+/**
+ * M14 Task 3 (kế hoạch M14, R2): rút hàng đợi RIÊNG của kho tài liệu — job `PushDocumentFile` đẩy
+ * tệp từ vùng đệm `private` lên Google Drive, có khi là một gói bàn giao 2 GB. Cùng lý lẽ với
+ * `queue.handover` ở trên: một lượt tải dài không được giữ lượt của thư nhắc mốc hạn (`queue.drain`)
+ * hay của gói bàn giao.
+ *
+ * Kết nối `storage` (`config/queue.php`, `retry_after` 2400) và hàng `storage`. `--timeout=1800` khớp
+ * `PushDocumentFile::TIMEOUT_SECONDS`; `--max-time=50` chỉ chặn việc NHẬN job mới sau 50 giây, không
+ * cắt job đang chạy. Khoá chống chồng lấn 40 phút: dài hơn một lượt worker dài nhất (50 giây + 1800
+ * giây), để không hai worker cùng chạy; ngắn hơn 1440 phút mặc định, để một tiến trình bị giết (giới
+ * hạn CPU của shared hosting) không khoá hàng cả ngày. `runInBackground()`: một lượt tải nhiều phút
+ * không giữ tiến trình `schedule:run` của phút đó. `DocumentStorageScheduleTest` ghim các số.
+ */
+Schedule::command('queue:work storage --queue=storage --stop-when-empty --max-time=50 --timeout=1800')
+    ->everyMinute()
+    ->name('queue.storage')
+    ->withoutOverlapping(40)
+    ->runInBackground();
+
+/**
+ * M14 Task 3 (R2): 15 phút một lần, xếp lại job đẩy cho media còn ở vùng đệm, tạo SAU mốc bật kho và
+ * đã quá 10 phút — lượt dispatch sau commit bị mất, hay job đã hết lượt thử. Tệp tạo trước mốc chỉ đi
+ * qua lệnh chuyển ngoài giờ. Công tắc không còn `google_drive` mà mốc còn: xoá mốc, ghi nhật ký,
+ * không xếp gì. Xem docblock `PushPendingDocumentFiles`. Khoá chống chồng lấn 15 phút: không bao giờ
+ * hai lượt quét cùng xếp một lô.
+ */
+Schedule::call(new PushPendingDocumentFiles)
+    ->everyFifteenMinutes()
+    ->name('storage.push-pending')
+    ->withoutOverlapping(15);
+
+/**
+ * M14 Task 3 (R10): mỗi giờ, phút 17 (tránh lượt `:00` nơi các mục theo giờ dồn vào cùng một
+ * `schedule:run`), xoá bản trong vùng đệm của media đã lên kho VÀ đã có biên nhận khớp md5 của máy
+ * văn phòng. Chưa có máy văn phòng thì không gì được dọn. Không bao giờ chạm kho. Xem docblock
+ * `PurgeStagedDocumentCopies`. Khoá chống chồng lấn 60 phút, không 1440: một lần chạy bị giết không
+ * khoá luôn lượt giờ sau.
+ */
+Schedule::call(new PurgeStagedDocumentCopies)
+    ->hourlyAt(17)
+    ->name('storage.purge-staged')
     ->withoutOverlapping(60);
 
 /**
@@ -456,6 +505,40 @@ Schedule::command('passport:purge', ['--hours' => PruneStaleMcpClients::tokenPur
 Schedule::command('vkcrm:mcp-prune-clients')
     ->dailyAt('03:15')
     ->name('mcp.clients.prune');
+
+/**
+ * M14 Task 5 (kế hoạch R5, R9, R10, R13): kiểm tra sức khoẻ kho tài liệu Google Drive, mỗi giờ ở phút
+ * 20 — lệch khỏi phút 00 và 30, nơi `deadlines.check` và các tác vụ hằng ngày dồn vào cùng một lượt
+ * `schedule:run`. `App\Actions\Schedule\CheckDocumentStoreHealth` kiểm chia sẻ của Shared Drive (thành
+ * viên lạ, vai sai), tồn đọng tệp mới, biên nhận của máy văn phòng, đồng hồ 60 ngày nộp hồ sơ chuyển
+ * dữ liệu ra nước ngoài; ghi `system_health.document_store_*` và xếp thư cảnh báo cho người vận hành
+ * (mỗi loại sự cố một thư mỗi ngày). Kho không dùng (`local`, không media trên kho) thì không gọi
+ * Google. Action không bao giờ ném ra lịch.
+ *
+ * Gọi bằng chuỗi `Lớp@handle` thay vì `use` + `new`: luật làn song song cho tệp này là CHỈ NỐI THÊM
+ * dòng ở cuối (cùng lý do mục `backup.monitor`). `withoutOverlapping(30)`: một lượt hỏi Google lúc
+ * mạng chập chờn (thử lại với backoff) không được chồng lên lượt giờ sau, và khoá bị bỏ lại khi tiến
+ * trình chết giữa chừng hết hạn trước lượt kế tiếp.
+ */
+Schedule::call('App\Actions\Schedule\CheckDocumentStoreHealth@handle')
+    ->hourlyAt(20)
+    ->name('storage.health')
+    ->withoutOverlapping(30);
+
+/**
+ * M14 Task 7 (kế hoạch R10): nhập biên nhận bản thứ hai của máy văn phòng — 07:00 hằng ngày, sau lượt
+ * kéo 01:00 của `tools/backup/office-pull.sh` (Phụ lục D của `docs/SAO-LUU-KHOI-PHUC.md`) và trước lượt
+ * kiểm sao lưu 08:00. Chạy chính lệnh tay `vkcrm:storage:office-receipts`, nên mục lịch và người vận
+ * hành cùng đi qua `App\Actions\Storage\ImportOfficeReceipts` và cùng khoá `storage-office-receipts`.
+ * Chưa cấu hình máy văn phòng → lệnh không làm gì, không tiến trình `rclone` nào.
+ *
+ * `withoutOverlapping(60)`, không 1440 mặc định: một lượt bị giết giữa chừng không được chặn lượt của
+ * ngày sau. Nối ở cuối tệp (luật làn song song cho tệp này).
+ */
+Schedule::command('vkcrm:storage:office-receipts')
+    ->dailyAt('07:00')
+    ->name('storage.office-receipts')
+    ->withoutOverlapping(60);
 
 /**
  * Ảnh chụp cuối ngày số liệu theo người (M13 R10, Task 7): số vụ đang phụ trách, quá hạn cập nhật cho

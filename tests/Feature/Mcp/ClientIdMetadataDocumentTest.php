@@ -353,13 +353,36 @@ it('CIMD cờ tắt (mặc định): client_id URL bị từ chối như một i
 });
 
 it('CIMD cờ đọc từ MCP_CLIENT_ID_METADATA_DOCUMENTS, mặc định tắt; chỉ "true" (không phải chuỗi lạ) mới bật', function () {
+    // env() đọc $_SERVER và $_ENV TRƯỚC getenv(): CI chép .env.example (có dòng
+    // MCP_CLIENT_ID_METADATA_DOCUMENTS=false) thành .env, nên chỉ putenv() thì giá trị của .env thắng.
+    // Đặt cả ba nơi rồi trả lại đúng như cũ.
     $read = function (?string $value): mixed {
-        $value === null ? putenv('MCP_CLIENT_ID_METADATA_DOCUMENTS') : putenv('MCP_CLIENT_ID_METADATA_DOCUMENTS='.$value);
+        $key = 'MCP_CLIENT_ID_METADATA_DOCUMENTS';
+        $saved = [$_SERVER[$key] ?? null, $_ENV[$key] ?? null, getenv($key)];
+
+        unset($_SERVER[$key], $_ENV[$key]);
+        putenv($key);
+
+        if ($value !== null) {
+            $_SERVER[$key] = $_ENV[$key] = $value;
+            putenv($key.'='.$value);
+        }
 
         try {
             return (require config_path('vkcrm.php'))['mcp']['client_id_metadata_documents'];
         } finally {
-            putenv('MCP_CLIENT_ID_METADATA_DOCUMENTS');
+            unset($_SERVER[$key], $_ENV[$key]);
+            putenv($key);
+
+            if ($saved[0] !== null) {
+                $_SERVER[$key] = $saved[0];
+            }
+            if ($saved[1] !== null) {
+                $_ENV[$key] = $saved[1];
+            }
+            if ($saved[2] !== false) {
+                putenv($key.'='.$saved[2]);
+            }
         }
     };
 

@@ -62,6 +62,28 @@ pest()->extend(TestCase::class)
 
 /*
 |--------------------------------------------------------------------------
+| Đĩa kho `documents_remote` (M14) cũng là đĩa GIẢ trong mọi test
+|--------------------------------------------------------------------------
+|
+| Cùng lý do với `private` ở trên, cộng một lý do nữa: đĩa thật nói chuyện với Google Drive, và
+| không test nào được gọi Google (kế hoạch M14, phán quyết C2). Test về hành vi riêng của Drive
+| (thùng rác, md5 phía máy chủ, 429, tải lên resumable) dựng adapter thật trên `Http::fake()` +
+| `Http::preventStrayRequests()`, không qua đĩa giả này: đĩa giả là đĩa cục bộ và không bao giờ gửi
+| HTTP, nên `Http::assertNothingSent()` trên nó không đỏ được.
+|
+| Hai lời gọi `pest()` riêng chứ không nối `->beforeEach()` thứ hai vào hai khối trên: `UsesCall`
+| giữ MỘT hook mỗi loại, nên hook nối sau ghi đè hook `private`. Hai lời gọi cùng thư mục thì Pest
+| gộp hook của chúng (`TestRepository::use()`), hook `private` chạy trước.
+|
+| Nhân chứng: `tests/Feature/Storage/DocumentsRemoteDiskTest.php` và
+| `tests/Unit/DocumentsRemoteFakeDiskTest.php` (không tự gọi `Storage::fake()`).
+*/
+pest()->in('Feature')->beforeEach(fn () => Storage::fake('documents_remote'));
+
+pest()->in('Unit')->beforeEach(fn () => Storage::fake('documents_remote'));
+
+/*
+|--------------------------------------------------------------------------
 | Gốc đĩa giả RIÊNG cho từng lần chạy bộ test
 |--------------------------------------------------------------------------
 |

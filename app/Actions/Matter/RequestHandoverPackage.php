@@ -56,8 +56,10 @@ use Illuminate\Support\Facades\Gate;
  *
  * `generating` KẸT: một worker chết giữa chừng không bao giờ gọi `failed()`, và nút sẽ khoá vĩnh
  * viễn. Vì vậy lần `generating` cũ hơn {@see self::STALE_AFTER_MINUTES} phút được coi là chết và
- * cho yêu cầu lại (dài hơn nhiều lần tổng thời gian tối đa của job: `$timeout` 600 giây × 2 lượt
- * thử + độ trễ giữa hai lượt). Job cũ, nếu nhấc dậy muộn, sẽ tự bị loại bởi dấu
+ * cho yêu cầu lại. Con số (90; 60 trước M14, kế hoạch R12) phải lớn hơn thời gian SỐNG lâu nhất của
+ * job: `retry_after` 1500 giây + 2 lượt × `$timeout` 1200 giây + 120 giây chờ giữa hai lượt ≈ 67
+ * phút; nhỏ hơn thì nút "sinh lại" mở khoá giữa một lượt còn sống (`QueueHandoverScheduleTest` ghim
+ * quan hệ này). Job cũ, nếu nhấc dậy muộn, sẽ tự bị loại bởi dấu
  * `handover_requested_at` ({@see BuildHandoverPackage}).
  *
  * Job được dispatch `->afterCommit()`: trạng thái `generating` đã commit trước khi worker có thể
@@ -68,7 +70,7 @@ class RequestHandoverPackage
     use ReadsWithoutPortalScope;
 
     /** Sau ngần này phút, một lần `generating` được coi là đã chết — xem docblock lớp. */
-    public const STALE_AFTER_MINUTES = 60;
+    public const STALE_AFTER_MINUTES = 90;
 
     public function handle(int $matterId, ?User $actor = null, bool $automatic = false): ?MatterArchive
     {

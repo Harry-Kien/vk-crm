@@ -83,7 +83,7 @@ function ghpNotifications(User $user): Collection
 it('khai báo tường minh $timeout, $tries, failOnTimeout, kết nối và hàng handover', function () {
     $job = ghpJob($this);
 
-    expect($job->timeout)->toBe(600)
+    expect($job->timeout)->toBe(1200) // M14 R12: gói nay tải tệp từ kho về trước khi nén (600 trước M14)
         ->and($job->timeout)->toBe(GenerateHandoverPackage::TIMEOUT_SECONDS)
         ->and($job->tries)->toBe(2)
         ->and($job->failOnTimeout)->toBeTrue()

@@ -168,4 +168,14 @@ return [
         'generated_at' => 'Lập ngày :date',
         'page' => 'Trang',
     ],
+
+    // M14 Task 4 (kế hoạch R12): hai lý do mới của HandoverPackageFailed khi tệp nằm trên kho Google
+    // Drive. Câu cho luật sư (lưu vào matter_archives.handover_error), không đường dẫn máy chủ.
+    'storage_failures' => [
+        'insufficient_work_space' => 'Máy chủ không đủ chỗ trống để dựng gói: cần khoảng :needed MB, còn :free MB. Báo quản trị hệ thống dọn ổ đĩa (hoặc trỏ biến HANDOVER_WORK_DIR tới ổ rộng hơn) rồi bấm sinh lại.',
+        'unavailable' => 'Không tải được tài liệu từ kho tài liệu: kho tạm thời chưa truy cập được. Tài liệu vẫn được lưu an toàn; vui lòng bấm sinh lại sau ít phút.',
+        // Rà soát cuối M14 vòng sửa 1 (I7): hai lỗi KHÔNG tự hết — không hứa "sinh lại sau ít phút".
+        'misconfigured' => 'Không tải được tài liệu từ kho tài liệu: kho đang lỗi cấu hình (khoá, quyền hoặc dung lượng của Google Drive). Lỗi này không tự hết; báo quản trị hệ thống sửa kho (php artisan vkcrm:storage:check), sửa xong rồi bấm sinh lại.',
+        'changed' => 'Bản trên kho tài liệu của tài liệu ":title" không khớp bản đã lưu (có thể đã bị sửa trên Google Drive). Sinh lại không giúp được; báo quản trị hệ thống kiểm bằng php artisan vkcrm:storage:verify và lấy lại bản đúng.',
+    ],
 ];

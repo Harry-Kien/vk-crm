@@ -23,8 +23,10 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Tests\Support\RemoteDocuments;
 
 /**
  * **Test quét cách ly của cổng khách hàng.** SPEC §11 ("Cách ly dữ liệu giữa khách hàng", "Tài
@@ -440,14 +442,20 @@ it('follows the version chain when both versions are released to the portal', fu
  *
  * Gắn tệp vào cả bốn đưa chúng về đúng nhánh mà tệp thật đi qua: chữ ký hợp lệ, tệp có mặt, và
  * thứ duy nhất còn đứng giữa khách và tệp của khách khác là `DocumentPolicy::download`.
+ *
+ * M14 Task 4 (kế hoạch R3): hai test tải chạy hai lần, `local` (tệp trong vùng đệm) và `remote` (tệp
+ * CHỈ còn trên kho, `RemoteDocuments::settle()`; tên tệp theo khuôn khoá R4, {@see sweepFileName()}).
  */
-it('answers a signed download url of a hidden document with 404 and serves the own one', function () {
+it('answers a signed download url of a hidden document with 404 and serves the own one', function (string $mode) {
+    RemoteDocuments::adopt($this);
+
     $hostile = collect([$this->foreignDoc, $this->internalDoc, $this->hiddenDoc, $this->chainInternalV1])
         ->map(function (Document $document): Document {
             $document->addMedia(UploadedFile::fake()->create('tep-that.pdf', 10, 'application/pdf'))
+                ->usingFileName(sweepFileName('tep-that.pdf'))
                 ->toMediaCollection('file');
 
-            return $document->fresh();
+            return RemoteDocuments::settle($document)->fresh();
         });
 
     // Tiền đề của phép đo, khẳng định chứ không giả định: cả bốn đều có tệp, nên một lần 404
@@ -458,21 +466,31 @@ it('answers a signed download url of a hidden document with 404 and serves the o
     $this->actingAs($this->userA, 'client');
 
     $hostile->each(fn (Document $document) => $this->get($document->downloadUrlFor($this->userA))->assertNotFound());
-});
+})->with(RemoteDocuments::MODES);
 
 /**
  * Vế dương của test trên, và nó là điều kiện để test kia có nghĩa: nếu mọi lần tải đều 404 thì
  * bốn dòng bên trên không đo gì cả.
  */
-it('serves the download the client is entitled to', function () {
+it('serves the download the client is entitled to', function (string $mode) {
+    RemoteDocuments::adopt($this);
+
     $this->visibleDoc
         ->addMedia(UploadedFile::fake()->create('quyet-dinh.pdf', 10, 'application/pdf'))
+        ->usingFileName(sweepFileName('quyet-dinh.pdf'))
         ->toMediaCollection('file');
+    RemoteDocuments::settle($this->visibleDoc);
 
     $this->actingAs($this->userA, 'client');
 
     $this->get($this->visibleDoc->fresh()->downloadUrlFor($this->userA))->assertOk();
-});
+})->with(RemoteDocuments::MODES);
+
+/** Tên tệp lưu: giữ tên cũ ở `local`, khuôn khoá R4 (ULID viết thường + đuôi) ở `remote`. */
+function sweepFileName(string $local): string
+{
+    return RemoteDocuments::remote() ? strtolower((string) Str::ulid()).'.pdf' : $local;
+}
 
 // =========================================================================================
 // 7. THUỘC TÍNH ĐÃ SERIALIZE

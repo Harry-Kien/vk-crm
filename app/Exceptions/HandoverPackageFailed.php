@@ -89,6 +89,49 @@ class HandoverPackageFailed extends RuntimeException
         return new self(__('handover.exceptions.store_failed'), 0, $previous);
     }
 
+    /**
+     * M14 (kế hoạch R12): máy chủ không đủ chỗ trống để dựng gói — đo TRƯỚC khi tải hay nén gì
+     * ({@see BuildHandoverPackage}: thư mục làm việc cần `2T + 50 MB`, gốc đĩa `private` cần `T + 50
+     * MB`, T = tổng cỡ tệp nguồn). Chỉ ném khi đo được; `disk_free_space` bị tắt thì bỏ kiểm.
+     */
+    public static function insufficientWorkSpace(int $neededBytes, int $freeBytes): self
+    {
+        return new self(__('handover.storage_failures.insufficient_work_space', [
+            'needed' => self::megabytes($neededBytes),
+            'free' => self::megabytes($freeBytes),
+        ]));
+    }
+
+    /**
+     * M14 (kế hoạch R9, R12): không tải được một tệp từ kho tài liệu về thư mục làm việc vì kho TẠM THỜI
+     * không trả lời (`DocumentStorageUnavailable`, kể cả bản tải về thiếu byte vì luồng đứt). Tệp vẫn ở
+     * kho; luật sư bấm sinh lại. Chi tiết kỹ thuật chỉ ở `getPrevious()` (vào log), không ở câu lưu cho
+     * luật sư.
+     */
+    public static function storageUnavailable(Throwable $previous): self
+    {
+        return new self(__('handover.storage_failures.unavailable'), 0, $previous);
+    }
+
+    /**
+     * Rà soát cuối M14 vòng sửa 1 (I7): cấu hình kho hỏng (`DocumentStorageMisconfigured`: khoá, quyền,
+     * hạn mức). Không tự hết, nên câu không hứa "sinh lại sau ít phút": báo quản trị sửa kho rồi sinh lại.
+     */
+    public static function storageMisconfigured(Throwable $previous): self
+    {
+        return new self(__('handover.storage_failures.misconfigured'), 0, $previous);
+    }
+
+    /**
+     * Rà soát cuối M14 vòng sửa 1 (I7): bản trên kho của tài liệu `$title` đã bị đổi
+     * ({@see StoredFileChanged}: đủ byte mà lệch md5, hay khác cỡ). Sinh lại lệch mãi: báo quản trị kiểm
+     * bằng `vkcrm:storage:verify`.
+     */
+    public static function storageChanged(string $title, Throwable $previous): self
+    {
+        return new self(__('handover.storage_failures.changed', ['title' => $title]), 0, $previous);
+    }
+
     /** MB theo cách viết số tiếng Việt, một chữ số thập phân, bỏ ",0": `1,5`, `1`, `2.048`. */
     private static function megabytes(int $bytes): string
     {

@@ -97,6 +97,29 @@ return [
             'report' => false,
         ],
 
+        /*
+         * M14 — kho tài liệu trên Google Drive (Shared Drive của văn phòng), phía sau CRM. Driver
+         * `google-drive` đăng ký ở `App\Providers\DocumentStorageServiceProvider`; mã gọi đĩa này qua
+         * `App\Support\Storage\DocumentStore::remote()`.
+         *
+         * LUÔN có mặt, kể cả khi `DOCUMENT_STORAGE=local`: media đã đẩy lên kho vẫn phải đọc được sau
+         * khi ai đó tắt công tắc. Adapter dựng lười, nên thiếu khoá Drive chỉ hỏng lúc DÙNG đĩa.
+         *
+         * - KHÔNG `serve`, KHÔNG `url`, KHÔNG `root`: không route `/storage/...` nào, không URL công
+         *   khai hay URL tạm nào tới một tệp hồ sơ. Đường duy nhất tới tệp vẫn là route tải ký của
+         *   `DocumentDownloadController`, sau khi kiểm quyền (SPEC §10.4, kế hoạch M14 R3).
+         * - `throw` = true: lỗi của kho phải nổ ra ngoài, không thành `false` lặng lẽ. Với `false`,
+         *   `checksum()` hỏng trả `false` thay cho một md5, và một lượt ghi hỏng trả `false` mà nơi
+         *   gọi có thể không nhìn giá trị trả về.
+         *
+         * `tests/Pest.php` thay đĩa này bằng một đĩa giả cho MỌI test, như `private`.
+         */
+        'documents_remote' => [
+            'driver' => 'google-drive',
+            'throw' => true,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

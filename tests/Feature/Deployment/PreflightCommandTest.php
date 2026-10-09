@@ -565,7 +565,7 @@ it('§preflight bốn thông tin pháp lý nhập ở trang Thông tin văn phò
 | pcntl — giờ chết của job gói bàn giao (việc sau gộp M7, làn fu2)
 |--------------------------------------------------------------------------
 |
-| `GenerateHandoverPackage::$timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch
+| `GenerateHandoverPackage::$timeout`/`$failOnTimeout` và `--timeout=1200` của mục lịch
 | `queue.handover` chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. pcntl KHÔNG nằm trong
 | `required_extensions` (danh sách đó là `composer check-platform-reqs` + `pdo_mysql` + `curl`: chỉ
 | những extension mà thiếu thì một tính năng hỏng), nên nó là một dòng riêng, ba chiều:
