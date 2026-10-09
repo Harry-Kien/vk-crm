@@ -188,6 +188,17 @@ Hai người dùng, mỗi người một việc:
   vào `.env` (`key:generate`, `webpush:vapid`) ghi được. Những khối lệnh bên dưới viết gọn
   `php artisan …`; chuỗi "Nâng cấp lên bản mới" viết đủ người chạy từng dòng.
 
+**Shared hosting (không có `sudo`).** Gói shared hosting chỉ có MỘT người dùng: tài khoản SSH của bạn
+vừa giữ mã nguồn vừa là người chạy PHP, và không có `sudo` (gõ thì nhận `sudo: command not found`).
+Một người làm cả hai việc trên, nên ở mọi khối lệnh của tài liệu này: bỏ tiền tố `sudo -u www-data`
+(chạy thẳng `php artisan …`, `rm …`, `nano .env`), bỏ hẳn hai dòng `sudo mkdir`/`sudo chown` của Bước 2
+(đặt mã nguồn ở thư mục nhà cung cấp chỉ định, trong thư mục nhà của bạn) và mọi dòng `chown` (tệp đã
+thuộc về bạn), bỏ dòng `crontab` (Bước 8 dùng mục "Cron Jobs" của bảng điều khiển); những dòng quản
+trị máy (`sudo apt …`, `sudo nginx -t`, `sudo systemctl …` ở Bước 1 và 4) là việc của nhà cung cấp —
+nhờ họ, hoặc làm qua bảng điều khiển. GIỮ `chmod 600 .env` — viết không `sudo`: `.env` chứa `APP_KEY`
+và mọi mật khẩu, người dùng khác trên cùng máy không được đọc. Gói nào chạy PHP bằng một người dùng KHÁC tài khoản SSH mà không có `sudo` thì không cài theo
+tài liệu này được: hỏi nhà cung cấp, đừng `chmod 777`.
+
 ### Bước 0 — Hỏi chủ văn phòng trước khi bắt đầu
 
 | Cần gì | Dùng ở đâu |
@@ -953,21 +964,25 @@ biến mất), quản trị viên đã cài 2FA, một lần khôi phục thử 
 ## Nâng cấp lên bản mới
 
 Chạy bằng người quản trị (chủ của mã nguồn và của deploy key — Bước 2); mỗi dòng `php artisan` chạy
-bằng `www-data`, viết đủ ở đây để chép nguyên khối:
+bằng `www-data`, viết đủ ở đây để chép nguyên khối.
+
+**Shared hosting:** một tài khoản làm cả hai việc (đoạn "Shared hosting" ở đầu phần "Cài lên máy chủ
+thật") — chép khối dưới, bỏ tiền tố `sudo -u www-data` ở mọi dòng có nó và bỏ hẳn dòng `chown`;
+thứ tự các dòng còn lại giữ nguyên.
 
 ```bash
 cd /var/www/vk-crm
 sudo -u www-data php artisan down
 git pull
 composer install --no-dev --optimize-autoloader --no-scripts
-sudo -u www-data rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+sudo -u www-data rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php
 sudo -u www-data php artisan package:discover
 php artisan filament:assets
 sudo chown -R www-data:www-data storage bootstrap/cache
+sudo -u www-data php artisan optimize:clear
 sudo -u www-data php artisan migrate --force
 sudo -u www-data php artisan db:seed --force
 sudo -u www-data php artisan billing:check-invariants
-sudo -u www-data php artisan optimize:clear
 sudo -u www-data php artisan vkcrm:preflight
 sudo -u www-data php artisan optimize
 sudo -u www-data php artisan up
@@ -975,17 +990,26 @@ sudo -u www-data php artisan up
 
 - `php artisan down` trả trang bảo trì (503) cho mọi người trong lúc cập nhật, để không ai ghi dữ
   liệu giữa chừng một migration.
-- `composer install … --no-scripts` rồi hai dòng sau nó: sau lần cài đầu, `bootstrap/cache/` và
+- `composer install … --no-scripts` rồi ba dòng sau nó: sau lần cài đầu, `bootstrap/cache/` và
   `storage/` thuộc về `www-data`, nên hai lệnh composer tự gọi sau khi cài (`package:discover`,
   `filament:upgrade`) không chạy được bằng người quản trị — lượt đi thử ngày 2026-10-08 dừng ở `Script
   @php artisan package:discover --ansi handling the post-autoload-dump event returned with error code
   1`. Vì vậy composer không tự gọi chúng, và ba dòng sau làm đúng việc của chúng bằng đúng người:
-  xoá hai tệp danh sách gói cũ trong `bootstrap/cache/` (việc composer vẫn tự làm trước
-  `package:discover` — bỏ dòng này thì một gói vừa bị gỡ làm `package:discover` chết ngay lúc khởi
-  động, ví dụ `Class "Laravel\Pail\PailServiceProvider" not found`, đo cùng ngày), `package:discover`
-  bằng `www-data` (nó ghi `bootstrap/cache/`), `filament:assets` bằng người quản trị (nó chép tài sản
-  giao diện vào `public/`, thư mục của người quản trị); phần dọn cache của `filament:upgrade` đã nằm
-  trong `optimize:clear` ở dưới.
+  xoá ba tệp cache khởi động của bản cũ trong `bootstrap/cache/` — cấu hình `config.php` và hai danh
+  sách gói, đúng ba tệp composer vẫn tự xoá trước `package:discover` (còn hai tệp danh sách gói cũ
+  thì một gói vừa bị gỡ làm `package:discover` chết ngay lúc khởi động, ví dụ
+  `Class "Laravel\Pail\PailServiceProvider" not found`, đo cùng ngày; `config.php`: gạch dưới),
+  `package:discover` bằng `www-data` (nó ghi `bootstrap/cache/`), `filament:assets` bằng người quản trị
+  (nó chép tài sản giao diện vào `public/`, thư mục của người quản trị).
+- `optimize:clear` đứng TRƯỚC `migrate`: nó làm phần dọn cache của `filament:upgrade` (`config:clear`,
+  `route:clear`, `view:clear`) và dọn thêm cache sự kiện, để `migrate`, `db:seed`,
+  `billing:check-invariants` chạy bằng cấu hình và mã của bản MỚI. Cache cấu hình của lần `optimize`
+  trước mà còn hiệu lực thì một migration đọc cấu hình mới đọc ra null — ví dụ máy chủ trước M12 nâng
+  lên M12: migration `create_push_subscriptions_table` đọc `config('webpush.table_name')`, tệp
+  `config/webpush.php` chưa có trong cache cũ, `Schema::create(null)` ném lỗi và site kẹt ở trang bảo
+  trì (tìm ra khi rà soát, không quan sát được: lượt đi thử nâng cấp một bản lên chính nó). Nó đứng
+  SAU `filament:assets` vì nó xoá luôn hai tệp danh sách gói, mà lệnh `php artisan` kế tiếp tự ghi
+  lại vào `bootstrap/cache/` — lệnh đó phải chạy bằng `www-data`, không phải người quản trị.
 - `db:seed --force` an toàn để chạy lại (Bước 5) và NÊN chạy: bản mới có thể thêm quyền hay loại vụ
   việc. Bản M9 thêm bốn quyền tiền (`billing.view`, `contract.manage`, `payment.record`,
   `revenue.viewAny`) — không chạy thì không ai mở được màn hình tiền; bản M10 thêm ba quyền tiếp nhận

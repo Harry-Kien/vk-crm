@@ -213,7 +213,7 @@ it('§14.8 tells an Ubuntu 24.04 installer how to enable HTTP/2 on nginx 1.24', 
  * `bootstrap/cache/` thuộc `www-data`: composer tự gọi `package:discover` và dừng ở "Script @php artisan
  * package:discover --ansi handling the post-autoload-dump event returned with error code 1". Chuỗi nay
  * tắt script của composer, xoá danh sách gói cũ (gap 8b, quan sát được: thiếu bước này thì một gói vừa
- * gỡ làm `package:discover` chết lúc khởi động), chạy `package:discover` bằng `www-data` và
+ * gỡ làm `package:discover` chết lúc khởi động) cùng cache cấu hình cũ (test ngay dưới), chạy `package:discover` bằng `www-data` và
  * `filament:assets` bằng người quản trị; mọi dòng `php artisan` khác đều ghi rõ `sudo -u www-data`.
  */
 it('§14.8 runs the upgrade chain with the right user on every line', function () {
@@ -228,8 +228,8 @@ it('§14.8 runs the upgrade chain with the right user on every line', function (
         ->and($upgrade)->toContain('Class "Laravel\Pail\PailServiceProvider" not found');
 
     expect($index['composer install --no-dev --optimize-autoloader --no-scripts'])
-        ->toBeLessThan($index['sudo -u www-data rm -f bootstrap/cache/packages.php bootstrap/cache/services.php'])
-        ->and($index['sudo -u www-data rm -f bootstrap/cache/packages.php bootstrap/cache/services.php'])
+        ->toBeLessThan($index['sudo -u www-data rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php'])
+        ->and($index['sudo -u www-data rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php'])
         ->toBeLessThan($index['sudo -u www-data php artisan package:discover'])
         ->and($index['sudo -u www-data php artisan package:discover'])->toBeLessThan($index['php artisan filament:assets'])
         ->and($index['sudo -u www-data php artisan down'])->toBe(1)
@@ -246,6 +246,126 @@ it('§14.8 runs the upgrade chain with the right user on every line', function (
     expect($summary)->toContain('--no-scripts')
         ->and($summary)->toContain('package:discover')
         ->and($summary)->toContain('filament:assets');
+});
+
+/**
+ * Rà soát Task 2, vòng sửa 1 (finding 1; tìm ra khi đọc, không quan sát được — lượt đi nâng cấp một cây
+ * lên CHÍNH nó, nên cấu hình cũ và mới trùng nhau). `composer install --no-scripts` bỏ luôn
+ * `ComposerScripts::clearCompiled`, mà hàm đó xoá BA tệp: `config.php`, `packages.php`, `services.php`;
+ * và `filament:upgrade` từng chạy `config:clear`, `route:clear`, `view:clear`. Chuỗi chỉ xoá hai tệp
+ * danh sách gói thì `bootstrap/cache/config.php` của lần `optimize` trước còn hiệu lực qua `migrate`,
+ * `db:seed`, `billing:check-invariants`: máy chủ trước M12 nâng cấp lên M12 chạy migration
+ * `create_push_subscriptions_table`, nó đọc `config('webpush.table_name')` từ cache cũ (chưa có
+ * `config/webpush.php`) ra null, `Schema::create(null)` ném TypeError và site kẹt ở chế độ bảo trì.
+ *
+ * Test đi từng dòng của khối lệnh với một mô hình nhỏ của `bootstrap/cache/`: lúc bắt đầu, lần
+ * `optimize` trước để lại `config.php`, `events.php`, `routes-v7.php`. Sau `git pull`, mọi dòng
+ * `php artisan` cho tới `optimize` phải khởi động KHÔNG có `config.php` cũ; `migrate`, `db:seed`,
+ * `billing:check-invariants`, `vkcrm:preflight` không có cache cũ nào. Và vì `optimize:clear` (qua
+ * `clear-compiled`) xoá luôn `packages.php`/`services.php` mà lệnh `php artisan` KẾ TIẾP tự dựng lại
+ * vào `bootstrap/cache/` của `www-data`, không dòng `php artisan` nào của người quản trị được chạy
+ * khi hai tệp đó đang thiếu.
+ */
+it('§14.8 clears the previous release\'s cached config before the upgrade migrates', function () {
+    // Tiền đề: bản M12 có migration đọc cấu hình của một tệp config mới.
+    expect(igcFile('database/migrations/2026_10_03_000001_create_push_subscriptions_table.php'))
+        ->toContain("config('webpush.table_name')")
+        ->and(is_file(config_path('webpush.php')))->toBeTrue();
+
+    $upgrade = igcSection(igcFile('docs/CAI-DAT.md'), '## Nâng cấp lên bản mới', '### Bản cập nhật M12');
+    $lines = igcBashLines($upgrade, 'git pull');
+
+    $stale = ['config.php' => true, 'events.php' => true, 'routes-v7.php' => true];
+    $manifests = ['packages.php' => true, 'services.php' => true];
+    $pulled = false;
+    $seen = [];
+
+    foreach ($lines as $line) {
+        if ($line === 'git pull') {
+            $pulled = true;
+        }
+
+        if (preg_match('/^(sudo -u www-data )?php artisan (\S+)/', $line, $artisan)) {
+            [, $asWebUser, $command] = $artisan;
+            $seen[] = $command;
+
+            if ($command === 'optimize') {
+                break;
+            }
+
+            if ($pulled) {
+                expect($stale['config.php'])->toBeFalse("`{$line}` khởi động với bootstrap/cache/config.php của bản cũ");
+            }
+
+            if (in_array($command, ['migrate', 'db:seed', 'billing:check-invariants', 'vkcrm:preflight'], true)) {
+                expect(array_keys(array_filter($stale)))->toBe([], "`{$line}` chạy với cache cũ còn lại");
+            }
+
+            if ($asWebUser === '') {
+                expect(array_filter($manifests))->toHaveCount(2, "`{$line}` (người quản trị) phải tự ghi lại danh sách gói vào bootstrap/cache/ của www-data");
+            }
+
+            if ($command === 'optimize:clear') {
+                $stale = array_map(fn () => false, $stale);
+                $manifests = array_map(fn () => false, $manifests);
+            } elseif ($command === 'config:clear') {
+                $stale['config.php'] = false;
+            } else {
+                // Mỗi lần khởi động dựng lại danh sách gói còn thiếu.
+                $manifests = array_map(fn () => true, $manifests);
+            }
+        } elseif (str_starts_with($line, 'sudo -u www-data rm -f ')) {
+            preg_match_all('#bootstrap/cache/(\S+)#', $line, $removed);
+            foreach ($removed[1] as $file) {
+                if (array_key_exists($file, $stale)) {
+                    $stale[$file] = false;
+                }
+                if (array_key_exists($file, $manifests)) {
+                    $manifests[$file] = false;
+                }
+            }
+        }
+    }
+
+    expect($seen)->toContain('migrate')
+        ->and($seen)->toContain('vkcrm:preflight')
+        ->and(end($seen))->toBe('optimize');
+
+    expect($upgrade)->toContain("config('webpush.table_name')");
+
+    $readme = igcFile('README.md');
+    $summary = str_replace("\n  ", ' ', substr($readme, (int) strpos($readme, '- **Nâng cấp:**')));
+    expect($summary)->toContain('config.php')
+        ->and(strpos($summary, 'optimize:clear'))->toBeLessThan(strpos($summary, 'migrate --force'));
+});
+
+/**
+ * Rà soát Task 2, vòng sửa 1 (finding 2; tìm ra khi đọc). Phần production nói nó dành cho "VPS … hoặc
+ * một gói shared hosting có SSH", mà mô hình hai người dùng viết `sudo` ở mọi bước: trên shared hosting
+ * không có `sudo` và PHP chạy bằng chính tài khoản SSH, người đọc dừng ở dòng đầu của Bước 2 với
+ * `sudo: command not found` và tài liệu không nói gì. Đầu phần production và chuỗi nâng cấp phải nói
+ * cách đọc lệnh trên shared hosting: một người làm cả hai việc, bỏ `sudo -u www-data`/`sudo`, bỏ các
+ * dòng `chown`, GIỮ `chmod 600 .env`. README nói cùng điều ở gạch "Hai người dùng".
+ */
+it('§14.8 tells a shared-hosting installer how to read the sudo lines', function () {
+    $guide = igcFile('docs/CAI-DAT.md');
+    $intro = str_replace("\n", ' ', igcSection($guide, '## Cài lên máy chủ thật (production)', '### Bước 0'));
+    $upgrade = str_replace("\n", ' ', igcSection($guide, '## Nâng cấp lên bản mới', '### Bản cập nhật M12'));
+
+    expect($intro)->toContain('**Shared hosting (không có `sudo`).**')
+        ->and($intro)->toContain('sudo: command not found')
+        ->and($intro)->toContain('bỏ tiền tố `sudo -u www-data`')
+        ->and($intro)->toContain('`chown`')
+        ->and($intro)->toContain('GIỮ `chmod 600 .env`');
+
+    expect($upgrade)->toContain('**Shared hosting:**')
+        ->and($upgrade)->toContain('bỏ tiền tố `sudo -u www-data`')
+        ->and($upgrade)->toContain('`chown`');
+
+    $readme = igcFile('README.md');
+    $twoUsers = str_replace("\n", ' ', substr($readme, (int) strpos($readme, '- **Hai người dùng:**'), 1500));
+    expect($twoUsers)->toContain('shared hosting')
+        ->and($twoUsers)->toContain('bỏ `sudo`');
 });
 
 /**

@@ -171,7 +171,10 @@ Tóm tắt những điều không được bỏ qua:
 - **Hai người dùng:** người quản trị (tài khoản SSH có `sudo`, không phải `www-data`) giữ mã nguồn —
   `git clone`/`git pull`, `composer install`, deploy key; `www-data` (người chạy PHP-FPM) chạy mọi
   `php artisan …` (`sudo -u www-data php artisan …`) và là chủ của `storage/`, `bootstrap/cache/` và
-  `.env` (quyền `600`; sửa bằng `sudo -u www-data nano .env`).
+  `.env` (quyền `600`; sửa bằng `sudo -u www-data nano .env`). Trên shared hosting (không có `sudo`,
+  PHP chạy bằng chính tài khoản SSH) một tài khoản làm cả hai việc: bỏ `sudo` và `sudo -u www-data`
+  khỏi mọi lệnh, bỏ các dòng `chown`, vẫn `chmod 600 .env` — `docs/CAI-DAT.md`, đoạn "Shared hosting"
+  ở đầu phần production.
 - **Thứ tự cài:** `cp .env.example .env` → `composer install --no-dev --optimize-autoloader` →
   giao `storage/`, `bootstrap/cache/` và `.env` cho `www-data` →
   `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) và điền `.env`
@@ -203,11 +206,12 @@ Tóm tắt những điều không được bỏ qua:
   `docs/CAI-DAT.md`, Bước 3 và "Bản cập nhật M12"; hướng dẫn cài app cho khách:
   `docs/QUY-TRINH.md`.
 - **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader
-  --no-scripts` → xoá `bootstrap/cache/packages.php` và `services.php` → `php artisan
+  --no-scripts` → xoá `bootstrap/cache/config.php`, `packages.php` và `services.php` → `php artisan
   package:discover` → `php artisan filament:assets` (bằng người quản trị) →
-  `chown -R www-data:www-data storage bootstrap/cache` → `php artisan migrate --force` →
-  `php artisan db:seed --force` → `php artisan billing:check-invariants` →
-  `php artisan optimize:clear` → `php artisan vkcrm:preflight` → `php artisan optimize` →
+  `chown -R www-data:www-data storage bootstrap/cache` → `php artisan optimize:clear` (TRƯỚC
+  `migrate`: cache cấu hình của bản cũ làm migration đọc cấu hình mới ra null) →
+  `php artisan migrate --force` → `php artisan db:seed --force` →
+  `php artisan billing:check-invariants` → `php artisan vkcrm:preflight` → `php artisan optimize` →
   `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu. Chuỗi đủ người chạy từng
   dòng, để chép nguyên khối: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
