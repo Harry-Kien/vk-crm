@@ -5,6 +5,7 @@ namespace App\Actions\Communication;
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\CommunicationType;
+use App\Enums\CreatedVia;
 use App\Models\CommunicationLog;
 use App\Models\Matter;
 use App\Models\User;
@@ -22,8 +23,9 @@ use Throwable;
  * Ghi một dòng nhật ký liên lạc vào một vụ việc (SPEC §4.17, §7.2 tab "Liên lạc"; M7 Task 8).
  *
  * Bảng `communication_logs` có từ M1 và policy từ M2, nhưng trước Action này không có đường ghi
- * nào ngoài dữ liệu mẫu. **Tên lớp và chữ ký giữ cho M11**: công cụ MCP ghi nhật ký liên lạc gọi
- * thẳng Action này (và M11 thêm cột `created_via`).
+ * nào ngoài dữ liệu mẫu. **Tên lớp và chữ ký giữ cho M11**: tool MCP `log_communication` gọi thẳng
+ * Action này (`App\Actions\Mcp\Write\LogAiCommunication`), và M11 Task 13 thêm tham số `$createdVia`
+ * (cột `created_via` của Task 7): mặc định `web` cho tab "Liên lạc", tool ép `mcp`.
  *
  * # "Dưới 15 giây" là chữ ký này
  *
@@ -77,6 +79,8 @@ class LogCommunication
     /**
      * @param  string|null  $counterpart  trống thì lấy tên khách hàng của vụ việc
      * @param  string|CarbonInterface|null  $occurredAt  trống thì là bây giờ
+     * @param  CreatedVia  $createdVia  `mcp` chỉ do tool `log_communication` của M11 truyền (R5); tab
+     *                                  "Liên lạc" để mặc định `web`
      *
      * @throws AuthorizationException
      * @throws ValidationException
@@ -89,8 +93,9 @@ class LogCommunication
         ?string $counterpart = null,
         string|CarbonInterface|null $occurredAt = null,
         ?int $durationMinutes = null,
+        CreatedVia $createdVia = CreatedVia::Web,
     ): CommunicationLog {
-        return DB::transaction(function () use ($matter, $actor, $type, $summary, $counterpart, $occurredAt, $durationMinutes): CommunicationLog {
+        return DB::transaction(function () use ($matter, $actor, $type, $summary, $counterpart, $occurredAt, $durationMinutes, $createdVia): CommunicationLog {
             // Câu ĐẦU TIÊN: khoá vụ việc, đọc lại từ CSDL. `Matter::query()` loại vụ đã xoá mềm,
             // nên vụ như vậy ra `null` ở đây và đi ra bằng câu từ chối chung.
             $fresh = $this->scopelessly(Matter::query())->lockForUpdate()->find($matter->getKey());
@@ -113,12 +118,16 @@ class LogCommunication
                 'is_visible_to_client' => false,
             ]);
 
+            // `created_via` không nằm trong `$fillable` (một form web không tự dán nhãn "tạo qua AI").
+            $log->forceFill(['created_via' => $createdVia]);
+
             $log->blameOn($actor)->save();
 
             Audit::record('communication_logged', $log, [
                 'matter_id' => $fresh->getKey(),
                 'client_id' => $fresh->client_id,
                 'type' => $type->value,
+                'created_via' => $createdVia->value,
                 'occurred_at' => $log->occurred_at->toDateTimeString(),
             ], causer: $actor);
 

@@ -2,6 +2,7 @@
 
 use App\Actions\Deadline\AddMatterDeadline;
 use App\Enums\Confidentiality;
+use App\Enums\CreatedVia;
 use App\Enums\DeadlineSeverity;
 use App\Enums\MatterRole;
 use App\Enums\Role;
@@ -255,3 +256,19 @@ it('refuses a responsible person outside the matter team even though they can wr
 
     expect($deadline->responsible_user_id)->toBe($manager->id);
 });
+
+/*
+ * M11 Task 13: `created_via` — mặc định `web` cho mọi màn hình; chỉ tool `create_deadline` truyền `mcp`.
+ * Cột không nằm trong `$fillable`, nên Action ghi nó tường minh; dòng audit mang cùng giá trị.
+ */
+it('records created_via web by default and mcp when the MCP tool asks for it, on the row and on the audit line', function (?CreatedVia $via, string $expected) {
+    $arguments = ['matter' => $this->matter, 'actor' => $this->lawyer, 'name' => 'Hạn nộp chứng cứ', 'dueDate' => today()->addDays(3)->toDateString()];
+
+    $deadline = app(AddMatterDeadline::class)->handle(...($via === null ? $arguments : [...$arguments, 'createdVia' => $via]));
+
+    expect($deadline->fresh()->created_via->value)->toBe($expected)
+        ->and(Activity::query()->where('event', 'deadline_added')->latest('id')->first()->properties->get('created_via'))->toBe($expected);
+})->with([
+    'mặc định' => [null, 'web'],
+    'qua MCP' => [CreatedVia::Mcp, 'mcp'],
+]);

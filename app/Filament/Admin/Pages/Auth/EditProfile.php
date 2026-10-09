@@ -2,8 +2,13 @@
 
 namespace App\Filament\Admin\Pages\Auth;
 
+use App\Actions\Mcp\RevokeAiConnections;
+use App\Enums\AiRevocationReason;
+use App\Models\User;
 use Filament\Auth\Pages\EditProfile as BaseEditProfile;
 use Filament\Schemas\Components\Component;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use SensitiveParameter;
 
 /**
@@ -89,5 +94,34 @@ class EditProfile extends BaseEditProfile
         $data['email'] = $this->getUser()->getAttributeValue('email');
 
         return $data;
+    }
+
+    /**
+     * M11 R8 (Task 6): nhân sự tự đổi mật khẩu thì mọi kết nối AI của chính họ bị thu hồi
+     * ({@see RevokeAiConnections}, lý do `password_changed`, causer là chính họ), trong CÙNG
+     * transaction với lần ghi mật khẩu — lần ghi sụp thì không token nào bị thu hồi, và ngược lại.
+     * `ai_access` giữ nguyên: đổi mật khẩu là chuyện thông tin đăng nhập, không phải quyền AI.
+     *
+     * "Có đổi mật khẩu" là đúng điều kiện lớp cha dùng cho việc cập nhật băm mật khẩu trong phiên
+     * (`array_key_exists('password', $data)`): ô mật khẩu chỉ vào `$data` khi có giá trị
+     * (`dehydrated(filled)`). Panel không bật `databaseTransactions()`, nên transaction ở đây là
+     * transaction NGOÀI CÙNG của lần lưu; câu đầu tiên trong nó khoá dòng `users` của người đó.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected function handleRecordUpdate(Model $record, #[SensitiveParameter] array $data): Model
+    {
+        return DB::transaction(function () use ($record, $data): Model {
+            User::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
+
+            /** @var User $updated người đăng nhập panel `admin` — luôn là một `User` */
+            $updated = parent::handleRecordUpdate($record, $data);
+
+            if (array_key_exists('password', $data)) {
+                app(RevokeAiConnections::class)->handle($updated, AiRevocationReason::PasswordChanged, $updated);
+            }
+
+            return $updated;
+        });
     }
 }

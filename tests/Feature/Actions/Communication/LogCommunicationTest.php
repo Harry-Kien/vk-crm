@@ -2,6 +2,7 @@
 
 use App\Actions\Communication\LogCommunication;
 use App\Enums\CommunicationType;
+use App\Enums\CreatedVia;
 use App\Enums\Role;
 use App\Models\Client;
 use App\Models\CommunicationLog;
@@ -137,3 +138,17 @@ it('asks the gate about the matter as it is in the database, not as the caller h
     expect(fn () => logCall($stale, $outsider))
         ->toThrow(AuthorizationException::class);
 });
+
+/*
+ * M11 Task 13: `created_via` — mặc định `web` cho tab "Liên lạc"; chỉ tool `log_communication` truyền
+ * `mcp`. Dòng audit mang cùng giá trị.
+ */
+it('records created_via web by default and mcp when the MCP tool asks for it, on the row and on the audit line', function (?CreatedVia $via, string $expected) {
+    $log = logCall($this->matter, $this->lawyer, $via === null ? [] : ['createdVia' => $via]);
+
+    expect($log->fresh()->created_via->value)->toBe($expected)
+        ->and(Activity::query()->where('event', 'communication_logged')->latest('id')->first()->properties->get('created_via'))->toBe($expected);
+})->with([
+    'mặc định' => [null, 'web'],
+    'qua MCP' => [CreatedVia::Mcp, 'mcp'],
+]);

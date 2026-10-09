@@ -12,6 +12,8 @@
         "filament/spatie-laravel-media-library-plugin": "^5",
         "laravel-notification-channels/webpush": "^13.0",
         "laravel/framework": "^13.17",
+        "laravel/mcp": "^1.0",
+        "laravel/passport": "^13.8",
         "laravel/tinker": "^3.0",
         "spatie/laravel-activitylog": "^4.0",
         "spatie/laravel-backup": "^10.3",

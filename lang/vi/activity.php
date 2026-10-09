@@ -53,6 +53,33 @@ return [
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',
         // App\Actions\SetMatterPortalPublication (fix round 2 review, task 2).
         'matter_portal_publication_set' => 'Đổi trạng thái công bố portal',
+        // M11 R9 (Task 7): App\Actions\Matter\SetMatterAiAccess.
+        'matter_ai_access_changed' => 'Đổi truy cập qua AI của vụ việc',
+        // M11 R2/R8/R12 (Task 6): App\Actions\Mcp\{SetUserAiAccess,RevokeAiConnections,AcknowledgeAiPolicy}.
+        // Chủ thể là nhân sự; `ai_access_changed` mang `from`/`to` (và `reason` khi hệ thống hạ về
+        // `off`), `ai_connections_revoked` mang `reason` và số token mỗi loại — không token nào.
+        'ai_access_changed' => 'Đổi quyền truy cập qua AI của nhân sự',
+        'ai_connections_revoked' => 'Thu hồi kết nối AI của nhân sự',
+        'ai_policy_acknowledged' => 'Cam kết chính sách dùng AI',
+        // M11 Task 4: App\Actions\Mcp\RecordMcpConnectionDecision (màn hình đồng ý OAuth). Chủ thể và
+        // causer là chính nhân sự; mang client OAuth, nền tảng, host redirect, và `mode` (đồng ý) hay
+        // `reason` (không đồng ý) — không tên client tự khai.
+        'mcp_connection_authorized' => 'Đồng ý kết nối trợ lý AI',
+        'mcp_connection_denied' => 'Không đồng ý kết nối trợ lý AI',
+        // M11 Task 17 (R8): App\Actions\Mcp\RecordMcpTokenRefresh — mỗi lần `/oauth/token` làm mới token
+        // của một client MCP; chủ thể và causer là nhân sự, mang client OAuth và nền tảng — không token.
+        'mcp_token_refreshed' => 'Làm mới kết nối trợ lý AI',
+        // M11 Task 8 (R8): App\Actions\Mcp\RecordMcpToolCall — mỗi lần gọi tool qua MCP, kể cả bị từ
+        // chối; `properties.channel = mcp`, tham số theo allowlist, id và tên trường đã trả, `outcome`.
+        'mcp_tool_called' => 'Trợ lý AI gọi công cụ',
+        // M11 Task 15 (R2, R12 mục 3): App\Actions\Mcp\UpdateAiSettings — trang "Kết nối AI" đổi công
+        // tắc toàn hệ thống hay ngày đã nộp hồ sơ đánh giá tác động; `changed` = trường → giá trị mới.
+        'ai_settings_updated' => 'Đổi cấu hình trợ lý AI toàn hệ thống',
+        // M11 Task 12 (làn m11b): App\Actions\Mcp\{UseStageLogDraft,UseReplyDraft,DiscardDraft},
+        // App\Actions\Deadline\ConfirmAiDeadline.
+        'mcp_draft_used' => 'Gửi từ nháp do AI soạn',
+        'mcp_draft_discarded' => 'Bỏ nháp do AI soạn',
+        'deadline_ai_confirmed' => 'Xác nhận mốc tạo qua AI',
         // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',

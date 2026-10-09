@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Middleware\Mcp\AuditToolCall;
+use App\Http\Middleware\Mcp\ThrottleMcp;
+use App\Mcp\Servers\CrmServer;
+use App\Support\Mcp\McpRateLimits;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schedule;
@@ -15,12 +19,13 @@ use Illuminate\Support\Facades\Schedule;
 */
 
 /**
- * "API 60 request/phút": hôm nay KHÔNG có API. Test khẳng định điều đó, để ngày có route `api/*`
- * (M11 — máy chủ MCP, đã nhận giới hạn 60/phút ở R8 của kế hoạch M11) test này đỏ và buộc người
- * thêm route phải tới đây, gắn giới hạn, và sửa test có chủ đích — thay vì một API ra đời không
- * có giới hạn nào.
+ * "API 60 request/phút": API duy nhất của app là máy chủ MCP `POST /mcp` (M11), KHÔNG nằm dưới
+ * `api/*`. Giới hạn 60 lần một phút gắn ở đó (M11 R8, Task 8): test ngay dưới chỉ thẳng vào route
+ * `/mcp`, và `tests/Feature/Mcp/RateLimitTest.php` đo lần gọi thứ 61 qua HTTP thật. Test này vẫn
+ * khẳng định không có route `api/*`, để ngày có một API thứ hai test đỏ và buộc người thêm route
+ * phải tới đây, gắn giới hạn, và sửa test có chủ đích — thay vì một API ra đời không có giới hạn nào.
  */
-it('§10.3 has no api/* route yet, so the 60-requests-a-minute rule has nothing to guard until M11 adds one', function () {
+it('§10.3 has no api/* route, so the only API is /mcp and its limit is pinned below', function () {
     $api = collect(Route::getRoutes())
         ->filter(fn ($route): bool => $route->uri() === 'api' || str_starts_with($route->uri(), 'api/'))
         ->map(fn ($route): string => $route->uri())
@@ -28,6 +33,25 @@ it('§10.3 has no api/* route yet, so the 60-requests-a-minute rule has nothing 
         ->all();
 
     expect($api)->toBe([]);
+});
+
+/**
+ * M11 R8 (Task 8): route `POST /mcp` mang hai middleware của giới hạn — `AuditToolCall` (trạng thái
+ * của lần gọi) rồi `ThrottleMcp` (429 kèm `Retry-After`, `X-RateLimit-*`) — và con số chung của mọi
+ * lần gọi tool đúng là 60 lần một phút. Hành vi đo qua HTTP ở `tests/Feature/Mcp/RateLimitTest.php`.
+ */
+it('§10.3 puts the 60-requests-a-minute limit on the /mcp API route', function () {
+    $route = collect(Route::getRoutes())
+        ->first(fn ($route): bool => $route->uri() === CrmServer::PATH && in_array('POST', $route->methods(), true));
+
+    expect($route)->not->toBeNull();
+
+    $middleware = $route->middleware();
+
+    expect($middleware)->toContain(AuditToolCall::class)
+        ->toContain(ThrottleMcp::class)
+        ->and(array_search(ThrottleMcp::class, $middleware, true))->toBe(array_search(AuditToolCall::class, $middleware, true) + 1)
+        ->and(McpRateLimits::PER_MINUTE)->toBe(60);
 });
 
 it('§10.3 does not register the api routing file either, so a route cannot appear there unnoticed', function () {

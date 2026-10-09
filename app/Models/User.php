@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Actions\User\ResetStaffTwoFactor;
+use App\Enums\AiAccessMode;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use Database\Factories\UserFactory;
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
 use NotificationChannels\WebPush\HasPushSubscriptions;
 use SensitiveParameter;
 use Spatie\Activitylog\LogOptions;
@@ -35,9 +38,15 @@ use Spatie\Permission\Traits\HasRoles;
  * cột này là `two_factor_secret`/`two_factor_recovery_codes`. Bốn phương thức dưới đây tự ánh xạ
  * sang đúng tên cột đó thay vì đổi tên cột — đổi tên cột đòi một migration đổi tên chạy trên dữ
  * liệu production, trong khi bốn phương thức nhỏ này làm xong đúng việc migration đó sẽ làm.
+ *
+ * M11 Task 1 (R1): `HasApiTokens` + `OAuthenticatable` để guard `mcp` (driver `passport`) nhận
+ * người dùng này từ một token Passport. CHỈ `User` (nhân sự); `ClientUser` không bao giờ có hai thứ
+ * đó.
  */
-class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery
+class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, OAuthenticatable
 {
+    use HasApiTokens;
+
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 
@@ -48,6 +57,20 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     use LogsActivity;
     use Notifiable;
     use SoftDeletes;
+
+    /**
+     * Guard của spatie/permission cho model này: luôn `web`, guard mà `RolesAndPermissionsSeeder`
+     * và `assignRoleFromPosition()` seed mọi quyền và vai (M11, mục "sẽ cắn").
+     *
+     * Không khai thuộc tính này, spatie đoán guard từ những guard có provider trỏ tới `User`, tức
+     * `web` và `mcp`. Nó chọn guard mặc định của request nếu guard đó nằm trong danh sách
+     * (`Spatie\Permission\Guard::getDefaultName()`). Trong request MCP, `auth:mcp` gọi
+     * `Auth::shouldUse('mcp')`, nên spatie đi tìm quyền ở guard `mcp`, nơi không có quyền nào được
+     * seed, và `can('matter.view')` trả `false` cho mọi người. Mọi tool khi đó trả "Không tìm thấy":
+     * một thất bại trông giống bảo mật tốt. `tests/Feature/Mcp/TransportTest.php` (§5) canh điều này
+     * qua một request thật sau `auth:mcp`.
+     */
+    protected string $guard_name = 'web';
 
     protected $fillable = [
         'name',
@@ -67,6 +90,17 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         'two_factor_recovery_codes',
     ];
 
+    /**
+     * M11 R2 (Task 6): khớp mặc định của cột `users.ai_access`, để một `User` chưa lưu cũng đọc ra
+     * `AiAccessMode::Off`. Cột cố ý KHÔNG nằm trong `$fillable` — form sửa nhân sự (và mọi `fill()`)
+     * không đặt được nó; chỉ `SetUserAiAccess` / `RevokeAiConnections` đổi nó.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'ai_access' => 'off',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -74,6 +108,7 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'password' => 'hashed',
             'position' => UserPosition::class,
             'is_active' => 'boolean',
+            'ai_access' => AiAccessMode::class,
             'session_epoch' => 'integer',
             'last_login_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',
@@ -84,6 +119,16 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'two_factor_secret' => 'encrypted',
             'two_factor_recovery_codes' => 'encrypted:array',
         ];
+    }
+
+    /**
+     * Lời cam kết chính sách dùng AI của người này, mỗi phiên bản chính sách một dòng (M11 R12).
+     *
+     * @return HasMany<AiAcknowledgement, $this>
+     */
+    public function aiAcknowledgements(): HasMany
+    {
+        return $this->hasMany(AiAcknowledgement::class);
     }
 
     public function leadMatters(): HasMany
@@ -159,8 +204,10 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     /**
      * SPEC §10.7: người này ĐÃ có 2FA (secret không trống) — vừa bị "Đặt lại 2FA" hay chưa cài lần
      * đầu thì không. MỘT định nghĩa cho mọi nơi ngoài trang panel phải từ chối nhân sự chưa có 2FA:
-     * route tải tệp (`DocumentDownloadController::actor()`) và thông báo đẩy lúc gửi
-     * (`PushAlert::shouldSend()`, việc sau gộp M12, làn fu4).
+     * route tải tệp (`DocumentDownloadController::actor()`), thông báo đẩy lúc gửi
+     * (`PushAlert::shouldSend()`, việc sau gộp M12, làn fu4) và màn hình đồng ý kết nối AI
+     * (`McpAccess::consentRefusal()`, M11). Không tệp nào khác trong `app/` đọc
+     * `getAppAuthenticationSecret()` (`tests/Feature/Mcp/AccessControlTest.php`, "một định nghĩa").
      */
     public function hasAppAuthenticationSecret(): bool
     {

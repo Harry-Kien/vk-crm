@@ -49,6 +49,8 @@ function envExampleFrameworkOnly(): array
         // `RunPreflight`), mọi tệp ở đĩa `private`.
         'spatie/laravel-medialibrary' => ['ENABLE_MEDIA_LIBRARY_VAPOR_UPLOADS', 'FFMPEG_PATH', 'FFMPEG_THREADS', 'FFMPEG_TIMEOUT', 'FFPROBE_PATH', 'FORCE_MEDIA_LIBRARY_LAZY_LOADING', 'IMAGE_DRIVER', 'MEDIA_CONVERSIONS_DISK', 'MEDIA_DISK', 'MEDIA_DOWNLOADER_SSL', 'MEDIA_PREFIX', 'MEDIA_QUEUE', 'MEDIA_TEMPORARY_URL_DEFAULT_LIFETIME', 'QUEUE_CONVERSIONS_AFTER_DB_COMMIT', 'QUEUE_CONVERSIONS_BY_DEFAULT'],
         'livewire' => ['LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK'],
+        // M11 Task 1: bảng `oauth_*` nằm cùng CSDL của ứng dụng (SPEC §2: một MariaDB).
+        'laravel/passport' => ['PASSPORT_CONNECTION'],
     ];
 }
 

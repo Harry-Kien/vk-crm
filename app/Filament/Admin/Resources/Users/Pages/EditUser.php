@@ -2,11 +2,13 @@
 
 namespace App\Filament\Admin\Resources\Users\Pages;
 
+use App\Actions\Mcp\RevokeAiConnections;
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
 use App\Actions\User\RecordStaffPermissionChange;
 use App\Actions\User\ResetStaffTwoFactor;
 use App\Actions\User\UnlockStaffLogin;
+use App\Enums\AiRevocationReason;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
@@ -253,6 +255,13 @@ class EditUser extends EditRecord
      * qua NHẦM cả hai lượt, để hệ thống còn 0 admin thật. Gọi `assignRoleFromPosition()` NGAY SAU
      * `parent::handleRecordUpdate()` thành công, còn TRONG cùng transaction/khoá, đóng đúng khe hở
      * đó: lượt hai không giành được khoá cho tới khi lượt một (kể cả đồng bộ vai) đã commit xong.
+     *
+     * **Thu hồi kết nối AI (M11 R8, Task 6), bước cuối của CÙNG transaction.** Vô hiệu hoá, đổi vai
+     * ({@see RecordStaffPermissionChange::isChange()} — cùng định nghĩa với dòng `permission_changed`)
+     * và đặt mật khẩu mới gọi {@see RevokeAiConnections}; lý do do
+     * {@see AiRevocationReason::forStaffUpdate()} chọn. Vô hiệu hoá và đổi vai còn hạ `ai_access` về
+     * `off` (phán quyết controller: mọi lần đổi vai — một người thành kế toán thì mất `matter.view`).
+     * Lần lưu sụp ở bất kỳ bước nào thì không token nào bị thu hồi, và ngược lại.
      */
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
@@ -330,18 +339,22 @@ class EditUser extends EditRecord
                 // mới quan hệ được cache.
                 $positionBefore = $locked->position;
                 $rolesBefore = $locked->roles()->pluck('name')->all();
+                $wasActive = (bool) $locked->is_active;
 
                 $updated = parent::handleRecordUpdate($record, $data);
 
                 $updated->assignRoleFromPosition();
+
+                $rolesAfter = $updated->roles()->pluck('name')->all();
+                $actor = Auth::user() instanceof User ? Auth::user() : null;
 
                 app(RecordStaffPermissionChange::class)->handle(
                     $updated,
                     $positionBefore,
                     $updated->position,
                     $rolesBefore,
-                    $updated->roles()->pluck('name')->all(),
-                    Auth::user() instanceof User ? Auth::user() : null,
+                    $rolesAfter,
+                    $actor,
                 );
 
                 // Task 20 (phát hiện "admin đặt được mật khẩu 1 cho luật sư mà không có nhật ký
@@ -350,8 +363,23 @@ class EditUser extends EditRecord
                 // đặt lại mới sinh. Không ghi mật khẩu (thô hay đã băm) vào properties, chỉ ghi
                 // SỰ KIỆN đã xảy ra — cùng nguyên tắc R14 (không ghi định danh/bí mật thô vào
                 // nhật ký).
-                if (array_key_exists('password', $data) && filled($data['password'])) {
+                $passwordReset = array_key_exists('password', $data) && filled($data['password']);
+
+                if ($passwordReset) {
                     Audit::record('user_password_reset', $updated, [], Auth::user());
+                }
+
+                // M11 R8 (Task 6): vô hiệu hoá, đổi vai (phán quyết controller: mọi lần đổi vai) và
+                // đặt mật khẩu mới thu hồi mọi kết nối AI của người này, CÙNG transaction với chính
+                // lần lưu; hai lý do đầu còn hạ `ai_access` về `off` — quản trị phải bật lại.
+                $revocation = AiRevocationReason::forStaffUpdate(
+                    deactivated: $wasActive && ! $newIsActive,
+                    roleChanged: RecordStaffPermissionChange::isChange($positionBefore, $updated->position, $rolesBefore, $rolesAfter),
+                    passwordChanged: $passwordReset,
+                );
+
+                if ($revocation !== null) {
+                    app(RevokeAiConnections::class)->handle($updated, $revocation, $actor);
                 }
 
                 return $updated;

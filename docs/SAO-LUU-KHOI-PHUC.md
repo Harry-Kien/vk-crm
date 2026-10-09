@@ -323,6 +323,19 @@ khách. Nó **không** nằm trong bản sao lưu (`.env` không được sao l�
   ký; mọi người bật lại thông báo trên từng máy. Không mất dữ liệu hồ sơ nào: khoá này chỉ dùng để
   gửi thông báo.
 
+**Cùng chỗ đó, cặp khoá Passport của kết nối AI (M11): `storage/oauth-private.key` và
+`storage/oauth-public.key`** (hoặc hai dòng `PASSPORT_PRIVATE_KEY`/`PASSPORT_PUBLIC_KEY` nếu văn phòng
+dán khoá vào `.env`; sinh một lần ở `docs/CAI-DAT.md`, Bước 3). Hai tệp này **không** nằm trong bản
+sao lưu (bản sao lưu chỉ lấy `storage/app/private/`). Và từ M11, `APP_KEY` còn mã hoá refresh token
+cùng mã uỷ quyền OAuth của mọi kết nối AI, nên:
+
+- khôi phục mà còn `APP_KEY` CŨ và cặp khoá Passport CŨ: kết nối AI của nhân sự chạy tiếp;
+- còn `APP_KEY` cũ nhưng mất cặp khoá Passport: sinh cặp mới (`php artisan passport:keys`, bằng người
+  dùng của PHP-FPM); access token đang có (sống tối đa 1 giờ) hỏng chữ ký và nhận 401, ứng dụng AI
+  làm mới bằng refresh token (vẫn giải mã được bằng `APP_KEY`);
+- mất `APP_KEY`: mọi refresh token chết theo, và mọi nhân sự kết nối AI lại từ đầu (ngoài việc mất số
+  CCCD và bí mật 2FA nói ở trên).
+
 ---
 
 ## Khôi phục thử
@@ -405,6 +418,13 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
      thật tới điện thoại của nhân sự và khách (mốc thời hạn, tài liệu, khoản thu), và khoá ký của máy
      thật nằm trên một máy không phải máy thật. Không cron thì bản diễn tập cũng không gửi thư nhắc
      hay chạy sao lưu chồng lên máy thật.
+
+   Cặp khoá Passport (M11, kết nối AI) cũng theo hai trường hợp đó. **Khôi phục thật:** chép lại cặp
+   khoá cất ở Bước 6 vào `storage/oauth-private.key` / `storage/oauth-public.key` (chủ là người dùng
+   của PHP-FPM, khoá riêng quyền 600); không còn thì chạy `php artisan passport:keys` bằng người dùng
+   đó (mọi người kết nối AI lại). **Khôi phục thử:** KHÔNG chép khoá thật, chạy
+   `php artisan passport:keys` sinh cặp riêng cho máy tạm — token cũ trong bản sao không còn hợp lệ,
+   đúng như mong đợi. Thiếu khoá thì `vkcrm:preflight` báo dòng khoá Passport ĐỎ và mọi kết nối AI hỏng.
 8. **`php artisan migrate:status`** — xác nhận không có migration nào "đang chờ" (mọi dòng đều có
    `Ran`). Nếu có dòng chưa chạy, đó là dấu hiệu bản dump cũ hơn mã nguồn đang triển khai — dừng
    lại, đối chiếu lại phiên bản mã nguồn với thời điểm bản sao lưu trước khi đi tiếp.

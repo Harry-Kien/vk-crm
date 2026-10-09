@@ -2,8 +2,10 @@
 
 namespace Database\Factories;
 
+use App\Enums\AiAccessMode;
 use App\Enums\Role;
 use App\Enums\UserPosition;
+use App\Models\AiAcknowledgement;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -84,6 +86,24 @@ class UserFactory extends Factory
     public function position(UserPosition $position): static
     {
         return $this->state(fn () => ['position' => $position]);
+    }
+
+    /**
+     * M11 R2/R12 (Task 6): nhân sự đã được quản trị bật truy cập qua AI ở chế độ `$mode` VÀ đã cam
+     * kết chính sách dùng AI đúng phiên bản hiện hành — hai trong bốn điều kiện `EnsureMcpAccess`
+     * kiểm ở mỗi request `/mcp` (hai điều kiện còn lại: tài khoản đang hoạt động, mặc định của
+     * factory; công tắc toàn hệ thống, `Tests\Support\McpOAuth::openServer()`).
+     *
+     * Đi vòng `SetUserAiAccess` có chủ đích: factory dựng TRẠNG THÁI, không thay Action (Action
+     * từ chối người thiếu `matter.view`; test cần dựng được cả trạng thái sai đó để chứng minh
+     * middleware vẫn chặn).
+     */
+    public function withAiAccess(AiAccessMode $mode = AiAccessMode::Read): static
+    {
+        return $this->state(fn (): array => ['ai_access' => $mode])
+            ->afterCreating(function (User $user): void {
+                AiAcknowledgement::factory()->for($user)->create();
+            });
     }
 
     public function withRole(Role $role): static

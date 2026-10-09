@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Filesystem\Filesystem;
+use Tests\Support\McpSourceScan;
 
 /**
  * M10 Task 1, R7d — câu chuyện và danh tính của người CHƯA thành khách không bao giờ ra ngoài
@@ -8,58 +9,63 @@ use Illuminate\Filesystem\Filesystem;
  * bên thứ ba không thể đồng ý; Nghị định 356/2025 xếp nội dung vụ việc vào dữ liệu nhạy cảm).
  *
  * Bảng R4 của kế hoạch M11 dùng presenter theo danh sách cho phép, nên hai model mới mặc định không
- * ra ngoài. Test này biến "mặc định" thành một phép quét mã nguồn: KHÔNG tệp PHP nào dưới các thư
- * mục MCP tham chiếu `IntakeRequest`, `IntakeParty`, bí danh morph hay tên bảng của chúng.
+ * ra ngoài. Test này biến "mặc định" thành một phép quét mã nguồn: KHÔNG tệp nào của máy chủ MCP
+ * tham chiếu `IntakeRequest`, `IntakeParty`, bí danh morph hay tên bảng của chúng.
  *
- * Hôm nay (M10) các thư mục này CHƯA tồn tại — M11 dựng SAU — nên test xanh vì rỗng; nó canh từ
- * lúc M11 thêm tệp đầu tiên. Hàm quét nhận thư mục làm tham số và có cặp dương trên một fixture,
- * để "xanh vì rỗng" không thể bị nhầm với "xanh vì hàm quét hỏng".
+ * M11 Task 14 (phán quyết C3 của controller làn m11) nới phạm vi từ ba thư mục kế hoạch M11 đặt tên
+ * ra MỌI chỗ làn M11 thật sự đặt mã MCP: thêm middleware, controller, response và view của luồng
+ * OAuth/MCP, tệp route `routes/ai.php`, cấu hình `config/mcp.php`, hai trang "Kết nối AI" cùng view
+ * của chúng, view khối nháp AI, và mọi tệp PHP khác trong `app/` có `Mcp` trong tên ({@see
+ * intakeMcpFiles()}: tệp mới mang tên đó tự vào phép quét). Tiền đề không rỗng: phép quét phải thấy
+ * tệp ở mọi chỗ trong danh sách. M11 Task 17: danh sách và cách đọc tệp chuyển sang
+ * `Tests\Support\McpSourceScan`, dùng chung với phép quét tiền của vụ việc (`MoneyMcpBoundaryTest`).
  *
  * Quét bằng TOKEN chứ không bằng grep: tên nằm trong chú thích/docblock (như chính lời giải thích
  * này) không phải một tham chiếu; tên nằm trong tên lớp, `use` (kể cả `use` nhóm), hay chuỗi ký tự
- * (`'App\Models\IntakeRequest'`, `'intake_requests'`) thì là.
+ * (`'App\Models\IntakeRequest'`, `'intake_requests'`) thì là. View Blade quét cả phần HTML (sau khi
+ * bỏ chú thích `{{-- … --}}`): với bộ tách token của PHP, `{{ $intake_request->story }}` chỉ là HTML.
  */
 const INTAKE_MCP_FORBIDDEN = ['IntakeRequest', 'IntakeParty', 'intake_request', 'intake_party', 'intake_requests', 'intake_parties'];
 
-/** @return list<string> Thư mục MCP mà kế hoạch M11 đặt tool, presenter và Action đọc. */
+/**
+ * @return list<string> Thư mục chứa mã MCP của M11 — một danh sách chung với phép quét tiền của vụ
+ *                      việc ({@see McpSourceScan::roots()}).
+ */
 function intakeMcpRoots(): array
 {
-    return [app_path('Mcp'), app_path('Support/Mcp'), app_path('Actions/Mcp')];
+    return McpSourceScan::roots();
+}
+
+/** @return list<string> Tệp MCP ngoài các thư mục trên ({@see McpSourceScan::files()}). */
+function intakeMcpFiles(): array
+{
+    return McpSourceScan::files();
 }
 
 /**
  * @param  list<string>  $roots
- * @return list<string> "đường dẫn tương đối: từ khoá" cho mỗi tham chiếu tìm thấy.
+ * @param  list<string>  $files
+ * @return list<string>
  */
-function intakeMcpReferences(array $roots): array
+function intakeMcpScannedFiles(array $roots, array $files = []): array
+{
+    return McpSourceScan::scannedFiles($roots, $files);
+}
+
+/**
+ * @param  list<string>  $roots
+ * @param  list<string>  $files
+ * @return list<string> "đường dẫn: từ khoá" cho mỗi tham chiếu tìm thấy.
+ */
+function intakeMcpReferences(array $roots, array $files = []): array
 {
     $found = [];
 
-    foreach ($roots as $root) {
-        if (! is_dir($root)) {
-            continue;
-        }
-
-        foreach ((new Filesystem)->allFiles($root) as $file) {
-            if ($file->getExtension() !== 'php') {
-                continue;
-            }
-
-            foreach (token_get_all((string) file_get_contents($file->getPathname())) as $token) {
-                if (! is_array($token)) {
-                    continue;
-                }
-
-                [$id, $text] = $token;
-
-                if (in_array($id, [T_COMMENT, T_DOC_COMMENT, T_WHITESPACE, T_INLINE_HTML], true)) {
-                    continue;
-                }
-
-                foreach (INTAKE_MCP_FORBIDDEN as $word) {
-                    if (str_contains($text, $word)) {
-                        $found[] = $file->getRelativePathname().': '.$word;
-                    }
+    foreach (intakeMcpScannedFiles($roots, $files) as $path) {
+        foreach (McpSourceScan::texts($path) as [, $text]) {
+            foreach (INTAKE_MCP_FORBIDDEN as $word) {
+                if (str_contains($text, $word)) {
+                    $found[] = McpSourceScan::shown($path).': '.$word;
                 }
             }
         }
@@ -68,20 +74,33 @@ function intakeMcpReferences(array $roots): array
     return array_values(array_unique($found));
 }
 
-it('finds no reference to intake models in any MCP tool, presenter or reader Action', function () {
-    expect(intakeMcpReferences(intakeMcpRoots()))->toBe([]);
+it('finds no reference to intake models in any MCP tool, presenter, Action, HTTP layer, view or MCP-named file', function () {
+    expect(intakeMcpReferences(intakeMcpRoots(), intakeMcpFiles()))->toBe([]);
 });
 
-/**
- * Hôm nay các thư mục chưa tồn tại nên phép quét ở trên rỗng dù danh sách thư mục sai; ghim danh
- * sách để một lần sửa nó không im lặng (kế hoạch M11: tool ở `app/Mcp`, presenter ở
- * `app/Support/Mcp`, Action đọc ở `app/Actions/Mcp`).
- */
-it('watches every directory the M11 plan puts MCP code in', function () {
-    expect(intakeMcpRoots())->toBe([app_path('Mcp'), app_path('Support/Mcp'), app_path('Actions/Mcp')]);
+it('watches every directory the M11 lane puts MCP code in, and every one of them has files', function () {
+    expect(intakeMcpRoots())->toBe([
+        app_path('Mcp'), app_path('Support/Mcp'), app_path('Actions/Mcp'),
+        app_path('Http/Middleware/Mcp'), app_path('Http/Controllers/Mcp'), app_path('Http/Responses/Mcp'),
+        resource_path('views/mcp'),
+    ]);
+
+    // Tiền đề không rỗng: mỗi thư mục và mỗi tệp đặt tên đều có thật (một đường dẫn gõ sai làm phép
+    // quét xanh vì rỗng), và phép quét đi qua đủ nhiều tệp.
+    foreach (intakeMcpRoots() as $root) {
+        expect(intakeMcpScannedFiles([$root]))->not->toBe([], $root);
+    }
+
+    foreach (intakeMcpFiles() as $file) {
+        expect(is_file($file))->toBeTrue($file);
+    }
+
+    expect(count(intakeMcpScannedFiles(intakeMcpRoots(), intakeMcpFiles())))->toBeGreaterThan(100)
+        ->and(intakeMcpFiles())->toContain(app_path('Models/McpConfirmation.php'))
+        ->and(intakeMcpFiles())->toContain(app_path('Enums/McpToolOutcome.php'));
 });
 
-it('does detect a reference in a class name, a use statement or a string, and ignores comments', function () {
+it('does detect a reference in a class name, a use statement, a string or a Blade view, and ignores comments', function () {
     $dir = sys_get_temp_dir().'/vkcrm-mcp-fixture-'.bin2hex(random_bytes(4));
     mkdir($dir.'/Presenters', 0777, true);
 
@@ -91,17 +110,26 @@ it('does detect a reference in a class name, a use statement or a string, and ig
     file_put_contents($dir.'/Presenters/Str.php', "<?php\nclass D { const T = 'intake_requests'; }\n");
     file_put_contents($dir.'/Morph.php', "<?php\nclass E { public function m() { return Relation::getMorphedModel('intake_party'); } }\n");
     file_put_contents($dir.'/Clean.php', "<?php\nuse App\\Models\\Client;\nclass F { public string \$intake = 'intake'; }\n");
+    file_put_contents($dir.'/view.blade.php', "<div>{{ \$intake_request->story }}</div>\n");
+    file_put_contents($dir.'/quiet.blade.php', "{{-- IntakeParty chỉ là chú thích --}}<div>{{ \$matter->code }}</div>\n");
 
     try {
-        $found = intakeMcpReferences([$dir]);
+        $found = intakeMcpReferences([$dir.'/Presenters'], [
+            $dir.'/Comment.php', $dir.'/UseStatement.php', $dir.'/GroupUse.php', $dir.'/Morph.php', $dir.'/Clean.php',
+            $dir.'/view.blade.php', $dir.'/quiet.blade.php',
+        ]);
     } finally {
         (new Filesystem)->deleteDirectory($dir);
     }
 
-    expect($found)->toContain('UseStatement.php: IntakeRequest')
-        ->and($found)->toContain('GroupUse.php: IntakeParty')
-        ->and($found)->toContain('Presenters/Str.php: intake_requests')
-        ->and($found)->toContain('Morph.php: intake_party')
-        ->and(implode(' ', $found))->not->toContain('Comment.php')
-        ->and(implode(' ', $found))->not->toContain('Clean.php');
+    $all = implode(' ', $found);
+
+    expect($all)->toContain('UseStatement.php: IntakeRequest')
+        ->and($all)->toContain('GroupUse.php: IntakeParty')
+        ->and($all)->toContain('Str.php: intake_requests')
+        ->and($all)->toContain('Morph.php: intake_party')
+        ->and($all)->toContain('view.blade.php: intake_request')
+        ->and($all)->not->toContain('Comment.php')
+        ->and($all)->not->toContain('Clean.php')
+        ->and($all)->not->toContain('quiet.blade.php');
 });
