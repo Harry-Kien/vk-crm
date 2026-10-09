@@ -4,10 +4,12 @@ namespace App\Actions\Schedule;
 
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Support\Audit;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Spatie\Activitylog\Models\Activity;
 use Throwable;
 
 /**
@@ -30,7 +32,9 @@ use Throwable;
  * Vế 1 là thứ giữ một khách MỚI có vụ đầu tiên chưa công bố: họ cũng "không có vụ nào trên cổng",
  * nhưng chưa từng có vụ nào hết hạn. Hệ quả theo đúng chữ của R4, ghi ra cho người đọc sau: một khách
  * CŨ có vụ đã hết hạn và vừa có một vụ MỚI chưa công bố thoả cả hai vế, nên bị vô hiệu hoá — nhân
- * sự bật lại tay khi công bố vụ mới (xem "Ghi chú M7" ở `docs/PROGRESS.md`).
+ * sự bật lại tay khi công bố vụ mới (xem "Ghi chú M7" ở `docs/PROGRESS.md`). Làn fm B5
+ * (2026-10-09): tài khoản đã được bật lại tay đó KHÔNG bị tắt lại các đêm sau vì cùng hạn tra cứu đã
+ * xử lý ({@see self::switchedOffSince()}); một hạn tra cứu mới hết sau lần tắt thì vẫn tắt.
  *
  * **Không bao giờ bật lại.** Tác vụ chỉ đặt `is_active = false`; một vụ được mở lại (đường bỏ qua
  * của admin, `SyncMatterArchive` xoá `client_access_until` về `null`) đưa vụ về lại cổng nhưng KHÔNG
@@ -159,6 +163,19 @@ class ExpireClientAccess
                 return 0;
             }
 
+            // Làn fm B5: tài khoản đã bị tác vụ này tắt SAU hạn tra cứu muộn nhất đang hết của khách,
+            // rồi được nhân sự bật lại tay (nó đang hoạt động), thì không tắt lại vì cùng hạn đó —
+            // trước bản sửa, khách quay lại với vụ mới chưa công bố bị tắt tài khoản mỗi đêm. Một hạn
+            // tra cứu MỚI hết sau lần tắt đó vẫn tắt như thường.
+            $latestExpiry = MatterArchive::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->whereIn('matter_id', $this->expiredMatters(Matter::query()->withoutGlobalScope(ClientPortalScope::class))
+                    ->where('client_id', $clientId)
+                    ->select('id'))
+                ->max('client_access_until');
+
+            $accounts = $accounts->reject(fn (ClientUser $account): bool => $this->switchedOffSince($account, (string) $latestExpiry));
+
             foreach ($accounts as $account) {
                 $account->is_active = false;
                 $account->save();
@@ -177,6 +194,21 @@ class ExpireClientAccess
      * @param  Builder<Matter>  $query
      * @return Builder<Matter>
      */
+    /**
+     * Làn fm B5: tác vụ này đã tắt `$account` (dòng `portal_account_deactivated` lý do
+     * {@see self::REASON}) vào ngày SAU `$expiry` — tức đã xử lý đúng hạn tra cứu này rồi.
+     */
+    private function switchedOffSince(ClientUser $account, string $expiry): bool
+    {
+        return Activity::query()
+            ->where('event', 'portal_account_deactivated')
+            ->where('subject_type', $account->getMorphClass())
+            ->where('subject_id', $account->getKey())
+            ->where('properties->reason', self::REASON)
+            ->whereDate('created_at', '>', $expiry)
+            ->exists();
+    }
+
     private function expiredMatters(Builder $query): Builder
     {
         return $query->whereHas('archive', fn (Builder $archive) => $archive

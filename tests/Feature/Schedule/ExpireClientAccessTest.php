@@ -469,3 +469,67 @@ it('một khách lỗi giữa chừng không chặn những khách khác, và l�
 
     Exceptions::assertReported(fn (RuntimeException $e): bool => $e->getMessage() === 'Ổ đĩa đầy giữa lúc ghi');
 });
+
+// =========================================================================================
+// Làn fm, mục B5 (kiểm tra nghiệp vụ 2026-10-09): khách quay lại với vụ mới chưa công bố. Lần chạy
+// đầu tắt tài khoản theo đúng chữ R4; nhân sự bật lại tay để chuẩn bị công bố vụ mới — các đêm sau
+// KHÔNG tắt lại vì cùng một hạn tra cứu đã xử lý. Một hạn tra cứu MỚI hết sau lần tắt đó thì tắt lại.
+// =========================================================================================
+
+it('does not switch a manually re-enabled account off again for the same expiry', function () {
+    [$client, $account] = ecaClient();
+    ecaClosedMatter($client);
+    Matter::factory()->for($client)->unpublished()->create();
+
+    ecaRun();
+    expect($account->fresh()->is_active)->toBeFalse();
+
+    // Nhân sự bật lại tay (Tài khoản cổng) để chuẩn bị công bố vụ mới.
+    $account->fresh()->forceFill(['is_active' => true])->save();
+
+    $this->travel(1)->days();
+    ecaRun();
+    $this->travel(1)->days();
+    ecaRun();
+
+    expect($account->fresh()->is_active)->toBeTrue()
+        ->and(ecaDeactivationRows($account))->toBe(1);
+});
+
+it('switches the account off again when a newer matter expires after the earlier switch-off', function () {
+    [$client, $account] = ecaClient();
+    ecaClosedMatter($client);
+
+    ecaRun();
+    $account->fresh()->forceFill(['is_active' => true])->save();
+
+    // Một vụ khác của khách, hết hạn tra cứu SAU lần tắt trước.
+    $this->travelTo(Carbon::parse('2027-02-01 00:30:00'));
+    ecaClosedMatter($client, '2027-01-15');
+    ecaRun();
+
+    expect($account->fresh()->is_active)->toBeFalse()
+        ->and(ecaDeactivationRows($account))->toBe(2);
+});
+
+/**
+ * Chỉ lần tắt của CHÍNH tác vụ này (lý do `client_access_expired`) mới tính là "đã xử lý hạn này".
+ * Nhân sự tự tắt rồi bật lại tài khoản (dòng `portal_account_deactivated` không lý do) không làm tác
+ * vụ bỏ qua một khách đã hết hạn tra cứu.
+ */
+it('still switches off an account that staff once switched off and on themselves', function () {
+    [$client, $account] = ecaClient();
+    ecaClosedMatter($client);
+    Activity::query()->create([
+        'log_name' => 'default',
+        'event' => 'portal_account_deactivated',
+        'description' => 'portal_account_deactivated',
+        'subject_type' => $account->getMorphClass(),
+        'subject_id' => $account->getKey(),
+        'properties' => ['client_id' => $client->id],
+    ]);
+
+    ecaRun();
+
+    expect($account->fresh()->is_active)->toBeFalse();
+});
