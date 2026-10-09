@@ -16,10 +16,13 @@ use App\Models\MatterType;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use App\Support\Mcp\McpIds;
+use App\Support\Storage\DocumentStore;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
@@ -28,6 +31,7 @@ use Livewire\Livewire;
 use Tests\Support\McpOAuth;
 use Tests\Support\McpReadWorld;
 use Tests\Support\McpToolCall;
+use Tests\Support\RemoteDocuments;
 use Tests\Support\WebPushTestKeys;
 
 /*
@@ -58,6 +62,12 @@ use Tests\Support\WebPushTestKeys;
 | URI. Id của M11 nằm ở hai chỗ khác, và mỗi chỗ có phép so riêng dưới đây: tham số của tool trên
 | `POST /mcp` (danh sách tool đọc từ `tools/list`, không từ trí nhớ) và đối số `client` của nút "Thu
 | hồi" trên trang "Kết nối AI của tôi". Hai trang "Kết nối AI" thuộc nhóm GATED.
+|
+| M14 (gộp `main` eefa40f vào làn, rà soát cuối vòng sửa 2): một route mới, trang "Kho tài liệu"
+| (`document-store`, chỉ `settings.manage`) → GATED, kèm test riêng cho cả bốn vai không phải admin.
+| Route tải tài liệu giữ nguyên tên nhưng nay đọc tệp từ kho Google Drive khi tệp nằm trên đó: phép so
+| "có thật mà không được tải" với "không tồn tại" chạy lại trên tài liệu nằm trên kho, với adapter
+| Drive thật, và không request nào được tới Google.
 */
 
 const SPEC1010_MISSING_ID = 987654;
@@ -120,6 +130,8 @@ function spec1010GatedPages(): array
         // M11 — "Kết nối AI của tôi": người giữ được quyền AI (`McpAccess::canHold()`, tức
         // `matter.view`); kế toán không có.
         'filament.admin.pages.ket-noi-ai-cua-toi' => Role::Accountant,
+        // M14 — "Kho tài liệu" (con số của kho, hồ sơ chuyển dữ liệu ra nước ngoài): chỉ `settings.manage`.
+        'filament.admin.pages.document-store' => Role::Lawyer,
     ];
 }
 
@@ -633,3 +645,75 @@ it('M11 "Kết nối AI của tôi": thu hồi theo client của người khác 
 
     expect($live())->toBe(0);
 });
+
+/*
+ * M14 — trang "Kho tài liệu" chỉ mở với `settings.manage` (chỉ admin). Nhóm GATED ở trên kiểm một vai
+ * bị từ chối; trang này mang con số của kho và hồ sơ pháp lý, nên kiểm đủ bốn vai không phải admin:
+ * mỗi vai nhận đúng trang 404 của một đường dẫn không tồn tại trong panel, từng byte.
+ */
+it('M14 "Kho tài liệu": mọi vai không phải admin nhận đúng trang 404 của một đường dẫn không tồn tại', function (Role $role) {
+    $actor = User::factory()->withRole($role)->create();
+
+    $this->actingAs($actor, 'web');
+    $denied = $this->get(route('filament.admin.pages.document-store'));
+
+    $this->actingAs($actor, 'web');
+    $unknown = $this->get('/admin/khong-co-trang-nay');
+
+    expect($denied->getStatusCode())->toBe(404)
+        ->and(spec1010Normalise($denied))->toBe(spec1010Normalise($unknown));
+})->with([Role::Lawyer, Role::Manager, Role::Assistant, Role::Accountant]);
+
+/*
+ * M14 — route tải trên kho Google Drive. Tài liệu có thật mà người cầm đường dẫn ký đúng không được
+ * tải (luật sư ngoài vụ; khách của khách hàng khác) và id không tồn tại: cùng trang 404, từng byte, và
+ * không request nào tới Google (adapter Drive THẬT trên `Http::fake()` + `Http::preventStrayRequests()`).
+ * Cặp dương: người phụ trách tải được đúng tệp, đúng một request. Khoá trên kho theo khuôn R4 không
+ * nhận tiền tố của media-library, nên tài liệu dựng với tiền tố rỗng và tên tệp ULID.
+ */
+it('M14: tải tài liệu nằm trên kho mà không được tải và id không tồn tại cho cùng trang 404, không request nào tới Google', function (string $who) {
+    config(['media-library.prefix' => '']);
+    $content = "%PDF-1.4\n% spec1010 tren kho\n%%EOF\n";
+
+    $document = Document::factory()->create([
+        'matter_id' => $this->matter->id,
+        'group' => DocumentGroup::ClientProvided,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+    $document->addMedia(UploadedFile::fake()->createWithContent('nguon.pdf', $content))
+        ->usingFileName(Str::lower((string) Str::ulid()).'.pdf')
+        ->toMediaCollection('file');
+    RemoteDocuments::bindRealDriveAdapter([$document->getFirstMedia('file')]);
+    expect($document->refresh()->getFirstMedia('file')->disk)->toBe(DocumentStore::REMOTE_DISK);
+
+    [$actor, $guard, $route] = $who === 'client'
+        ? [$this->otherClientUser, 'client', 'documents.download.portal']
+        : [$this->outsider, 'web', 'documents.download.admin'];
+
+    $signed = fn (int $id, User|ClientUser $recipient): string => URL::temporarySignedRoute($route, now()->addMinutes(5), [
+        'document' => $id,
+        Document::DOWNLOAD_RECIPIENT_PARAMETER => Document::recipientToken($recipient),
+    ]);
+
+    $this->actingAs($actor, $guard);
+    $denied = $this->get($signed($document->id, $actor));
+
+    $this->actingAs($actor, $guard);
+    $missing = $this->get($signed(SPEC1010_MISSING_ID, $actor));
+
+    expect($denied->getStatusCode())->toBe(404)
+        ->and($missing->getStatusCode())->toBe(404)
+        ->and(spec1010Normalise($denied))->toBe(spec1010Normalise($missing));
+    Http::assertNothingSent();
+
+    // Cặp dương: người được tải (khách của chính vụ; luật sư phụ trách) nhận đúng tệp từ kho.
+    $owner = $who === 'client' ? $this->clientUser : $this->lead;
+    $this->actingAs($owner, $guard);
+    $ok = $this->get($signed($document->id, $owner));
+
+    $ok->assertOk();
+    expect($ok->streamedContent())->toBe($content)
+        ->and(Http::recorded())->toHaveCount(1);
+})->with(['client', 'staff']);

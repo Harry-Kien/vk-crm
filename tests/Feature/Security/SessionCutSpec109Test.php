@@ -12,20 +12,25 @@ use App\Filament\Portal\Pages\MyMatters;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
+use App\Models\DocumentDownload;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Mcp\McpEndpoint;
+use App\Support\Scopes\ClientPortalScope;
+use App\Support\Storage\DocumentStore;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Passport;
 use Livewire\Livewire;
 use Tests\Support\McpOAuth;
 use Tests\Support\McpToolCall;
+use Tests\Support\RemoteDocuments;
 use Tests\Support\WebPushTestKeys;
 
 /*
@@ -354,3 +359,91 @@ it('cắt bearer token /mcp của nhân sự bị vô hiệu ở request kế ti
 
     McpToolCall::refused($this, $token, 'whoami');
 })->with('spec109 staff mcp cuts');
+
+/*
+| M14 (gộp `main` eefa40f vào làn, rà soát cuối vòng sửa 2): tài liệu nằm trên kho Google Drive.
+| Route tải của M14 mở luồng từ Drive SAU mọi lần kiểm quyền; lượt quét §10.9 trên cây đã gộp đòi
+| thêm: tài khoản bị vô hiệu bấm đường dẫn tải ký từ trước lúc đó thì phiên kết thúc, câu trả lời là
+| 404, và KHÔNG request nào tới Google (adapter Drive THẬT trên `Http::fake()` +
+| `Http::preventStrayRequests()`, `RemoteDocuments::bindRealDriveAdapter()`). Tài liệu dựng riêng:
+| khoá trên kho theo khuôn R4 không nhận tiền tố media-library của `beforeEach`.
+*/
+function spec109RemoteDocument(): Document
+{
+    config(['media-library.prefix' => '']);
+
+    $document = Document::factory()->create([
+        'matter_id' => test()->matter->id,
+        'group' => DocumentGroup::ClientProvided,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+    $document->addMedia(UploadedFile::fake()->createWithContent('nguon.pdf', SPEC109_REMOTE_CONTENT))
+        ->usingFileName(Str::lower((string) Str::ulid()).'.pdf')
+        ->toMediaCollection('file');
+
+    RemoteDocuments::bindRealDriveAdapter([$document->getFirstMedia('file')]);
+
+    $document->refresh();
+    expect($document->getFirstMedia('file')->disk)->toBe(DocumentStore::REMOTE_DISK);
+
+    return $document;
+}
+
+const SPEC109_REMOTE_CONTENT = "%PDF-1.4\n% spec109 tren kho\n%%EOF\n";
+
+it('M14: khách bị vô hiệu bấm đường dẫn tải tài liệu nằm trên kho → 404, phiên kết thúc, không request nào tới Google', function (Closure $cut) {
+    $document = spec109RemoteDocument();
+
+    $this->actingAs($this->clientUser, 'client');
+    $url = $document->downloadUrlFor($this->clientUser);
+
+    $cut();
+
+    $this->actingAs($this->clientUser->fresh(), 'client');
+    $this->get($url)->assertNotFound();
+
+    Http::assertNothingSent();
+    expect(auth('client')->check())->toBeFalse('phiên khách vẫn còn đăng nhập sau request kế tiếp')
+        ->and(DocumentDownload::query()->withoutGlobalScope(ClientPortalScope::class)->count())->toBe(0);
+
+    $this->get(MyMatters::getUrl(panel: 'portal'))->assertRedirect(Filament::getPanel('portal')->getLoginUrl());
+})->with('spec109 client cuts');
+
+it('M14: nhân sự bị vô hiệu bấm đường dẫn tải tài liệu nằm trên kho → 404, phiên kết thúc, không request nào tới Google', function () {
+    $document = spec109RemoteDocument();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $this->actingAs($manager, 'web');
+    $url = $document->downloadUrlFor($manager);
+
+    Filament::setCurrentPanel('admin');
+    Livewire::actingAs($this->admin, 'web')
+        ->test(EditUser::class, ['record' => $manager->getKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $this->actingAs($manager->fresh(), 'web');
+    $this->get($url)->assertNotFound();
+
+    Http::assertNothingSent();
+    expect(auth('web')->check())->toBeFalse('phiên nhân sự vẫn còn đăng nhập sau request kế tiếp')
+        ->and(DocumentDownload::query()->withoutGlobalScope(ClientPortalScope::class)->count())->toBe(0);
+});
+
+/** Cặp dương: tài khoản còn hoạt động tải được đúng tệp từ kho, đúng một request tới Google, phiên còn nguyên. */
+it('M14: tài khoản còn hoạt động tải tài liệu nằm trên kho, đúng một request tới Google, phiên còn nguyên', function (string $who) {
+    $document = spec109RemoteDocument();
+    $actor = $who === 'client' ? $this->clientUser : User::factory()->withRole(Role::Manager)->create();
+    $guard = $who === 'client' ? 'client' : 'web';
+
+    $this->actingAs($actor, $guard);
+    $response = $this->get($document->downloadUrlFor($actor));
+
+    $response->assertOk();
+    expect($response->streamedContent())->toBe(SPEC109_REMOTE_CONTENT)
+        ->and(Http::recorded())->toHaveCount(1)
+        ->and(auth($guard)->check())->toBeTrue();
+})->with(['client', 'staff']);
