@@ -156,12 +156,6 @@ class UpdateMatterDetails
         });
     }
 
-    /**
-     * Hai điều kiện, hỏi theo đúng thứ tự người dùng cần đọc: trước hết "anh/chị có được đổi
-     * trường này không" (ai không phải lead/admin dừng lại ở đây, không cần biết gì về đội ngũ),
-     * rồi mới tới "đội ngũ có đang chặn HƯỚNG đổi cụ thể này không" — chỉ hỏi khi hướng đổi là VÀO
-     * `restricted`, và chỉ tới người đã qua được câu hỏi đầu.
-     */
     /** Rỗng (hoặc toàn khoảng trắng) là "không có ghi chú" (`null`); dài quá trần thì từ chối trên đúng ô. */
     private function validatedInternalNote(?string $note): ?string
     {
@@ -213,6 +207,12 @@ class UpdateMatterDetails
         return $date;
     }
 
+    /**
+     * Hai điều kiện, hỏi theo đúng thứ tự người dùng cần đọc: trước hết "anh/chị có được đổi
+     * trường này không" (ai không phải lead/admin dừng lại ở đây, không cần biết gì về đội ngũ),
+     * rồi mới tới "đội ngũ có đang chặn HƯỚNG đổi cụ thể này không" — chỉ hỏi khi hướng đổi là VÀO
+     * `restricted`, và chỉ tới người đã qua được câu hỏi đầu.
+     */
     private function authorizeConfidentialityChange(User $actor, Matter $matter, string $newValue): void
     {
         if (Gate::forUser($actor)->denies('updateConfidentiality', $matter)) {

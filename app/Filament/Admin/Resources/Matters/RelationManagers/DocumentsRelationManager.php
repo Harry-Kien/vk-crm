@@ -593,6 +593,20 @@ class DocumentsRelationManager extends RelationManager
     }
 
     /**
+     * Làn fm A5: ngày (d/m/Y) khách hết quyền tra cứu vụ của tab này, nếu vụ đã kết thúc và ĐÃ quá hạn
+     * đó (`MatterArchive::isClientAccessExpired()`); còn hạn hoặc vụ đang mở thì `null`.
+     */
+    private function clientAccessExpiredOn(): ?string
+    {
+        $matter = $this->getOwnerRecord();
+        $archive = $matter->isClosed() ? $matter->archive : null;
+
+        return $archive instanceof MatterArchive && $archive->isClientAccessExpired()
+            ? $archive->client_access_until->format('d/m/Y')
+            : null;
+    }
+
+    /**
      * SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp. Tài liệu đã rút cũng không (M7
      * Task 7).
      *
@@ -623,20 +637,6 @@ class DocumentsRelationManager extends RelationManager
      * release (khi đó cả ba đều `false`, KHÔNG phải bộ mặc định tiện lợi `true`/`true` mà hai
      * `Toggle` hiển thị). `PublishDocument` so sánh LUÔN chạy, xem docblock lớp đó.
      */
-    /**
-     * Làn fm A5: ngày (d/m/Y) khách hết quyền tra cứu vụ của tab này, nếu vụ đã kết thúc và ĐÃ quá hạn
-     * đó (`MatterArchive::isClientAccessExpired()`); còn hạn hoặc vụ đang mở thì `null`.
-     */
-    private function clientAccessExpiredOn(): ?string
-    {
-        $matter = $this->getOwnerRecord();
-        $archive = $matter->isClosed() ? $matter->archive : null;
-
-        return $archive instanceof MatterArchive && $archive->isClientAccessExpired()
-            ? $archive->client_access_until->format('d/m/Y')
-            : null;
-    }
-
     private function publishAction(): Action
     {
         return Action::make('publish')
