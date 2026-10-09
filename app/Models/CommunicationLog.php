@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CommunicationType;
+use App\Enums\CreatedVia;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\CommunicationLogFactory;
@@ -22,9 +23,16 @@ class CommunicationLog extends Model
     use RestrictedToClientPortal;
     use SoftDeletes;
 
+    /**
+     * M11 R5: `created_via` cố ý KHÔNG ở đây — tool `log_communication` (Task 13) ép `mcp` qua Action
+     * ghi nhật ký liên lạc; một form web không tự dán nhãn "tạo qua AI" được.
+     */
     protected $fillable = [
         'matter_id', 'type', 'occurred_at', 'duration_minutes', 'counterpart', 'summary', 'is_visible_to_client',
     ];
+
+    /** Khớp mặc định của cột, để một instance vừa tạo nói đúng như dòng nó vừa ghi. */
+    protected $attributes = ['created_via' => 'web'];
 
     protected function casts(): array
     {
@@ -33,6 +41,7 @@ class CommunicationLog extends Model
             'occurred_at' => 'datetime',
             'duration_minutes' => 'integer',
             'is_visible_to_client' => 'boolean',
+            'created_via' => CreatedVia::class,
         ];
     }
 

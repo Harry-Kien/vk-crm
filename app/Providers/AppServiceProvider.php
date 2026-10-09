@@ -6,8 +6,15 @@ use App\Actions\Backup\GuardBackupEncryption;
 use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
+use App\Actions\Mcp\RecordMcpTokenRefresh;
 use App\Enums\Role;
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Controllers\Mcp\ApproveConsentController;
+use App\Http\Controllers\Mcp\ConsentAuthorizationController;
+use App\Http\Controllers\Mcp\DenyConsentController;
+use App\Http\Controllers\Mcp\RegisterClientController;
+use App\Http\Middleware\Mcp\AddWwwAuthenticateHeader;
+use App\Http\Responses\Mcp\ConsentScreenResponse;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
 use App\Models\ClientRequest;
@@ -33,16 +40,31 @@ use App\Support\Files\ClamAvScanner;
 use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
 use App\Support\Mail\OutboundLedgerMailManager;
+use App\Support\Mcp\McpAccessToken;
+use App\Support\Mcp\McpClientRepository;
 use App\Support\Security\HttpsDefaults;
+use DateInterval;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader as PackageAddWwwAuthenticateHeader;
+use Laravel\Passport\Bridge\ClientRepository as PassportBridgeClientRepository;
+use Laravel\Passport\Contracts\AuthorizationViewResponse;
+use Laravel\Passport\Events\AccessTokenCreated;
+use Laravel\Passport\Http\Controllers\ApproveAuthorizationController as PassportApproveAuthorizationController;
+use Laravel\Passport\Http\Controllers\AuthorizationController as PassportAuthorizationController;
+use Laravel\Passport\Http\Controllers\DenyAuthorizationController as PassportDenyAuthorizationController;
+use Laravel\Passport\Passport;
+use Laravel\Passport\PersonalAccessTokenFactory;
+use LogicException;
 use Spatie\Backup\Events\BackupManifestWasCreated;
 use Spatie\Backup\Events\BackupWasSuccessful;
 
@@ -76,6 +98,58 @@ class AppServiceProvider extends ServiceProvider
          * thái nào lúc dựng ngoài chính `$app`, và không có nơi nào khác trong dự án thay nó.
          */
         $this->app->extend('mail.manager', fn ($manager, $app) => new OutboundLedgerMailManager($app));
+
+        /*
+         * M11 R1 — Passport chỉ cấp token theo `authorization_code` (+ `refresh_token`).
+         *
+         * Device code: cờ của Passport được đọc lúc `PassportServiceProvider::boot()` đăng ký route
+         * `/oauth/device*` và lúc `AuthorizationServer` được dựng. Provider của gói boot TRƯỚC
+         * provider của app, nên cờ phải đặt ở `register()`; đặt ở `boot()` thì route đã có rồi.
+         *
+         * Personal access token: route JSON của Passport (`Passport::$registersJsonApiRoutes`) tắt
+         * sẵn, nên `HasApiTokens::createToken()` là đường còn lại tới grant này, và nó phân giải
+         * `PersonalAccessTokenFactory` qua container. Bind lớp đó thành một lỗi để không
+         * một dòng mã, lệnh tinker hay seeder nào cấp được token bỏ qua màn hình đồng ý.
+         *
+         * `client_credentials`: không có cờ, xem `App\Http\Middleware\Mcp\RestrictOAuthGrantTypes`.
+         */
+        Passport::$deviceCodeGrantEnabled = false;
+
+        $this->app->bind(PersonalAccessTokenFactory::class, fn () => throw new LogicException(
+            'Personal access token bị tắt (kế hoạch M11, R1): token MCP chỉ cấp qua luồng authorization_code có màn hình đồng ý.',
+        ));
+
+        // M11 R7 — header `WWW-Authenticate` của 401 từ `/mcp` luôn trỏ tới PRM. Lý do phải BIND thay
+        // cho lớp của gói (chứ không thêm một middleware riêng) ở docblock của lớp app.
+        $this->app->bind(PackageAddWwwAuthenticateHeader::class, AddWwwAuthenticateHeader::class);
+
+        // M11 R7 (Task 5) — CIMD: `client_id` dạng URL HTTPS. `PassportServiceProvider` dựng
+        // `AuthorizationServer` bằng `make(Bridge\ClientRepository::class)`, nên bind lớp con ở đây
+        // thay repository mà không sửa lớp nào của gói. Cờ tắt thì lớp con chạy y như lớp gốc.
+        $this->app->bind(PassportBridgeClientRepository::class, McpClientRepository::class);
+
+        /*
+         * M11 Task 4 — màn hình đồng ý OAuth. Route của Passport (`/oauth/authorize` GET, POST,
+         * DELETE) phân giải controller qua container, nên bind lớp con ở đây thay ba controller của
+         * gói mà không khai lại route nào; lý do của từng lớp ở docblock của nó:
+         *  - không bao giờ tự duyệt ({@see ConsentAuthorizationController});
+         *  - "Đồng ý" kiểm lại điều kiện, đúng người, ghi nhật ký ({@see ApproveConsentController});
+         *  - "Từ chối" đúng người, ghi nhật ký ({@see DenyConsentController}).
+         * `StatefulGuard` của controller GET là binding theo NGỮ CẢNH của gói, khoá theo tên lớp gói
+         * (`PassportServiceProvider::register()`), nên lớp con cần dòng `when()` của chính nó — cùng
+         * guard `passport.guard` (`web`).
+         *
+         * View của màn hình: Passport hỏi `AuthorizationViewResponse` qua container; lớp của app vẽ
+         * `resources/views/mcp/authorize.blade.php` ({@see ConsentScreenResponse}). Test nào gọi
+         * `McpOAuth::useConsentStandIn()` thì đè binding này bằng màn hình thay tạm của nó.
+         */
+        $this->app->bind(PassportAuthorizationController::class, ConsentAuthorizationController::class);
+        $this->app->when(ConsentAuthorizationController::class)
+            ->needs(StatefulGuard::class)
+            ->give(fn () => Auth::guard(config('passport.guard')));
+        $this->app->bind(PassportApproveAuthorizationController::class, ApproveConsentController::class);
+        $this->app->bind(PassportDenyAuthorizationController::class, DenyConsentController::class);
+        $this->app->bind(AuthorizationViewResponse::class, ConsentScreenResponse::class);
     }
 
     /**
@@ -156,6 +230,13 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(BackupWasSuccessful::class, [PushBackupArchiveToRclone::class, 'handle']);
 
         /*
+         * M11 R8 (Task 17): mỗi lần làm mới một kết nối AI ở `/oauth/token` để lại một dòng
+         * `mcp_token_refreshed`. Request hiện hành truyền TƯỜNG MINH vào Action (nó quyết theo
+         * `grant_type`); lý do và bộ lọc ở docblock của `RecordMcpTokenRefresh`.
+         */
+        Event::listen(AccessTokenCreated::class, fn (AccessTokenCreated $event) => app(RecordMcpTokenRefresh::class)->handle($event, request()));
+
+        /*
          * M7 Task 2: trang tự viết `App\Filament\Admin\Pages\BulkReassign` (bàn giao hàng loạt) —
          * admin hoặc trưởng phòng, cùng phán quyết controller ("luật sư dùng nút 'Bàn giao' từng
          * vụ như hiện nay"). `Gate::define()` thay vì thêm một quyền thứ 14 vào
@@ -214,6 +295,24 @@ class AppServiceProvider extends ServiceProvider
             'performance_snapshot' => PerformanceSnapshot::class,
         ]);
 
+        /*
+         * M11 R7 — hạn token MCP: access token 1 giờ (như Asana), refresh token 30 ngày, xoay vòng
+         * (`Passport::$revokeRefreshTokenAfterUse`, mặc định `true`, giữ nguyên) [DC:137], [DC:633].
+         * Mặc định của Passport là MỘT NĂM cho cả hai (rà soát Task 0 mục 5). Hai giá trị được đọc
+         * lúc `AuthorizationServer` (singleton) được dựng, tức ở request `/oauth/token` đầu tiên, sau
+         * `boot()`.
+         */
+        Passport::tokensExpireIn(new DateInterval('PT1H'));
+        Passport::refreshTokensExpireIn(new DateInterval('P30D'));
+
+        /*
+         * M11 R7 (Task 2) — mọi access token mang `aud` = [id client, URL MCP chuẩn], để `/mcp` từ
+         * chối token không được cấp cho nó (`EnsureTokenAudience`). Điểm mở rộng chính thức của
+         * Passport, đọc ở mỗi lần cấp token (`Bridge\AccessTokenRepository::getNewToken()`); lý do và
+         * thứ tự của `aud` ở docblock của `McpAccessToken`.
+         */
+        Passport::useAccessTokenEntity(McpAccessToken::class);
+
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì
         // sao KHÔNG dùng mã dùng một lần — nằm ở `DocumentDownloadController::DOWNLOADS_PER_MINUTE`;
         // ở đây chỉ có chỗ cắm vào framework. Khoá đếm cũng lấy từ controller để hai nơi không
@@ -221,6 +320,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('document-download', fn (Request $request) => Limit::perMinute(
             DocumentDownloadController::DOWNLOADS_PER_MINUTE,
         )->by(DocumentDownloadController::rateLimitKey($request)));
+
+        // M11 R7 (Task 3) — đăng ký client động `POST /oauth/register`: theo IP, mười lần một giờ, đếm
+        // cả lần hỏng. Con số, lý lẽ và phản hồi 429 ở `RegisterClientController`; ở đây chỉ có chỗ
+        // cắm vào framework.
+        RateLimiter::for(RegisterClientController::RATE_LIMITER, fn (Request $request) => Limit::perHour(
+            RegisterClientController::REGISTRATIONS_PER_HOUR,
+        )->by((string) $request->ip())->response(RegisterClientController::tooManyRegistrations(...)));
 
         // Giới hạn TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3) KHÔNG còn đăng ký ở
         // đây: từ M8 Task 3 nó là middleware `App\Http\Middleware\ThrottleUploadedFiles` (cắm ở

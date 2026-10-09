@@ -95,7 +95,7 @@ return [
         'n2' => 'Vụ đang mở mà người này có tên trong đội ngũ với vai luật sư cộng sự hoặc trợ lý. Không tính vai theo dõi.',
         'n3' => 'Tổng số vụ đã kết thúc đang đứng tên người này, từ trước tới nay. Một vụ đã kết thúc rồi mới bàn giao thì tính cho người nhận; số theo kỳ trên trang Hiệu suất thì tính cho người phụ trách lúc vụ kết thúc.',
         'n4' => 'Vụ đang mở, đã bật cổng khách, mà lần cập nhật gần nhất cho khách đã quá 14 ngày. Cùng luật với cảnh báo trên trang chủ. Luật này không áp cho vụ chưa bật cổng; số vụ đó hiện riêng ("chưa bật cổng").',
-        'n5' => 'Mốc người này đang giữ, chưa đánh dấu xong, ngày đến hạn đã qua, trên vụ còn mở.',
+        'n5' => 'Mốc người này đang giữ, chưa đánh dấu xong, ngày đến hạn đã qua, trên vụ còn mở. Gồm cả mốc tạo qua trợ lý AI chưa xác nhận.',
         'n6' => 'Mốc người này đang giữ, chưa xong, đến hạn từ hôm nay tới hết ngày thứ 7 kể từ hôm nay, trên vụ còn mở.',
         'n7' => 'Vụ (đã bật cổng khách) còn đầu mục bắt buộc khách chưa nộp hoặc bị từ chối. Trong ngoặc: số vụ đã chờ quá 14 ngày.',
         'n8' => 'Đầu mục khách đã nộp mà văn phòng chưa duyệt, trên vụ người này phụ trách.',

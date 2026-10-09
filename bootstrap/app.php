@@ -3,11 +3,14 @@
 use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\SendSecurityHeaders;
+use App\Mcp\Servers\CrmServer;
+use App\Support\Mcp\McpEndpoint;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use League\OAuth2\Server\Exception\OAuthServerException as LeagueOAuthServerException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -53,9 +56,42 @@ return Application::configure(basePath: dirname(__DIR__))
         // các route ngoài panel; route trang của panel `admin` (không dùng nhóm `web`) đăng ký
         // riêng ở `AdminPanelProvider`. Lý do tồn tại: docblock của middleware.
         $middleware->web(append: [RejectStaffSessionsFromBeforeReset::class]);
+
+        // M11 R7 — một request `/mcp` chưa xác thực KHÔNG BAO GIỜ được chuyển hướng: nó nhận 401
+        // JSON kèm `WWW-Authenticate` (render ở `withExceptions` bên dưới). Mặc định của Laravel
+        // (`ApplicationBuilder::withMiddleware()`) là `route('login')`, và `Authenticate` gọi nó
+        // NGAY lúc ném lỗi với mọi request không `expectsJson()`, TRƯỚC khi exception handler kịp
+        // chọn JSON. App không có route `login`, nên một client MCP gửi token sai mà không kèm
+        // `Accept: application/json` nhận lỗi 500 thay cho 401.
+        //
+        // M11 Task 4 — route của Passport (màn hình đồng ý `/oauth/authorize`, "Đồng ý", "Từ chối")
+        // đưa khách vãng lai về trang đăng nhập nhân sự của panel `/admin` (Filament không có route
+        // `login` [PL:79]); `redirect()->guest()` cất URL `/oauth/authorize` đầy đủ tham số làm URL
+        // "intended", và trang đăng nhập quay lại đó sau bước mã 2FA (AuthorizeScreenTest). Host của
+        // trang đăng nhập: `McpEndpoint::staffLoginUrl()`. Cùng lời gọi này đặt chỗ chuyển hướng cho cả
+        // `AuthenticateSession` (`config/passport.php`). Các đường khác giữ nguyên mặc định.
+        $middleware->redirectGuestsTo(fn (Request $request) => match (true) {
+            $request->is(CrmServer::PATH) => null,
+            $request->routeIs('passport.*') => McpEndpoint::staffLoginUrl(),
+            default => route('login'),
+        });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // `/mcp` (M11 R7): luôn JSON, kể cả request không có `Accept: application/json`. Không có
+        // vế này, một client MCP chưa xác thực mà không gửi `Accept` bị chuyển hướng tới route
+        // `login` (không tồn tại, nên thành lỗi 500) thay vì nhận 401 kèm `WWW-Authenticate`. Claude
+        // chỉ hiện nút Connect khi nhận đúng 401 [DC:628].
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request) => $request->is('api/*') || $request->is(CrmServer::PATH) || $request->expectsJson(),
         );
+
+        // M11 R8 (Task 8; rà soát Task 2, m2): `TokenGuard` của Passport gọi `report()` cho MỌI bearer
+        // không dùng được (`getPsrRequestViaBearerToken()`), nên mỗi request `/mcp` mang token sai từng
+        // ghi một dòng log lỗi kèm stack trace — một vòng lặp vô danh lấp đầy `storage/logs`. Token sai
+        // là chuyện thường của một API công khai (client nhận 401 rồi làm mới), không phải lỗi của app.
+        // Lỗi OAuth của luồng `/oauth/*` không bị ảnh hưởng: Passport đổi chúng sang
+        // `Laravel\Passport\Exceptions\OAuthServerException` (một `HttpResponseException`, vốn không
+        // được report). Cùng một bearer bị 401 lặp lại từ một IP thì bị chặn ở
+        // `ThrottleMcpAuthenticationFailures` (chỉ bearer đó, không chặn bearer khác cùng IP).
+        $exceptions->dontReport(LeagueOAuthServerException::class);
     })->create();

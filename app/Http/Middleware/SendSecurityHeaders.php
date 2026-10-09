@@ -45,6 +45,10 @@ use Symfony\Component\HttpFoundation\Response;
  * `Vite::cspNonce()` để gắn nonce vào thẻ script của nó, và các view Filament đã giữ riêng ở
  * `resources/views/vendor/` đọc cùng giá trị ấy. Nonce được sinh cả ở chế độ `off` để HTML
  * không đổi theo chế độ; chỉ header là đổi.
+ *
+ * `form-action` thêm các origin mà một màn hình của CHÍNH request này đã xin
+ * (`ContentSecurityPolicy::allowFormActionTo()`, M11 Task 4: màn hình đồng ý OAuth) — đọc từ thuộc
+ * tính của request sau khi phản hồi đã dựng xong, nên không trang nào khác mang theo.
  */
 class SendSecurityHeaders
 {
@@ -71,7 +75,7 @@ class SendSecurityHeaders
         $response->headers->remove(ContentSecurityPolicy::HEADER_REPORT);
 
         if ($header = ContentSecurityPolicy::headerName()) {
-            $response->headers->set($header, ContentSecurityPolicy::policy($nonce));
+            $response->headers->set($header, ContentSecurityPolicy::policy($nonce, ContentSecurityPolicy::formActionOrigins($request)));
         }
 
         return $response;

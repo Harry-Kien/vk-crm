@@ -172,31 +172,40 @@ return [
     'deployment' => [
         /*
          * PHP extension bắt buộc ở production, HẰNG SỐ chứ không đoán theo máy đang chạy lệnh:
-         * `composer check-platform-reqs --no-dev` ngày 2026-09-28 cộng `pdo_mysql` (MariaDB, SPEC
-         * §2). KHÔNG có `gd` — xem {@see \App\Actions\Deployment\RunPreflight} vì sao đó là một
-         * dòng VÀNG riêng, không phải một extension bắt buộc.
+         * `composer check-platform-reqs --no-dev` (ngày 2026-09-28; từ M11 Task 1 thêm `sodium`, từ M12
+         * Task 4 thêm `curl`) cộng `pdo_mysql` (MariaDB, SPEC §2).
+         * Nói gọn: chỉ những extension mà thiếu thì một tính năng hỏng. KHÔNG có `gd` — xem
+         * {@see \App\Actions\Deployment\RunPreflight} vì sao đó là một dòng VÀNG riêng, không phải một
+         * extension bắt buộc.
          *
          * Cấu hình được (không phải một `const` cứng trong Action) để test gài một tên giả vào
          * đây mà không cần gỡ thật một extension của container —
          * `tests/Feature/Deployment/PreflightCommandTest.php` dùng đúng cách này để dựng cả hai
          * chiều đỏ/xanh của điều kiện "thiếu extension".
          *
-         * M12 Task 4 (R6) thêm `curl`: `minishlink/web-push` (gói thông báo đẩy) đòi `ext-curl`.
-         * Từ đây danh sách được canh bằng `composer.lock`: test "mọi ext-* mà một gói production
-         * đòi" của `PreflightCommandTest` đỏ khi một gói mới đòi extension chưa có ở đây.
+         * `sodium` thêm ở M11 Task 1 (D5): `lcobucci/jwt` (Passport → league/oauth2-server kéo vào)
+         * khai `ext-sodium`. Thiếu nó thì `/oauth/token` hỏng, và chỉ hỏng trên máy chủ thật.
+         *
+         * `curl`: M12 Task 4 (R6) — `minishlink/web-push` (gói thông báo đẩy) khai `ext-curl`; M11
+         * Task 5 cũng cần nó dù không gói nào của M11 khai: việc tải tài liệu CIMD ghim IP đã kiểm
+         * bằng `CURLOPT_RESOLVE` (chống DNS rebinding, `App\Support\Mcp\MetadataDocumentFetcher`).
+         *
+         * Danh sách được canh bằng `composer.lock`: test "mọi ext-* mà một gói production đòi" của
+         * `PreflightCommandTest` đỏ khi một gói mới đòi extension chưa có ở đây.
          */
         'required_extensions' => [
             'ctype', 'curl', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
-            'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
-            'zlib', 'pdo_mysql',
+            'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'sodium', 'tokenizer', 'xmlreader',
+            'zip', 'zlib', 'pdo_mysql',
         ],
 
         /*
          * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
          * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
          * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
-         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó đúng bằng
-         * `composer check-platform-reqs` + `pdo_mysql` (`docs/CAI-DAT.md`, Bước 1), và thiếu pcntl
+         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó là
+         * `composer check-platform-reqs` + `pdo_mysql` + `curl` (`docs/CAI-DAT.md`, Bước 1), tức chỉ
+         * những extension mà thiếu thì một tính năng hỏng, và thiếu pcntl
          * không làm vỡ màn hình nào — `vkcrm:preflight` báo VÀNG ({@see
          * \App\Actions\Deployment\RunPreflight}). Cấu hình được chỉ vì cùng lý do với
          * `required_extensions`: test gài một tên giả để dựng chiều VÀNG.
@@ -214,6 +223,121 @@ return [
          * Cấu hình được chỉ để test gài một tên hàm giả mà dựng chiều ĐỎ.
          */
         'worker_signal_functions' => ['pcntl_async_signals', 'pcntl_signal', 'pcntl_alarm'],
+    ],
+
+    /*
+     * Máy chủ MCP cho nhân sự (kế hoạch M11).
+     */
+    'mcp' => [
+        /*
+         * R9 (Task 7): cờ "truy cập qua AI" (`matters.ai_access`) cho một vụ việc MỚI, `allowed` hoặc
+         * `denied`. Mặc định `denied`: dự án không tự quyết thay luật sư rằng khách đã đồng ý bằng
+         * văn bản (Luật Luật sư Điều 25; Luật 91 Điều 9 — im lặng không phải đồng ý). Chủ văn phòng
+         * đổi được (câu hỏi mở 2 của kế hoạch). Giá trị khác hai chữ đó cho ra `denied`
+         * ({@see \App\Enums\MatterAiAccess::defaultForNewMatter()}). Không đụng tới vụ đã có: vụ cũ
+         * chỉ đổi cờ qua nút "Bật/Tắt truy cập qua AI" của trang vụ việc — chiều bật kèm ô tích
+         * "Khách đã đồng ý bằng văn bản".
+         */
+        'matter_default' => env('MCP_MATTER_DEFAULT', 'denied'),
+
+        /*
+         * R12 mục 1 (Task 6): phiên bản HIỆN HÀNH của chính sách dùng AI (`docs/CHINH-SACH-AI.md`,
+         * Task 16) mà nhân sự phải cam kết trước khi `/mcp` mở cho họ (`ai_acknowledgements`,
+         * `App\Actions\Mcp\AcknowledgeAiPolicy`). Đổi chuỗi này cùng lúc với mỗi lần sửa văn bản
+         * chính sách: mọi kết nối của mọi nhân sự ngừng ở request kế tiếp, cho tới khi từng người cam
+         * kết lại. Tối đa 20 ký tự (cột `ai_acknowledgements.policy_version`). Để trống (hay dài
+         * hơn) thì không ai cam kết được và `/mcp` đóng với mọi người
+         * (`App\Support\Mcp\McpAccess::policyVersion()`).
+         *
+         * Không có biến `.env`: phiên bản đi cùng văn bản trong mã nguồn, không phải một cấu hình
+         * của máy chủ.
+         */
+        'policy_version' => '2026-10-04',
+
+        /*
+         * R10 (Task 9): tên các bên KHÔNG phải khách của văn phòng khi ra khỏi hệ thống qua MCP.
+         * `pseudonym` (mặc định): vai + số thứ tự ("Bị đơn 1"); bên là khách của văn phòng vẫn ra bằng
+         * tên. `full`: tên thật của mọi bên — chủ văn phòng quyết (câu hỏi mở 3). Chỉ đúng chữ `full`
+         * bật tên thật; mọi giá trị khác là `pseudonym` ({@see \App\Support\Mcp\PartyLabel::mode()}).
+         * Giả danh KHÔNG phải khử nhận dạng: tiêu đề vụ việc hay chứa tên đương sự [PL:361].
+         */
+        'party_names' => env('MCP_PARTY_NAMES', 'pseudonym'),
+
+        /*
+         * R7: Origin được gọi `/mcp` từ trình duyệt, so khớp CHÍNH XÁC
+         * ({@see \App\Http\Middleware\Mcp\CheckOrigin}, cộng thêm origin của `APP_URL`). Request không
+         * có Origin (Claude, ChatGPT gọi từ máy chủ của họ) không bị danh sách này chặn.
+         * `MCP_EXTRA_ALLOWED_ORIGINS`: thêm origin khác mà không sửa mã, dạng `scheme://host[:port]`,
+         * phân tách dấu phẩy. Không nhận ký tự đại diện.
+         */
+        'allowed_origins' => array_values(array_filter(array_map('trim', [
+            'https://claude.ai',
+            'https://chatgpt.com',
+            ...explode(',', (string) env('MCP_EXTRA_ALLOWED_ORIGINS', '')),
+        ]))),
+
+        /*
+         * R7 (Task 5): CIMD — `client_id` là URL HTTPS của một tài liệu metadata
+         * ({@see \App\Actions\Mcp\ResolveClientIdMetadataDocument}). MỘT cờ cho cả hai việc: AS
+         * metadata quảng bá `client_id_metadata_document_supported: true`
+         * ({@see \App\Http\Controllers\Mcp\AuthorizationServerMetadataController}), VÀ máy chủ nhận
+         * `client_id` dạng URL. Tắt thì không quảng bá, không tải gì, `client_id` URL là
+         * `invalid_client`; Claude và ChatGPT tự lùi về DCR [DC:715], [PL:179].
+         * Công tắc toàn hệ thống `mcp.enabled` (bảng `settings`, Task 6) tắt thì CIMD cũng tắt, dù cờ
+         * này bật.
+         *
+         * MẶC ĐỊNH TẮT: cổng dừng của Task 5 chưa đạt — chưa thử được với Claude thật trên staging
+         * (PROGRESS, Ghi chú M11, Task 5). Chỉ bật (`MCP_CLIENT_ID_METADATA_DOCUMENTS=true`) sau khi
+         * nghiệm thu thật ở Task 17. Tắt lại sau khi đã bật thì kết nối đã tạo qua CIMD hỏng ở lần làm
+         * mới kế tiếp, và nhân sự kết nối lại (qua DCR).
+         */
+        'client_id_metadata_documents' => filter_var(env('MCP_CLIENT_ID_METADATA_DOCUMENTS', false), FILTER_VALIDATE_BOOLEAN),
+
+        /*
+         * R7 (Task 5): host được phép làm `client_id` CIMD, so ĐÚNG chuỗi (chữ thường, không tên miền
+         * con, không cổng) — chính sách tin cậy của CIMD [PL:224]. Tài liệu ở các host này do Claude
+         * (web, desktop, mobile, Claude Code), ChatGPT và VS Code phát hành [DC:739], [PL:169], [PL:200].
+         * Không có biến `.env`: thêm một host là mở thêm một nơi mà máy chủ sẽ gửi request tới.
+         */
+        'client_id_metadata_hosts' => ['claude.ai', 'chatgpt.com', 'vscode.dev'],
+
+        /*
+         * R7 (Task 3): redirect URI mà đăng ký client động (DCR, `POST /oauth/register`) chấp nhận,
+         * theo nền tảng [PL:225], [DC:631], [DC:739], [PL:196], [PL:199-200]. Mỗi mục là MỘT URI đầy
+         * đủ và được so khớp CHÍNH XÁC từng ký tự ({@see \App\Support\Mcp\RedirectUriAllowlist}), trừ
+         * hai ngoại lệ có tên:
+         *  - loopback `http://localhost`, `http://127.0.0.1` (và `http://[::1]` nếu được thêm): bỏ qua
+         *    CỔNG, phần còn lại vẫn khớp chính xác (RFC 8252 §7.3; Claude Code đổi cổng mỗi phiên);
+         *  - `{callback_id}` trong ĐƯỜNG DẪN: đúng một đoạn `[A-Za-z0-9_-]{1,128}` (ChatGPT cấp một
+         *    callback cho mỗi kết nối). Không bao giờ có ký tự đại diện ở host.
+         * Khoá theo nền tảng chỉ để người đọc biết mục nào của ai; phép so không đọc khoá.
+         */
+        'redirect_uris' => [
+            // Claude web, desktop, mobile.
+            'claude' => ['https://claude.ai/api/mcp/auth_callback'],
+            // ChatGPT: redirect ổn định (dùng khi máy chủ trả `iss`, RFC 9207 — Task 2 đã có) và redirect
+            // theo từng callback.
+            'chatgpt' => [
+                'https://chatgpt.com/connector_platform_oauth_redirect',
+                'https://chatgpt.com/connector/oauth/{callback_id}',
+            ],
+            // Claude Code và CLI: loopback, bỏ qua cổng.
+            'loopback' => ['http://localhost/callback', 'http://127.0.0.1/callback'],
+            'vscode' => ['https://vscode.dev/redirect', 'http://127.0.0.1:33418/'],
+            // Cursor: tra cứu xếp mức "likely" [PL:199].
+            'cursor' => ['https://www.cursor.com/agents/mcp/oauth/callback', 'http://localhost:8787/callback'],
+            'antigravity' => ['https://antigravity.google/oauth-callback'],
+        ],
+
+        /*
+         * `MCP_EXTRA_REDIRECT_URIS`: thêm redirect URI cho nền tảng khác mà không sửa mã (ví dụ
+         * Copilot Studio, Gemini Enterprise [PL:225]), phân tách dấu phẩy. Cùng luật so khớp như
+         * danh sách trên.
+         */
+        'extra_redirect_uris' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('MCP_EXTRA_REDIRECT_URIS', '')),
+        ))),
     ],
 
     /*

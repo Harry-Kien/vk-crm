@@ -3,6 +3,9 @@
 return [
     'stage_log_immutable' => 'Nhật ký tiến độ không thể sửa nội dung hoặc xoá sau khi đã ghi.',
     'stage_log_view_immutable' => 'Biên bản khách đã xem tiến độ không thể sửa hoặc xoá sau khi đã ghi.',
+    // M11 Task 7: App\Exceptions\{McpDraftNotDestroyable,McpDraftDiscardIncomplete}.
+    'mcp_draft_not_destroyable' => 'Nháp do AI soạn không xoá được. Không dùng thì bỏ nháp kèm lý do; nháp đã bỏ vẫn được giữ lại.',
+    'mcp_draft_discard_incomplete' => 'Bỏ nháp phải ghi rõ người bỏ và lý do bỏ.',
     'matter_not_destroyable' => 'Không thể xoá vĩnh viễn vụ việc: nhật ký tiến độ và nhật ký tải về phải được giữ theo chính sách lưu trữ.',
     'stage_not_configured' => 'Loại vụ việc ":name" chưa có giai đoạn nào. Vào Loại vụ việc để thêm giai đoạn trước khi mở vụ việc mới.',
     'duplicate_matter_type_code' => 'Đã có một loại vụ việc còn dùng mang mã ":code". Mã loại nằm trong mã hồ sơ (SPEC §6.1) nên không được trùng; đổi mã, hoặc mở lại loại vụ việc cũ nếu nó đã bị xoá.',

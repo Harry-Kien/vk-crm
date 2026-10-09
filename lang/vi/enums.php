@@ -22,6 +22,64 @@ return [
         'normal' => 'Thông thường',
         'restricted' => 'Hạn chế',
     ],
+    // M11 R9 (Task 7): App\Enums\MatterAiAccess — cờ "vụ việc lên AI" của tab Tổng quan. Nhãn
+    // `allowed` cố ý không nói "khách đã đồng ý": vụ mở khi `MCP_MATTER_DEFAULT=allowed` nhận giá trị
+    // này mà không ai xác nhận gì; lời xác nhận chỉ nằm ở dòng audit `matter_ai_access_changed`.
+    'matter_ai_access' => [
+        'allowed' => 'Cho phép AI truy cập',
+        'denied' => 'Không cho AI truy cập',
+    ],
+    // M11 R5 (Task 13): App\Enums\McpDraftState — trạng thái của một nháp do AI soạn (suy từ cột).
+    'mcp_draft_state' => [
+        'pending' => 'Đang chờ người duyệt trên web',
+        'used' => 'Đã gửi từ nháp',
+        'discarded' => 'Đã bỏ',
+    ],
+    // M11 R5 (Task 7): App\Enums\CreatedVia — mốc hạn, nhật ký liên lạc tạo qua đường nào.
+    'created_via' => [
+        'web' => 'Nhập trên web',
+        'mcp' => 'Tạo qua AI',
+    ],
+    // M11 R2 (Task 6): App\Enums\AiAccessMode — công tắc truy cập qua AI theo người (`users.ai_access`).
+    'ai_access_mode' => [
+        'off' => 'Tắt',
+        'read' => 'Chỉ đọc',
+        'read_write' => 'Đọc và ghi',
+    ],
+    // M11 R2/R12 (Task 6, Task 4): App\Enums\McpAccessRefusal — vì sao một tài khoản chưa dùng được máy
+    // chủ AI, hay chưa đồng ý được một kết nối. Màn hình đồng ý OAuth (Task 4) hiện nguyên câu cho chính
+    // người đó, nên mỗi câu nói điều người đó làm được tiếp theo.
+    'mcp_access_refusal' => [
+        'not_staff' => 'Chỉ tài khoản nhân sự của văn phòng mới kết nối được trợ lý AI.',
+        'inactive' => 'Tài khoản của anh/chị đang bị vô hiệu hoá.',
+        'two_factor_not_set_up' => 'Anh/chị cần cài xác thực hai bước (2FA) trên trang quản trị trước khi kết nối trợ lý AI.',
+        'ai_access_off' => 'Quản trị chưa bật truy cập qua AI cho tài khoản của anh/chị.',
+        'no_matter_view' => 'Vai trò hiện tại của anh/chị không xem được nội dung vụ việc, nên không dùng được trợ lý AI. Hỏi quản trị nếu vai trò này chưa đúng.',
+        'server_disabled' => 'Máy chủ AI của văn phòng đang tắt.',
+        'policy_not_acknowledged' => 'Anh/chị chưa cam kết chính sách dùng AI phiên bản hiện hành (trang "Kết nối AI của tôi").',
+    ],
+    // M11 Task 4: App\Enums\McpPlatform — nền tảng AI suy từ host redirect của một kết nối (màn hình
+    // đồng ý, nhật ký). Loopback không đoán tên ứng dụng: cổng không nói gì về ứng dụng.
+    'mcp_platform' => [
+        'claude' => 'Claude',
+        'chatgpt' => 'ChatGPT',
+        'local_app' => 'Ứng dụng trên máy tính này',
+        'vscode' => 'VS Code',
+        'cursor' => 'Cursor',
+        'antigravity' => 'Antigravity',
+        'other' => 'Ứng dụng khác',
+    ],
+    // M11 R8 (Task 6): App\Enums\AiRevocationReason — vì sao mọi kết nối AI của một nhân sự bị thu hồi.
+    'ai_revocation_reason' => [
+        'ai_access_off' => 'Tắt truy cập qua AI',
+        'deactivated' => 'Vô hiệu hoá tài khoản',
+        'role_changed' => 'Đổi chức danh hoặc vai trò',
+        'password_changed' => 'Đổi mật khẩu',
+        'two_factor_reset' => 'Đặt lại 2FA',
+        'deleted' => 'Xoá tài khoản',
+        'revoked_by_admin' => 'Quản trị thu hồi kết nối',
+        'revoked_by_self' => 'Nhân sự tự thu hồi kết nối',
+    ],
     'checklist_item_status' => [
         'missing' => 'Chưa nộp',
         'pending_review' => 'Chờ kiểm tra',

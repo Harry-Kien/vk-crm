@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Mcp\PruneStaleMcpClients;
 use App\Actions\Schedule\CapturePerformanceSnapshots;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
@@ -414,6 +415,38 @@ Schedule::call('App\Actions\Schedule\AnonymiseExpiredProspects@handle')
     ->dailyAt('03:30')
     ->name('prospects.anonymise')
     ->withoutOverlapping(60);
+
+/**
+ * M11 R7 (Task 3) — dọn token OAuth chết, 03:00 hằng ngày, sau lượt sao lưu 02:00. `passport:purge`
+ * xoá access token, refresh token và mã uỷ quyền ĐÃ THU HỒI, cùng những cái đã hết hạn quá `--hours`
+ * giờ. Xoá một token đã thu hồi không mở lại được gì: Passport coi dòng không còn trong CSDL là đã thu
+ * hồi (`isAccessTokenRevoked()`, `isRefreshTokenRevoked()` hỏi "có dòng chưa thu hồi không"), nên
+ * refresh token cũ dùng lại vẫn nhận `invalid_grant`.
+ *
+ * `--hours=888` (`PruneStaleMcpClients::tokenPurgeHours()`: hạn refresh token 30 ngày + 168 giờ giữ
+ * mặc định), KHÔNG mặc định 168: lượt dọn client 03:15 chỉ thấy refresh token qua dòng access token
+ * cấp cùng nó, nên dòng access token phải còn chừng nào refresh token còn sống. Với mặc định, nhân sự
+ * nghỉ hơn 7 ngày (Tết) thì purge xoá dòng access token, lượt dọn xoá client (nếu nó quá 30 ngày
+ * tuổi), và Claude làm mới nhận `invalid_client` (rà soát Task 3, I1).
+ *
+ * Không `withoutOverlapping()`: ba câu DELETE, chạy chồng nhau là vô hại. CHỈ `->name()`, không
+ * `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ * `tests/Feature/Schedule/McpOAuthCleanupScheduleTest.php` ghim giờ và lệnh; cặp purge → dọn chạy
+ * thật ở `tests/Feature/Mcp/PruneMcpClientsTest.php`.
+ */
+Schedule::command('passport:purge', ['--hours' => PruneStaleMcpClients::tokenPurgeHours()])
+    ->dailyAt('03:00')
+    ->name('mcp.tokens.purge');
+
+/**
+ * M11 R7 (Task 3) — dọn client OAuth do đăng ký động tạo ra mà đã quá 30 ngày tuổi không còn token
+ * nào sống, 03:15 hằng ngày (sau `mcp.tokens.purge`). Luật ở `App\Actions\Mcp\PruneStaleMcpClients`.
+ * Không `withoutOverlapping()`: điều kiện được kiểm lại trong chính câu DELETE, chạy chồng nhau là vô
+ * hại. Ghim giờ ở `tests/Feature/Schedule/McpOAuthCleanupScheduleTest.php`.
+ */
+Schedule::command('vkcrm:mcp-prune-clients')
+    ->dailyAt('03:15')
+    ->name('mcp.clients.prune');
 
 /**
  * Ảnh chụp cuối ngày số liệu theo người (M13 R10, Task 7): số vụ đang phụ trách, quá hạn cập nhật cho

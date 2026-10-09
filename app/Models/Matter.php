@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\Confidentiality;
+use App\Enums\MatterAiAccess;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role as StaffRole;
@@ -55,6 +56,7 @@ class Matter extends Model
             'is_published_to_portal' => 'boolean',
             'last_client_update_at' => 'datetime',
             'confidentiality' => Confidentiality::class,
+            'ai_access' => MatterAiAccess::class,
             // isListableBy() so sánh chặt (===) lead_lawyer_id với $user->getKey(); không ép
             // kiểu ở đây thì một model bẩn giữ giá trị string từ request (chưa qua DB) sẽ lệch
             // với so sánh lỏng của scopeListableBy — đúng cái bất đối xứng mà isListableBy()
@@ -76,6 +78,10 @@ class Matter extends Model
             $matter->stage_entered_at ??= now();
             $matter->opened_at ??= today();
             $matter->confidentiality ??= Confidentiality::Normal;
+            // M11 R9: chỗ DUY NHẤT một vụ mới nhận cờ AI — `MCP_MATTER_DEFAULT`, mặc định `denied`.
+            // `ai_access` không nằm trong `$fillable`, nên một giá trị đã có ở đây chỉ đến từ một
+            // lần gán tường minh (factory, Action), không từ mảng thuộc tính của một form.
+            $matter->ai_access ??= MatterAiAccess::defaultForNewMatter();
         });
 
         // Luật sư phụ trách luôn có mặt trong đội ngũ với vai lead.
@@ -599,6 +605,15 @@ class Matter extends Model
         return $this->hasMany(TimeEntry::class);
     }
 
+    /**
+     * Nháp cập nhật tiến độ do AI soạn (M11 R5) — mọi nháp, kể cả đã dùng hay đã bỏ; nháp đang chờ
+     * là `->pending()` ({@see StageLogDraft}, scope của `IsMcpDraft`).
+     */
+    public function stageLogDrafts(): HasMany
+    {
+        return $this->hasMany(StageLogDraft::class);
+    }
+
     /** SPEC §4.6: description_internal không bao giờ ra portal. */
     protected function internalAttributes(): array
     {
@@ -612,7 +627,7 @@ class Matter extends Model
             ->logOnly([
                 'client_id', 'matter_type_id', 'title', 'summary_for_client', 'stage',
                 'lead_lawyer_id', 'opened_at', 'closed_at', 'is_published_to_portal',
-                'court_name', 'case_number', 'confidentiality',
+                'court_name', 'case_number', 'confidentiality', 'ai_access',
             ])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs();

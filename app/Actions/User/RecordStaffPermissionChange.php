@@ -44,18 +44,38 @@ final class RecordStaffPermissionChange
         array $rolesAfter,
         ?User $actor,
     ): ?Activity {
-        $sortedBefore = collect($rolesBefore)->sort()->values()->all();
-        $sortedAfter = collect($rolesAfter)->sort()->values()->all();
-
-        if ($positionBefore === $positionAfter && $sortedBefore === $sortedAfter) {
+        if (! self::isChange($positionBefore, $positionAfter, $rolesBefore, $rolesAfter)) {
             return null;
         }
 
         return Audit::record('permission_changed', $target, [
             'position_from' => $positionBefore->value,
             'position_to' => $positionAfter->value,
-            'roles_from' => $sortedBefore,
-            'roles_to' => $sortedAfter,
+            'roles_from' => self::sorted($rolesBefore),
+            'roles_to' => self::sorted($rolesAfter),
         ], $actor);
+    }
+
+    /**
+     * Định nghĩa DUY NHẤT của "đổi phân quyền" của một nhân sự: chức danh đổi, hoặc tập vai trò Spatie
+     * đổi (không kể thứ tự). Dùng cho dòng nhật ký ở trên VÀ cho luật M11 Task 6 "đổi vai thì hạ
+     * `ai_access` về `off` và thu hồi mọi kết nối AI" ở {@see EditUser::handleRecordUpdate()} — hai
+     * nơi phải đồng ý với nhau về việc một lần lưu có phải là đổi vai hay không.
+     *
+     * @param  list<string>  $rolesBefore
+     * @param  list<string>  $rolesAfter
+     */
+    public static function isChange(UserPosition $positionBefore, UserPosition $positionAfter, array $rolesBefore, array $rolesAfter): bool
+    {
+        return $positionBefore !== $positionAfter || self::sorted($rolesBefore) !== self::sorted($rolesAfter);
+    }
+
+    /**
+     * @param  list<string>  $roles
+     * @return list<string>
+     */
+    private static function sorted(array $roles): array
+    {
+        return collect($roles)->sort()->values()->all();
     }
 }

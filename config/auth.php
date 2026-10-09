@@ -49,6 +49,14 @@ return [
             'driver' => 'session',
             'provider' => 'client_users',
         ],
+
+        // M11 R1: máy chủ MCP (`routes/ai.php`). Token Passport, CHỈ nhân sự (`users`); không bao
+        // giờ provider `client_users`, nên không có đường nào cấp token cho khách hàng. Guard này chỉ
+        // đứng trước `/mcp`; mọi đường khác của ứng dụng dùng phiên `web`/`client`.
+        'mcp' => [
+            'driver' => 'passport',
+            'provider' => 'users',
+        ],
     ],
 
     /*

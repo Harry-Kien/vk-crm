@@ -155,6 +155,39 @@ return [
     'billing_invariants_ok' => 'Tổng các đợt thanh toán khớp giá trị hợp đồng trên cả :count hợp '
         .'đồng đang có hiệu lực.',
 
+    // M11 Task 16 — máy chủ MCP cho nhân sự, xem RunPreflight::mcpRedirectDomainsRow(),
+    // passportTokenTtlRow(), passportKeysRow().
+    'mcp_redirect_domains_wildcard' => 'mcp.redirect_domains (config/mcp.php của laravel/mcp) còn '
+        .'"*": nếu route đăng ký client của gói được bật, mọi redirect URI trên mọi tên miền đều được '
+        .'nhận. Đặt lại thành [] — app dùng allowlist chính xác của riêng nó (config/vkcrm.php, '
+        .'mcp.redirect_uris, và MCP_EXTRA_REDIRECT_URIS).',
+    'mcp_redirect_domains_ok' => 'mcp.redirect_domains (config/mcp.php) không có "*".',
+    'passport_token_ttl_too_long' => 'Access token của kết nối AI (Passport) sống :minutes phút — '
+        .'quá 60 phút (kế hoạch M11, R7). Token bị lộ dùng được lâu hơn. Đặt lại '
+        .'Passport::tokensExpireIn(PT1H) ở AppServiceProvider.',
+    'passport_token_ttl_ok' => 'Access token của kết nối AI (Passport) sống :minutes phút.',
+    'passport_keys_missing' => 'Khoá ký token của Passport thiếu, không đọc được, hoặc không phải khoá '
+        .'RSA: :keys. Không có khoá thì không nhân sự nào kết nối được AI (/oauth/token và /mcp hỏng). Chạy php artisan '
+        .'passport:keys bằng người dùng chạy PHP-FPM, hoặc dán đúng nội dung khoá vào '
+        .'PASSPORT_PRIVATE_KEY/PASSPORT_PUBLIC_KEY; rồi cất khoá cùng chỗ với APP_KEY '
+        .'(docs/CAI-DAT.md, Bước 3).',
+    'passport_private_key_exposed' => 'Khoá riêng của Passport (:path) có quyền :mode — người dùng '
+        .'khác trên máy chủ đọc được nó và tự ký access token cho bất kỳ nhân sự nào. Chạy chmod 600 '
+        .'(hoặc 640/660 nếu nhóm của PHP-FPM cần đọc) cho tệp này.',
+    'passport_keys_mismatch' => 'Khoá công khai của Passport không cùng cặp với khoá riêng: mọi kết '
+        .'nối AI sẽ hỏng chữ ký (401). Dán lại PASSPORT_PUBLIC_KEY (hoặc tệp oauth-public.key) từ ĐÚNG '
+        .'cặp của khoá riêng đang dùng, hoặc chạy lại php artisan passport:keys --force rồi cất cả hai '
+        .'khoá cùng chỗ với APP_KEY (docs/CAI-DAT.md, Bước 3).',
+    'passport_keys_ok' => 'Khoá ký token của Passport có đủ, là một cặp RSA, đọc được, và khoá riêng không '
+        .'mở cho người dùng khác.',
+    // M11 Task 16 (R12 mục 3), RunPreflight::mcpFilingDateRow().
+    'mcp_filing_date_missing' => 'Máy chủ MCP đang bật (Kết nối AI) nhưng chưa ghi ngày đã nộp hồ sơ '
+        .'đánh giá tác động chuyển dữ liệu cá nhân ra nước ngoài (hạn 60 ngày kể từ lần chuyển đầu '
+        .'tiên). Nộp hồ sơ rồi ghi ngày ở trang "Kết nối AI" (docs/CHINH-SACH-AI.md).',
+    'mcp_filing_date_ok' => 'Máy chủ MCP đang bật; hồ sơ đánh giá tác động đã nộp ngày :date.',
+    'mcp_filing_date_server_off' => 'Máy chủ MCP đang tắt (Kết nối AI): chưa chuyển dữ liệu nào cho nền '
+        .'tảng AI.',
+
     'summary_red' => 'Có mục ĐỎ — KHÔNG mở cổng cho tới khi sửa hết.',
     // Rà soát cuối làn m9f, I2 — xem RunPreflight::blocksOpening().
     'summary_red_billing_only' => 'Mục ĐỎ duy nhất là bất biến tiền — dữ liệu, không phải cấu hình máy: '

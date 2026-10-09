@@ -68,6 +68,11 @@ it('is referenced only by the exact set of files Task 12 lists, nowhere else in 
         'database/migrations/2026_09_25_000005_create_time_entries_table.php',
         'tests/Feature/Models/TimeEntryTest.php',
         'tests/Feature/Authorization/TimeEntryPolicyTest.php',
+        // M11 Task 17 (SPEC §5 "Mang sang M11"): hai phép canh CẤM MCP chạm tới tiền của vụ — phép quét
+        // cấu trúc nêu tên `TimeEntry` trong mẫu cấm, bộ dữ liệu quét đặt một dòng giờ làm có kim. Không
+        // tệp nào trong đó là nghiệp vụ của `TimeEntry`.
+        'tests/Feature/Mcp/MoneyMcpBoundaryTest.php',
+        'tests/Support/McpSweep.php',
     ];
 
     $scannedDirectories = ['app', 'database', 'tests', 'config', 'routes', 'lang'];

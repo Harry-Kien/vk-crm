@@ -236,6 +236,28 @@ function outsidePanelRouteReasons(): array
         'GET livewire-{hash}/js/{component}.js' => $static,
         'GET livewire-{hash}/css/{component}.css' => $static,
         'GET livewire-{hash}/css/{component}.global.css' => $static,
+
+        // M11 Task 1 — máy chủ MCP (`routes/ai.php`, ngoài nhóm `web`). Người sở hữu token đã qua
+        // 2FA lúc đồng ý (Task 4); bản thân `/mcp` không đọc phiên.
+        'POST mcp' => 'chỉ bearer Passport, không phiên, không cookie: `RequireBearerToken` xoá cookie laravel_token trước `auth:mcp` và chặn bearer trống, nên phiên /admin, phiên cổng khách, và cookie laravel_token kèm CSRF đúng (không bearer, hoặc `Bearer 0`, `Bearer ,`, bearer chỉ khoảng trắng) đều 401 (TransportTest, OAuthRoutesStaffSessionTest)',
+        'GET mcp' => '405 cố định, `Allow: POST`, không dữ liệu (TransportTest)',
+        'DELETE mcp' => '405 cố định, `Allow: POST`, không dữ liệu (TransportTest)',
+        // M11 Task 1 — route của Passport. Device code và route JSON quản lý client/token TẮT
+        // (OAuthServerHardeningTest), nên không có ở đây.
+        'POST oauth/token' => 'không đọc phiên: chỉ đổi mã uỷ quyền/refresh token (`RestrictOAuthGrantTypes`), cả hai không sinh được từ một phiên chưa cài 2FA (OAuthRoutesStaffSessionTest, OAuthServerHardeningTest)',
+        // M11 Task 4 — màn hình đồng ý: cổng 2FA riêng (`McpAccess::consentRefusal()`, cùng luật với
+        // `DocumentDownloadController::actor()`), vì cổng 2FA của Filament không đứng trước route này.
+        'GET oauth/authorize' => 'màn hình đồng ý từ chối (403, không có nút Đồng ý) một nhân sự chưa có secret 2FA; không bao giờ tự duyệt, kể cả khi đã có token còn hạn cho client đó (`ConsentAuthorizationController`) (AuthorizeScreenTest, OAuthRoutesStaffSessionTest)',
+        'POST oauth/authorize' => '"Đồng ý" kiểm lại mọi điều kiện ở lúc bấm, trong đó có secret 2FA (`ApproveConsentController`): phiên chưa cài 2FA nhận 403, không mã (AuthorizeScreenTest, OAuthRoutesStaffSessionTest)',
+        'DELETE oauth/authorize' => 'từ chối một yêu cầu uỷ quyền: không bao giờ cấp mã (AuthorizeScreenTest, OAuthRoutesStaffSessionTest)',
+        'POST oauth/token/refresh' => 'phát cookie laravel_token, và không route nào nhận cookie đó: guard passport duy nhất là `mcp`, chỉ đứng sau /mcp, nơi `RequireBearerToken` xoá cookie trước `auth:mcp`; cookie này kèm CSRF của chính phiên, có hay không kèm `Bearer 0` / `Bearer ,` / bearer chỉ khoảng trắng, vẫn 401 (OAuthRoutesStaffSessionTest)',
+        // M11 Task 2 — metadata OAuth công khai (RFC 9728, RFC 8414), `routes/ai.php`, ngoài nhóm `web`.
+        'GET .well-known/oauth-protected-resource' => 'metadata công khai cố định dựng từ cấu hình (URL MCP, issuer, scope), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        'GET .well-known/oauth-protected-resource/mcp' => 'metadata công khai cố định dựng từ cấu hình (URL MCP, issuer, scope), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        'GET .well-known/oauth-authorization-server' => 'metadata công khai cố định của máy chủ uỷ quyền (điểm cuối, grant, PKCE), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        'GET .well-known/oauth-authorization-server/mcp' => 'metadata công khai cố định của máy chủ uỷ quyền (điểm cuối, grant, PKCE), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        // M11 Task 3 — đăng ký client động (DCR, RFC 7591), `routes/ai.php`, ngoài nhóm `web`.
+        'POST oauth/register' => 'không đọc phiên, không cookie, không dữ liệu người dùng: chỉ tạo một client OAuth công khai (không secret) mang cờ is_mcp, redirect URI phải khớp chính xác allowlist; client đó không tự cấp được token nào, mọi token vẫn phải qua GET/POST oauth/authorize của một nhân sự; throttle 10 lần/giờ/IP (ClientRegistrationTest)',
     ];
 }
 

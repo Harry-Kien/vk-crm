@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CreatedVia;
 use App\Enums\DeadlineOutcome;
 use App\Enums\DeadlineSeverity;
 use App\Models\Concerns\HasBlameable;
@@ -24,12 +25,18 @@ class Deadline extends Model
     use RestrictedToClientPortal;
     use SoftDeletes;
 
+    /**
+     * M11 R5: `created_via`, `confirmed_at`, `confirmed_by` cố ý KHÔNG ở đây — tool `create_deadline`
+     * (Task 13) ép `mcp`, và chỉ nút "Xác nhận" (Task 12) ghi hai cột xác nhận. Một form web điền được
+     * chúng qua `fill()` là tự dán nhãn "tạo qua AI" hay "đã xác nhận" cho một mốc.
+     */
     protected $fillable = [
         'matter_id', 'name', 'due_date', 'severity', 'responsible_user_id',
         'is_completed', 'completed_at', 'is_published', 'reminders_sent',
     ];
 
-    protected $attributes = ['reminders_sent' => '[]', 'severity' => 'normal'];
+    /** `created_via` khớp mặc định của cột, để một instance vừa tạo nói đúng như dòng nó vừa ghi. */
+    protected $attributes = ['reminders_sent' => '[]', 'severity' => 'normal', 'created_via' => 'web'];
 
     protected function casts(): array
     {
@@ -40,6 +47,8 @@ class Deadline extends Model
             'completed_at' => 'datetime',
             'is_published' => 'boolean',
             'reminders_sent' => 'array',
+            'created_via' => CreatedVia::class,
+            'confirmed_at' => 'datetime',
         ];
     }
 
@@ -245,5 +254,11 @@ class Deadline extends Model
     public function responsible(): BelongsTo
     {
         return $this->belongsTo(User::class, 'responsible_user_id');
+    }
+
+    /** M11 R5: người đã bấm "Xác nhận" trên một mốc tạo qua AI (Task 12). */
+    public function confirmer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'confirmed_by');
     }
 }

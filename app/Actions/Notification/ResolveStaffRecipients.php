@@ -331,4 +331,26 @@ class ResolveStaffRecipients
 
         return User::query()->where('is_active', true)->role(Role::Admin->value)->get()->values();
     }
+
+    /**
+     * Người nhận thông báo về việc dùng trợ lý AI của một NHÂN SỰ (M11 R8, Task 8 — cảnh báo "đọc quá
+     * 200 bản ghi một giờ", `App\Actions\Mcp\AlertOnMcpReadVolume`): mọi người có quyền
+     * `settings.manage` — chính những người bật, tắt và thu hồi được truy cập AI của nhân sự (R2) —
+     * đang hoạt động, chưa xoá mềm (`User::query()` bỏ dòng đã xoá).
+     *
+     * Không gắn với vụ việc nào, nên không có cổng `view` hay chuỗi dự phòng của {@see self::handle()};
+     * thông báo cũng không mang dữ liệu vụ việc nào (chỉ tên nhân sự và ngưỡng). Luôn có người: vai
+     * admin mang mọi quyền, và M6.5 R7 cấm vô hiệu hoá admin đang hoạt động cuối cùng.
+     *
+     * @return Collection<int, User>
+     */
+    public function forAiOversight(): Collection
+    {
+        return User::query()
+            ->where('is_active', true)
+            ->permission(Permission::SettingsManage->value)
+            ->orderBy('id')
+            ->get()
+            ->values();
+    }
 }

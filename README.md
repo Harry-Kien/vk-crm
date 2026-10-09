@@ -158,10 +158,10 @@ phòng, kèm bảng số đo thật của một lần khôi phục thử — kho
 Tóm tắt những điều không được bỏ qua:
 
 - **PHP 8.3 với đủ extension**: `ctype` `curl` `dom` `exif` `fileinfo` `filter` `hash` `iconv`
-  `intl` `json` `libxml` `mbstring` `openssl` `pcre` `session` `tokenizer` `xmlreader` `zip`
-  `zlib` `pdo_mysql` (nên có thêm `gd`). `curl` bắt buộc từ M12 (gói thông báo đẩy). MariaDB 11,
-  gói `mariadb-client` (`mariadb-dump`), và `rclone` cho sao lưu Google Drive. Không cần Redis,
-  Supervisor hay Node.js.
+  `intl` `json` `libxml` `mbstring` `openssl` `pcre` `session` `sodium` `tokenizer` `xmlreader`
+  `zip` `zlib` `pdo_mysql` (nên có thêm `gd`). `curl` bắt buộc từ M12 (gói thông báo đẩy), `sodium`
+  là của máy chủ MCP (M11, kết nối AI cho nhân sự). MariaDB 11, gói `mariadb-client`
+  (`mariadb-dump`), và `rclone` cho sao lưu Google Drive. Không cần Redis, Supervisor hay Node.js.
 - **Thứ tự cài:** `cp .env.example .env` → `composer install --no-dev --optimize-autoloader` →
   `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) và điền `.env`
   (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`…) → cấu hình máy chủ web
@@ -182,6 +182,19 @@ Tóm tắt những điều không được bỏ qua:
 - **`APP_KEY` là một nửa của bản sao lưu**: nó mã hoá số định danh khách hàng và secret 2FA của
   nhân sự, và là khoá của cột so trùng CCCD. Cất nó (cùng `BACKUP_ARCHIVE_PASSWORD`) ở hai nơi
   ngoài máy chủ, không cùng chỗ bản sao lưu; không bao giờ `key:generate` trên dữ liệu thật.
+- **Kết nối AI cho nhân sự (máy chủ MCP, M11)** — chi tiết ở `docs/CAI-DAT.md`, mục "Máy chủ MCP
+  (kết nối AI cho nhân sự)":
+  - một lần, ở lần cài đầu hoặc lần nâng cấp đầu lên M11: `php artisan passport:keys` bằng người
+    dùng chạy PHP-FPM (lệnh tự đặt quyền 600 cho khoá riêng — đừng nới; `vkcrm:preflight` báo ĐỎ
+    khi người dùng khác đọc được nó). Hai tệp khoá cất cùng chỗ và cùng quy trình với `APP_KEY`.
+    Mất hay đổi khoá: access token đang dùng (sống tối đa 1 giờ) hết hiệu lực ngay, client tự làm
+    mới bằng refresh token. Đổi `APP_KEY` thì nặng hơn: mọi refresh token không giải mã được nữa,
+    mọi nhân sự phải kết nối lại;
+  - `/.well-known/*` phải tới được Laravel (hai mẫu máy chủ web trong `tools/deploy/` đã chừa đúng
+    đường này khỏi luật chặn dotfile), và WAF/Cloudflare/chặn địa lý không được chặn dải IP của
+    Anthropic `160.79.104.0/21` và danh sách IP của OpenAI;
+  - máy chủ MCP TẮT cho tới khi chủ văn phòng bật trên trang "Kết nối AI", sau khi xong danh sách
+    việc pháp lý ở `docs/CHINH-SACH-AI.md`. Hướng dẫn nhân sự tự kết nối: `docs/KET-NOI-AI.md`.
 - **App trên điện thoại và thông báo đẩy (M12)** chỉ chạy trên HTTPS. Khoá thông báo đẩy sinh MỘT
   lần cho mỗi môi trường: `php artisan config:clear` rồi `php artisan webpush:vapid` (khi hai dòng
   `VAPID_*_KEY` còn trống), điền `VAPID_SUBJECT=mailto:…`. `VAPID_PRIVATE_KEY` cất cùng chỗ với

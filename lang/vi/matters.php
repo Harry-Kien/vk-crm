@@ -59,6 +59,23 @@ return [
         'closed_at' => 'Ngày đóng',
         'court_name' => 'Toà án',
         'case_number' => 'Số hồ sơ vụ án',
+        // M11 R9 (Task 7).
+        'ai_access' => 'Truy cập qua AI (MCP)',
+    ],
+    // M11 R9 (Task 7) — nút "Bật/Tắt truy cập qua AI" trên trang vụ việc (ViewMatter) và
+    // App\Actions\Matter\SetMatterAiAccess.
+    'ai_access' => [
+        'allow' => 'Bật truy cập qua AI',
+        'deny' => 'Tắt truy cập qua AI',
+        'allow_heading' => 'Cho nhân sự hỏi vụ việc này qua AI',
+        'allow_description' => 'Nhân sự được quản trị bật quyền AI sẽ đọc và soạn nháp cho vụ việc này bằng tài khoản AI cá nhân (Claude, ChatGPT…). Dữ liệu gửi cho AI là chuyển dữ liệu cá nhân ra nước ngoài, nên chỉ bật khi khách hàng đã đồng ý bằng văn bản cho đúng việc này — im lặng không phải là đồng ý. Vụ có độ mật "Hạn chế" không bao giờ hiện qua AI, kể cả khi bật.',
+        'deny_heading' => 'Tắt truy cập qua AI cho vụ việc này',
+        'deny_description' => 'Từ lần gọi kế tiếp, vụ việc này vắng mặt khỏi mọi công cụ AI. Nháp AI đã soạn trước đó vẫn ở trên trang vụ việc.',
+        'client_consented' => 'Khách đã đồng ý bằng văn bản cho việc này',
+        'client_consented_help' => 'Bắt buộc để bật. Người bấm và thời điểm được ghi vào nhật ký hệ thống.',
+        'consent_required' => 'Phải xác nhận khách đã đồng ý bằng văn bản thì mới bật được truy cập qua AI.',
+        'changed' => 'Trạng thái truy cập qua AI của vụ việc vừa được người khác đổi trong lúc anh/chị xác nhận — chưa thay đổi gì. Hãy xem lại trạng thái hiện tại rồi thử lại nếu vẫn cần.',
+        'saved' => 'Đã cập nhật truy cập qua AI của vụ việc.',
     ],
     'actions' => [
         'publish_to_portal' => 'Bật công bố portal',
