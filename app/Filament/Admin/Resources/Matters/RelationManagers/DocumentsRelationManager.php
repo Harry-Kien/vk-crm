@@ -435,7 +435,7 @@ class DocumentsRelationManager extends RelationManager
             ->modalHeading(__('documents.tab.actions.upload_heading'))
             ->authorize(fn (): bool => Gate::allows('create', [Document::class, $this->getOwnerRecord()]))
             // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không nhận tài liệu mới.
-            ->visible(fn (): bool => ! $this->getOwnerRecord()->isRecordDestroyed())
+            ->visible(fn (): bool => ! $this->ownerIsDestroyed())
             ->schema([
                 FileUpload::make('file')
                     ->label(__('documents.tab.fields.file'))
@@ -594,6 +594,14 @@ class DocumentsRelationManager extends RelationManager
             ));
     }
 
+    /** Làn fm B2: một truy vấn cho cả bảng, không một truy vấn mỗi dòng (nút "Công bố" hỏi theo dòng). */
+    private ?bool $ownerDestroyed = null;
+
+    private function ownerIsDestroyed(): bool
+    {
+        return $this->ownerDestroyed ??= $this->getOwnerRecord()->isRecordDestroyed();
+    }
+
     /**
      * Làn fm A5: ngày (d/m/Y) khách hết quyền tra cứu vụ của tab này, nếu vụ đã kết thúc và ĐÃ quá hạn
      * đó (`MatterArchive::isClientAccessExpired()`); còn hạn hoặc vụ đang mở thì `null`.
@@ -652,7 +660,7 @@ class DocumentsRelationManager extends RelationManager
             ->visible(fn (Document $record): bool => ! $record->group->isInternal()
                 && $record->status !== DocumentStatus::Retracted
                 // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không công bố thêm gì.
-                && ! $this->getOwnerRecord()->isRecordDestroyed())
+                && ! $this->ownerIsDestroyed())
             ->fillForm(fn (Document $record): array => [
                 'client_can_view' => $record->isReleasedToPortal() ? $record->client_can_view : true,
                 'client_can_download' => $record->isReleasedToPortal() ? $record->client_can_download : true,
