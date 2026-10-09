@@ -2,19 +2,28 @@
 
 namespace App\Filament\Admin\Resources\Matters\Tables;
 
+use App\Actions\Matter\RestoreMatter;
 use App\Enums\Permission;
 use App\Models\Matter;
 use App\Models\MatterTypeStage;
+use App\Models\User;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
 use App\Support\MatterStaleness;
+use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 class MattersTable
 {
@@ -100,9 +109,13 @@ class MattersTable
                     ->relationship('leadLawyer', 'name'),
                 TernaryFilter::make('is_published_to_portal')
                     ->label(__('matters.filters.is_published_to_portal')),
+                static::cancelledFilter(),
             ])
             ->recordActions([
-                ViewAction::make(),
+                // Hồ sơ đã huỷ không mở được trang Xem (route binding loại bản ghi xoá mềm) — chỉ
+                // còn nút "Khôi phục" của quản trị viên.
+                ViewAction::make()->hidden(fn (Matter $record): bool => $record->trashed()),
+                static::restoreAction(),
             ])
             // Cột thêm CHỈ khi người xem có `billing.view` — bản thân biểu thức SQL không lộ gì
             // (nó không đọc `confidentiality`), nhưng tính nó cho MỌI luật sư/trợ lý không có
@@ -135,6 +148,71 @@ class MattersTable
      * tô gì cho một vụ CHƯA TỪNG cập nhật (widget coi đó là ca xấu nhất). Hai nơi giờ đọc đúng
      * MỘT định nghĩa "quá hạn"; xem docblock của lớp kia cho ba điều kiện đầy đủ.
      */
+    /**
+     * Làn fm A4 — bộ lọc "Hồ sơ đã huỷ", chỉ quản trị viên (`MatterPolicy::viewCancelled`). Filament
+     * không áp một bộ lọc ẩn, nên một payload Livewire dàn dựng bật bộ lọc này dưới tên người khác
+     * vẫn chỉ nhận danh sách thường — `MatterCancelRestoreTest` đo đúng đường đó. (Một lần hỏi quyền
+     * thứ hai bên trong truy vấn đã được thử và bỏ: mutation probe cho thấy nó không bao giờ chạy.)
+     */
+    public static function cancelledFilter(): TernaryFilter
+    {
+        return TernaryFilter::make('cancelled')
+            ->label(__('lifecycle.cancel.filter'))
+            ->placeholder(__('lifecycle.cancel.filter_without'))
+            ->trueLabel(__('lifecycle.cancel.filter_only'))
+            ->falseLabel(__('lifecycle.cancel.filter_with'))
+            ->visible(fn (): bool => Gate::allows('viewCancelled', Matter::class))
+            ->queries(
+                true: fn (Builder $query): Builder => $query->onlyTrashed(),
+                false: fn (Builder $query): Builder => $query->withTrashed(),
+                blank: fn (Builder $query): Builder => $query,
+            );
+    }
+
+    /**
+     * Làn fm A4 — "Khôi phục" một hồ sơ đã huỷ ({@see RestoreMatter}), lý do bắt buộc (`required()` ở
+     * form là lớp tiện lợi; Action tự kiểm tra lại). Lời từ chối của Action (lý do toàn khoảng trắng,
+     * hồ sơ đã được người khác khôi phục) hiện thành thông báo đỏ và giữ hộp thoại mở; mất quyền giữa
+     * chừng thì câu chung `actions.unauthorized`.
+     */
+    public static function restoreAction(): Action
+    {
+        return Action::make('restore')
+            ->label(__('lifecycle.restore.action'))
+            ->icon(Heroicon::OutlinedArrowUturnLeft)
+            ->color('warning')
+            ->modalHeading(__('lifecycle.restore.modal_heading'))
+            ->modalDescription(__('lifecycle.restore.modal_description'))
+            ->modalSubmitActionLabel(__('lifecycle.restore.submit'))
+            ->visible(fn (Matter $record): bool => $record->trashed() && Gate::allows('restore', $record))
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('lifecycle.restore.reason'))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(RestoreMatter::REASON_MAX),
+            ])
+            ->action(function (Action $action, Matter $record, array $data): void {
+                $actor = Auth::user();
+                abort_unless($actor instanceof User, 403);
+
+                try {
+                    app(RestoreMatter::class)->handle($record, $actor, (string) ($data['reason'] ?? ''));
+                } catch (ValidationException $exception) {
+                    Notification::make()
+                        ->title($exception->errors()['reason'][0] ?? __('actions.unauthorized'))
+                        ->danger()
+                        ->send();
+                    $action->halt();
+                } catch (AuthorizationException) {
+                    Notification::make()->title(__('actions.unauthorized'))->danger()->send();
+                    $action->halt();
+                }
+
+                Notification::make()->title(__('lifecycle.restore.success'))->success()->send();
+            });
+    }
+
     public static function lastClientUpdateColor(Matter $record): ?string
     {
         return MatterStaleness::color($record);

@@ -55,6 +55,27 @@ return [
         'opened_at_after_closed' => 'Ngày mở hồ sơ không được sau ngày vụ việc kết thúc.',
     ],
 
+    // A4 — "Huỷ hồ sơ mở nhầm" (CancelMatter, EditMatter) và danh sách/khôi phục hồ sơ đã huỷ.
+    'cancel' => [
+        'consequences' => 'Hồ sơ đã huỷ biến khỏi mọi danh sách, cổng khách hàng, nhắc hạn và trang chủ. Chỉ quản trị viên khôi phục được, ở danh sách vụ việc với bộ lọc "Hồ sơ đã huỷ".',
+        'closed_refused' => 'Vụ việc này đã từng kết thúc nên không phải hồ sơ mở nhầm: huỷ nó sẽ đưa hồ sơ ra khỏi chính sách lưu trữ và tiêu huỷ. Hồ sơ đã kết thúc được giữ lại theo hạn lưu trữ.',
+        'filter' => 'Hồ sơ đã huỷ',
+        'filter_without' => 'Không gồm hồ sơ đã huỷ',
+        'filter_only' => 'Chỉ hồ sơ đã huỷ',
+        'filter_with' => 'Gồm cả hồ sơ đã huỷ',
+    ],
+    'restore' => [
+        'action' => 'Khôi phục',
+        'modal_heading' => 'Khôi phục hồ sơ đã huỷ',
+        'modal_description' => 'Hồ sơ trở lại như lúc bị huỷ: hiện lại trên danh sách, cổng khách hàng (nếu đang bật công bố), nhắc hạn và trang chủ. Lý do được ghi vào nhật ký.',
+        'submit' => 'Khôi phục',
+        'reason' => 'Lý do khôi phục',
+        'reason_required' => 'Hãy nhập lý do khôi phục.',
+        'reason_max' => 'Lý do khôi phục dài tối đa :max ký tự.',
+        'not_cancelled' => 'Hồ sơ này không ở trạng thái đã huỷ.',
+        'success' => 'Đã khôi phục hồ sơ.',
+    ],
+
     // Tab "Mốc thời hạn" và hai Action AddMatterDeadline/UpdateDeadline trên vụ đã kết thúc.
     'deadlines' => [
         'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm hay sửa mốc được nữa; muốn đặt mốc mới, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',

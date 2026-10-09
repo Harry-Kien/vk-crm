@@ -245,6 +245,8 @@ return [
         // --- Làn fm (sửa sau kiểm tra nghiệp vụ 2026-10-09, vòng đời vụ việc) ---
         // A2: app/Actions/Matter/RetractStageLog.php — chủ thể là dòng tiến độ.
         'stage_log_retracted' => 'Rút dòng tiến độ khỏi cổng khách',
+        // A4: app/Actions/Matter/RestoreMatter.php — chủ thể là vụ việc, `properties.reason`.
+        'matter_restored' => 'Khôi phục hồ sơ đã huỷ',
         // --- hết khối làn fm ---
     ],
 

@@ -3,10 +3,12 @@
 namespace App\Actions\Matter;
 
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -84,6 +86,8 @@ class CancelMatter
                 ]);
             }
 
+            $this->refuseIfEverClosed($locked);
+
             $this->refuseIfBalanceOutstanding($locked);
 
             Audit::record('matter_cancelled', $locked, [
@@ -94,6 +98,29 @@ class CancelMatter
 
             return $locked;
         });
+    }
+
+    /**
+     * Làn fm A4 (kiểm tra nghiệp vụ 2026-10-09): chỉ huỷ được vụ CHƯA TỪNG kết thúc. Vụ đang đóng, hay
+     * vụ đã có dòng lưu trữ (từng đóng rồi được mở lại), không phải "mở nhầm" — và huỷ nó (xoá mềm)
+     * làm hồ sơ thoát khỏi chính sách lưu trữ: `FlagRetentionExpiry` không bao giờ cảnh báo vụ đã xoá
+     * mềm, `RecordMatterDestruction` từ chối nó. Đây là bất biến SPEC §6.12 vẫn nói ("vụ huỷ vì mở
+     * nhầm không bao giờ có dòng lưu trữ") mà trước bản sửa mã không giữ. Đọc thường dòng lưu trữ sau
+     * khi đã khoá `matters` là đủ: mọi đường ghi `matter_archives` khoá `matters` trước.
+     */
+    private function refuseIfEverClosed(Matter $locked): void
+    {
+        $hasArchive = MatterArchive::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->where('matter_id', $locked->getKey())
+            ->exists();
+
+        if ($locked->isClosed() || $hasArchive) {
+            throw ValidationException::withMessages([
+                'reason' => [__('lifecycle.cancel.closed_refused')],
+            ]);
+        }
     }
 
     /**

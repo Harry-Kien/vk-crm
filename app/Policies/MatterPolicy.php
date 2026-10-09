@@ -318,9 +318,19 @@ class MatterPolicy
         return $user instanceof User && $user->hasRole(Role::Admin->value);
     }
 
+    /** Làn fm A4: "Khôi phục" hồ sơ đã huỷ (`RestoreMatter`) — cùng luật xoá mềm, chỉ quản trị. */
     public function restore(User|ClientUser $user, Matter $matter): bool
     {
         return $this->delete($user, $matter);
+    }
+
+    /**
+     * Làn fm A4: thấy danh sách hồ sơ đã huỷ (bộ lọc "Hồ sơ đã huỷ" của danh sách vụ việc) — cùng
+     * người được khôi phục, tức chỉ quản trị viên.
+     */
+    public function viewCancelled(User|ClientUser $user): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
     }
 
     /**
