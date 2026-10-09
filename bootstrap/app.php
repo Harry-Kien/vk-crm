@@ -1,5 +1,7 @@
 <?php
 
+use App\Exceptions\DocumentStorageMisconfigured;
+use App\Exceptions\DocumentStorageUnavailable;
 use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\SendSecurityHeaders;
@@ -94,4 +96,21 @@ return Application::configure(basePath: dirname(__DIR__))
         // được report). Cùng một bearer bị 401 lặp lại từ một IP thì bị chặn ở
         // `ThrottleMcpAuthenticationFailures` (chỉ bearer đó, không chặn bearer khác cùng IP).
         $exceptions->dontReport(LeagueOAuthServerException::class);
+
+        // M14 (kế hoạch R3, R9): kho tài liệu sập hay cấu hình hỏng giữa một request → trang 503
+        // tiếng Việt `errors/storage-unavailable` (cả panel admin lẫn cổng khách) kèm
+        // `Retry-After: 120`; không bao giờ trang 500, không chi tiết kỹ thuật. Lỗi vẫn được báo cáo
+        // vào log như mọi ngoại lệ (render không thay report).
+        $exceptions->render(function (DocumentStorageUnavailable|DocumentStorageMisconfigured $exception, Request $request) {
+            $headers = ['Retry-After' => '120'];
+            // Rà soát cuối vòng sửa 1 (I7): cấu hình hỏng không tự hết — câu riêng, không "thử lại sau ít phút".
+            $misconfigured = $exception instanceof DocumentStorageMisconfigured;
+            $message = $misconfigured
+                ? __('storage.unavailable_page.misconfigured_'.(auth('web')->check() ? 'staff' : 'client'))
+                : __('storage.exceptions.unavailable');
+
+            return $request->expectsJson()
+                ? response()->json(['message' => $message], 503, $headers)
+                : response()->view('errors.storage-unavailable', ['message' => $message], 503, $headers);
+        });
     })->create();

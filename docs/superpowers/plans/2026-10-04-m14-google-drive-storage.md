@@ -723,7 +723,7 @@ Model `DriveObject`, `DriveFolder`:
 
 Commit: `docs: M14 Task 0 — khảo sát kho Google Drive: dry-run gói trên main và lane-m11, bản đồ chỗ chạm tệp, việc chờ chủ văn phòng`.
 
-### - [ ] Task 1 — Nền: gói, cấu hình, migration, model, enum, ngoại lệ, móc test
+### - [x] Task 1 — Nền: gói, cấu hình, migration, model, enum, ngoại lệ, móc test
 
 **Files:**
 - `composer.json`, `composer.lock`;
@@ -767,14 +767,14 @@ Khối cấu hình `vkcrm.storage`:
 
 Mọi số đọc theo thành ngữ `?:` + `max(1, …)` của `config/backup.php`: trống là mặc định, không phải 0.
 
-- [ ] Cài `google/auth:^1.55` bằng `/d/vkwt/m14-dev composer require`. Dán lock diff.
-- [ ] Đĩa `documents_remote`: driver `google-drive`, **không** `serve`, **không** `url`, `throw => true` (lỗi kho phải nổ ra ngoài, không thành `false` lặng lẽ).
+- [x] Cài `google/auth:^1.55` bằng `/d/vkwt/m14-dev composer require`. Dán lock diff.
+- [x] Đĩa `documents_remote`: driver `google-drive`, **không** `serve`, **không** `url`, `throw => true` (lỗi kho phải nổ ra ngoài, không thành `false` lặng lẽ).
   - Driver đăng ký bằng `Storage::extend('google-drive', …)` trong provider mới. Adapter dựng lười: thiếu cấu hình thì `DocumentStorageMisconfigured` lúc dùng, không lúc boot.
   - **Task 1 đăng ký một adapter giữ chỗ ném `DocumentStorageMisconfigured` ở mọi lời gọi; Task 2 thay bằng adapter thật.**
-- [ ] Kết nối `storage` trong `config/queue.php`: `retry_after` 2400 > `PushDocumentFile::$timeout` 1800. Docblock nói vì sao, như khối `handover`.
-- [ ] Bốn migration theo "Mô hình dữ liệu", đúng kiểu và độ dài. Vòng MariaDB thật.
-- [ ] `tests/Pest.php`: thêm `Storage::fake('documents_remote')` vào **cả hai** `beforeEach`. Thêm test nhân chứng: đĩa kho trong test luôn là đĩa giả.
-- [ ] Test cấu trúc "không I/O kho trong transaction": trong `app/Actions/` và `app/Support/Storage/`, không có `DocumentStore::remote(`, `->writeStream(`, `->readStream(`, `->checksum(` hay `Http::` nằm trong closure của `DB::transaction(`. Cùng cách quét với `ArchitectureTest.php:269`.
+- [x] Kết nối `storage` trong `config/queue.php`: `retry_after` 2400 > `PushDocumentFile::$timeout` 1800. Docblock nói vì sao, như khối `handover`.
+- [x] Bốn migration theo "Mô hình dữ liệu", đúng kiểu và độ dài. Vòng MariaDB thật.
+- [x] `tests/Pest.php`: thêm `Storage::fake('documents_remote')` vào **cả hai** `beforeEach`. Thêm test nhân chứng: đĩa kho trong test luôn là đĩa giả.
+- [x] Test cấu trúc "không I/O kho trong transaction": trong `app/Actions/` và `app/Support/Storage/`, không có `DocumentStore::remote(`, `->writeStream(`, `->readStream(`, `->checksum(` hay `Http::` nằm trong closure của `DB::transaction(`. Cùng cách quét với `ArchitectureTest.php:269`.
 
 **Test bắt buộc:**
 - Mặc định: công tắc `local`, `usesRemote() = false`. `google_drive`: `true`. Giá trị lạ (`gooogle_drive`): `false` **và** `driverIsValid() = false`. Mỗi vế một mutation probe.
@@ -792,7 +792,7 @@ Mọi số đọc theo thành ngữ `?:` + `max(1, …)` của `config/backup.ph
 
 Commit: `feat: M14 Task 1 — nền kho tài liệu: google/auth, cấu hình DOCUMENT_STORAGE và mốc bật kho, đĩa documents_remote, kết nối hàng đợi storage, chỉ mục drive_objects có thế hệ và biên nhận văn phòng, cột media và system_health`.
 
-### - [ ] Task 2 — `DriveAdapter` và `DriveClient` trên Drive REST v3 (R1, R4, R5, R6, R8, R9)
+### - [x] Task 2 — `DriveAdapter` và `DriveClient` trên Drive REST v3 (R1, R4, R5, R6, R8, R9)
 
 **Files:**
 - `app/Support/Storage/GoogleDrive/DriveAdapter.php`, `DriveClient.php`, `DriveTokenProvider.php` (interface), `ServiceAccountTokenProvider.php`, `DriveCircuitBreaker.php`, `DriveObjectIndex.php`, `DriveObjectName.php`, `DriveApiError.php`;
@@ -827,24 +827,24 @@ final class DriveClient {
 final class DriveAdapter implements \League\Flysystem\FilesystemAdapter, \League\Flysystem\ChecksumProvider { /* … */ }
 ```
 
-- [ ] `ServiceAccountTokenProvider`:
+- [x] `ServiceAccountTokenProvider`:
   - dùng `Google\Auth\Credentials\ServiceAccountCredentials`, phạm vi `https://www.googleapis.com/auth/drive`;
   - `httpHandler` chuyển request PSR-7 qua `Http` của Laravel;
   - cache token 50 phút trong store `token_cache_store`.
 
   Phạm vi `drive.file` hẹp hơn nhưng không đọc được `drives.get`. Khoá bị lộ thì xin được mọi phạm vi, nên thu hẹp chỉ che token bị lộ trong một giờ. Ghi lý do vào docblock.
-- [ ] `DriveClient`:
+- [x] `DriveClient`:
   - mọi request có `supportsAllDrives=true`; mọi danh sách có `corpora=drive&driveId=…&includeItemsFromAllDrives=true`;
   - `fields=` tường minh, không bao giờ có `webViewLink`, `webContentLink`, `thumbnailLink`, `permissions`, `exportLinks`;
   - thời gian chờ, thử lại, phân loại lỗi theo R9;
   - ngắt mạch theo R9: phạm vi `web`/`job`, store `breaker_store`. Chỉ lỗi đọc và metadata được đếm.
-- [ ] Upload resumable:
+- [x] Upload resumable:
   - `POST /upload/drive/v3/files?uploadType=resumable` lấy URI phiên;
   - `PUT` từng khối với `Content-Range`, nhận 308 kèm `Range`, đi tiếp từ byte đã nhận;
   - lỗi giữa chừng thì hỏi `bytes */<tổng>`;
   - md5 tính dần trong lúc đọc, so với `md5Checksum` trả về; lệch thì cho tệp vào thùng rác rồi ném lỗi;
   - tệp 0 byte: một `PUT` rỗng, không hỏng.
-- [ ] `DriveAdapter`:
+- [x] `DriveAdapter`:
 
   | Phương thức | Hành vi |
   |---|---|
@@ -859,9 +859,9 @@ final class DriveAdapter implements \League\Flysystem\FilesystemAdapter, \League
   | `copy` | `files.copy` + dòng chỉ mục mới |
   | `checksum` | Chỉ `md5`, hỏi Google. Thuật toán khác → `UnableToProvideChecksum` |
 
-- [ ] Khoá chứa `~`, `..`, ký tự điều khiển, hoặc bắt đầu bằng `/` → từ chối.
-- [ ] Log: phương thức, đường endpoint, mã trạng thái, `reason`, lần thử. **Không** header, không token, không thân phản hồi token, không nội dung khoá.
-- [ ] Test sống (R7): ghi 10 MB ngẫu nhiên với khối 4 MiB, kiểm checksum, đọc lại so byte, liệt kê, cho vào thùng rác, xác nhận `trashed`, đọc `drives.get` và `permissions.list`.
+- [x] Khoá chứa `~`, `..`, ký tự điều khiển, hoặc bắt đầu bằng `/` → từ chối.
+- [x] Log: phương thức, đường endpoint, mã trạng thái, `reason`, lần thử. **Không** header, không token, không thân phản hồi token, không nội dung khoá.
+- [ ] Test sống (R7): ghi 10 MB ngẫu nhiên với khối 4 MiB, kiểm checksum, đọc lại so byte, liệt kê, cho vào thùng rác, xác nhận `trashed`, đọc `drives.get` và `permissions.list`. **Task 2: đã viết `tests/Feature/Storage/GoogleDriveLiveTest.php`, tự bỏ qua khi thiếu biến `DRIVE_LIVE_*`; lượt chạy thật là PENDING OWNER (Task 8 Phần 2, phán quyết C2).**
 
 **Test bắt buộc** (`Http::fake()`, mỗi trường hợp một `it()`):
 - Token:
@@ -903,7 +903,7 @@ final class DriveAdapter implements \League\Flysystem\FilesystemAdapter, \League
 
 Commit: `feat: M14 Task 2 — adapter Flysystem cho Google Drive: khoá mờ có số thế hệ, thư mục là tiền tố, chỉ mục, tải lên resumable kiểm md5, thùng rác thay xoá, thử lại, ngắt mạch tách web và job, không link và không quyền chia sẻ nào`.
 
-### - [ ] Task 3 — Ghi qua vùng đệm, đẩy lên kho, dọn bản cục bộ theo biên nhận (R2, R10)
+### - [x] Task 3 — Ghi qua vùng đệm, đẩy lên kho, dọn bản cục bộ theo biên nhận (R2, R10)
 
 **Files:**
 - `app/Listeners/QueueDocumentFilePush.php`, `app/Listeners/DiscardStagedCopyOnMediaDeleted.php`;
@@ -921,23 +921,23 @@ final class PushDocumentFileToRemote {
 }
 ```
 
-- [ ] Action theo đúng sáu bước của R2.
+- [x] Action theo đúng sáu bước của R2.
   - `keepLocalUntil` mặc định `now() + staging_grace_hours`; lệnh chuyển tệp truyền `+30 ngày`.
   - Không lấy được `pushLock()` → `Locked`.
   - Tệp vùng đệm không còn mà media vẫn ở `private` → **không đổi đĩa**, log `critical`, `StoredFileMissing`.
   - `first_transfer_at` chỉ trên production, chỉ ở `Pushed`, không ghi đè.
-- [ ] Job `PushDocumentFile`:
+- [x] Job `PushDocumentFile`:
   - kết nối và hàng `storage`; `$timeout = 1800`, `$tries = 4`, `backoff = [60, 300, 900]`, `$failOnTimeout = true`;
   - `Locked` → `release(120)`; `DocumentStorageUnavailable` → `release(60)`;
   - `DocumentStorageMisconfigured` → `fail()`, cảnh báo đi qua kiểm tra sức khoẻ (Task 5).
-- [ ] Listener `created` theo R2: điều kiện là `DocumentStore::pushesNewFiles()` **và** `disk = private`.
-- [ ] `DiscardStagedCopyOnMediaDeleted` theo R2: `DB::afterCommit`, đọc lại sự tồn tại của dòng, chỉ khi `disk` khác `private`.
-- [ ] Mục lịch, mỗi mục một `->name()`, `withoutOverlapping(<phút>)` có hạn, không mục nào 1440:
+- [x] Listener `created` theo R2: điều kiện là `DocumentStore::pushesNewFiles()` **và** `disk = private`.
+- [x] `DiscardStagedCopyOnMediaDeleted` theo R2: `DB::afterCommit`, đọc lại sự tồn tại của dòng, chỉ khi `disk` khác `private`.
+- [x] Mục lịch, mỗi mục một `->name()`, `withoutOverlapping(<phút>)` có hạn, không mục nào 1440:
   - `queue.storage` mỗi phút: `queue:work storage --queue=storage --stop-when-empty --max-time=50 --timeout=1800`, `withoutOverlapping(40)`, `runInBackground()`;
   - `storage.push-pending` 15 phút một lần, `withoutOverlapping(15)`;
   - `storage.purge-staged` mỗi giờ, `withoutOverlapping(60)`.
-- [ ] `PushPendingDocumentFiles` theo R2: cận dưới `created_at >= remote_enabled_at`; cận trên 10 phút; công tắc không phải `google_drive` mà còn mốc thì xoá mốc, audit, không xếp gì.
-- [ ] `PurgeStagedDocumentCopies`: bốn điều kiện của R10, đọc lại từng dòng dưới `pushLock()`. Xoá `private/<media_id>/`, đặt `local_purge_after = NULL` bằng UPDATE có điều kiện `disk = 'documents_remote'`.
+- [x] `PushPendingDocumentFiles` theo R2: cận dưới `created_at >= remote_enabled_at`; cận trên 10 phút; công tắc không phải `google_drive` mà còn mốc thì xoá mốc, audit, không xếp gì.
+- [x] `PurgeStagedDocumentCopies`: bốn điều kiện của R10, đọc lại từng dòng dưới `pushLock()`. Xoá `private/<media_id>/`, đặt `local_purge_after = NULL` bằng UPDATE có điều kiện `disk = 'documents_remote'`.
   - **Không bao giờ** chạm đĩa kho (test cấu trúc: lớp này không gọi `DocumentStore::remote()` và không dùng `Http`).
   - Không lấy được khoá thì bỏ qua dòng đó tới lượt sau.
 
@@ -984,7 +984,7 @@ final class PushDocumentFileToRemote {
 
 Commit: `feat: M14 Task 3 — ghi qua vùng đệm: job đẩy tệp lên kho sau commit trên hàng đợi storage, chỉ cho tệp tạo sau mốc bật kho, khoá đẩy có hạn, kiểm md5 rồi đổi đĩa có điều kiện, dọn bản cục bộ chỉ khi media ở kho và có biên nhận văn phòng khớp md5`.
 
-### - [ ] Task 4 — Đọc qua CRM: route tải, gói bàn giao, xoá, khi kho sập (R3, R8, R9, R12)
+### - [x] Task 4 — Đọc qua CRM: route tải, gói bàn giao, xoá, khi kho sập (R3, R8, R9, R12)
 
 **Files:**
 - `app/Http/Controllers/DocumentDownloadController.php`;
@@ -1003,18 +1003,18 @@ final class MaterialiseStoredFile { public function handle(Media $media, string 
 final class FreeSpace { public function bytes(string $path): ?int; } // null khi disk_free_space bị tắt hoặc trả false
 ```
 
-- [ ] Controller theo thứ tự R3.
+- [x] Controller theo thứ tự R3.
   - Nhánh `HEAD` trả header từ `media`, không mở luồng. `StoredFileMissing` → 404 + log `critical`.
   - Giữ nguyên tên tải (`staffDownloadName`, `portalDownloadName`) và các header.
   - Một helper `Content-Disposition` dùng chung, có bản dự phòng `Str::ascii` rồi bỏ `%`.
-- [ ] Trang 503 render cho **cả** request của panel admin lẫn cổng khách, có `Retry-After: 120`. Câu chữ từ `lang/vi/storage.php`; hotline qua `OfficeProfile`.
-- [ ] Gói bàn giao theo R12:
+- [x] Trang 503 render cho **cả** request của panel admin lẫn cổng khách, có `Retry-After: 120`. Câu chữ từ `lang/vi/storage.php`; hotline qua `OfficeProfile`.
+- [x] Gói bàn giao theo R12:
   - hai lý do mới trong `HandoverPackageFailed`: `insufficientWorkSpace`, `storageUnavailable`, câu tiếng Việt cho luật sư;
   - xoá `src/` trước `store()`;
   - đo chỗ trống qua `FreeSpace`, bỏ qua khi hàm bị tắt;
   - năm số thời gian của bảng R12, sửa docblock cả bốn tệp.
-- [ ] Một trợ giúp test `pushToRemote(Media $media)` gọi **Action thật** của Task 3 trên đĩa giả, để các bộ test hiện có chạy được với media đã ở trên kho.
-- [ ] Một trợ giúp test `bindRealDriveAdapter(array $indexRows)`: adapter thật, `Http::fake()` + `Http::preventStrayRequests()`, `DriveTokenProvider` giả không gọi HTTP.
+- [x] Một trợ giúp test `pushToRemote(Media $media)` gọi **Action thật** của Task 3 trên đĩa giả, để các bộ test hiện có chạy được với media đã ở trên kho.
+- [x] Một trợ giúp test `bindRealDriveAdapter(array $indexRows)`: adapter thật, `Http::fake()` + `Http::preventStrayRequests()`, `DriveTokenProvider` giả không gọi HTTP.
 
 **Test bắt buộc:**
 - **Bộ hồi quy với media trên kho** (dataset `['local', 'remote']`, phần `remote` dùng `pushToRemote()`): `DocumentDownloadTest`, `HandoverPackageDownloadTest`, `RetractedDocumentNoticeTest`, cùng các test nhóm D và cách ly khách của SPEC §11. Danh sách tệp tường minh trong báo cáo.
@@ -1066,7 +1066,7 @@ final class FreeSpace { public function bytes(string $path): ?int; } // null khi
 
 Commit: `feat: M14 Task 4 — đọc qua CRM: route tải mở luồng sau khi kiểm quyền và trước khi ghi nhật ký (khoá bằng đĩa gián điệp và adapter thật), tên tải có bản dự phòng ASCII, trang 503 tiếng Việt khi kho sập, gói bàn giao tải tệp về thư mục làm việc, xoá nguồn trước khi lưu, kiểm chỗ trống khi đo được, thời gian job tính lại`.
 
-### - [ ] Task 5 — Sẵn sàng, preflight, kiểm tra sức khoẻ, trang "Kho tài liệu", hướng dẫn chủ văn phòng, dàn ý hồ sơ pháp lý (R5, R6, R7, R13)
+### - [x] Task 5 — Sẵn sàng, preflight, kiểm tra sức khoẻ, trang "Kho tài liệu", hướng dẫn chủ văn phòng, dàn ý hồ sơ pháp lý (R5, R6, R7, R13)
 
 Hướng dẫn và kiểm tra viết **cùng một task**, để mỗi bước của chủ văn phòng có đúng một dòng kiểm lại nó.
 
@@ -1095,7 +1095,7 @@ final class StorageReadiness {
 }
 ```
 
-- [ ] **Dòng sẵn sàng** (`StorageReadiness::rows()`, mọi môi trường). Preflight production nối chúng vào `launchConditionRows()` khi công tắc là `google_drive` **hoặc** đã có media trên kho; dòng `document_storage_driver` luôn có.
+- [x] **Dòng sẵn sàng** (`StorageReadiness::rows()`, mọi môi trường). Preflight production nối chúng vào `launchConditionRows()` khi công tắc là `google_drive` **hoặc** đã có media trên kho; dòng `document_storage_driver` luôn có.
 
   | Khoá | Mức |
   |---|---|
@@ -1107,7 +1107,7 @@ final class StorageReadiness {
   | `drive_root_folder` | R5 |
   | `drive_roundtrip` | ĐỎ. Ghi một tệp thăm dò 1 KiB dưới khoá `preflight/<ngẫu nhiên>.txt`, kiểm md5, đọc lại, cho vào thùng rác; luôn dọn trong `finally`, như `storagePrivateExposureRow()` |
 
-- [ ] **Dòng trạng thái** (`StorageReadiness::stateRows()`; preflight production và `vkcrm:storage:check`):
+- [x] **Dòng trạng thái** (`StorageReadiness::stateRows()`; preflight production và `vkcrm:storage:check`):
 
   | Khoá | Mức |
   |---|---|
@@ -1119,16 +1119,16 @@ final class StorageReadiness {
   | `media_on_remote_while_local` | VÀNG khi công tắc `local` mà còn media trên kho |
   | `disk_free_space_available` | VÀNG khi `FreeSpace` trả `null` (gói bàn giao không kiểm được chỗ trống), mọi chế độ |
 
-- [ ] `vkcrm:storage:check`: in cả hai nhóm dòng ở **mọi** `APP_ENV`; mã thoát giống `vkcrm:preflight`. Đây là thứ Task 8 dùng ở làn, nơi `APP_ENV` không phải `production`.
-- [ ] `CheckDocumentStoreHealth` mỗi giờ (`storage.health`, `withoutOverlapping(30)`):
+- [x] `vkcrm:storage:check`: in cả hai nhóm dòng ở **mọi** `APP_ENV`; mã thoát giống `vkcrm:preflight`. Đây là thứ Task 8 dùng ở làn, nơi `APP_ENV` không phải `production`.
+- [x] `CheckDocumentStoreHealth` mỗi giờ (`storage.health`, `withoutOverlapping(30)`):
   - chạy `InspectDriveSharing` (khi có media trên kho hoặc công tắc `google_drive`), đếm tồn đọng, độ tươi biên nhận văn phòng, số mục, đồng hồ hồ sơ;
   - ghi các cột `document_store_*` của `system_health`;
   - đổi sang `degraded`/`unavailable`/`misconfigured`, hoặc tới ngày 45 của đồng hồ hồ sơ → thư `staff.document_store_alert` tới người nhận của `ResolveBackupNotificationRecipients` (cùng người vận hành nhận thư sao lưu). Xếp hàng sau commit; chống trùng theo loại sự cố mỗi ngày qua `outbound_messages`, chỉ tính `status = sent`;
   - loại sự cố: `sharing_drift`, `unavailable`, `misconfigured`, `not_enabled`, `push_backlog`, `office_copy_stale`, `office_copy_error`, `transfer_dossier_due`;
   - thư chỉ có số đếm và loại sự cố, không mã tệp, không tiêu đề.
-- [ ] `SystemHealthWidget`: một dòng đỏ khi trạng thái kho khác `ok`. Chỉ người có `settings.manage` thấy dòng này; dòng heartbeat sẵn có giữ nguyên.
-- [ ] `vkcrm:storage:init`: tạo thư mục gốc `vkcrm-<APP_ENV>` trong Shared Drive, in mã để điền `GOOGLE_DRIVE_ROOT_FOLDER_ID`. Có thư mục cùng tên thì liệt kê và dừng, không tạo thêm. Audit `document_store_initialised`.
-- [ ] Trang "Kho tài liệu" (admin):
+- [x] `SystemHealthWidget`: một dòng đỏ khi trạng thái kho khác `ok`. Chỉ người có `settings.manage` thấy dòng này; dòng heartbeat sẵn có giữ nguyên.
+- [x] `vkcrm:storage:init`: tạo thư mục gốc `vkcrm-<APP_ENV>` trong Shared Drive, in mã để điền `GOOGLE_DRIVE_ROOT_FOLDER_ID`. Có thư mục cùng tên thì liệt kê và dừng, không tạo thêm. Audit `document_store_initialised`.
+- [x] Trang "Kho tài liệu" (admin):
   - `canAccess()` hỏi `Gate::forUser()->allows('settings.manage')`, `abort(404)` ở `mount()` và ở action lưu;
   - hiện:
     - chế độ, mốc bật kho, trạng thái, lúc kiểm gần nhất;
@@ -1137,7 +1137,7 @@ final class StorageReadiness {
     - số mục so với 400.000;
     - lần chuyển đầu tiên và số ngày còn lại của đồng hồ 60 ngày;
   - form R13 gọi `RecordDataTransferDossier`: `maxLength(100)` cho mã hồ sơ, `maxLength(200)` cho căn cứ ý kiến luật sư.
-- [ ] Hai tài liệu cho chủ văn phòng:
+- [x] Hai tài liệu cho chủ văn phòng:
   - chép Phụ lục A, C và sổ tay huỷ (R15) vào `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`;
   - chép Phụ lục B vào `docs/PHAP-LY-LUU-TRU-NUOC-NGOAI.md`.
 
@@ -1254,7 +1254,7 @@ Commit: `feat: M14 Task 5 — StorageReadiness chạy ở mọi môi trường, 
 
 Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển tệp cũ (chạy thử, chạy tiếp, giữ bản cục bộ 30 ngày), kiểm checksum, quay lui chỉ khi đã tắt kho và không tự đảo ngược, dựng lại chỉ mục cho Shared Drive mới, báo tệp mồ côi và trùng tên, liệt kê tệp cần huỷ`.
 
-### - [ ] Task 7 — Bản ở máy chủ văn phòng: kéo về có mã hoá, biên nhận từng tệp, CRM nhập biên nhận (R10)
+### - [x] Task 7 — Bản ở máy chủ văn phòng: kéo về có mã hoá, biên nhận từng tệp, CRM nhập biên nhận (R10)
 
 **Files:**
 - `app/Actions/Storage/ImportOfficeReceipts.php`, `app/Support/Storage/OfficeReceipt.php` (đọc và kiểm khuôn);
@@ -1266,7 +1266,7 @@ Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển
 - `docs/SAO-LUU-KHOI-PHUC.md`;
 - tests.
 
-- [ ] `ImportOfficeReceipts`:
+- [x] `ImportOfficeReceipts`:
   1. `rclone lsjson <office.receipts_path>` (thời gian chờ 120 giây, không dùng mặc định 1800 của sao lưu); lấy các tệp `receipt-*.json` có tên lớn hơn `storage.office_receipt_cursor`, theo thứ tự tên;
   2. với từng tệp: bỏ khi lớn hơn `office.receipt_max_bytes`; `rclone cat`; `OfficeReceipt::parse()` kiểm khuôn:
      - `format = 1`;
@@ -1285,8 +1285,8 @@ Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển
   7. lỗi `rclone` → `BackupHasFailed('rclone:office-receipts')`, cùng đường thư của M8a.
 
   Chưa cấu hình → không làm gì, không ném lỗi.
-- [ ] Mục lịch `storage.office-receipts` 07:00 hằng ngày, `withoutOverlapping(60)`. Lệnh tay `vkcrm:storage:office-receipts` gọi cùng Action, dưới cùng khoá `Cache::lock('storage-office-receipts', 600)`.
-- [ ] `office-pull.sh`, chạy trên máy văn phòng (Linux cron, hoặc Windows Task Scheduler qua Git Bash):
+- [x] Mục lịch `storage.office-receipts` 07:00 hằng ngày, `withoutOverlapping(60)`. Lệnh tay `vkcrm:storage:office-receipts` gọi cùng Action, dưới cùng khoá `Cache::lock('storage-office-receipts', 600)`.
+- [x] `office-pull.sh`, chạy trên máy văn phòng (Linux cron, hoặc Windows Task Scheduler qua Git Bash):
   - khoá chống chạy chồng bằng `mkdir` (có trên mọi nền), ghi PID; khoá của PID đã chết thì gỡ;
   - `rclone copy vkkho: vkoffice:kho --immutable`;
   - danh sách chưa có biên nhận = `rclone lsf -R --files-only vkkho:` trừ `receipted.txt` (`comm -23` trên danh sách đã `sort`);
@@ -1299,14 +1299,14 @@ Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển
   - **không bao giờ** `sync`, `move`, `delete`, `deletefile`, `purge`, `rmdir`, `cleanup`.
 
   Mã thoát khác 0 khi có lỗi; nhật ký ở một tệp cạnh script.
-- [ ] `restore-drill.sh` thêm bước: sau khi khôi phục CSDL, `vkcrm:storage:verify --sample=20`.
-- [ ] Tài liệu thêm diễn tập "mất kho" trên Shared Drive thử:
+- [x] `restore-drill.sh` thêm bước: sau khi khôi phục CSDL, `vkcrm:storage:verify --sample=20`.
+- [x] Tài liệu thêm diễn tập "mất kho" trên Shared Drive thử:
   1. `rclone copy vkoffice:kho <kho-mới>:` (crypt giải mã tên và nội dung);
   2. đặt `GOOGLE_DRIVE_SHARED_DRIVE_ID`/`ROOT_FOLDER_ID` mới, `optimize`;
   3. `vkcrm:storage:reindex --drive=<mới> --root=<mới>`;
   4. `verify --all`;
   5. một tải lên mới đi vào thư mục tháng của gốc mới.
-- [ ] `docs/SAO-LUU-KHOI-PHUC.md`:
+- [x] `docs/SAO-LUU-KHOI-PHUC.md`:
   - bảng "hệ thống sao lưu những gì" viết lại cho chế độ kho;
   - nói thẳng: thùng rác và phiên bản Drive không phải sao lưu; archive đêm chỉ còn vùng đệm khi đã có biên nhận; tệp trên Kho không mã hoá phía văn phòng;
   - mục "Đóng gói bàn giao M7 — có sao lưu lại không?" cập nhật: gói nằm trên kho và ở văn phòng như mọi tệp;

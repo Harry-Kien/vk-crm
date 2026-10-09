@@ -61,6 +61,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *    thư đã hỏng hẳn trong ngày (`SendUnansweredIntakeReminderMail::failedForGoodToday()`). Bản ghi đã có
  *    người gọi lại thì không còn gì để nhắc; chuông trong hệ thống và widget "Liên hệ chưa ai gọi lại"
  *    không phụ thuộc thư.
+ *  - `staff.document_store_alert.*` (M14 Task 5; hậu tố là loại sự cố của kho tài liệu): thư nói về
+ *    MỘT lần kiểm sức khoẻ đã qua. Sự cố còn thì lượt `storage.health` mỗi giờ tự báo lại — mỗi loại
+ *    một thư mỗi ngày, và chỉ dòng `sent` chặn, nên một thư hỏng được gửi lại ở lượt kế tiếp.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -88,6 +91,7 @@ final class ResendTargets
         'staff.matter_reassigned',
         'staff.handover_ready',
         'staff.intake_unanswered',
+        'staff.document_store_alert.*',
         'undeclared',
     ];
 

@@ -18,7 +18,12 @@ use Illuminate\Validation\ValidationException;
  * M7 Task 6 (R5, SPEC §4.19) — GHI quyết định tiêu huỷ một hồ sơ đã quá hạn lưu trữ.
  *
  * **Action này không xoá gì.** Việc huỷ vật lý hồ sơ giấy và tệp là thao tác có biên bản, làm
- * NGOÀI hệ thống, do người quyết định. Ở đây chỉ ghi lại rằng quyết định đó đã có: bốn cột của
+ * NGOÀI hệ thống, do người quyết định. Với tệp đã lên kho Google Drive (M14), người vận hành cũng không
+ * xoá được qua CRM: tài khoản dịch vụ chỉ cho vào thùng rác, và bản ở máy văn phòng không bao giờ tự xoá
+ * (kế hoạch M14, R15). Sau khi ghi quyết định ở đây, `php artisan vkcrm:storage:destruction-list <mã hồ
+ * sơ> --by=<email quản trị viên>` (`App\Actions\Storage\ListMatterFilesForDestruction`) in tên trên
+ * Drive, đường vùng đệm và đường ở văn phòng để người có quyền huỷ ở từng nơi (sổ tay "Huỷ tệp của hồ
+ * sơ đã quá hạn lưu" trong `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`). Ở đây chỉ ghi lại rằng quyết định đó đã có: bốn cột của
  * `matter_archives` (`destroyed_at`, `destroyed_by`, `destruction_reason`, `destruction_record_no`)
  * cộng một dòng audit `matter_destruction_recorded`. Không `delete()`, không `forceDelete()`, không
  * xoá media — vụ việc, tài liệu, tệp trên đĩa và chính bản ghi lưu trữ còn nguyên. Sau khi ghi,

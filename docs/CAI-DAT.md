@@ -211,10 +211,12 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
   - `proc_open` KHÔNG nằm trong `disable_functions` (sao lưu cần nó để gọi `mariadb-dump` và
     `rclone`; preflight kiểm bản của dòng lệnh — cron chạy sao lưu bằng PHP dòng lệnh).
 - **PHP dòng lệnh có `pcntl`, và ba hàm `pcntl_async_signals`, `pcntl_signal`, `pcntl_alarm`
-  không bị chặn** (PHP-FPM không cần). Cron rút hàng đợi bằng PHP dòng lệnh, và giờ chết 600 giây
-  của job dựng gói bàn giao (mục lịch `queue.handover`) chỉ có tác dụng khi có `pcntl`. Thiếu
+  không bị chặn** (PHP-FPM không cần). Cron rút hàng đợi bằng PHP dòng lệnh, và giờ chết 1200 giây
+  của job dựng gói bàn giao (mục lịch `queue.handover`; 600 giây trước M14, vì từ M14 job còn tải tệp
+  từ kho Google Drive về trước khi nén) chỉ có tác dụng khi có `pcntl`. Thiếu
   `pcntl` thì `vkcrm:preflight` báo VÀNG: một gói lớn chạy quá giờ không bị dừng, luật sư không được
-  báo lỗi, và sau 15 phút lượt chạy kế tiếp có thể dựng lại cùng gói vào cùng thư mục. Có `pcntl`
+  báo lỗi, và sau 25 phút (khoá chống chạy chồng của mục lịch) lượt chạy kế tiếp có thể dựng lại cùng
+  gói vào cùng thư mục. Có `pcntl`
   mà một trong ba hàm trên nằm trong `disable_functions` của php.ini dòng lệnh (hay gặp trên
   cPanel/CloudLinux) thì nặng hơn nhiều: Laravel chỉ hỏi `pcntl` đã nạp chưa, nên worker vẫn gọi
   các hàm đó ngay khi khởi động và chết với lỗi "Call to undefined function". Mọi lượt rút hàng đợi
@@ -247,6 +249,13 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
 - **`mariadb-dump`** (gói `mariadb-client`, ví dụ `apt install mariadb-client`) trong `PATH` — sao
   lưu dùng nó; thiếu thì preflight ĐỎ.
 - **`rclone`** cho đích sao lưu Google Drive — cài theo `docs/SAO-LUU-KHOI-PHUC.md`, Bước 1.
+- **Kho tài liệu Google Drive (M14), chỉ khi văn phòng bật nó** — mặc định tệp vẫn nằm trên máy chủ
+  (`DOCUMENT_STORAGE=local`) và không cần gì thêm. Khi bật: máy chủ phải gọi ra được
+  `oauth2.googleapis.com` và `www.googleapis.com` qua HTTPS (một heartbeat chạy được không chứng minh
+  điều đó — chỉ dòng `drive_roundtrip` của `php artisan vkcrm:storage:check` chứng minh); nên có
+  extension `posix` (để chứng minh nhóm của tệp khoá là riêng) và hàm `disk_free_space` không bị tắt
+  (gói bàn giao kiểm chỗ trống trước khi dựng). Đủ chỗ trống cho TOÀN BỘ kho trên máy chủ cho tới khi
+  có máy chủ văn phòng: chưa có biên nhận của máy đó thì không tệp nào được dọn khỏi máy chủ.
 - **Composer 2** và **Git**.
 - **nginx hoặc Apache** với chứng chỉ HTTPS (ví dụ Let's Encrypt/Certbot) — Bước 4.
 - **Không cần** Redis, Supervisor, Node.js hay `npm run build`: cache, hàng đợi và phiên đều nằm
@@ -433,6 +442,47 @@ php artisan webpush:vapid
   ký, ghi nhật ký; mọi người bật lại thông báo trên từng máy), rồi báo nhân sự và khách.
 - Để trống cả ba biến cũng được: app trên điện thoại vẫn cài và chạy, email vẫn đi, chỉ thông báo
   đẩy tắt (không nút bật, không gửi gì) — `vkcrm:preflight` báo VÀNG.
+
+#### Kho tài liệu Google Drive (M14) — để `local` cho tới khi văn phòng bật
+
+Lần cài đầu và mọi máy chủ chưa có Shared Drive: giữ đúng như `.env.example` — `DOCUMENT_STORAGE=local`,
+các biến `GOOGLE_DRIVE_*` để trống. Hành vi y như trước M14: tệp nằm trên máy chủ, không job đẩy nào chạy,
+`vkcrm:preflight` không có dòng kho nào ĐỎ. Bật kho là một việc có thứ tự, làm SAU khi đã chạy thật, theo
+`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md` (Phụ lục A cho chủ văn phòng, Phụ lục C cho người cài đặt).
+
+| Biến | Ý nghĩa |
+|---|---|
+| `DOCUMENT_STORAGE` | `local` (mặc định) hoặc `google_drive`. `google_drive` chỉ CHO PHÉP đẩy tệp; phải chạy thêm `php artisan vkcrm:storage:enable` (sau `optimize`) mới BẬT. Gõ sai: tệp ở lại máy chủ và dòng `document_storage_driver` ĐỎ |
+| `GOOGLE_DRIVE_CREDENTIALS_PATH` | Đường dẫn TUYỆT ĐỐI tới tệp khoá JSON của tài khoản dịch vụ (dưới). Không bao giờ dán nội dung khoá vào `.env` |
+| `GOOGLE_DRIVE_SHARED_DRIVE_ID` | Mã Shared Drive "Kho" (phần cuối URL `drive.google.com/drive/folders/<MÃ>`) |
+| `GOOGLE_DRIVE_ROOT_FOLDER_ID` | Mã thư mục gốc của môi trường trong Shared Drive, do `php artisan vkcrm:storage:init` tạo và in ra |
+| `GOOGLE_DRIVE_ALLOWED_MEMBERS` | Thành viên được phép ngoài tài khoản dịch vụ, dạng `email:vai` cách nhau dấu phẩy (tài khoản dự phòng `:organizer`, tài khoản máy văn phòng `:reader`) |
+| `GOOGLE_DRIVE_CHUNK_MB` | Cỡ một khối tải lên, MiB, số nguyên 1–64; trống = 8 |
+| `DOCUMENT_STAGING_GRACE_HOURS` | Bản trên máy chủ giữ ít nhất chừng này giờ sau khi lên kho; trống = 24 |
+| `DOCUMENT_PUSH_ALERT_MINUTES` | Tệp mới chờ đẩy quá chừng này phút thì `document_push_backlog` VÀNG; trống = 60 |
+| `DOCUMENT_OFFICE_RECEIPTS_PATH` | Remote rclone nơi máy chủ văn phòng gửi biên nhận bản thứ hai (ví dụ `gdrive:VK-CRM-backups/office-receipts/vk-crm-production`). Trống = chưa có máy văn phòng: không tệp nào được dọn khỏi máy chủ |
+
+**Tệp khoá của tài khoản dịch vụ** nằm NGOÀI thư mục mã nguồn và ngoài gốc web — một lần `git add` hay
+một lỗi cấu hình web là lộ:
+
+- **VPS:** `/etc/vkcrm/google-drive-key.json`, chủ `root`, nhóm của PHP-FPM, quyền `0440`:
+
+  ```bash
+  install -d -m 0750 -o root -g www-data /etc/vkcrm
+  install -m 0440 -o root -g www-data google-drive-key.json /etc/vkcrm/google-drive-key.json
+  ```
+
+- **Shared hosting** (không có `root`, không đổi nhóm được, nhóm thường chung nhiều tài khoản):
+  `/home/<tài khoản>/.config/vkcrm/google-drive-key.json`, thư mục cha `0700`, tệp `0400`; ghi đường
+  dẫn TUYỆT ĐỐI vào `.env` (PHP không hiểu `~`).
+
+Rồi xoá bản trên máy tính cá nhân, cả trong thùng rác. Dòng `drive_credentials` ĐỎ khi tệp nằm dưới thư
+mục mã nguồn, dưới `public/`/`public_html`/`www`/`htdocs`, khi người khác đọc được hay nhóm ghi được;
+VÀNG khi nhóm đọc được (`0440`) mà không chứng minh được nhóm là riêng. Chạy lệnh kiểm bằng ĐÚNG người
+dùng của PHP-FPM, vì quyền đọc là của người chạy lệnh: `sudo -u www-data php artisan
+vkcrm:storage:check`. Access token (sống một giờ) cache ở store `file`, không vào CSDL nên không vào bản
+sao lưu. Xoay khoá 12 tháng một lần, và ngay khi một người có quyền vào máy chủ nghỉ việc (Phụ lục A
+bước 14).
 
 ### Bước 4 — Máy chủ web
 
@@ -801,6 +851,27 @@ Hai dòng của app trên điện thoại (M12):
   điện thoại đang TẮT …": app vẫn cài và chạy, email vẫn đi, chỉ thông báo đẩy tắt. Sửa theo mục
   "Khoá thông báo đẩy (VAPID)" ở Bước 3 (nhớ `php artisan config:clear` trước khi sinh khoá).
 
+Dòng của **kho tài liệu Google Drive (M14)** — preflight production chỉ gói lại lệnh
+`php artisan vkcrm:storage:check` (chạy được ở MỌI môi trường; ở máy thử và máy dev dùng thẳng lệnh đó,
+vì preflight chỉ chạy dòng ra mắt khi `APP_ENV=production`):
+
+- `DOCUMENT_STORAGE=local` và không media nào trên kho (mọi máy chủ chưa bật kho): chỉ hai dòng
+  `document_storage_driver` (ĐỎ khi công tắc gõ sai) và `disk_free_space_available` (VÀNG khi hàm
+  `disk_free_space` bị tắt) — không lệnh gọi Google nào, không dòng nào ĐỎ vì Drive. Ngoại lệ: máy từng
+  chuyển tệp lên kho rồi quay lui hết mà chưa ghi ngày hồ sơ chuyển dữ liệu ra nước ngoài thì còn dòng
+  `data_transfer_dossier` (XANH trong hạn, VÀNG từ ngày 45, ĐỎ quá ngày 60 kể từ lần chuyển đầu): ĐỎ ở
+  đó là một nghĩa vụ pháp lý đã trễ, không phải cấu hình.
+- `DOCUMENT_STORAGE=google_drive`, hoặc còn media trên kho: bảy dòng sẵn sàng `document_storage_driver`,
+  `drive_credentials`, `drive_http_client`, `drive_reachable`, `drive_sharing`, `drive_root_folder`,
+  `drive_roundtrip` (ghi, đọc lại rồi cho vào thùng rác một tệp thăm dò 1 KiB dưới `preflight/`), cộng
+  bảy dòng trạng thái `document_storage_enabled` (ĐỎ khi quên `vkcrm:storage:enable`),
+  `drive_item_count`, `document_push_backlog`, `document_office_copy`, `data_transfer_dossier` (ĐỎ khi
+  chưa ghi ngày hồ sơ lẫn ý kiến luật sư cho chuyển trước, trên trang "Kho tài liệu"),
+  `media_on_remote_while_local`, `disk_free_space_available`.
+
+Ý nghĩa và cách sửa từng dòng: `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`, "Đọc dòng kiểm" và ghi chú dưới Phụ
+lục A.
+
 `php artisan optimize` cache cấu hình, route, view và sự kiện (cộng phần cache riêng của
 Filament). **Từ lúc này, sửa `.env` không có tác dụng cho tới khi cache lại**: sau mỗi lần sửa
 `.env`, chạy `php artisan optimize:clear`, `php artisan vkcrm:preflight`, rồi `php artisan
@@ -825,6 +896,22 @@ không thêm dòng cron nào: mục lịch `queue.push` chạy
 máy chủ push, hạn 10 giây, nên tách khỏi hàng thư để máy chủ push chậm không giữ chân thư nhắc hạn),
 chạy NỀN để một phút bận không bắt các mục lịch sau nó chờ, và `push-subscriptions.prune` dọn đăng
 ký cũ lúc 03:30.
+
+Kho tài liệu Google Drive (M14) thêm năm mục lịch, cũng chạy từ CHÍNH dòng cron này (không thêm dòng
+nào, không worker thường trực). Với `DOCUMENT_STORAGE=local` chúng chạy mà không làm gì:
+
+- `queue.storage` — mỗi phút, NỀN: rút hàng đợi `storage` (job đẩy tệp lên kho, tới 1800 giây một job,
+  kết nối `storage` có `retry_after` 2400), tách khỏi hàng thư để một gói 2 GB đang đẩy không giữ chân
+  thư nhắc hạn;
+- `storage.push-pending` — mỗi 15 phút: xếp lại tệp MỚI (tạo sau lúc bật kho) còn nằm trên máy chủ quá
+  10 phút; thấy công tắc không còn `google_drive` thì xoá mốc bật kho;
+- `storage.purge-staged` — mỗi giờ, phút 17: dọn bản trên máy chủ của tệp đã lên kho, quá thời gian ân
+  hạn, VÀ có biên nhận văn phòng khớp md5 từ 24 giờ trở lên (chưa có máy văn phòng thì không dọn gì);
+- `storage.health` — mỗi giờ, phút 20: kiểm chia sẻ và thành viên của Shared Drive, tồn đọng, biên nhận
+  văn phòng, đồng hồ 60 ngày của hồ sơ; dòng đỏ trên trang chủ admin và thư cảnh báo (mỗi loại sự cố
+  một thư mỗi ngày);
+- `storage.office-receipts` — 07:00 hằng ngày: nhập biên nhận của máy chủ văn phòng (lệnh
+  `php artisan vkcrm:storage:office-receipts` chạy tay được).
 
 **Giám sát cron** — cron trên shared hosting hay lặng lẽ ngừng chạy sau khi gia hạn gói hay đổi
 cấu hình PHP:
@@ -948,6 +1035,11 @@ của từng nhân sự (kết nối từng ứng dụng) ở `docs/KET-NOI-AI.m
   nhận thông báo"** — các máy đó thôi nhận thông báo đẩy về hồ sơ (email vẫn đi); khách bật lại trên
   máy mới. Máy mất còn đang đăng nhập cổng thì bấm thêm "Cấp lại mật khẩu". Đổi email của một tài
   khoản portal tự gỡ mọi máy của tài khoản đó.
+- **Kho tài liệu Google Drive (khi đã bật)**: dòng đỏ về kho tài liệu trên dải sức khoẻ của trang chủ
+  admin, hay thư cảnh báo kho, thì mở trang **"Kho tài liệu"** (chỉ quản trị viên) và chạy `php artisan
+  vkcrm:storage:check`; cách đọc từng dòng ở `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`. Không ai mở, chia sẻ
+  hay chép tệp trên giao diện Drive; tài khoản quản trị dự phòng chỉ dùng khi khôi phục thảm hoạ hay
+  huỷ tệp theo sổ tay. Mỗi tháng chủ văn phòng xem nhật ký Drive của Shared Drive kho (Phụ lục A bước 13).
 - **Email báo lỗi sao lưu** không phải chuyện để "xem sau" — `docs/SAO-LUU-KHOI-PHUC.md`.
 - **Nhật ký hệ thống** (`/admin`, mục Nhật ký hệ thống): đăng nhập, tải tài liệu, công bố, đổi phân
   quyền, tạo/khoá tài khoản portal, đặt lại 2FA, mở khoá đăng nhập, tạo quản trị viên từ dòng lệnh.
@@ -977,12 +1069,14 @@ php artisan up
   `revenue.viewAny`) — không chạy thì không ai mở được màn hình tiền; bản M10 thêm ba quyền tiếp nhận
   (`intake.create`, `intake.viewAny`, `intake.convert`) — không chạy thì menu Tiếp nhận không hiện
   với ai, kể cả quản trị viên; bản M12 không thêm quyền nào; bản M13 thêm quyền `performance.viewAny` —
-  không chạy thì trang Theo dõi đội ngũ không hiện với ai. Từng bản làm gì trên máy chủ đã có dữ liệu:
+  không chạy thì trang Theo dõi đội ngũ không hiện với ai; bản M14 không thêm quyền nào (trang "Kho
+  tài liệu" dùng quyền `settings.manage` sẵn có). Từng bản làm gì trên máy chủ đã có dữ liệu:
   Bước 5, các đoạn "Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13). Bản nào
   phải làm thêm việc tay TRƯỚC hay SAU chuỗi lệnh này có hướng dẫn riêng — hôm nay là M11
   (gạch đầu dòng "Bản cập nhật M11" ngay dưới: cài `sodium`/`curl` TRƯỚC chuỗi lệnh, `passport:keys`
-  TRƯỚC dòng `chown`) và M12 ("Bản cập nhật M12", có một bước TRƯỚC `git pull`); làm theo đúng thứ tự
-  của từng mục, bản cũ hơn trước.
+  TRƯỚC dòng `chown`) và M12 ("Bản cập nhật M12", có một bước TRƯỚC `git pull`), cùng M14 ("Bản cập
+  nhật M14": so `.env.example` mới với `.env` TRƯỚC chuỗi lệnh, đổi `HANDOVER_QUEUE_RETRY_AFTER=900`
+  nếu `.env` đang đặt); làm theo đúng thứ tự của từng mục, bản cũ hơn trước.
 - `billing:check-invariants` in bảng những hợp đồng đang hiệu lực mà tổng các đợt lệch giá trị hợp
   đồng (mã thoát 1). `vkcrm:preflight` ngay sau cũng ĐỎ vì cùng lý do. Dòng ĐỎ này là DỮ LIỆU,
   không phải cấu hình máy, và chỉ sửa được trong app: vẫn `up`, rồi luật sư phụ trách ký ngay một
@@ -1037,6 +1131,37 @@ Máy chủ đã chạy bản trước M12 thì làm thêm, theo thứ tự:
 7. Gửi cho khách và nhân sự hướng dẫn cài app (`docs/QUY-TRINH.md`, mục "Hướng dẫn cài ứng dụng Luật
    Vũ Khang trên điện thoại"). Chủ văn phòng chạy danh sách kiểm tra trên máy thật
    (`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`) trên chính máy chủ này.
+
+### Bản cập nhật M14 (kho tài liệu Google Drive)
+
+Bản M14 KHÔNG bật kho: triển khai nó với `DOCUMENT_STORAGE=local` thì hành vi không đổi, chỉ thêm bảng,
+cột và mục lịch không làm gì. Máy chủ đã chạy bản trước M14 thì:
+
+1. **So `.env.example` mới với `.env`**: thêm khối "Kho tài liệu Google Drive (M14)" với
+   `DOCUMENT_STORAGE=local` và các biến `GOOGLE_DRIVE_*`/`DOCUMENT_*` để trống (Bước 3, mục "Kho tài liệu
+   Google Drive (M14)"). Thiếu khối thì cũng là `local` (mặc định), nhưng nên có để người sau thấy.
+2. Chuỗi lệnh nâng cấp ở trên, nguyên vẹn. `composer install` cài thêm `google/auth` (kéo theo
+   `psr/cache`; `firebase/php-jwt` mà nó cần đã có từ M11, qua Passport). `migrate --force` chạy năm migration, chỉ THÊM, không đụng dữ liệu
+   cũ: `2026_10_04_000001_create_drive_objects_table`, `2026_10_04_000002_create_drive_folders_table`,
+   `2026_10_04_000003_add_remote_storage_columns_to_media_table` (bốn cột trống trên `media`),
+   `2026_10_04_000004_add_document_store_columns_to_system_health_table`,
+   `2026_10_07_000001_create_office_receipt_imports_table`. Không quyền mới: trang "Kho tài liệu" dùng
+   quyền `settings.manage` sẵn có (chỉ quản trị viên).
+3. `vkcrm:preflight` phải như trước (thêm đúng hai dòng `document_storage_driver` XANH và
+   `disk_free_space_available`). **Dòng cron giữ nguyên**: năm mục lịch mới chạy từ chính dòng đó (Bước 8).
+4. Job gói bàn giao nay có giờ chết 1200 giây và kết nối `handover` có `retry_after` 1500 giây (trước:
+   600 và 900): nếu `.env` đang đặt `HANDOVER_QUEUE_RETRY_AFTER=900` thì đổi thành `1500` hoặc xoá dòng
+   đó (mặc định là 1500); để 900 thì một gói lớn có thể bị worker khác nhặt lại giữa chừng.
+
+**Bật kho trên production** là một việc riêng, sau khi chủ văn phòng đã làm Phụ lục A (Workspace,
+Shared Drive, tài khoản dịch vụ, khoá) và luật sư đã có ý kiến về hồ sơ chuyển dữ liệu ra nước ngoài:
+làm đúng thứ tự Phụ lục C của `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md` — điền `.env` (vẫn `local`),
+`vkcrm:storage:init`, `optimize`, `vkcrm:storage:check` XANH; ghi ngày DPA và ngày hồ sơ (hoặc ý kiến
+luật sư) trên trang "Kho tài liệu"; `vkcrm:storage:migrate --dry-run`; đặt `DOCUMENT_STORAGE=google_drive`,
+`optimize`, `php artisan vkcrm:storage:enable`; chuyển tệp cũ ngoài giờ (`vkcrm:storage:migrate
+--max-minutes=240`, nhiều đêm); `vkcrm:storage:verify --all`. Quay lui: đặt `local` và `optimize`
+TRƯỚC, rồi `vkcrm:storage:rollback` (lệnh từ chối khi công tắc còn `google_drive`). Máy chủ văn phòng
+(bản thứ hai ngoài Google, mã hoá): `docs/SAO-LUU-KHOI-PHUC.md`, Phụ lục D.
 
 ## Thao tác tiền và thời gian chờ khoá của MariaDB (`innodb_lock_wait_timeout`)
 

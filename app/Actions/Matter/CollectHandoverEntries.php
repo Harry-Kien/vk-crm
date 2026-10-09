@@ -112,13 +112,16 @@ class CollectHandoverEntries
             [$document, $media] = $pair;
 
             $relative = $media->getPathRelativeToRoot();
-            $disk = Storage::disk($media->disk);
 
-            if (! $disk->exists($relative)) {
+            // M14 (kế hoạch R3, R12): trên kho, `exists()` trả lời từ CHỈ MỤC, không gọi mạng; và
+            // KHÔNG `$disk->path()` — trên đĩa không cục bộ nó trả một chuỗi không tồn tại mà không
+            // báo lỗi. Tệp được tải về lúc nén (`MaterialiseStoredFile`).
+            if (! Storage::disk($media->disk)->exists($relative)) {
                 throw HandoverPackageFailed::missingFile($document->title);
             }
 
             $number = $index + 1;
+            $md5 = $media->getAttribute('checksum_md5');
 
             return new HandoverEntry(
                 number: $number,
@@ -126,7 +129,11 @@ class CollectHandoverEntries
                 title: $document->title,
                 zipPath: $document->group->value.'/'.str_pad((string) $number, $width, '0', STR_PAD_LEFT).'-'
                     .self::entryName($document->title, (string) $media->file_name),
-                sourcePath: $disk->path($relative),
+                mediaId: (int) $media->getKey(),
+                disk: (string) $media->disk,
+                relativePath: $relative,
+                size: (int) $media->size,
+                md5: is_string($md5) && $md5 !== '' ? $md5 : null,
                 documentId: $document->getKey(),
                 date: $document->issued_at ?? $document->published_at ?? $document->created_at,
             );

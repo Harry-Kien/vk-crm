@@ -82,6 +82,24 @@ Quét virus là một seam: `NullScanner` là mặc định, đặt `CLAMAV_ENAB
 `CLAMAV_SOCKET`, `CLAMAV_TIMEOUT`) để dùng `ClamAvScanner` với một daemon clamd thật. Lần bật
 đầu tiên trên một máy chủ thật nên tự kiểm bằng một tệp EICAR.
 
+**Kho tài liệu Google Drive (M14).** Công tắc `DOCUMENT_STORAGE` (`local` mặc định: tệp nằm trên máy
+chủ như trên). Với `google_drive` và sau `php artisan vkcrm:storage:enable`, tệp mới vẫn ghi vào đĩa
+`private` trước (vùng đệm), rồi một job trên hàng đợi `storage` đẩy nó lên một Shared Drive của văn
+phòng (đĩa `documents_remote`, adapter Drive REST v3 của dự án + `google/auth`), kiểm md5 do Google
+tính, và đổi `media.disk`. Tên trên Drive là khoá mờ (`<media_id>~<ulid>.pdf` trong thư mục tháng),
+không tên khách, không mã hồ sơ; chỉ mục khoá → mã tệp Drive nằm trong CSDL (`drive_objects`). Tải về
+vẫn chỉ qua route ký trên: kiểm quyền trước, rồi mới mở luồng từ Drive (đúng một request), rồi ghi
+nhật ký; không link Drive nào rời máy chủ. Bản trên máy chủ chỉ được dọn khi máy chủ văn phòng đã kéo
+tệp về (bản mã hoá `rclone crypt`) và gửi biên nhận khớp md5. Biến `.env`: `DOCUMENT_STORAGE`,
+`GOOGLE_DRIVE_CREDENTIALS_PATH` (đường dẫn tệp khoá JSON ngoài mã nguồn và ngoài gốc web),
+`GOOGLE_DRIVE_SHARED_DRIVE_ID`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`, `GOOGLE_DRIVE_ALLOWED_MEMBERS`,
+`GOOGLE_DRIVE_CHUNK_MB`, `DOCUMENT_STAGING_GRACE_HOURS`, `DOCUMENT_PUSH_ALERT_MINUTES`,
+`DOCUMENT_OFFICE_RECEIPTS_PATH`. Lệnh `vkcrm:storage:*` (`init`, `check`, `enable`, `migrate`, `verify`,
+`rollback`, `reindex`, `orphans`, `office-receipts`, `destruction-list`) và thứ tự bật:
+`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`. Test không bao giờ gọi Google thật: `Http::fake()` +
+`Http::preventStrayRequests()` (`tests/Support/FakeGoogleDrive.php`); một test sống
+(`tests/Feature/Storage/GoogleDriveLiveTest.php`) chỉ chạy với `DRIVE_LIVE_TEST=1` trên Shared Drive thử.
+
 ## Giao diện: không có bước dựng CSS
 
 Panel dùng `theme.css` đã biên dịch sẵn của Filament và dự án **không chạy Tailwind**, nên một
@@ -203,6 +221,14 @@ Tóm tắt những điều không được bỏ qua:
   chủ cũ phải chép thêm. Hàng đợi `push` chạy trong chính dòng cron ở trên. Chi tiết:
   `docs/CAI-DAT.md`, Bước 3 và "Bản cập nhật M12"; hướng dẫn cài app cho khách:
   `docs/QUY-TRINH.md`.
+- **Kho tài liệu Google Drive (M14)** — triển khai với `DOCUMENT_STORAGE=local` (mặc định; hành vi
+  không đổi, `vkcrm:preflight` không có dòng kho nào ĐỎ). Bật kho là việc riêng, sau khi chủ văn phòng
+  làm Phụ lục A và luật sư có ý kiến về hồ sơ chuyển dữ liệu ra nước ngoài: tệp khoá ở
+  `/etc/vkcrm/google-drive-key.json` (`0440`, VPS) hoặc `~/.config/vkcrm/google-drive-key.json`
+  (`0400`, shared hosting), `vkcrm:storage:init` → `vkcrm:storage:check` → `vkcrm:storage:enable` →
+  `vkcrm:storage:migrate`. Năm mục lịch mới (`queue.storage`, `storage.push-pending`,
+  `storage.purge-staged`, `storage.health`, `storage.office-receipts`) chạy trong chính dòng cron.
+  Chi tiết: `docs/CAI-DAT.md` ("Bản cập nhật M14") và `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
 - **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader`
   → `chown -R www-data:www-data storage bootstrap/cache` → `php artisan migrate --force` →
   `php artisan db:seed --force` → `php artisan billing:check-invariants` →

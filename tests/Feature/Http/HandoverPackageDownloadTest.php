@@ -19,15 +19,21 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
+use Tests\Support\RemoteDocuments;
 
 /**
  * Tải gói bàn giao (M7 Task 4, SPEC §10.6 "xuất dữ liệu"): đi qua đúng route ký `documents.download`
  * và ghi `data_exported` THÊM vào `document_downloaded`, chỉ cho tài liệu gói.
+ *
+ * M14 Task 4 (kế hoạch R3, R12): mọi test chạy hai lần, `local` (tệp trong vùng đệm) và `remote` (tệp
+ * gói và tài liệu CHỈ còn trên kho — `RemoteDocuments::settle()` đẩy bằng Action thật của Task 3 rồi dọn
+ * vùng đệm).
  */
 beforeEach(function () {
+    RemoteDocuments::adopt($this);
     $this->seed(RolesAndPermissionsSeeder::class);
     Queue::fake();
-    config(['media-library.prefix' => 'test-'.Str::random(16)]);
+    config(['media-library.prefix' => RemoteDocuments::mediaPrefix('test-'.Str::random(16))]);
 
     // Thư mục tạm RIÊNG của mỗi test (tên thư mục làm việc cố định theo vụ + dấu yêu cầu, và các
     // tiến trình test song song đánh id vụ từ 1).
@@ -52,7 +58,9 @@ beforeEach(function () {
         $this->matter->id,
         $this->archive->fresh()->handover_requested_at->getTimestamp(),
     );
-});
+
+    $this->package = RemoteDocuments::settle($this->package);
+})->with(RemoteDocuments::MODES);
 
 afterEach(fn () => File::deleteDirectory($this->workRoot));
 
@@ -120,6 +128,7 @@ it('tải MỘT VERSION CŨ của gói cũng ghi data_exported (nhận biết qu
         $this->matter->id,
         $this->archive->fresh()->handover_requested_at->getTimestamp(),
     );
+    $second = RemoteDocuments::settle($second);
 
     expect(MatterArchive::isHandoverDocument($this->package->refresh()))->toBeTrue()
         ->and(MatterArchive::isHandoverDocument($second))->toBeTrue();
@@ -135,7 +144,8 @@ it('tải tài liệu bình thường KHÔNG ghi data_exported', function () {
     $plain = Document::factory()->create([
         'matter_id' => $this->matter->id, 'group' => DocumentGroup::Issued, 'status' => DocumentStatus::SignedFiled,
     ]);
-    $plain->addMediaFromString('noi dung')->usingFileName('a.pdf')->toMediaCollection('file');
+    $plain->addMediaFromString('noi dung')->usingFileName(RemoteDocuments::remote() ? Str::lower((string) Str::ulid()).'.pdf' : 'a.pdf')->toMediaCollection('file');
+    $plain = RemoteDocuments::settle($plain);
 
     $this->actingAs($this->lawyer, 'web')->get($plain->downloadUrlFor($this->lawyer))->assertOk();
 

@@ -56,6 +56,17 @@ return [
                  * không cần sao lưu lại; sao lưu cả mã nguồn còn có nguy cơ cuốn theo `.env`
                  * (chứa `APP_KEY` và chính `BACKUP_ARCHIVE_PASSWORD`) vào TRONG archive mà nó
                  * đang dùng để tự mã hoá.
+                 *
+                 * Từ M14 (kho tài liệu Google Drive, kế hoạch R10) thư mục này là VÙNG ĐỆM: tệp mới
+                 * vào đây trước, được đẩy lên Shared Drive "Kho" sau commit, và chỉ bị dọn khỏi đây
+                 * khi máy chủ văn phòng đã gửi biên nhận cho đúng tệp đó (bản thứ hai ngoài Google,
+                 * `ImportOfficeReceipts`), biên nhận đã cũ hơn `vkcrm.storage.office.purge_margin_hours`,
+                 * và thời gian ân hạn của bản cục bộ đã qua (các điều kiện dọn của R10). Vì vậy
+                 * archive đêm vẫn chứa đúng những tệp CHƯA có bản ngoài Google: mọi tệp khi chưa bật
+                 * kho hay chưa có máy văn phòng (như trước M14), và tệp chưa có biên nhận sau đó. Tệp
+                 * đã dọn không còn trong archive mới: bản của nó nằm trên Kho và ở máy văn phòng
+                 * (remote `crypt`), xem `docs/SAO-LUU-KHOI-PHUC.md`. Chỉ mục `drive_objects` nằm trong
+                 * CSDL nên đi theo bản dump.
                  */
                 'include' => [
                     storage_path('app/private'),

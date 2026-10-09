@@ -201,7 +201,7 @@ return [
 
         /*
          * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
-         * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
+         * $timeout`/`$failOnTimeout` và `--timeout=1200` của mục lịch `queue.handover` chỉ có tác dụng
          * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
          * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó là
          * `composer check-platform-reqs` + `pdo_mysql` + `curl` (`docs/CAI-DAT.md`, Bước 1), tức chỉ
@@ -537,6 +537,107 @@ return [
      */
     'handover' => [
         'work_dir' => env('HANDOVER_WORK_DIR', storage_path('app/handover-tmp')),
+    ],
+
+    /*
+     * M14 — kho tài liệu: Google Drive (Shared Drive của văn phòng) làm kho phía sau CRM. Đọc qua
+     * `App\Support\Storage\DocumentStore`, không đọc `env()` ở nơi khác (sau `config:cache`, `env()`
+     * ngoài tệp cấu hình trả `null`).
+     *
+     * Số đọc từ biến môi trường theo thành ngữ `?:` + `max(1, …)` của khối `backup` ở trên: trống
+     * và `0` là MẶC ĐỊNH, không phải 0; số âm bị chặn về 1. Riêng `chunk_mb` có khoảng hợp lệ riêng
+     * (xem dưới). Số không có biến môi trường là hằng của kế hoạch, không phải tham số vận hành.
+     */
+    'storage' => [
+        /*
+         * Công tắc `DOCUMENT_STORAGE`: `local` (mặc định, tệp ở máy chủ như trước M14) hay
+         * `google_drive`. `google_drive` chỉ CHO PHÉP đẩy tệp lên kho; lệnh bật kho mới BẬT (ghi mốc
+         * `settings.storage.remote_enabled_at`). Giá trị được giữ NGUYÊN, kể cả khi gõ sai:
+         * `DocumentStore::driverIsValid()` phải thấy lỗi gõ để kiểm tra sẵn sàng báo ĐỎ.
+         */
+        'driver' => env('DOCUMENT_STORAGE') ?: 'local',
+
+        // Bản trong vùng đệm (`private`) được giữ ít nhất chừng này giờ sau khi đẩy lên kho (R2).
+        'staging_grace_hours' => max(1, (int) (env('DOCUMENT_STAGING_GRACE_HOURS') ?: 24)),
+
+        // Tệp mới chờ đẩy quá chừng này phút thì kiểm tra sức khoẻ kho báo VÀNG.
+        'push_alert_minutes' => max(1, (int) (env('DOCUMENT_PUSH_ALERT_MINUTES') ?: 60)),
+
+        /*
+         * Khoá đẩy `document-push:{media_id}` (`DocumentStore::pushLock()`): store `database` (bảng
+         * `cache_locks`), chung mọi tiến trình; hạn 2100 giây = `$timeout` 1800 của job đẩy + 300.
+         * Hạn ngắn hơn thì khoá hết giữa một lượt tải gói 2 GB và lượt thứ hai chạy song song.
+         */
+        'lock_store' => 'database',
+        'lock_ttl_seconds' => 2100,
+
+        'google_drive' => [
+            /*
+             * Đường dẫn tệp khoá JSON của tài khoản dịch vụ — một tệp NGOÀI repo và ngoài gốc web
+             * (R6). Nội dung khoá không bao giờ nằm trong `.env` hay trong CSDL.
+             */
+            'credentials_path' => $domain(env('GOOGLE_DRIVE_CREDENTIALS_PATH')),
+            'shared_drive_id' => $domain(env('GOOGLE_DRIVE_SHARED_DRIVE_ID')),
+            'root_folder_id' => $domain(env('GOOGLE_DRIVE_ROOT_FOLDER_ID')),
+
+            /*
+             * Thành viên được phép của Shared Drive ngoài tài khoản dịch vụ (R5), phân tách dấu
+             * phẩy, mỗi mục dạng `email:vai`. Giá trị THÔ; phân tích và kiểm dạng ở nơi kiểm chia
+             * sẻ.
+             */
+            'allowed_members' => $domain(env('GOOGLE_DRIVE_ALLOWED_MEMBERS')),
+
+            // Thời gian chờ (giây, R9): kết nối; lệnh metadata; giữa hai khối khi tải xuống.
+            'connect_timeout' => 5,
+            'timeout' => 30,
+            'read_timeout' => 60,
+
+            /*
+             * Cỡ một khối tải lên resumable, MiB (R9). Số nguyên 1–64, nên luôn là bội của 256 KiB
+             * như Google đòi. Ngoài khoảng đó (vắng, trống, 0, âm, không phải số, quá 64) thì rơi về
+             * 8, không chặn về biên: đó là cấu hình sai, và mỗi lượt tải giữ một khối trong bộ nhớ.
+             * Không cần `?:` của thành ngữ chung: vắng và trống thành `(int)` 0, và 0 đã ngoài khoảng.
+             */
+            'chunk_mb' => (static fn (int $mb): int => $mb >= 1 && $mb <= 64 ? $mb : 8)(
+                (int) env('GOOGLE_DRIVE_CHUNK_MB'),
+            ),
+
+            /*
+             * Store `file`, không phải store mặc định `database`: access token (R6) và trạng thái
+             * ngắt mạch (R9) không bao giờ vào bản sao lưu CSDL, và không phụ thuộc CSDL đang chậm.
+             */
+            'token_cache_store' => 'file',
+            'breaker_store' => 'file',
+
+            // Số mục của một Shared Drive: VÀNG từ 300.000, giới hạn của Google là 400.000.
+            'item_warn' => 300000,
+            'item_limit' => 400000,
+        ],
+
+        'office' => [
+            /*
+             * Remote rclone nơi máy văn phòng gửi biên nhận bản thứ hai (R10), ví dụ
+             * `gdrive:VK-CRM-backups/office-receipts/vk-crm-production`. Trống = chưa có máy văn
+             * phòng: vùng đệm không bao giờ được dọn.
+             */
+            'receipts_path' => $domain(env('DOCUMENT_OFFICE_RECEIPTS_PATH')),
+
+            // Biên nhận gần nhất cũ hơn chừng này giờ thì báo VÀNG.
+            'max_age_hours' => 36,
+
+            // Bản trong vùng đệm chỉ được dọn khi biên nhận đã có ít nhất chừng này giờ (R10).
+            'purge_margin_hours' => 24,
+
+            // Trần một tệp biên nhận (32 MiB); lớn hơn thì từ chối cả tệp.
+            'receipt_max_bytes' => 33554432,
+
+            /*
+             * Hạn (giây) cho mỗi lệnh `rclone` của lượt nhập biên nhận (`lsjson` thư mục biên nhận,
+             * `cat` một tệp; M14 Task 7). Không dùng 1800 của sao lưu: lượt này chỉ đọc vài tệp
+             * JSON, và một `rclone` treo không được giữ khoá của lượt 07:00 nửa giờ.
+             */
+            'rclone_timeout' => 120,
+        ],
     ],
 
     /*

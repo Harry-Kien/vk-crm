@@ -213,6 +213,30 @@ return [
         // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
         'communication_logged' => 'Ghi nhật ký liên lạc',
         'communication_log_deleted' => 'Xoá một dòng nhật ký liên lạc',
+        // M14 Task 3: app/Actions/Schedule/PushPendingDocumentFiles.php — công tắc DOCUMENT_STORAGE không
+        // còn là google_drive mà mốc bật kho còn: mốc bị xoá (bật lại phải chạy vkcrm:storage:enable).
+        'document_store_disabled_observed' => 'Phát hiện kho tài liệu đã tắt: xoá mốc bật kho',
+        // M14 Task 5: app/Actions/Storage/RecordDataTransferDossier.php — `changed_fields` nêu TÊN các
+        // ô hồ sơ chuyển dữ liệu ra nước ngoài đã đổi (trang "Kho tài liệu"), không nêu giá trị.
+        'data_transfer_dossier_recorded' => 'Ghi hồ sơ chuyển dữ liệu cá nhân ra nước ngoài',
+        // M14 Task 5: app/Actions/Storage/InitialiseDocumentStore.php (`vkcrm:storage:init`) —
+        // `folder_name` là tên thư mục gốc; mã thư mục Drive không vào nhật ký.
+        'document_store_initialised' => 'Tạo thư mục gốc của kho tài liệu trên Google Drive',
+        // M14 Task 6: app/Actions/Storage/EnableRemoteDocumentStore.php (`vkcrm:storage:enable`) —
+        // `remote_enabled_at` là mốc bật kho vừa ghi.
+        'document_store_enabled' => 'Bật kho tài liệu Google Drive',
+        // M14 Task 6: app/Actions/Storage/MigrateDocumentsToRemote.php (`vkcrm:storage:migrate`) — một
+        // dòng mỗi lượt: số tệp, byte, bỏ qua, bị khoá, số lỗi, số giây, lý do dừng. Không danh sách tệp.
+        'document_store_migration_run' => 'Chuyển tệp cũ lên kho tài liệu',
+        // M14 Task 6: app/Actions/Storage/PullDocumentsToLocal.php (`vkcrm:storage:rollback`) — một dòng
+        // mỗi lượt: số tệp đổi bằng bản cục bộ, số tải về, byte, số chưa tới được, bị khoá, lỗi, số giây.
+        'document_store_rollback_run' => 'Quay lui kho tài liệu: kéo tệp về máy chủ',
+        // M14 Task 6: app/Actions/Storage/RebuildDriveIndex.php (`vkcrm:storage:reindex`) — chỉ số đếm.
+        'drive_index_rebuilt' => 'Dựng lại chỉ mục kho tài liệu từ Google Drive',
+        // M14 Task 6: app/Actions/Storage/ListMatterFilesForDestruction.php
+        // (`vkcrm:storage:destruction-list`) — chủ thể là vụ, người thực hiện là quản trị viên `--by`;
+        // chỉ số tên Drive, số tệp vùng đệm, số đường ở văn phòng.
+        'matter_storage_destruction_listed' => 'Liệt kê tệp cần huỷ của hồ sơ đã quá hạn lưu',
         // M13 (R14): xem số liệu theo dõi/hiệu suất của NGƯỜI KHÁC — trang "Theo dõi đội ngũ"
         // (Task 1, chủ thể rỗng, `page = team_overview`), trang của một người khác (Task 5, chủ thể
         // là người đó), "Hiệu suất theo kỳ" với `performance.viewAny` (Task 6, `properties` mang kỳ).

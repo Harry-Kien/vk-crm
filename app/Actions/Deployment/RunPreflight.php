@@ -2,6 +2,7 @@
 
 namespace App\Actions\Deployment;
 
+use App\Actions\Storage\StorageReadiness;
 use App\Enums\PreflightLevel;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Models\User;
@@ -164,6 +165,7 @@ class RunPreflight
             $this->passportTokenTtlRow(),
             $this->passportKeysRow(),
             $this->mcpFilingDateRow(),
+            ...$this->documentStoreRows(),
         ];
     }
 
@@ -302,6 +304,21 @@ class RunPreflight
     }
 
     /**
+     * M14 Task 5 — kho tài liệu Google Drive (kế hoạch M14, R7). Preflight production chỉ GÓI
+     * {@see StorageReadiness} lại: định nghĩa "kho dùng được" nằm ở đó và chạy ở mọi môi trường
+     * (`vkcrm:storage:check`), còn đây chỉ là lối vào của nó trên production. Khi công tắc là
+     * `google_drive` hoặc đã có media trên kho: mọi dòng sẵn sàng và trạng thái của kho (gồm cổng pháp
+     * lý `data_transfer_dossier`, R13). Nếu không: chỉ `document_storage_driver` và
+     * `disk_free_space_available`, không lệnh gọi Drive nào ({@see StorageReadiness::preflightRows()}).
+     *
+     * @return list<array{key: string, level: PreflightLevel, message: string}>
+     */
+    private function documentStoreRows(): array
+    {
+        return app(StorageReadiness::class)->preflightRows();
+    }
+
+    /**
      * Fix round 1, finding 4 — bốn giá trị "tin TOÀN BỘ IP", đỏ giống hệt để trống. `*`/`**` là
      * hai chuỗi đặc biệt của chính `Illuminate\Http\Middleware\TrustProxies::
      * setTrustedProxyIpAddresses()` (gọi `setTrustedProxyIpAddressesToTheCallingIp()`, đặt dải
@@ -429,10 +446,10 @@ class RunPreflight
 
     /**
      * Việc sau gộp M7 (làn fu2, phát hiện "wiring" của rà soát gộp): giờ chết của job gói bàn giao
-     * (`GenerateHandoverPackage::$timeout` = 600, `$failOnTimeout`, `--timeout=600` của mục lịch
+     * (`GenerateHandoverPackage::$timeout` = 1200, `$failOnTimeout`, `--timeout=1200` của mục lịch
      * `queue.handover`) chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. Thiếu nó, worker không bao
      * giờ giết job quá giờ: `failed()` không chạy (luật sư không được báo), và khi một lần dựng gói
-     * vượt 900 giây (`retry_after` và khoá `withoutOverlapping` 15 phút cùng hết) lượt kế tiếp nhận
+     * vượt 1500 giây (`retry_after` và khoá `withoutOverlapping` 25 phút cùng hết) lượt kế tiếp nhận
      * lại cùng job, dựng vào cùng thư mục làm việc — đúng cuộc đua R9 dựng kết nối `handover` để tránh.
      *
      * Đọc `extension_loaded()`/`function_exists()` của CHÍNH tiến trình đang chạy lệnh này — tức PHP
