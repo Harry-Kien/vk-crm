@@ -8,6 +8,7 @@ use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\DeadlineSeverity;
+use App\Exceptions\MatterClosedForDeadlines;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
@@ -127,6 +128,7 @@ class UpdateDeadline
      *
      * @throws AuthorizationException
      * @throws ValidationException
+     * @throws MatterClosedForDeadlines
      */
     public function handle(
         Deadline $deadline,
@@ -160,6 +162,12 @@ class UpdateDeadline
             // `DeadlinePolicy::update` — cùng cổng bốn nút còn lại của tab này.
             if (Gate::forUser($actor)->inspect('update', $fresh)->denied()) {
                 $this->refuse();
+            }
+
+            // Làn fm A1: mốc của vụ đã kết thúc không còn được nhắc, nên không sửa tên/ngày/mức
+            // độ được nữa — xem MatterClosedForDeadlines.
+            if ($matter->isClosed()) {
+                throw MatterClosedForDeadlines::make();
             }
 
             // Form mở từ trước lần ghi gần nhất — xem docblock lớp, mục "fix round 1, I1".

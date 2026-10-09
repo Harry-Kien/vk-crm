@@ -905,6 +905,8 @@ function submitTransitionForm(Matter $matter, string $toStage): Testable
         'internal_note' => 'Chuyển giai đoạn qua form — kiểm tra lưu trữ M7 Task 3.',
         'public_content' => null,
         'publish' => false,
+        // Làn fm A1: đóng vụ trên màn hình đòi tích xác nhận (ô ẩn thì không được gửi).
+        'confirm_close' => true,
     ]);
 }
 

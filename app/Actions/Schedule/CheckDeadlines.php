@@ -92,10 +92,13 @@ class CheckDeadlines
             // `whereHas('matter', fn ($q) => $q->open())` gọi ĐÚNG MỘT định nghĩa
             // `Matter::scopeOpen()` (SoftDeletingScope + closed_at null), không viết lại nó lần
             // nữa. Bản trước chỉ `whereHas('matter')` — loại được vụ xoá mềm nhưng bỏ sót vụ đã
-            // đóng: một mốc của vụ ĐÃ ĐÓNG (không xoá mềm) vẫn bị nhắc mãi, và
-            // `SetDeadlineCompletion` cũng chặn vụ đã đóng cùng cách nó chặn vụ trashed
-            // (`MatterPolicy::update`), nên mốc đó không đánh dấu xong được — cùng cái bẫy F8,
-            // khác đường vào.
+            // đóng: một mốc của vụ ĐÃ ĐÓNG (không xoá mềm) vẫn bị nhắc mãi.
+            // Đính chính (làn fm A1, 2026-10-09): bản trước của chú thích này nói
+            // `SetDeadlineCompletion` chặn vụ đã đóng qua `MatterPolicy::update` — sai, policy đó
+            // không hỏi trạng thái đóng, và đánh dấu xong mốc của vụ đã đóng vẫn làm được (đó là
+            // việc dọn dẹp). Vì vụ đã đóng thôi được nhắc, `AddMatterDeadline`/`UpdateDeadline`
+            // từ chối đặt hay sửa mốc trên vụ đó (`MatterClosedForDeadlines`), và form "Chuyển
+            // giai đoạn" liệt kê mốc còn mở trước khi đóng.
             ->whereHas('matter', fn ($query) => $query->open())
             ->orderBy('due_date')
             ->pluck('id');

@@ -7,10 +7,16 @@ use App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchem
 use App\Models\Matter;
 use App\Models\MatterTypeStage;
 use App\Models\User;
+use App\Support\MatterOpenWork;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Text;
+use Filament\Schemas\Components\UnorderedList;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Filament\Support\Enums\FontWeight;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 
@@ -114,6 +120,44 @@ class TransitionStageAction extends Action
             && (bool) $matter->matterType->stage($toStage)?->is_terminal;
     }
 
+    /**
+     * Làn fm A1 (kiểm tra nghiệp vụ 2026-10-09): khối "Trước khi kết thúc vụ việc" — chỉ khi giai
+     * đoạn đích là giai đoạn kết thúc VÀ vụ đang mở (lần đóng thật; chuyển giữa hai giai đoạn kết
+     * thúc không đóng gì thêm). Liệt kê việc còn dở ({@see MatterOpenWork::closingLines()}), nói hai
+     * hệ quả mà trước đây không ai được báo (mốc thôi nhắc — `CheckDeadlines` và widget chỉ đọc vụ
+     * đang mở; chỉ quản trị viên mở lại được, vì giai đoạn kết thúc không khai báo `allowed_next`),
+     * và bắt tích `confirm_close`. Ô tích nằm trong khối, nên khi khối ẩn thì nó không được kiểm và
+     * không được gửi — chuyển giai đoạn thường không đổi gì. Đây là xác nhận của MÀN HÌNH:
+     * `TransitionMatterStage` không đọc ô này, như mọi ô xác nhận khác của dự án.
+     */
+    private function closingSafeguards(Matter $matter): Section
+    {
+        $isClosing = fn (Get $get): bool => ! $matter->isClosed()
+            && $this->targetKeepsMatterClosed($matter, $get('to_stage'));
+
+        return Section::make(__('lifecycle.close.heading'))
+            ->key('closingSafeguards')
+            ->icon(Heroicon::OutlinedExclamationTriangle)
+            ->iconColor('danger')
+            ->compact()
+            ->columnSpanFull()
+            ->visible($isClosing)
+            ->schema(function () use ($matter): array {
+                $lines = MatterOpenWork::closingLines($matter, Auth::user() instanceof User ? Auth::user() : null);
+
+                return [
+                    Text::make($lines === [] ? __('lifecycle.open_work.none') : __('lifecycle.close.open_work_intro')),
+                    UnorderedList::make(array_map(fn (string $line): Text => Text::make($line), $lines))
+                        ->visible($lines !== []),
+                    Text::make(__('lifecycle.close.consequences'))->weight(FontWeight::SemiBold),
+                    Checkbox::make('confirm_close')
+                        ->label(__('lifecycle.close.confirm'))
+                        ->accepted()
+                        ->validationMessages(['accepted' => __('lifecycle.close.confirm_required')]),
+                ];
+            });
+    }
+
     protected function buildSchema(Matter $matter): array
     {
         return [
@@ -149,6 +193,7 @@ class TransitionStageAction extends Action
             $this->clientActionField(),
             $this->expectedNextUpdateAtField(null),
             $this->publishToggleField($matter),
+            $this->closingSafeguards($matter),
             $this->noActivatedAccountWarning($matter),
             // Rà soát cuối M7, I3: "vụ không còn trên cổng" chỉ đúng khi giai đoạn đích giữ vụ ở
             // trạng thái đóng — xem docblock `matterNotOnPortalWarning()`.
