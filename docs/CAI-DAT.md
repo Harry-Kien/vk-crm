@@ -1023,6 +1023,17 @@ khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện má
 - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md` —
   `vkcrm:preflight` không kiểm riêng `rclone`, dùng `vkcrm:backup-check` cho việc đó).
 
+Và hai điều kiện CẤU HÌNH của sao lưu (thêm sau đợt kiểm tra nghiệp vụ 2026-10-09 — trước đó preflight
+xanh trên đúng hai cấu hình hỏng này, và người ta chỉ biết qua thư lỗi lúc 02:00):
+
+- dòng `backup_encryption` — ĐỎ khi `BACKUP_ARCHIVE_PASSWORD` trống (hay máy chủ không mã hoá được
+  archive): mọi lượt sao lưu đêm sẽ bị từ chối, không có bản sao lưu nào;
+- dòng `backup_off_server` — ĐỎ khi không có đích nào ngoài máy chủ: `BACKUP_RCLONE_REMOTE` trống và
+  mọi đĩa trong `BACKUP_DISKS` nằm trên chính máy chủ này (`docs/SAO-LUU-KHOI-PHUC.md`, Bước 1–5).
+
+`vkcrm:backup-check` (không đối số) hỏi cùng hai điều kiện đó, in thêm hai dòng và thoát mã 1 khi một
+dòng hỏng — Bước 11 đòi cả hai lệnh xanh.
+
 Và bốn điều kiện của máy chủ MCP (kết nối AI cho nhân sự, M11); ba điều kiện đầu kiểm cả khi máy chủ
 MCP đang tắt:
 

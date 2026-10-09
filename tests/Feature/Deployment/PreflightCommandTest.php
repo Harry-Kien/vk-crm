@@ -49,6 +49,10 @@ function preflightGreenProductionConfig(): array
         // `storage/oauth-*.key` của máy đang chạy test không bị đọc hay đụng tới.
         'passport.private_key' => preflightPassportKeyPair()['private'],
         'passport.public_key' => preflightPassportKeyPair()['public'],
+        // Làn fc (kiểm tra nghiệp vụ 2026-10-09): hai dòng sao lưu của production — mật khẩu mã hoá
+        // archive và một đích ngoài máy chủ (`BackupLaunchConditionsTest`).
+        'backup.backup.password' => 'mat-khau-sao-luu-thu-nghiem',
+        'vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups',
         ...WebPushTestKeys::config(),
     ];
 }

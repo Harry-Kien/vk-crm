@@ -49,6 +49,13 @@ use Spatie\Backup\Config\Config;
  *
  * Ở mọi môi trường khác (local, testing, staging) không chặn — máy dev không buộc phải cấu hình
  * đủ bí mật.
+ *
+ * # Cùng điều kiện ở hai cổng mở hệ thống (làn fc, kiểm tra nghiệp vụ 2026-10-09)
+ *
+ * {@see self::problem()} là điều kiện, tách khỏi việc ném lỗi, để `vkcrm:preflight`
+ * (`RunPreflight`, dòng `backup_encryption`) và `vkcrm:backup-check` (`CheckBackupDestinations::
+ * launchConditions()`) hỏi ĐÚNG câu mà guard này hỏi lúc 02:00, thay vì báo xanh cho một máy chủ mà
+ * mọi lượt sao lưu đêm sẽ bị từ chối.
  */
 class GuardBackupEncryption
 {
@@ -58,14 +65,31 @@ class GuardBackupEncryption
             return;
         }
 
-        $backup = app(Config::class)->backup;
+        $problem = self::problem(app(Config::class));
+
+        if ($problem !== null) {
+            throw $problem;
+        }
+    }
+
+    /**
+     * Lý do một lượt sao lưu trên cấu hình `$config` sẽ bị chặn, hoặc `null` khi nó sẽ được mã hoá —
+     * không xét môi trường (người gọi quyết). Hai nguyên nhân theo đúng thứ tự `Zip` hỏi: mật khẩu
+     * (`''` đã thành `null` ở `BackupConfig::fromArray()`), rồi thuật toán (`null` khi libzip thiếu
+     * AES-256).
+     */
+    public static function problem(Config $config): ?BackupEncryptionRequired
+    {
+        $backup = $config->backup;
 
         if ($backup->password === null) {
-            throw BackupEncryptionRequired::passwordMissing();
+            return BackupEncryptionRequired::passwordMissing();
         }
 
         if (! $backup->encryption->shouldEncrypt()) {
-            throw BackupEncryptionRequired::encryptionUnavailable();
+            return BackupEncryptionRequired::encryptionUnavailable();
         }
+
+        return null;
     }
 }

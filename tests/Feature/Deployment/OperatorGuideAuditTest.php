@@ -441,3 +441,35 @@ it('B: step 4 counts its seven tasks and the service worker is task 7', function
         ->not->toContain('sáu việc')
         ->not->toContain('Bước 4, việc 6');
 });
+
+/* B (ops). Hai cổng mở hệ thống nay hỏi hai điều kiện cấu hình của sao lưu; Bước 7 nói đúng điều đó. */
+it('B: step 7 names the two backup configuration rows that preflight and backup-check now raise', function () {
+    $step7 = ogaFlat(ogaSection(ogaFile('docs/CAI-DAT.md'), '### Bước 7', '### Bước 8'));
+
+    expect($step7)->toContain('dòng `backup_encryption`')
+        ->toContain('dòng `backup_off_server`')
+        ->toContain('`vkcrm:backup-check` (không đối số) hỏi cùng hai điều kiện đó');
+});
+
+/*
+ * C (việc còn mở từ lần gộp bản 1.0). SPEC §6.9 hứa thư nhắc liệt kê "đúng những gì còn thiếu", mà thư
+ * đọc `ChecklistProgress::itemsToRemindClientOf()` — bỏ đầu mục hợp đồng đã ký khi hợp đồng còn nháp.
+ * SPEC (nguồn sự thật) mang một đính chính có ngày; hai docblock nói đúng hàm mà mã gọi.
+ */
+it('C: SPEC §6.9 and the two docblocks name the narrower set the reminder mail really lists', function () {
+    $section = ogaFlat(ogaSection(ogaFile('docs/SPEC.md'), '### 6.9 Nhắc khách bổ sung giấy tờ', '### 6.10'));
+
+    expect($section)->toContain('**Đính chính 2026-10-09')
+        ->toContain('ChecklistProgress::itemsToRemindClientOf()')
+        ->toContain('hợp đồng');
+
+    expect(ogaFile('app/Jobs/SendMissingDocumentsMail.php'))->toContain('ChecklistProgress::itemsToRemindClientOf(');
+
+    $mail = ogaFile('app/Mail/Client/MissingDocuments.php');
+    expect($mail)->toContain('{@see ChecklistProgress::itemsToRemindClientOf()}')
+        ->not->toContain('bằng {@see ChecklistProgress::outstandingRequiredItems()} và truyền vào');
+
+    // Docblock: bỏ dấu `*` đầu dòng trước khi so.
+    $action = ogaFlat(str_replace("\n * ", ' ', ogaFile('app/Actions/Schedule/RemindMissingDocuments.php')));
+    expect($action)->toContain('còn đầu mục mà thư được đòi khách ({@see ChecklistProgress::itemsToRemindClientOf()}');
+});

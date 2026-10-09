@@ -2,6 +2,8 @@
 
 namespace App\Actions\Deployment;
 
+use App\Actions\Backup\GuardBackupEncryption;
+use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Storage\StorageReadiness;
 use App\Enums\PreflightLevel;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
@@ -22,6 +24,7 @@ use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
+use Spatie\Backup\Config\Config as BackupPackageConfig;
 
 /**
  * `vkcrm:preflight` (R1, kế hoạch M8 Task 1) — kiểm các điều kiện phải đúng TRƯỚC khi mở cổng
@@ -164,6 +167,8 @@ class RunPreflight
             $this->zipAes256Row(),
             $this->procOpenRow(),
             $this->mariadbDumpRow(),
+            $this->backupEncryptionRow(),
+            $this->backupOffServerRow(),
             $this->mcpRedirectDomainsRow(),
             $this->passportTokenTtlRow(),
             $this->passportKeysRow(),
@@ -372,25 +377,68 @@ class RunPreflight
      * chọn theo cổng — XANH. Chỉ khi mailer mặc định dùng transport `smtp`: mailer khác không đọc biến
      * này, nên không dòng nào. Đọc qua `config()`, nên vẫn kiểm được sau `config:cache`.
      *
+     * Làn fc (việc còn mở từ lần gộp bản 1.0): mailer mặc định có transport `failover` hay `roundrobin`
+     * thì Laravel dựng từng mailer con trong `mailers` của nó bằng chính cấu hình của mailer con — một
+     * nhánh `smtp` mang `tls` làm hỏng cả mailer cha ngay lúc dựng. Mỗi mailer con có transport `smtp`
+     * được kiểm như trên, một dòng mỗi nhánh (khoá `mail_scheme_<tên>`), câu nêu tên mailer con và mailer
+     * cha. Mailer con không phải `smtp` không có dòng nào, như mailer mặc định không phải `smtp`.
+     *
      * @return list<array{key: string, level: PreflightLevel, message: string}>
      */
     private function mailSchemeRows(): array
     {
         $mailer = (string) config('mail.default');
+        $transport = config("mail.mailers.{$mailer}.transport");
 
-        if (config("mail.mailers.{$mailer}.transport") !== 'smtp') {
+        if (in_array($transport, ['failover', 'roundrobin'], true)) {
+            $rows = [];
+
+            foreach ((array) config("mail.mailers.{$mailer}.mailers", []) as $child) {
+                if (config("mail.mailers.{$child}.transport") === 'smtp') {
+                    $rows[] = $this->childMailSchemeRow((string) $child, $mailer);
+                }
+            }
+
+            return $rows;
+        }
+
+        if ($transport !== 'smtp') {
             return [];
         }
 
         $scheme = config("mail.mailers.{$mailer}.scheme");
 
-        if (blank($scheme) || in_array($scheme, self::SUPPORTED_MAIL_SCHEMES, true)) {
+        if (self::mailSchemeSupported($scheme)) {
             return [$this->row('mail_scheme', PreflightLevel::Green, __('preflight.mail_scheme_ok'))];
         }
 
         return [$this->row('mail_scheme', PreflightLevel::Red, __('preflight.mail_scheme_unsupported', [
             'value' => (string) $scheme,
         ]))];
+    }
+
+    /** Một nhánh `smtp` của mailer `failover`/`roundrobin` — {@see self::mailSchemeRows()}. */
+    private function childMailSchemeRow(string $child, string $parent): array
+    {
+        $scheme = config("mail.mailers.{$child}.scheme");
+
+        if (self::mailSchemeSupported($scheme)) {
+            return $this->row("mail_scheme_{$child}", PreflightLevel::Green, __('ops_checks.preflight.mail_scheme_ok_in', [
+                'mailer' => $child,
+                'parent' => $parent,
+            ]));
+        }
+
+        return $this->row("mail_scheme_{$child}", PreflightLevel::Red, __('ops_checks.preflight.mail_scheme_unsupported_in', [
+            'mailer' => $child,
+            'parent' => $parent,
+            'value' => (string) $scheme,
+        ]));
+    }
+
+    private static function mailSchemeSupported(mixed $scheme): bool
+    {
+        return blank($scheme) || in_array($scheme, self::SUPPORTED_MAIL_SCHEMES, true);
     }
 
     /**
@@ -692,6 +740,44 @@ class RunPreflight
         }
 
         return $this->row('mariadb_dump', PreflightLevel::Red, __('preflight.mariadb_dump_missing'));
+    }
+
+    /**
+     * Làn fc (kiểm tra nghiệp vụ 2026-10-09): ĐỎ khi lượt sao lưu đêm sẽ bị {@see GuardBackupEncryption}
+     * từ chối — `BACKUP_ARCHIVE_PASSWORD` trống, hay libzip không mã hoá được thuật toán đã cấu hình —
+     * nêu đúng lý do của guard. Trước đó preflight XANH trên đúng cấu hình đó và người ta chỉ biết qua
+     * thư lỗi lúc 02:00, sau khi đã mở cổng. Cùng hàm điều kiện với guard
+     * ({@see GuardBackupEncryption::problem()}), trên cấu hình dựng lại từ `config('backup')` ngay lúc
+     * này (không phải bản `app(Config::class)` đã dựng sẵn trong tiến trình). Đọc qua `config()`, nên
+     * vẫn kiểm được sau `config:cache`.
+     */
+    private function backupEncryptionRow(): array
+    {
+        $problem = GuardBackupEncryption::problem(BackupPackageConfig::fromArray(config('backup')));
+
+        return $problem === null
+            ? $this->row('backup_encryption', PreflightLevel::Green, __('ops_checks.preflight.backup_encryption_ok'))
+            : $this->row('backup_encryption', PreflightLevel::Red, __('ops_checks.preflight.backup_encryption_missing', [
+                'detail' => $problem->getMessage(),
+            ]));
+    }
+
+    /**
+     * Làn fc (kiểm tra nghiệp vụ 2026-10-09): ĐỎ khi không có đích sao lưu nào ngoài máy chủ — đúng
+     * điều kiện mà {@see GuardOffServerBackupDestination} báo bằng thư mỗi đêm
+     * ({@see GuardOffServerBackupDestination::localOnlyDisks()}), nêu các đĩa. ĐỎ chứ không VÀNG: SPEC
+     * §10 mục 8 đòi bản sao lưu ra khỏi máy chủ, và Bước 11 của `docs/CAI-DAT.md` không mở cổng khi
+     * chưa có nó.
+     */
+    private function backupOffServerRow(): array
+    {
+        $disks = GuardOffServerBackupDestination::localOnlyDisks();
+
+        return $disks === null
+            ? $this->row('backup_off_server', PreflightLevel::Green, __('ops_checks.preflight.backup_off_server_ok'))
+            : $this->row('backup_off_server', PreflightLevel::Red, __('ops_checks.preflight.backup_off_server_missing', [
+                'disks' => $disks,
+            ]));
     }
 
     /**

@@ -1190,6 +1190,13 @@ portal, còn item bắt buộc ở trạng thái `missing` hoặc `rejected`:
 - Nếu tình trạng thiếu kéo dài quá 14 ngày: thông báo cho lead lawyer là hồ sơ
   đang đình trệ vì thiếu giấy tờ, để gọi điện hỗ trợ trực tiếp.
 
+**Đính chính 2026-10-09 (kiểm tra nghiệp vụ toàn hệ thống, làn fc; việc còn mở từ lần gộp bản 1.0) —
+"đúng những gì còn thiếu" của email là những gì còn thiếu MÀ KHÁCH ĐƯỢC ĐÒI.** Email liệt kê
+`ChecklistProgress::itemsToRemindClientOf()`: mọi item bắt buộc ở `missing`/`rejected`, TRỪ item bản hợp
+đồng dịch vụ đã ký khi vụ việc chưa có hợp đồng nào rời trạng thái nháp — văn phòng còn chưa có bản để
+khách ký (lượt quét §10 trước bản 1.0). Tập đó rỗng thì không có email nào. Thanh tiến độ, widget và
+thông báo 14 ngày cho lead lawyer vẫn tính MỌI item bắt buộc còn thiếu, kể cả item hợp đồng đó.
+
 ### 6.10 Kiểm tra xung đột lợi ích — `RunConflictCheck`
 
 Đây là chức năng phân biệt một phần mềm quản lý vụ việc chuyên nghiệp với một
