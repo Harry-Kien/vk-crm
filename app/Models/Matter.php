@@ -196,6 +196,17 @@ class Matter extends Model
     }
 
     /**
+     * Vụ đã kết thúc TRƯỚC ngày `$day` (so theo ngày) — làn fm A3: "ngày mở hồ sơ" sửa lại không được
+     * đứng sau ngày kết thúc. Viết ở đây vì `closed_at` chỉ được dùng làm điều kiện trong model này
+     * (`MatterTest`, "uses closed_at as a condition nowhere in app/…"). Vụ chưa đóng: `false`.
+     */
+    public function closedBefore(CarbonInterface $day): bool
+    {
+        return $this->closed_at !== null
+            && $this->closed_at->toDateString() < $day->toDateString();
+    }
+
+    /**
      * Vụ đã kết thúc TRONG một khoảng ngày (M13, cột P5 "Vụ kết thúc trong kỳ"):
      * {@see self::scopeClosed()} cộng `closed_at` nằm giữa 00:00:00 của `$from` và 23:59:59 của `$to`.
      *

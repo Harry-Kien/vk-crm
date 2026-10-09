@@ -46,6 +46,15 @@ return [
         'missing' => 'Không mở được dòng tiến độ này.',
     ],
 
+    // A3 — tab Tổng quan và trang Sửa vụ việc (UpdateMatterDetails): ghi chú nội bộ, ngày mở hồ sơ.
+    'details' => [
+        'internal_only' => 'Chỉ nội bộ',
+        'internal_note_too_long' => 'Ghi chú nội bộ dài tối đa :max ký tự.',
+        'opened_at_invalid' => 'Ngày mở hồ sơ không hợp lệ.',
+        'opened_at_future' => 'Ngày mở hồ sơ không được sau hôm nay.',
+        'opened_at_after_closed' => 'Ngày mở hồ sơ không được sau ngày vụ việc kết thúc.',
+    ],
+
     // Tab "Mốc thời hạn" và hai Action AddMatterDeadline/UpdateDeadline trên vụ đã kết thúc.
     'deadlines' => [
         'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm hay sửa mốc được nữa; muốn đặt mốc mới, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',

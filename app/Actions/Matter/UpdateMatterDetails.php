@@ -9,6 +9,8 @@ use App\Enums\Role;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -20,15 +22,16 @@ use Illuminate\Validation\ValidationException;
  * ở tiêu đề, tóm tắt cho khách, hay số thụ lý toà cấp SAU khi mở vụ (thường vài tuần sau) không
  * sửa được ở đâu cả.
  *
- * # Năm trường sửa được, và ba trường KHÔNG BAO GIỜ sửa được qua đây
+ * # Bảy trường sửa được, và ba trường KHÔNG BAO GIỜ sửa được qua đây
  *
  * `title`, `summary_for_client`, `court_name`, `case_number`, `confidentiality` — đúng năm cột
- * SPEC §4.6 liệt kê cho màn hình này. `client_id`, `matter_type_id` và `lead_lawyer_id` CỐ Ý
- * không nằm trong danh sách tham số của `handle()`: vụ gắn nhầm khách/loại vụ việc thì admin
- * "Huỷ hồ sơ mở nhầm" ({@see CancelMatter}), không sửa; luật sư phụ trách chỉ đổi qua bàn giao
- * (`App\Actions\ReassignMatter`, M6.5 Task 4). Nhận tường minh đúng năm khoá thay vì đẩy cả
- * mảng `$data` là cách duy nhất bảo đảm ba cột kia không bao giờ chạm được vào `fill()`, kể cả
- * khi một request bị chỉnh sửa tay gửi kèm chúng.
+ * SPEC §4.6 liệt kê cho màn hình này, cộng `description_internal` và `opened_at` (làn fm A3, xem mục
+ * dưới). `client_id`, `matter_type_id` và `lead_lawyer_id` CỐ Ý không nằm trong danh sách trắng
+ * `$editable` của `handle()`: vụ gắn nhầm khách/loại vụ việc thì admin "Huỷ hồ sơ mở nhầm"
+ * ({@see CancelMatter}), không sửa; luật sư phụ trách chỉ đổi qua bàn giao
+ * (`App\Actions\ReassignMatter`, M6.5 Task 4). Lọc theo đúng bảy khoá thay vì đẩy cả mảng `$data`
+ * là cách duy nhất bảo đảm ba cột kia không bao giờ chạm được vào `fill()`, kể cả khi một request
+ * bị chỉnh sửa tay gửi kèm chúng.
  *
  * # Ba trường chỉ cần `matter.update`, hai trường đòi thêm một cổng riêng
  *
@@ -58,6 +61,16 @@ use Illuminate\Validation\ValidationException;
  * trang đó giờ chỉ cần dịch STATE PATH của một `ValidationException` đã có sẵn tên trường, không
  * còn phải tự suy đoán "mọi AuthorizationException đều là confidentiality").
  *
+ * # Ghi chú nội bộ và ngày mở hồ sơ (làn fm A3, kiểm tra nghiệp vụ 2026-10-09)
+ *
+ * Hai trường thêm vào danh sách sửa được, chỉ cần `matter.update`: `description_internal` ("Ghi chú
+ * nội bộ" nhập lúc mở vụ — trước đây không màn hình nào đọc lại hay sửa được) và `opened_at` (in vào
+ * mục lục gói bàn giao, đếm vào "mở trong tháng"). Ghi chú rỗng là `null`, dài quá
+ * {@see self::DESCRIPTION_INTERNAL_MAX} thì từ chối. Ngày mở phải là một ngày thật, không sau hôm
+ * nay và không sau ngày kết thúc. `matter_details_updated` chỉ nêu TÊN trường — nội dung ghi chú
+ * không vào nhật ký (`Matter::getActivitylogOptions()` cũng cố ý bỏ cột này); ngày mở cũ/mới đã có
+ * trong dòng "updated" của activitylog.
+ *
  * # Khoá dòng TRƯỚC, không đọc gì trước khi khoá
  *
  * Câu lệnh ĐẦU TIÊN trong transaction là `lockForUpdate()` — dự án đã bị REPEATABLE READ của
@@ -80,7 +93,14 @@ use Illuminate\Validation\ValidationException;
 class UpdateMatterDetails
 {
     /**
-     * @param  array{title?: string, summary_for_client?: ?string, court_name?: ?string, case_number?: ?string, confidentiality?: string}  $data
+     * Trần chủ động của "Ghi chú nội bộ" (`matters.description_internal`, cột `text` = 65.535 byte):
+     * 16.000 ký tự × tối đa 4 byte utf8mb4 vẫn nằm trong cột, nên MariaDB strict không bao giờ cắt.
+     * Form (tạo và sửa) dùng cùng hằng số này.
+     */
+    public const DESCRIPTION_INTERNAL_MAX = 16000;
+
+    /**
+     * @param  array{title?: string, summary_for_client?: ?string, court_name?: ?string, case_number?: ?string, confidentiality?: string, description_internal?: ?string, opened_at?: string|CarbonInterface}  $data
      */
     public function handle(Matter $matter, User $actor, array $data): Matter
     {
@@ -108,7 +128,17 @@ class UpdateMatterDetails
 
             $editable = array_intersect_key($data, array_flip([
                 'title', 'summary_for_client', 'court_name', 'case_number', 'confidentiality',
+                'description_internal', 'opened_at',
             ]));
+
+            // Làn fm A3: hai trường mới — xem docblock lớp, mục "Ghi chú nội bộ và ngày mở hồ sơ".
+            if (array_key_exists('description_internal', $editable)) {
+                $editable['description_internal'] = $this->validatedInternalNote($editable['description_internal']);
+            }
+
+            if (array_key_exists('opened_at', $editable)) {
+                $editable['opened_at'] = $this->validatedOpenedAt($locked, $editable['opened_at'])->toDateString();
+            }
 
             $locked->fill($editable);
 
@@ -132,6 +162,57 @@ class UpdateMatterDetails
      * rồi mới tới "đội ngũ có đang chặn HƯỚNG đổi cụ thể này không" — chỉ hỏi khi hướng đổi là VÀO
      * `restricted`, và chỉ tới người đã qua được câu hỏi đầu.
      */
+    /** Rỗng (hoặc toàn khoảng trắng) là "không có ghi chú" (`null`); dài quá trần thì từ chối trên đúng ô. */
+    private function validatedInternalNote(?string $note): ?string
+    {
+        $note = $note === null ? null : trim($note);
+
+        if ($note === null || $note === '') {
+            return null;
+        }
+
+        if (mb_strlen($note) > self::DESCRIPTION_INTERNAL_MAX) {
+            throw ValidationException::withMessages([
+                'description_internal' => [__('lifecycle.details.internal_note_too_long', ['max' => self::DESCRIPTION_INTERNAL_MAX])],
+            ]);
+        }
+
+        return $note;
+    }
+
+    /**
+     * Ngày mở hồ sơ: một ngày thật (`Y-m-d` từ ô chọn ngày, hoặc một đối tượng ngày), không sau hôm
+     * nay theo múi giờ ứng dụng, và không sau ngày vụ kết thúc (`Matter::closedBefore()`).
+     */
+    private function validatedOpenedAt(Matter $matter, mixed $value): CarbonInterface
+    {
+        $invalid = fn (string $key): ValidationException => ValidationException::withMessages([
+            'opened_at' => [__("lifecycle.details.{$key}")],
+        ]);
+
+        if ($value instanceof CarbonInterface) {
+            $date = $value->copy()->startOfDay();
+        } elseif (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+            $date = Carbon::createFromFormat('!Y-m-d', $value);
+
+            if ($date === false || $date->toDateString() !== $value) {
+                throw $invalid('opened_at_invalid');
+            }
+        } else {
+            throw $invalid('opened_at_invalid');
+        }
+
+        if ($date->toDateString() > today()->toDateString()) {
+            throw $invalid('opened_at_future');
+        }
+
+        if ($matter->closedBefore($date)) {
+            throw $invalid('opened_at_after_closed');
+        }
+
+        return $date;
+    }
+
     private function authorizeConfidentialityChange(User $actor, Matter $matter, string $newValue): void
     {
         if (Gate::forUser($actor)->denies('updateConfidentiality', $matter)) {

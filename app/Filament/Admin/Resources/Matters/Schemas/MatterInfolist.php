@@ -14,6 +14,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 
 /**
  * Tab "Tổng quan" (SPEC §7.2): thông tin vụ việc và đội ngũ. Công tắc công bố portal KHÔNG nằm
@@ -36,6 +37,22 @@ class MatterInfolist
                         TextEntry::make('title')->label(__('matters.fields.title'))->columnSpanFull(),
                         TextEntry::make('summary_for_client')
                             ->label(__('matters.fields.summary_for_client'))
+                            ->columnSpanFull(),
+                        // Làn fm A3: "Ghi chú nội bộ" nhập lúc mở vụ (hoặc điền sẵn từ tiếp nhận) —
+                        // trước đây không màn hình nào đọc lại. Ai mở được tab này đã qua
+                        // `MatterPolicy::view`; khách không bao giờ thấy (cột nằm trong
+                        // `Matter::internalAttributes()`). Nền xám và nhãn "Chỉ nội bộ" như ghi chú
+                        // nội bộ của tab Tiến độ, bằng `style=` (không có bước dựng CSS).
+                        TextEntry::make('description_internal')
+                            ->label(__('matters.transition_form.internal_note'))
+                            ->hint(__('lifecycle.details.internal_only'))
+                            ->hintColor('gray')
+                            ->placeholder('—')
+                            ->formatStateUsing(fn (?string $state): HtmlString => new HtmlString(sprintf(
+                                '<div style="border-radius:0.375rem;padding:0.5rem;white-space:pre-line;'
+                                .'background-color:color-mix(in srgb, var(--gray-500) 18%%, transparent)">%s</div>',
+                                e((string) $state),
+                            )))
                             ->columnSpanFull(),
                         TextEntry::make('stage')
                             ->label(__('matters.fields.stage'))

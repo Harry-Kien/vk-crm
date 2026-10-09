@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\Schemas;
 
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\ClientType;
 use App\Enums\Confidentiality;
 use App\Enums\PartyRole;
@@ -146,6 +147,8 @@ class MatterForm
                 ->label(__('matters.transition_form.internal_note'))
                 ->helperText(__('matters.transition_form.internal_note_hint'))
                 ->rows(3)
+                // Làn fm A3: cùng trần với trang Sửa (cột `text`, utf8mb4).
+                ->maxLength(UpdateMatterDetails::DESCRIPTION_INTERNAL_MAX)
                 ->columnSpanFull(),
             Textarea::make('summary_for_client')
                 ->label(__('matters.fields.summary_for_client'))

@@ -2,8 +2,10 @@
 
 namespace App\Filament\Admin\Resources\Matters\Schemas;
 
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\Confidentiality;
 use App\Models\Matter;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -72,6 +74,21 @@ class MatterEditForm
                 ->helperText(fn (?Matter $record): ?string => ($record !== null && Gate::denies('updateSummaryForClient', $record))
                     ? __('matters.edit_form.summary_for_client_denied')
                     : null),
+            // Làn fm A3: ghi chú nội bộ nhập lúc mở vụ — trước đây không màn hình nào sửa được.
+            Textarea::make('description_internal')
+                ->label(__('matters.transition_form.internal_note'))
+                ->helperText(__('matters.transition_form.internal_note_hint'))
+                ->rows(4)
+                ->maxLength(UpdateMatterDetails::DESCRIPTION_INTERNAL_MAX)
+                ->columnSpanFull(),
+            // Làn fm A3: ngày mở hồ sơ gõ nhầm sửa được; `maxDate()` chỉ là tiện lợi, cổng thật (không
+            // sau hôm nay, không sau ngày kết thúc) ở `UpdateMatterDetails`.
+            DatePicker::make('opened_at')
+                ->label(__('matters.overview_fields.opened_at'))
+                ->native(false)
+                ->displayFormat('d/m/Y')
+                ->maxDate(today())
+                ->required(),
             TextInput::make('court_name')
                 ->label(__('matters.overview_fields.court_name'))
                 ->maxLength(200),
