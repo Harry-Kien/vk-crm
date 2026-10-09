@@ -102,6 +102,19 @@ class UserPolicy
     }
 
     /**
+     * "Khoá truy cập ngay" (làn fb, mục A5 — `App\Actions\User\SuspendStaffAccess`, nút
+     * `suspendAccess` trên {@see EditUser}). Chỉ quản trị viên (`settings.manage`), không tự khoá chính
+     * mình (một admin tự khoá là tự đuổi mình khỏi hệ thống giữa chừng). KHÔNG hỏi luật "còn việc dở
+     * dang" như {@see self::delete()}: tách khoá truy cập khỏi nghỉ việc chính là mục đích của nút
+     * này. Luật "quản trị viên đang hoạt động cuối cùng" nằm trong Action, dưới khoá.
+     * `HeaderActionsAreReachableTest` đòi TÊN action trùng tên một phương thức policy.
+     */
+    public function suspendAccess(User|ClientUser $user, User $model): bool
+    {
+        return $user instanceof User && $this->viewAny($user) && $user->isNot($model);
+    }
+
+    /**
      * M8 Task 3 (SPEC §10.3): "Mở khoá đăng nhập" của nhân sự
      * (`App\Actions\User\UnlockStaffLogin`, nút `unlockLogin` ở {@see EditUser}). CHỈ quản trị
      * viên — cùng cổng `settings.manage` (`viewAny()`) với mọi thao tác quản trị nhân sự khác. Không
