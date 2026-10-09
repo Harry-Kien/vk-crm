@@ -241,6 +241,11 @@ return [
         // (Task 1, chủ thể rỗng, `page = team_overview`), trang của một người khác (Task 5, chủ thể
         // là người đó), "Hiệu suất theo kỳ" với `performance.viewAny` (Task 6, `properties` mang kỳ).
         'performance_viewed' => 'Xem số liệu hiệu suất của nhân sự',
+
+        // --- Làn fb (sửa sau kiểm tra nghiệp vụ toàn hệ thống, 2026-10-09) -------------------
+        // App\Actions\Billing\UnwaiveInstalment (mục A2).
+        'instalment_unwaived' => 'Bỏ miễn đợt thanh toán',
+        // --- Hết khối làn fb ----------------------------------------------------------------
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

@@ -582,8 +582,9 @@ it('hides the void button when the instalment has no payment at all', function (
 
 /**
  * Đợt còn hiện nút (còn một khoản, dù đã huỷ — xem chú thích `->visible()` của
- * `voidPaymentAction()`), nhưng bấm vào thì không còn gì để chọn: `payment_id` mặc định `null` vì
- * `latestActivePayment()` không tìm thấy khoản nào chưa huỷ.
+ * `voidPaymentAction()`), nhưng bấm vào thì không còn gì để chọn: ô chọn khoản thu rỗng, mặc định
+ * `null` vì `latestRecordedActivePayment()` không tìm thấy khoản nào chưa huỷ — lỗi nằm trên chính ô
+ * chọn (làn fb, mục A3: ô chọn thay cho trường ẩn).
  */
 it('shows the void button but refuses when the only payment is already voided', function () {
     [$contract, $instalment] = activeContractOneInstalment($this->matter, 10_000_000);
@@ -596,7 +597,7 @@ it('shows the void button but refuses when the only payment is already voided', 
         ->callAction(TestAction::make('voidPayment')->table($instalment), data: [
             'reason' => str_repeat('z', 20),
         ])
-        ->assertHasActionErrors(['reason']);
+        ->assertHasActionErrors(['payment_id']);
 });
 
 it('voids the most recent unvoided payment of an instalment through the button', function () {

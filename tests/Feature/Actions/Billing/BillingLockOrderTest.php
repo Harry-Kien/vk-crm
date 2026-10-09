@@ -8,6 +8,7 @@ use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
 use App\Actions\Billing\TriggerInstalmentsForStage;
+use App\Actions\Billing\UnwaiveInstalment;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Actions\Billing\VoidPayment;
 use App\Actions\Billing\WaiveInstalment;
@@ -187,6 +188,21 @@ it('locks matters first, then contracts, then instalments, when waiving an insta
     ]);
 
     $order = lockOrderOf(fn () => app(WaiveInstalment::class)->handle($this->lead, $instalment, str_repeat('a', 20)));
+
+    expect($order)->toBe(['matters', 'contracts', 'instalments']);
+});
+
+// Làn fb, mục A2: "Bỏ miễn" theo đúng chuỗi khoá của "Miễn".
+it('locks matters first, then contracts, then instalments, when unwaiving an instalment', function () {
+    $instalment = Instalment::factory()->for($this->contract)->create([
+        'amount' => 10_000_000,
+        'status' => InstalmentStatus::Waived,
+        'waived_reason' => str_repeat('a', 20),
+        'waived_by' => $this->lead->id,
+        'waived_at' => now(),
+    ]);
+
+    $order = lockOrderOf(fn () => app(UnwaiveInstalment::class)->handle($this->lead, $instalment, str_repeat('b', 20)));
 
     expect($order)->toBe(['matters', 'contracts', 'instalments']);
 });

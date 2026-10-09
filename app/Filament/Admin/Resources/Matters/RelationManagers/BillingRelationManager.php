@@ -9,6 +9,7 @@ use App\Actions\Billing\CompleteContract;
 use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
+use App\Actions\Billing\UnwaiveInstalment;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Actions\Billing\VoidPayment;
 use App\Actions\Billing\WaiveInstalment;
@@ -35,7 +36,6 @@ use App\Support\Billing\Vat;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -112,7 +112,8 @@ use Illuminate\Validation\ValidationException;
  * `ContractPolicy::update` (hay `::create` cho soạn mới, `::delete` cho xoá bản nháp), thành ngữ
  * `->authorize()` của {@see TeamRelationManager}/{@see DeadlinesRelationManager}.
  *
- * Mỗi dòng (một đợt thanh toán): ghi khoản thu, miễn, huỷ khoản thu gần nhất. **Nút ghi khoản thu
+ * Mỗi dòng (một đợt thanh toán): ghi khoản thu, miễn, bỏ miễn (chỉ trên đợt đã miễn), huỷ một
+ * khoản thu do người dùng chọn (làn fb, mục A2/A3). **Nút ghi khoản thu
  * hỏi quyền kèm NGỮ CẢNH VỤ VIỆC**, đúng thành ngữ tab Tài liệu (M4): `->authorize(fn () =>
  * Gate::allows('create', [Payment::class, $this->getOwnerRecord()]))` — không phải
  * `Gate::allows('update', $this->getOwnerRecord())` như tab Các bên, vì câu hỏi ở đây là
@@ -285,6 +286,7 @@ class BillingRelationManager extends RelationManager
             ->recordActions([
                 $this->recordPaymentAction(),
                 $this->waiveInstalmentAction(),
+                $this->unwaiveInstalmentAction(),
                 $this->voidPaymentAction(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query, 'contract.matter')
@@ -864,6 +866,9 @@ class BillingRelationManager extends RelationManager
             ->icon(Heroicon::OutlinedHandRaised)
             ->color('gray')
             ->modalHeading(__('billing.tab.actions.waive_heading'))
+            // Làn fb, mục A2: modal nói rõ đợt nào, giá trị, đã thu, và phần sẽ thôi đòi — trước
+            // đây chỉ có một ô lý do, nên miễn nhầm dòng không ai nhận ra.
+            ->modalDescription(fn (Instalment $record): string => static::waiveDescription($record))
             // Không lọc theo trạng thái đợt — cùng lý do `recordPaymentAction()`.
             ->authorize(fn (Instalment $record): bool => Gate::allows('waive', $record))
             ->schema([
@@ -880,22 +885,74 @@ class BillingRelationManager extends RelationManager
     }
 
     /**
-     * Huỷ khoản thu GẦN NHẤT chưa huỷ của đợt này. Đơn giản hoá có chủ đích: một đợt CÓ THỂ có
-     * nhiều khoản thu chưa huỷ (thu nhiều lần một phần), nhưng nút này không dựng một ô chọn giữa
-     * chúng — huỷ khoản GẦN NHẤT trước, đúng thứ tự "sửa nhầm gần đây nhất" hay gặp. Muốn huỷ một
-     * khoản cũ hơn thì huỷ tuần tự từ khoản gần nhất trở lên.
-     */
-    /**
-     * Đợt CÓ THỂ có nhiều khoản thu chưa huỷ (thu nhiều lần một phần); nút này huỷ khoản GẦN NHẤT
-     * trước — đơn giản hoá có chủ đích, xem docblock lớp.
+     * "Bỏ miễn" (làn fb, mục A2) qua {@see UnwaiveInstalment} — cùng quyền với "Miễn"
+     * (`InstalmentPolicy::waive`), lý do ≥ 20 ký tự, nhật ký `instalment_unwaived`.
      *
-     * **`payment_id` chốt lúc MOUNT, không tính lại lúc bấm lưu.** Trường `Hidden` đọc "khoản gần
-     * nhất chưa huỷ" một lần khi modal mở — và Action gọi đúng khoá đó khi submit, KỂ CẢ khi
-     * khoản đó đã bị một người khác huỷ trong lúc modal đang mở. Đó chính là đường để
-     * {@see PaymentAlreadyVoided} còn tới được màn hình: nếu ở đây lại đi hỏi
-     * "khoản gần nhất chưa huỷ" một lần NỮA lúc submit, một khoản vừa bị huỷ sẽ biến mất khỏi câu
-     * hỏi đó và không bao giờ chạm tới `VoidPayment`, chỉ dừng ở lời từ chối riêng của TAB (không
-     * còn gì để chọn) — hai lời từ chối khác nhau cho cùng một tình huống đua.
+     * **Nút chỉ hiện trên đợt `waived`, và đó là lọc theo TRẠNG THÁI có chủ đích** — khác "Miễn"
+     * (xem chú thích `activateContractAction()` về `->visible()` bị hỏi lại lúc chạy). Trường hợp
+     * đua duy nhất làm nút tự ẩn lúc bấm là đợt đã RỜI `waived` giữa lúc vẽ và lúc bấm; chỉ "Bỏ
+     * miễn" đưa một đợt ra khỏi `waived`, nên lúc đó đợt đã ở đúng trạng thái người bấm muốn — bỏ
+     * ngang im lặng không để lại điều gì sai. Đổi lại, các dòng `pending`/`paid` không mang thêm
+     * một nút vô nghĩa.
+     */
+    private function unwaiveInstalmentAction(): Action
+    {
+        return Action::make('unwaiveInstalment')
+            ->label(__('billing_corrections.unwaive.label'))
+            ->icon(Heroicon::OutlinedArrowUturnLeft)
+            ->color('warning')
+            ->modalHeading(__('billing_corrections.unwaive.heading'))
+            ->modalDescription(fn (Instalment $record): string => __('billing_corrections.unwaive.description', [
+                'name' => $record->name,
+                'amount' => Money::format($record->amount),
+                'previous_reason' => $record->waived_reason ?? '—',
+            ]))
+            ->visible(fn (Instalment $record): bool => $record->status === InstalmentStatus::Waived)
+            ->authorize(fn (Instalment $record): bool => Gate::allows('waive', $record))
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('billing.tab.fields.reason'))
+                    ->helperText(__('billing.tab.fields.reason_help'))
+                    ->required(),
+            ])
+            ->successNotificationTitle(__('billing_corrections.unwaive.success'))
+            ->action(fn (Action $action, Instalment $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(UnwaiveInstalment::class)->handle(Auth::user(), $record, $data['reason'] ?? ''),
+            ));
+    }
+
+    /** Câu mô tả của modal "Miễn": tên đợt, giá trị, đã thu, phần sẽ thôi đòi (làn fb, mục A2). */
+    public static function waiveDescription(Instalment $instalment): string
+    {
+        $collected = (int) $instalment->payments()->whereNull('voided_at')->sum('amount');
+
+        return __('billing_corrections.waive.description', [
+            'name' => $instalment->name,
+            'amount' => Money::format($instalment->amount),
+            'collected' => Money::format($collected),
+            'written_off' => Money::format(max(0, $instalment->amount - $collected)),
+        ]);
+    }
+
+    /**
+     * Huỷ MỘT khoản thu của đợt, do người dùng CHỌN (làn fb, mục A3) — cùng cách trang "Công nợ".
+     * Bản trước là một trường `Hidden` "khoản gần nhất theo NGÀY TIỀN VỀ", modal không hiện khoản
+     * nào: ghi lùi ngày một khoản nhầm rồi bấm huỷ thì khoản ĐÚNG bị huỷ mà không ai biết.
+     *
+     * - **Ô chọn** liệt kê mọi khoản CHƯA huỷ của đợt, mỗi khoản kèm ngày tiền về, số tiền, cách
+     *   nhận, mã giao dịch và LÚC GHI ({@see self::voidOptionLabel()}), mới ghi trước.
+     * - **Mặc định là khoản GHI gần nhất** (`id` lớn nhất) — {@see self::latestRecordedActivePayment()};
+     *   đúng ý "sửa nhầm vừa ghi", không phụ thuộc ngày tiền về người dùng đã gõ.
+     * - **Khoản đang được chọn luôn nằm trong danh sách, kể cả khi vừa bị huỷ** trong lúc modal mở
+     *   ({@see self::voidPaymentOptions()}). Luật "trong danh sách" của `Select` tính lại lúc bấm lưu;
+     *   nếu khoản vừa bị huỷ rơi khỏi danh sách thì lần bấm đó dừng ở một lỗi "không hợp lệ" chung
+     *   chung thay vì tới {@see VoidPayment} và nhận đúng câu {@see PaymentAlreadyVoided}.
+     * - Một id của khoản thuộc đợt KHÁC (form chỉnh tay) không nằm trong danh sách, nên bị `Select`
+     *   từ chối (đo: "refuses a payment id of another instalment…" trong
+     *   `BillingTabCorrectionsTest`). Closure bên dưới chốt thêm "khoản phải thuộc đúng đợt này" —
+     *   phòng thủ chiều sâu, nói thẳng: gỡ nó đi test đó vẫn xanh, vì luật "trong danh sách" của
+     *   `Select` đã chặn trước (cùng giới hạn đã ghi ở `Receivables::voidPaymentAction()`).
      */
     private function voidPaymentAction(): Action
     {
@@ -903,7 +960,8 @@ class BillingRelationManager extends RelationManager
             ->label(__('billing.tab.actions.void_payment'))
             ->icon(Heroicon::OutlinedNoSymbol)
             ->color('danger')
-            ->modalHeading(__('billing.tab.actions.void_payment_heading'))
+            ->modalHeading(__('billing_corrections.void.heading'))
+            ->modalDescription(__('billing_corrections.void.description'))
             // **`->visible()` KHÔNG được phụ thuộc "có khoản CHƯA HUỶ nào không", và đây là một
             // phép đo, không phải một sở thích.** Khác mọi nút khác của tab (xem chú thích
             // `activateContractAction()`: "`->visible()` không phải cổng thật, chỉ ảnh hưởng lúc
@@ -924,21 +982,28 @@ class BillingRelationManager extends RelationManager
             // mang quan hệ `instalment` cho cùng câu trả lời, không phụ thuộc một khoản cụ thể.
             ->authorize(fn (Instalment $record): bool => Gate::allows('void', (new Payment)->setRelation('instalment', $record)))
             ->schema([
-                Hidden::make('payment_id')
-                    ->default(fn (Instalment $record): ?int => static::latestActivePayment($record)?->id),
+                Select::make('payment_id')
+                    ->label(__('billing_corrections.void.field'))
+                    ->options(fn (Instalment $record, Get $get): array => static::voidPaymentOptions($record, $get('payment_id')))
+                    ->default(fn (Instalment $record): ?int => static::latestRecordedActivePayment($record)?->id)
+                    ->required(),
                 Textarea::make('reason')
                     ->label(__('billing.tab.fields.reason'))
                     ->helperText(__('billing.tab.fields.reason_help'))
                     ->required(),
             ])
             ->successNotificationTitle(__('billing.tab.actions.void_payment_success'))
-            ->action(fn (Action $action, array $data) => $this->runAction(
+            ->action(fn (Action $action, Instalment $record, array $data) => $this->runAction(
                 $action,
-                function () use ($data): Payment {
-                    $payment = Payment::query()->find($data['payment_id'] ?? null);
+                function () use ($data, $record): Payment {
+                    // Khoản phải thuộc ĐÚNG đợt đang mở modal (phòng thủ chiều sâu sau luật "trong
+                    // danh sách" của ô chọn — xem docblock).
+                    $payment = Payment::query()
+                        ->where('instalment_id', $record->getKey())
+                        ->find($data['payment_id'] ?? null);
 
                     if ($payment === null) {
-                        throw ValidationException::withMessages(['reason' => [__('billing.tab.no_payment_to_void')]]);
+                        throw ValidationException::withMessages(['payment_id' => [__('billing.tab.no_payment_to_void')]]);
                     }
 
                     return app(VoidPayment::class)->handle(Auth::user(), $payment, $data['reason'] ?? '');
@@ -946,9 +1011,46 @@ class BillingRelationManager extends RelationManager
             ));
     }
 
-    private static function latestActivePayment(Instalment $instalment): ?Payment
+    /** Khoản chưa huỷ GHI gần nhất của đợt — theo `id`, không theo `paid_on` (làn fb, mục A3). */
+    private static function latestRecordedActivePayment(Instalment $instalment): ?Payment
     {
-        return $instalment->payments()->whereNull('voided_at')->latest('paid_on')->latest('id')->first();
+        return $instalment->payments()->whereNull('voided_at')->latest('id')->first();
+    }
+
+    /**
+     * Danh sách chọn của "Huỷ một khoản thu": các khoản CHƯA huỷ của đợt, mới ghi trước, cộng khoản
+     * đang được chọn dù nó vừa bị huỷ (xem docblock {@see self::voidPaymentAction()}).
+     *
+     * @return array<int, string>
+     */
+    public static function voidPaymentOptions(Instalment $instalment, mixed $selectedId): array
+    {
+        return $instalment->payments()
+            ->where(fn (Builder $query) => $query
+                ->whereNull('voided_at')
+                ->when(filled($selectedId), fn (Builder $selected) => $selected->orWhere('id', (int) $selectedId)))
+            ->orderByDesc('id')
+            ->get()
+            ->mapWithKeys(fn (Payment $payment): array => [(int) $payment->id => static::voidOptionLabel($payment)])
+            ->all();
+    }
+
+    /** Một dòng của ô chọn: ngày tiền về, số tiền, cách nhận, mã giao dịch nếu có, lúc ghi. */
+    public static function voidOptionLabel(Payment $payment): string
+    {
+        $params = [
+            'date' => $payment->paid_on->format('d/m/Y'),
+            'amount' => Money::format($payment->amount),
+            'method' => $payment->method->label(),
+            'reference' => (string) $payment->reference,
+            'recorded_at' => $payment->created_at?->timezone(config('app.timezone'))->format('d/m/Y H:i') ?? '—',
+        ];
+
+        if ($payment->voided_at !== null) {
+            return __('billing_corrections.void.option_voided', $params);
+        }
+
+        return __(filled($payment->reference) ? 'billing_corrections.void.option_reference' : 'billing_corrections.void.option', $params);
     }
 
     // =============================================================================================
