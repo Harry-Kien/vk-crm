@@ -171,7 +171,9 @@ Tóm tắt những điều không được bỏ qua:
 - **Hai người dùng:** người quản trị (tài khoản SSH có `sudo`, không phải `www-data`) giữ mã nguồn —
   `git clone`/`git pull`, `composer install`, deploy key; `www-data` (người chạy PHP-FPM) chạy mọi
   `php artisan …` (`sudo -u www-data php artisan …`) và là chủ của `storage/`, `bootstrap/cache/` và
-  `.env` (quyền `600`; sửa bằng `sudo -u www-data nano .env`). Trên shared hosting (không có `sudo`,
+  `.env` (quyền `600`; sửa bằng `sudo -u www-data nano .env`). Bản sao của `.env` mà `php artisan
+  optimize` ghi ra `bootstrap/cache/config.php` mặc định ai trên máy cũng đọc được: sau MỖI
+  `optimize` chạy `sudo -u www-data chmod 600 bootstrap/cache/config.php`. Trên shared hosting (không có `sudo`,
   PHP chạy bằng chính tài khoản SSH) một tài khoản làm cả hai việc: bỏ `sudo` và `sudo -u www-data`
   khỏi mọi lệnh, bỏ các dòng `chown`, vẫn `chmod 600 .env` — `docs/CAI-DAT.md`, đoạn "Shared hosting"
   ở đầu phần production.
@@ -185,7 +187,7 @@ Tóm tắt những điều không được bỏ qua:
   header cho tệp tĩnh, chặn `storage/`) → `php artisan migrate --force` →
   `php artisan db:seed --force` (chỉ dữ liệu tham chiếu) → **`php artisan vkcrm:create-admin`**
   (quản trị viên đầu tiên, hỏi tương tác, mật khẩu nhập ẩn; 2FA bắt buộc ở lần đăng nhập đầu) →
-  **`php artisan vkcrm:preflight`** → `php artisan optimize`.
+  **`php artisan vkcrm:preflight`** → `php artisan optimize` → `chmod 600 bootstrap/cache/config.php`.
 - **`php artisan vkcrm:preflight` phải xanh TRƯỚC khi mở cổng và sau MỖI lần nâng cấp**, và chạy
   TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp). Nó kiểm
   `TRUSTED_PROXIES`, `HEARTBEAT_URL`, cookie phiên chỉ qua https, `APP_DEBUG`, extension PHP,
@@ -225,7 +227,7 @@ Tóm tắt những điều không được bỏ qua:
   `migrate`: cache cấu hình của bản cũ làm migration đọc cấu hình mới ra null) →
   `php artisan migrate --force` → `php artisan db:seed --force` →
   `php artisan billing:check-invariants` → `php artisan vkcrm:preflight` → `php artisan optimize` →
-  `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu. Chuỗi đủ người chạy từng
+  `chmod 600 bootstrap/cache/config.php` → `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu. Chuỗi đủ người chạy từng
   dòng, để chép nguyên khối: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9

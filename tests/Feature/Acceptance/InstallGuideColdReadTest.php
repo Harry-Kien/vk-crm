@@ -418,6 +418,64 @@ it('§14.8 promises the demo data the seeder really builds', function () {
         ->toContain('27 vụ việc, 12 khách hàng, 9 nhân')
         ->toContain('16 tài khoản cổng khách')
         ->not->toContain('21 vụ việc');
+
+    // SPEC (nguồn sự thật, CLAUDE.md) nói cùng con số với README, qua một đính chính có ngày; không
+    // còn số thứ tự cũ ở đâu trong §12 (rà soát cuối làn v1, vòng sửa 1, I3).
+    $section12 = str_replace("\n", ' ', igcSection(igcFile('docs/SPEC.md'), '## 12. Dữ liệu mẫu', '## 13. Milestone'));
+    expect($section12)->toContain('**Đính chính 2026-10-09')
+        ->toContain('**vụ thứ 27**')
+        ->toContain('**27 vụ**')
+        ->not->toMatch('/vụ (việc )?thứ\s+(\*\*)?23/u');
+});
+
+/**
+ * Rà soát cuối làn v1, vòng sửa 1 (I2; tìm ra khi đọc mã của Laravel). Tài liệu hứa `.env` chỉ
+ * `www-data` đọc được vì nó chứa `APP_KEY` và mọi mật khẩu, mà `php artisan optimize` (Bước 7, chuỗi
+ * nâng cấp) chép đúng những giá trị đó ra `bootstrap/cache/config.php` bằng `Filesystem::put()` — một
+ * tệp mới mang quyền theo `umask` (thường `644`), ai trên máy cũng đọc được: đúng mối nguy mà đoạn
+ * "Shared hosting" nêu tên. Mọi dòng `php artisan optimize` trong các khối lệnh của CAI-DAT phải có
+ * ngay sau nó `sudo -u www-data chmod 600 bootstrap/cache/config.php`; ba chỗ hứa giữ kín (đầu phần
+ * production, Bước 2, Bước 7) nói về tệp cache; README nói cùng điều.
+ */
+it('§14.8 keeps the cached copy of .env as private as .env itself', function () {
+    // Tiền đề: Laravel ghi cache cấu hình bằng put() — không đặt quyền riêng, quyền theo umask.
+    $command = igcFile('vendor/laravel/framework/src/Illuminate/Foundation/Console/ConfigCacheCommand.php');
+    expect($command)->toContain('$this->files->put(')
+        ->not->toContain('chmod');
+
+    $guide = igcFile('docs/CAI-DAT.md');
+    $chmod = 'sudo -u www-data chmod 600 bootstrap/cache/config.php';
+
+    preg_match_all('/```bash\n(.*?)```/s', $guide, $blocks);
+    $optimizeLines = 0;
+
+    foreach ($blocks[1] as $block) {
+        $lines = array_values(array_filter(array_map('trim', explode("\n", $block)), fn (string $line): bool => $line !== ''));
+
+        foreach ($lines as $i => $line) {
+            if (preg_match('/php artisan optimize$/', $line) === 1) {
+                $optimizeLines++;
+                expect($lines[$i + 1] ?? null)->toBe($chmod, "`{$line}` không có dòng chmod ngay sau");
+            }
+        }
+    }
+
+    expect($optimizeLines)->toBeGreaterThanOrEqual(2);
+
+    $flat = fn (string $text): string => str_replace("\n", ' ', $text);
+    expect($flat(igcSection($guide, '## Cài lên máy chủ thật (production)', '### Bước 0')))
+        ->toContain('GIỮ cả dòng `chmod 600 bootstrap/cache/config.php` sau MỖI `php artisan optimize`');
+    expect($flat(igcSection($guide, '### Bước 2', '### Bước 3')))
+        ->toContain('`bootstrap/cache/config.php` (Bước 7) được tạo với quyền `644`');
+    expect($flat(igcSection($guide, '### Bước 7', '### Bước 8')))
+        ->toContain('**Dòng `chmod 600 bootstrap/cache/config.php` sau MỖI `optimize`, ở mọi chỗ trong tài liệu này.**');
+
+    $readme = $flat(igcFile('README.md'));
+    $upgrade = substr($readme, (int) strpos($readme, '- **Nâng cấp:**'));
+    expect(substr($readme, (int) strpos($readme, '- **Hai người dùng:**'), 1500))->toContain('chmod 600 bootstrap/cache/config.php')
+        ->and(substr($readme, (int) strpos($readme, '- **Thứ tự cài:**'), 1500))->toContain('`php artisan optimize` → `chmod 600 bootstrap/cache/config.php`')
+        ->and(strpos($upgrade, '`php artisan optimize` →'))->toBeLessThan(strpos($upgrade, 'chmod 600 bootstrap/cache/config.php'))
+        ->and(strpos($upgrade, 'chmod 600 bootstrap/cache/config.php'))->toBeLessThan(strpos($upgrade, '`php artisan up`'));
 });
 
 /**

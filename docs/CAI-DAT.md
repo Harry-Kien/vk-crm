@@ -204,8 +204,10 @@ Một người làm cả hai việc trên, nên ở mọi khối lệnh của t�
 thuộc về bạn), bỏ dòng `crontab` (Bước 8 dùng mục "Cron Jobs" của bảng điều khiển); những dòng quản
 trị máy (`sudo apt …`, `sudo nginx -t`, `sudo systemctl …` ở Bước 1 và 4) là việc của nhà cung cấp —
 nhờ họ, hoặc làm qua bảng điều khiển. GIỮ `chmod 600 .env` — viết không `sudo`: `.env` chứa `APP_KEY`
-và mọi mật khẩu, người dùng khác trên cùng máy không được đọc. Gói nào chạy PHP bằng một người dùng KHÁC tài khoản SSH mà không có `sudo` thì không cài theo
-tài liệu này được: hỏi nhà cung cấp, đừng `chmod 777`.
+và mọi mật khẩu, người dùng khác trên cùng máy không được đọc — và GIỮ cả dòng `chmod 600
+bootstrap/cache/config.php` sau MỖI `php artisan optimize` (Bước 7): `optimize` chép đúng những giá trị
+đó ra tệp này, mặc định ai trên máy cũng đọc được. Gói nào chạy PHP bằng một người dùng KHÁC tài khoản
+SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi nhà cung cấp, đừng `chmod 777`.
 
 ### Bước 0 — Hỏi chủ văn phòng trước khi bắt đầu
 
@@ -381,7 +383,9 @@ composer install --no-dev --optimize-autoloader
 
 Thư mục `storage/` và `bootstrap/cache/` phải GHI ĐƯỢC bởi người dùng chạy PHP-FPM; phần còn lại
 của mã nguồn thì không cần. `.env` thuộc về `www-data` và chỉ `www-data` đọc được (nó chứa `APP_KEY`
-và mọi mật khẩu):
+và mọi mật khẩu). Bản sao của chính các giá trị đó mà `php artisan optimize` ghi ra
+`bootstrap/cache/config.php` (Bước 7) được tạo với quyền `644` — ai trên máy cũng đọc được — nên Bước 7
+và chuỗi nâng cấp có thêm dòng `chmod 600` cho nó ngay sau `optimize`:
 
 ```bash
 sudo chown -R www-data:www-data storage bootstrap/cache
@@ -537,7 +541,7 @@ php artisan webpush:vapid
   từ chối khi thiếu): `VAPID_SUBJECT=mailto:lienhe@luatvukhang.com`.
 - Lần cài đầu: đi tiếp Bước 4; `vkcrm:preflight` ở Bước 7 kiểm cả ba biến. Sinh khoá trên một máy
   chủ ĐANG CHẠY (nâng cấp lên bản có M12): chạy tiếp `php artisan vkcrm:preflight` rồi
-  `php artisan optimize`.
+  `php artisan optimize` và dòng `chmod 600 bootstrap/cache/config.php` của Bước 7.
 - **`VAPID_PRIVATE_KEY` là bí mật cùng hạng với `APP_KEY`**: cất cả cặp (`VAPID_PUBLIC_KEY` và
   `VAPID_PRIVATE_KEY`) cùng chỗ với `APP_KEY` — `docs/SAO-LUU-KHOI-PHUC.md`, Bước 6. Không commit,
   không gửi qua thư. Khoá không nằm trong bản sao lưu (`.env` không được sao lưu).
@@ -796,7 +800,7 @@ danh từng email), có allowlist thì VÀNG cho tới khi chạy chuỗi "Hết
 bên dưới.
 
 1. **Bắt buộc: `ADMIN_IP_ALLOWLIST` đã đặt IP văn phòng** (bảng biến ở Bước 3; đã chạy Bước 7
-   thì sửa `.env` xong chạy lại `php artisan optimize`). Kiểm từ một mạng NGOÀI văn phòng (4G
+   thì sửa `.env` xong chạy lại `php artisan optimize` và dòng `chmod` sau nó). Kiểm từ một mạng NGOÀI văn phòng (4G
    của điện thoại): `https://<tên miền>/admin/login` phải là `404`. Chưa thấy `404` thì chưa
    chạy lệnh dưới.
 2. **Nên: demo trên một bản cài RIÊNG** — tên miền con (ví dụ `demo.<tên miền>`) hoặc máy chủ
@@ -888,6 +892,7 @@ lệnh máy chủ" vào Nhật ký hệ thống.
 ```bash
 php artisan vkcrm:preflight
 php artisan optimize
+sudo -u www-data chmod 600 bootstrap/cache/config.php
 ```
 
 **`php artisan vkcrm:preflight` phải xanh hết (R1) — chạy TRƯỚC khi mở cổng, sau MỖI lần nâng
@@ -942,7 +947,16 @@ Hai dòng của app trên điện thoại (M12):
 `php artisan optimize` cache cấu hình, route, view và sự kiện (cộng phần cache riêng của
 Filament). **Từ lúc này, sửa `.env` không có tác dụng cho tới khi cache lại**: sau mỗi lần sửa
 `.env`, chạy `php artisan optimize:clear`, `php artisan vkcrm:preflight`, rồi `php artisan
-optimize`.
+optimize` và dòng `chmod` ngay sau nó.
+
+**Dòng `chmod 600 bootstrap/cache/config.php` sau MỖI `optimize`, ở mọi chỗ trong tài liệu này.**
+Cache cấu hình là một bản sao của `.env` đã đọc: `APP_KEY`, mật khẩu cơ sở dữ liệu, mật khẩu hộp thư,
+`BACKUP_ARCHIVE_PASSWORD`, khoá thông báo đẩy. `optimize` tạo lại tệp đó mỗi lần chạy, với quyền
+theo `umask` của người chạy — thường là `022`, tức `644`: mọi tài khoản trên máy đọc được, kể cả
+người quản trị và (trên shared hosting) khách khác của nhà cung cấp. `chmod 600` trả nó về đúng mức của
+`.env`; chạy bằng `www-data`, chủ của tệp (người quản trị không đổi được quyền tệp của người khác).
+`php artisan` chạy bằng người quản trị không đọc được tệp nữa — đúng ý: chuỗi nâng cấp xoá tệp đó
+trước dòng duy nhất người quản trị chạy (`filament:assets`).
 
 ### Bước 8 — Một dòng lịch chạy tự động (cron), và giám sát nó
 
@@ -1115,6 +1129,7 @@ sudo -u www-data php artisan db:seed --force
 sudo -u www-data php artisan billing:check-invariants
 sudo -u www-data php artisan vkcrm:preflight
 sudo -u www-data php artisan optimize
+sudo -u www-data chmod 600 bootstrap/cache/config.php
 sudo -u www-data php artisan up
 ```
 
@@ -1201,7 +1216,8 @@ Máy chủ đã chạy bản trước M12 thì làm thêm, theo thứ tự:
    `systemctl reload nginx`. Thiếu hai khối này thì app không cài được (Bước 4, việc 6). Apache:
    không phải sửa gì.
 4. **Khoá thông báo đẩy:** làm đúng mục "Khoá thông báo đẩy (VAPID)" ở Bước 3 — `config:clear`,
-   `webpush:vapid`, điền `VAPID_SUBJECT`, `vkcrm:preflight`, `optimize` — rồi cất cặp khoá cùng
+   `webpush:vapid`, điền `VAPID_SUBJECT`, `vkcrm:preflight`, `optimize`, `chmod 600
+   bootstrap/cache/config.php` — rồi cất cặp khoá cùng
    `APP_KEY`. Chưa sinh khoá thì mọi thứ khác của M12 vẫn chạy, chỉ thông báo đẩy tắt (preflight
    VÀNG).
 5. **Dòng cron giữ nguyên.** Mục lịch mới `queue.push` (rút hàng đợi thông báo đẩy mỗi phút) và

@@ -2245,7 +2245,8 @@ có hợp đồng; một vụ bàn giao có khoản thu trước và sau; khoả
 các đợt khớp giá trị hợp đồng tới từng đồng (`billing:check-invariants` sạch). Để có tám tháng,
 vụ mẫu thứ i mở `30 + 12·i` ngày trước (vụ cũ nhất khoảng chín tháng). *(Sửa 2026-10-04, việc sau
 gộp M9 + M10: bản đầu ghi `BillingSeeder` "gọi cuối `DemoDataSeeder`" và "một vụ cố ý không có hợp
-đồng" — từ khi gộp M10, `IntakeSeeder` chạy sau nó và thêm vụ thứ 23 chưa có hợp đồng.)*
+đồng" — từ khi gộp M10, `IntakeSeeder` chạy sau nó và thêm một vụ chưa có hợp đồng, nay là vụ thứ 27:
+đính chính 2026-10-09 cuối mục này.)*
 
 **Đính chính 2026-10-03 (M10 Task 8 — tiếp nhận).** Thêm dữ liệu mẫu tiếp nhận (`IntakeSeeder`, gọi
 cuối `DemoDataSeeder`, nên không bao giờ chạy production qua `DatabaseSeeder`): 12 lần có người liên
@@ -2254,14 +2255,23 @@ hệ, mỗi lần đi qua đúng các Action của mã sản phẩm, ở thời 
 trước, nguồn dò thứ hai của §6.10), **một bản Đỏ** chờ trưởng phòng (bên đối lập là khách hiện hữu)
 và một bản đã bị từ chối vì xung đột, **một bản quá hạn phản hồi** lần đầu, **một bản đã ẩn danh** vì
 quá hạn lưu, và một bản đã chuyển thành vụ việc. Bản chuyển đổi gắn người liên hệ (một khách hiện hữu
-gọi về việc mới) vào hồ sơ khách ĐÃ CÓ, nên không thêm khách hàng nào, nhưng thêm **một vụ việc thứ
-23** (sau 20 vụ của danh sách trên, vụ `restricted` của M2 và vụ đã kết thúc của M7 Task 3; con số
-cập nhật khi gộp `main` vào làn M10): một vụ vừa mở qua `OpenMatter`, có lead
+gọi về việc mới) vào hồ sơ khách ĐÃ CÓ, nên không thêm khách hàng nào, nhưng thêm **một vụ việc**
+(vụ cuối cùng của dữ liệu mẫu — nay là vụ thứ 27, đính chính 2026-10-09 cuối mục này): một vụ vừa mở
+qua `OpenMatter`, có lead
 trong đội ngũ và 2 bên, **chưa có dòng `stage_logs` nào** — luật "3–8 dòng" ở trên là của các vụ
 `MatterSeeder` dựng, không phải của vụ này. *(Gộp M10 vào `main`, 2026-10-04: `IntakeSeeder` chạy SAU
-`BillingSeeder` của M9 Task 13 ở trên, nên vụ thứ 23 còn ở giai đoạn đầu và chưa có hợp đồng — ngoài
+`BillingSeeder` của M9 Task 13 ở trên, nên vụ đó còn ở giai đoạn đầu và chưa có hợp đồng — ngoài
 vụ "cố ý không có hợp đồng" của danh sách tiền — để form "Soạn hợp đồng" của nó hiện phí đã báo lúc
 tiếp nhận làm gợi ý.)*
+
+**Đính chính 2026-10-09 (nghiệm thu bản 1.0, làn v1, rà soát cuối vòng sửa 1, I3) — số thứ tự của vụ
+chuyển từ tiếp nhận.** Hai chỗ ở trên từng gọi vụ đó bằng số thứ tự của lúc gộp M10 (20 vụ của danh
+sách, vụ `restricted` của M2, vụ đã kết thúc của M7 Task 3, rồi nó). Từ khi gộp M13,
+`TeamPerformanceSeeder` (gọi trước `IntakeSeeder` trong `DemoDataSeeder`) thêm bốn vụ, nên
+`migrate:fresh --seed` dựng **27 vụ** và vụ chuyển từ tiếp nhận là **vụ thứ 27** — vẫn là vụ có id lớn
+nhất. Con số đo bằng cách gieo đúng `DatabaseSeeder` trong
+`tests/Feature/Acceptance/InstallGuideColdReadTest.php` (test "promises the demo data the seeder really
+builds"), cùng con số `README.md` ghi; test đó cũng giữ cho mục này không còn số thứ tự cũ.
 
 ---
 
