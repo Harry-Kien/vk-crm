@@ -1,7 +1,11 @@
 <?php
 
+use App\Filament\Admin\Widgets\SystemHealthWidget;
+use App\Models\SystemHealth;
+use App\Notifications\Backup\BackupHasFailedNotification;
 use Dotenv\Dotenv;
 use Illuminate\Support\Facades\Artisan;
+use Spatie\Backup\Events\BackupHasFailed;
 
 /*
 |--------------------------------------------------------------------------
@@ -472,4 +476,18 @@ it('C: SPEC §6.9 and the two docblocks name the narrower set the reminder mail 
     // Docblock: bỏ dấu `*` đầu dòng trước khi so.
     $action = ogaFlat(str_replace("\n * ", ' ', ogaFile('app/Actions/Schedule/RemindMissingDocuments.php')));
     expect($action)->toContain('còn đầu mục mà thư được đòi khách ({@see ChecklistProgress::itemsToRemindClientOf()}');
+});
+
+/* B (ops). Cảnh báo sao lưu có kênh thứ hai; tài liệu của chủ văn phòng nói đúng điều mã làm. */
+it('B: the backup guide says alerts retry and that the admin home page shows a red backup line', function () {
+    $guide = ogaFlat(ogaFile('docs/SAO-LUU-KHOI-PHUC.md'));
+
+    expect($guide)->toContain('thử gửi tới 5 lần')
+        ->toContain('**"'.__('ops_checks.widget.heading').'"**')
+        ->toContain('cũ hơn 36 giờ')
+        ->toContain('trong 7 ngày qua');
+
+    expect(SystemHealthWidget::BACKUP_MAIL_FAILED_WINDOW_DAYS)->toBe(7)
+        ->and(SystemHealth::offsiteBackupMaxAgeHours())->toBe(36)
+        ->and((new BackupHasFailedNotification(new BackupHasFailed(new Exception('x'))))->tries)->toBe(5);
 });

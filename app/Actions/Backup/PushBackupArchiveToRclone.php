@@ -3,6 +3,7 @@
 namespace App\Actions\Backup;
 
 use App\Exceptions\RcloneCommandFailed;
+use App\Models\SystemHealth;
 use App\Support\Backup\BackupDisks;
 use App\Support\Backup\RcloneArchives;
 use App\Support\Backup\RcloneProcess;
@@ -106,6 +107,11 @@ class PushBackupArchiveToRclone
 
             return;
         }
+
+        // Làn fc (kiểm tra nghiệp vụ 2026-10-09): mốc của bản ngoài máy chủ gần nhất ĐÃ XÁC MINH — dải
+        // sức khoẻ trên trang chủ `/admin` báo đỏ khi nó quá cũ, kể cả khi thư báo lỗi không đi được.
+        // Chỉ ghi ở đây, sau `verify()`: một `copy` thoát 0 mà remote không có tệp không phải bản sao.
+        SystemHealth::current()->forceFill(['last_offsite_backup_at' => now()])->save();
 
         try {
             app(PruneRcloneRemoteBackups::class)->handle($remoteFolder);

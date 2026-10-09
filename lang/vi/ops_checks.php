@@ -29,4 +29,13 @@ return [
             .'trong BACKUP_DISKS (:disks) nằm trên chính máy chủ này (docs/SAO-LUU-KHOI-PHUC.md, Bước 1–5).',
         'off_server_ok' => 'Bản sao ngoài máy chủ: OK — có đích ngoài máy chủ.',
     ],
+
+    // SystemHealthWidget::backupAlert() — dòng đỏ trên trang chủ /admin, chỉ cho người có settings.manage.
+    'widget' => [
+        'heading' => 'Sao lưu cần xem ngay',
+        'offsite_never' => 'Chưa có bản sao lưu nào lên Google Drive kể từ khi bật đích đó.',
+        'offsite_stale' => 'Bản sao lưu gần nhất lên Google Drive lúc :at — đã quá :hours giờ.',
+        'alert_mail_failed' => ':count thư báo lỗi sao lưu không gửi được trong 7 ngày qua (xem màn hình Thư đã gửi).',
+        'hint' => 'Chạy vkcrm:backup-check trên máy chủ và đọc docs/SAO-LUU-KHOI-PHUC.md, Bước 5.',
+    ],
 ];

@@ -32,6 +32,8 @@ class SystemHealth extends Model
         'document_store_detail',
         'last_office_receipt_at',
         'last_office_receipt_error',
+        // Làn fc: lượt đẩy sao lưu lên Google Drive đã xác minh gần nhất (`PushBackupArchiveToRclone`).
+        'last_offsite_backup_at',
     ];
 
     protected function casts(): array
@@ -42,7 +44,25 @@ class SystemHealth extends Model
             'document_store_status' => DocumentStoreStatus::class,
             'document_store_checked_at' => 'datetime',
             'last_office_receipt_at' => 'datetime',
+            'last_offsite_backup_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Làn fc (kiểm tra nghiệp vụ 2026-10-09): cùng ngưỡng với lượt giám sát 08:00
+     * (`CheckRcloneRemoteFreshness`, `vkcrm.backup.rclone.max_age_hours`, mặc định 36 giờ) — dải sức
+     * khoẻ báo cùng một điều với thư, theo cùng một đồng hồ.
+     */
+    public static function offsiteBackupMaxAgeHours(): int
+    {
+        return (int) config('vkcrm.backup.rclone.max_age_hours', 36);
+    }
+
+    /** `null` (chưa từng đẩy) cũng là quá hạn: người gọi quyết khi nào câu hỏi có nghĩa. */
+    public function offsiteBackupIsStale(): bool
+    {
+        return $this->last_offsite_backup_at === null
+            || $this->last_offsite_backup_at->lt(now()->subHours(self::offsiteBackupMaxAgeHours()));
     }
 
     /**

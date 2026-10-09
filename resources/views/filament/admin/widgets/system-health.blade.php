@@ -14,7 +14,7 @@
     $band = 'border: 1px solid var(--danger-600); border-left-width: 4px; background-color: var(--danger-50); color: var(--danger-700); border-radius: 3px; padding: 12px 16px;';
 @endphp
 
-@if ($neverRan || $stale || $documentStore !== null)
+@if ($neverRan || $stale || $documentStore !== null || $backup !== null)
     <div style="display: flex; flex-direction: column; gap: 8px;">
         @if ($neverRan || $stale)
             <div data-widget="system-health" style="{{ $band }}">
@@ -49,6 +49,26 @@
                         {{ __('document_store.widget.checked_at', ['at' => $documentStore['checkedAt']->timezone(config('app.timezone'))->format('H:i d/m/Y')]) }}
                     @endif
                     {{ __('document_store.widget.hint') }}
+                </div>
+            </div>
+        @endif
+
+        {{-- Làn fc (kiểm tra nghiệp vụ 2026-10-09): sao lưu ra ngoài máy chủ quá cũ, hay thư báo lỗi sao lưu
+             không gửi được — chỉ cho người có settings.manage (docblock SystemHealthWidget::backupAlert()). --}}
+        @if ($backup !== null)
+            <div data-widget="backup-health" style="{{ $band }}">
+                <div style="font-weight: 600;">
+                    {{ __('ops_checks.widget.heading') }}
+                </div>
+
+                <div style="margin-top: 4px; font-size: 0.875rem;">
+                    @if ($backup['offsite'] !== null)
+                        <div>{{ $backup['offsite'] }}</div>
+                    @endif
+                    @if ($backup['mailFailed'] > 0)
+                        <div>{{ __('ops_checks.widget.alert_mail_failed', ['count' => $backup['mailFailed']]) }}</div>
+                    @endif
+                    <div>{{ __('ops_checks.widget.hint') }}</div>
                 </div>
             </div>
         @endif

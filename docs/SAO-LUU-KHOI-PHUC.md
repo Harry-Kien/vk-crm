@@ -95,6 +95,12 @@ email nào), vào sáng sau đêm thứ hai. Một đêm hỏng đơn lẻ đư�
 **Một email báo lỗi sao lưu không phải chuyện có thể để đó "xem sau"** — vụ việc mất một ngày sao
 lưu vào đúng ngày máy chủ hỏng là vụ việc không lấy lại được.
 
+**Không chỉ có email** (từ đợt kiểm tra nghiệp vụ 2026-10-09). Mỗi email báo lỗi sao lưu được thử gửi
+tới 5 lần (cách nhau 1, 5, 15 phút rồi 1 giờ) trước khi bị coi là hỏng. Và trang chủ `/admin` của
+quản trị viên có một dòng đỏ **"Sao lưu cần xem ngay"** khi bản gần nhất ĐÃ XÁC MINH trên Google Drive
+cũ hơn 36 giờ (hay chưa có bản nào từ khi bật Google Drive), hoặc khi có thư báo lỗi sao lưu không gửi
+được trong 7 ngày qua — nên một lỗi sao lưu vẫn hiện ra cả khi chính hộp thư cũng hỏng.
+
 ---
 
 ## Bước 1 — Cài `rclone` trên máy chủ
