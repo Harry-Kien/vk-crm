@@ -5,10 +5,10 @@ namespace App\Actions\Mcp;
 use App\Enums\McpPlatform;
 use App\Enums\McpToolOutcome;
 use App\Models\User;
+use App\Support\ActivityPeople;
 use App\Support\SensitivePropertyFilter;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 use Spatie\Activitylog\Models\Activity;
 
@@ -65,7 +65,8 @@ final class ListMcpAuditEntries
         $userMorph = (new User)->getMorphClass();
 
         return Activity::query()
-            ->with(['causer', 'subject'])
+            // Làn fb, mục A6: nạp cả nhân sự đã nghỉ việc (xoá mềm) — xem {@see ActivityPeople}.
+            ->with(['causer' => ActivityPeople::withTrashed(), 'subject' => ActivityPeople::withTrashed()])
             ->whereIn('event', self::EVENTS)
             ->when($userId !== null, fn (Builder $query) => $query->where(fn (Builder $person) => $person
                 ->where(fn (Builder $causer) => $causer->where('causer_type', $userMorph)->where('causer_id', $userId))
@@ -118,19 +119,12 @@ final class ListMcpAuditEntries
             id: (int) $activity->getKey(),
             at: CarbonImmutable::parse($activity->created_at),
             event: (string) $activity->event,
-            person: $this->personName($activity->causer) ?? $this->personName($activity->subject),
+            person: ActivityPeople::name($activity->causer) ?? ActivityPeople::name($activity->subject),
             tool: is_string($tool) ? $tool : null,
             outcome: is_string($outcome) ? McpToolOutcome::tryFrom($outcome) : null,
             platform: is_string($platform) ? McpPlatform::tryFrom($platform) : null,
             ip: is_string($ip) ? $ip : null,
             details: SensitivePropertyFilter::filter(array_diff_key($properties, array_flip(self::COLUMN_KEYS))),
         );
-    }
-
-    private function personName(?Model $model): ?string
-    {
-        $name = $model?->getAttribute('name');
-
-        return is_string($name) && $name !== '' ? $name : null;
     }
 }

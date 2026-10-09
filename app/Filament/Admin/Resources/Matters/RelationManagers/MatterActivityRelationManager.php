@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 use App\Filament\Admin\Pages\ActivityLogPage;
 use App\Models\Matter;
 use App\Support\ActivityOwningMatter;
+use App\Support\ActivityPeople;
 use App\Support\ActivityReasonLabel;
 use App\Support\SensitivePropertyFilter;
 use Filament\Actions\Action;
@@ -94,7 +95,8 @@ class MatterActivityRelationManager extends RelationManager
                 /** @var Matter $matter */
                 $matter = $this->getOwnerRecord();
 
-                $query = Activity::query()->with(['causer']);
+                // Làn fb, mục A6: người gây ra dòng nạp kể cả khi đã xoá mềm ({@see ActivityPeople}).
+                $query = Activity::query()->with(['causer' => ActivityPeople::withTrashed()]);
 
                 // Người xem: dòng TIỀN (M9) chỉ hiện khi có `billing.view` (gộp M7 vào `main`).
                 ActivityOwningMatter::scopeOwnedBy($query, $matter, Auth::user());
@@ -112,9 +114,9 @@ class MatterActivityRelationManager extends RelationManager
                     ->formatStateUsing(fn (?string $state): string => $state !== null && Lang::has('activity.events.'.$state)
                         ? __('activity.events.'.$state)
                         : ($state ?? '—')),
-                TextColumn::make('causer.name')
+                TextColumn::make('causer_name')
                     ->label(__('activity.page.columns.causer'))
-                    ->default(__('activity.page.system_causer')),
+                    ->state(fn (Activity $record): string => ActivityPeople::name($record->causer) ?? __('activity.page.system_causer')),
             ])
             ->recordActions([
                 Action::make('viewProperties')

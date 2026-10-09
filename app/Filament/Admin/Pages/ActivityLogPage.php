@@ -14,6 +14,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\ActivityOwningMatter;
+use App\Support\ActivityPeople;
 use App\Support\ActivityReasonLabel;
 use App\Support\Mcp\ToolCallContext;
 use App\Support\SensitivePropertyFilter;
@@ -104,7 +105,8 @@ class ActivityLogPage extends Page implements HasTable
     {
         return $table
             ->query(function (): Builder {
-                $query = Activity::query()->with(['causer', 'subject']);
+                // Làn fb, mục A6: người gây ra dòng nạp kể cả khi đã xoá mềm ({@see ActivityPeople}).
+                $query = Activity::query()->with(['causer' => ActivityPeople::withTrashed(), 'subject']);
 
                 ActivityOwningMatter::scopeVisibleTo($query, Auth::user());
 
@@ -121,9 +123,9 @@ class ActivityLogPage extends Page implements HasTable
                 TextColumn::make('event')
                     ->label(__('activity.page.columns.event'))
                     ->formatStateUsing(fn (?string $state): string => $state ? __('activity.events.'.$state) : '—'),
-                TextColumn::make('causer.name')
+                TextColumn::make('causer_name')
                     ->label(__('activity.page.columns.causer'))
-                    ->default(__('activity.page.system_causer')),
+                    ->state(fn (Activity $record): string => ActivityPeople::name($record->causer) ?? __('activity.page.system_causer')),
                 TextColumn::make('subject_type')
                     ->label(__('activity.page.columns.subject'))
                     ->formatStateUsing(fn (?string $state): ?string => $state ? class_basename($state) : null)
