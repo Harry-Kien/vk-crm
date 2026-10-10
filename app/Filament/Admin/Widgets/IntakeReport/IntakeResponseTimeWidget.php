@@ -2,7 +2,9 @@
 
 namespace App\Filament\Admin\Widgets\IntakeReport;
 
+use App\Enums\ChartKind;
 use App\Enums\IntakeSource;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\IntakeReport\Concerns\ReadsIntakeReport;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use Filament\Widgets\ChartWidget;
@@ -40,6 +42,7 @@ use Illuminate\Support\Carbon;
 class IntakeResponseTimeWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use ReadsIntakeReport;
 
@@ -64,9 +67,13 @@ class IntakeResponseTimeWidget extends ChartWidget
         ]);
     }
 
-    protected function getType(): string
+    /**
+     * Không có "tròn": các giá trị ở đây không phải các phần của một tổng (chuỗi theo thời gian, tỷ lệ phần
+     * trăm, trung vị), nên một hình tròn chia lát sẽ nói sai.
+     */
+    protected function chartKinds(): array
     {
-        return 'bar';
+        return [ChartKind::Bar, ChartKind::Line];
     }
 
     public function numberTableRows(): array

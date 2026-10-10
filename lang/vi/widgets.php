@@ -184,4 +184,8 @@ return [
             'empty_heading' => 'Không có hồ sơ đã kết thúc nào còn công nợ.',
         ],
     ],
+    // 2026-10-10: ô chọn dạng biểu đồ (trait HasSwitchableChartKind) — nhãn cho trình đọc màn hình.
+    'chart_kind' => [
+        'label' => 'Dạng biểu đồ',
+    ],
 ];

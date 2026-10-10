@@ -256,4 +256,10 @@ return [
         'imported' => 'Đã nhập',
         'rejected' => 'Bị từ chối',
     ],
+    // 2026-10-10: App\Enums\ChartKind — dạng biểu đồ người xem chọn trên bảng điều khiển.
+    'chart_kind' => [
+        'bar' => 'Cột',
+        'line' => 'Đường',
+        'pie' => 'Tròn',
+    ],
 ];

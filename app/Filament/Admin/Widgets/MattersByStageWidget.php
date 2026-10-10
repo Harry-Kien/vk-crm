@@ -2,7 +2,9 @@
 
 namespace App\Filament\Admin\Widgets;
 
+use App\Enums\ChartKind;
 use App\Enums\Permission;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Models\Matter;
 use App\Models\User;
 use Filament\Widgets\ChartWidget;
@@ -16,6 +18,11 @@ use Illuminate\Support\Facades\Auth;
  */
 class MattersByStageWidget extends ChartWidget
 {
+    use HasSwitchableChartKind;
+
+    // View dùng chung của mọi biểu đồ đổi được dạng: ô chọn dạng và `wire:key` theo kiểu trên khung.
+    protected string $view = 'filament.admin.widgets.revenue.chart-with-table';
+
     // Thứ tự SPEC §7.1: mục 6, tức SAU "Tài liệu chờ duyệt" (mục 3, -2), "Hồ sơ thiếu giấy tờ
     // quá 14 ngày" (mục 4, -1) và "Khách chưa xem cập nhật" (mục 5, 0). Giá trị này từng là -1
     // và trùng với widget mục 4, nên hai widget đứng theo thứ tự Filament tình cờ nạp lớp — xem
@@ -111,9 +118,10 @@ class MattersByStageWidget extends ChartWidget
         ];
     }
 
-    protected function getType(): string
+    /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
+    protected function chartKinds(): array
     {
-        return 'bar';
+        return [ChartKind::Bar, ChartKind::Line, ChartKind::Pie];
     }
 
     /** Cột ngang (SPEC §7.1 mục 6): trục Chart.js đảo chiều bằng indexAxis: 'y'. */

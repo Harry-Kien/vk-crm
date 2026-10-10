@@ -2,7 +2,9 @@
 
 namespace App\Filament\Admin\Widgets\IntakeReport;
 
+use App\Enums\ChartKind;
 use App\Enums\IntakeSource;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\IntakeReport\Concerns\ReadsIntakeReport;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use Filament\Widgets\ChartWidget;
@@ -25,6 +27,7 @@ use Illuminate\Contracts\Support\Htmlable;
 class IntakesBySourceWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use ReadsIntakeReport;
 
@@ -45,9 +48,10 @@ class IntakesBySourceWidget extends ChartWidget
         return __('intake_report.by_source.description', ['range' => $this->reportFilters()->rangeLabel()]);
     }
 
-    protected function getType(): string
+    /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
+    protected function chartKinds(): array
     {
-        return 'bar';
+        return [ChartKind::Bar, ChartKind::Line, ChartKind::Pie];
     }
 
     public function numberTableRows(): array

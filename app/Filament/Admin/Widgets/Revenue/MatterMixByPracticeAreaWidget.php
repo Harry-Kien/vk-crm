@@ -2,8 +2,10 @@
 
 namespace App\Filament\Admin\Widgets\Revenue;
 
+use App\Enums\ChartKind;
 use App\Enums\ContractStatus;
 use App\Enums\Permission;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Models\Contract;
 use App\Models\MatterType;
@@ -51,6 +53,7 @@ use Illuminate\Support\Facades\Gate;
 class MatterMixByPracticeAreaWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
     use InteractsWithPageFilters;
 
     protected static bool $isDiscovered = false;
@@ -79,9 +82,10 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         ]);
     }
 
-    protected function getType(): string
+    /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
+    protected function chartKinds(): array
     {
-        return 'bar';
+        return [ChartKind::Bar, ChartKind::Line, ChartKind::Pie];
     }
 
     public function numberTableRows(): array

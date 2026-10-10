@@ -2,7 +2,9 @@
 
 namespace App\Filament\Admin\Widgets\Revenue;
 
+use App\Enums\ChartKind;
 use App\Enums\Permission;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Models\Matter;
 use App\Models\User;
@@ -40,6 +42,7 @@ use Illuminate\Support\Facades\Gate;
 class LoadPerLawyerWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
     use InteractsWithPageFilters;
 
     protected static bool $isDiscovered = false;
@@ -66,9 +69,10 @@ class LoadPerLawyerWidget extends ChartWidget
         return __('widgets.revenue_dashboard.load_per_lawyer.description');
     }
 
-    protected function getType(): string
+    /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
+    protected function chartKinds(): array
     {
-        return 'bar';
+        return [ChartKind::Bar, ChartKind::Line, ChartKind::Pie];
     }
 
     public function numberTableRows(): array

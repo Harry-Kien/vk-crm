@@ -3,7 +3,9 @@
 namespace App\Filament\Admin\Widgets\Performance;
 
 use App\Actions\Performance\BuildPerformanceTrend;
+use App\Enums\ChartKind;
 use App\Filament\Admin\Pages\TeamMember;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Performance\Concerns\AuthorizesPerformanceSubject;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Support\Performance\PerformancePeriod;
@@ -32,6 +34,7 @@ abstract class PerformanceTrendWidget extends ChartWidget
 {
     use AuthorizesPerformanceSubject;
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
 
     /** Màu duy nhất của mọi biểu đồ một chuỗi (quy cách biểu đồ M9). */
     public const SERIES_COLOUR = '#4a73bd';
@@ -89,9 +92,13 @@ abstract class PerformanceTrendWidget extends ChartWidget
         return $rows;
     }
 
-    protected function getType(): string
+    /**
+     * Không có "tròn": các giá trị ở đây không phải các phần của một tổng (chuỗi theo thời gian, tỷ lệ phần
+     * trăm, trung vị), nên một hình tròn chia lát sẽ nói sai.
+     */
+    protected function chartKinds(): array
     {
-        return 'line';
+        return [ChartKind::Line, ChartKind::Bar];
     }
 
     protected function getData(): array

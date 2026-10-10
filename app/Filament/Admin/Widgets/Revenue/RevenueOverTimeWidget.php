@@ -2,6 +2,8 @@
 
 namespace App\Filament\Admin\Widgets\Revenue;
 
+use App\Enums\ChartKind;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\User;
@@ -32,6 +34,7 @@ use Illuminate\Support\Facades\Auth;
 class RevenueOverTimeWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use RequiresBillingView;
 
@@ -65,9 +68,13 @@ class RevenueOverTimeWidget extends ChartWidget
         ];
     }
 
-    protected function getType(): string
+    /**
+     * Không có "tròn": các giá trị ở đây không phải các phần của một tổng (chuỗi theo thời gian, tỷ lệ phần
+     * trăm, trung vị), nên một hình tròn chia lát sẽ nói sai.
+     */
+    protected function chartKinds(): array
     {
-        return 'bar';
+        return [ChartKind::Bar, ChartKind::Line];
     }
 
     public function numberTableRows(): array

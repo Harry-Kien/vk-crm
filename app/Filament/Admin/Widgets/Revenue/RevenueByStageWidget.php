@@ -2,7 +2,9 @@
 
 namespace App\Filament\Admin\Widgets\Revenue;
 
+use App\Enums\ChartKind;
 use App\Enums\InstalmentTrigger;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\Matter;
@@ -70,6 +72,7 @@ use Illuminate\Support\Facades\DB;
 class RevenueByStageWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use RequiresBillingView;
 
@@ -92,9 +95,10 @@ class RevenueByStageWidget extends ChartWidget
         ]);
     }
 
-    protected function getType(): string
+    /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
+    protected function chartKinds(): array
     {
-        return 'bar';
+        return [ChartKind::Bar, ChartKind::Line, ChartKind::Pie];
     }
 
     public function numberTableRows(): array

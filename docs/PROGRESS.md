@@ -9107,3 +9107,64 @@ Rà soát cuối cả làn (2026-10-08, trên `737c272`) không thấy lỗi ngh
   Task 5 m1, m4, m5; Task 7 m3–m8, r1, r2, r4; Task 6 m1, m2, m4–m10. Task 8 đã đóng: Task 4 m3
   (CAI-DAT), Task 5 m2 (chạy `check` bằng người dùng PHP-FPM) và Task 6 m3 (`enable`/`migrate` chỉ xét
   phần sẵn sàng của `check`) trong `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md` và `docs/CAI-DAT.md`.
+
+## Sau bản 1.0 — việc theo yêu cầu của chủ văn phòng (từ 2026-10-10)
+
+Chủ văn phòng xem thử bản 1.0 trên dữ liệu mẫu và nêu thêm yêu cầu. Mục này ghi từng việc đã xong; các việc
+còn chờ nằm ở cuối mục.
+
+### Ô "Tình trạng hệ thống" ném lỗi 500 khi hệ thống khoẻ (2026-10-10, commit 90685d4)
+
+Lỗi thật trong mã, lộ ra khi lần đầu chạy `schedule:work` trên dữ liệu mẫu — không lượt rà soát hay kiểm tra
+nghiệp vụ nào bắt được vì trên máy dev lịch chưa từng chạy. View của `SystemHealthWidget` rỗng hẳn lúc mọi
+thứ bình thường, mà Livewire đòi một phần tử gốc; và gốc cũ nằm trong `@if`, nơi Livewire chèn
+`<!--[if BLOCK]>` phía trước nên không nhận ra nó là gốc. Sửa: gốc `data-widget="system-health-root"` đứng
+ngoài mọi `@if`, ẩn (`display: none`) lúc im lặng. Test mới trong
+`tests/Feature/Schedule/SystemHealthTest.php` dựng widget QUA Livewire ở cả hai trạng thái (test cũ chỉ đọc
+hai cờ của `getViewData()`). Phép thử ngược: view cũ → 3/3 test mới đỏ. Cả bộ 8802 passed.
+
+**Bài học giữ lại:** một test widget chỉ đọc `getViewData()` không nói gì về việc widget có dựng được hay
+không; và một nhánh "mọi thứ bình thường" cần scheduler chạy thật mới thấy.
+
+### Người xem chọn dạng biểu đồ: cột, đường, tròn (2026-10-10)
+
+Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu đồ như cột, tròn, đường". Mỗi biểu đồ có ô chọn
+"Dạng biểu đồ" ở góc tiêu đề; lựa chọn được nhớ theo TỪNG người và TỪNG biểu đồ (bảng `chart_preferences`).
+
+- `App\Enums\ChartKind` (bar / line / pie, `label()` → Cột / Đường / Tròn), `App\Models\ChartPreference`,
+  `App\Actions\Preference\RememberChartKind` (một `upsert` trên khoá duy nhất), trait
+  `App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind`.
+- 11 lớp widget (12 biểu đồ) dùng trait: mỗi lớp chỉ khai `chartKinds()`, dạng đầu là dạng gốc — dạng gốc
+  của từng biểu đồ KHÔNG đổi (vẫn đúng SPEC §7.1 và kế hoạch M9/M10/M13).
+  - Đủ ba dạng: Vụ việc theo giai đoạn, Tải theo luật sư, Cơ cấu lĩnh vực, Doanh thu theo đợt/giai đoạn,
+    Kết quả tiếp nhận, Tiếp nhận theo nguồn, Đã thu/còn phải thu/quá hạn (gốc là tròn, vẽ bằng doughnut).
+  - Chỉ cột và đường: Doanh thu theo thời gian, Tỷ lệ chuyển đổi, Thời gian phản hồi, hai biểu đồ xu hướng
+    hiệu suất. **Phán quyết:** không có "tròn" cho chuỗi theo thời gian, tỷ lệ phần trăm và trung vị — các
+    giá trị đó không phải các phần của một tổng, một hình tròn chia lát sẽ nói sai.
+- Ba chỗ dễ hỏng, mỗi chỗ có test và phép thử ngược riêng (`tests/Feature/Filament/ChartKindSwitchTest.php`,
+  47 test):
+  1. khung biểu đồ là `wire:ignore`, nên phải mang `wire:key` có kiểu biểu đồ — khoá đổi thì Livewire dựng
+     lại khung và Alpine vẽ lại (đã đọc đoạn morph của Livewire: hai khoá khác nhau không bao giờ được vá lên
+     nhau); bỏ khoá → 24 test đỏ;
+  2. `chartKind` là thuộc tính công khai: giá trị ngoài danh sách của widget rơi về dạng gốc ở ba lớp độc
+     lập (mount, updated, chỗ đọc) và không được ghi vào CSDL;
+  3. phép chuyển dữ liệu/tuỳ chọn (cột ngang → đường: bỏ đảo trục, cấu hình trục giá trị đi theo; cột → tròn:
+     mỗi lát một màu, bỏ trục, bật chú giải; tròn → cột/đường: tắt chú giải, trục từ 0) nằm ở một chỗ.
+- View dùng chung `resources/views/filament/admin/widgets/revenue/chart-with-table.blade.php` thêm ô chọn,
+  khoá khung và đọc tuỳ chọn qua `chartOptionsForKind()`; widget "Vụ việc theo giai đoạn" chuyển sang dùng
+  view này.
+- Kiểm chứng trên dữ liệu mẫu, đúng đường của trình duyệt (GET trang → `__lazyLoad` → gửi `chartKind`):
+  chọn tròn, đường → máy chủ trả đúng kiểu và khoá khung mới, lựa chọn được lưu; gửi `radar` → giữ cột,
+  không lưu. Mọi thành phần tải trễ trên 31 trang, dưới 5 vai trò: không lỗi.
+- **Chưa kiểm:** thao tác bằng mắt trên trình duyệt thật (biểu đồ vẽ lại ngay khi chọn) — chờ chủ văn phòng
+  bấm thử trên bản xem thử.
+
+### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
+
+- Bốn làn sửa 24 lỗi quan trọng của đợt kiểm tra nghiệp vụ 2026-10-09 (`audit-fix-fa/fm/fb/fc`), dừng giữa
+  chừng vì hết hạn mức tuần.
+- Giao – nhận – xử lý hồ sơ NỘI BỘ (giao việc, bước "Đã nhận"/"Trả lại"); vai trò nhân viên kinh doanh quản
+  lý lead; nhắc lịch thanh toán cho khách sau MỘT công tắc, mặc định tắt (đảo quyết định 2026-10-04).
+- Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn
+  đề xuất lại SAU khi hệ thống hoàn chỉnh.
+- Chưa có trả lời: bảng so sánh hiệu suất chỉ giám đốc/quản lý xem (không làm bảng xếp hạng công khai).
