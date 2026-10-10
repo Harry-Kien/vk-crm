@@ -9,13 +9,26 @@
 
     Im lặng khi mọi thứ bình thường: một dải luôn hiện là một dải không ai đọc. Khi có dải, mọi dải
     nằm trong MỘT phần tử gốc: component Livewire chỉ có một gốc.
+
+    Và component Livewire PHẢI có một gốc, đứng NGOÀI mọi `@if`. Hai lý do, cả hai đều đã cắn:
+    (1) view không phát ra phần tử nào làm Livewire ném RootTagMissingFromViewException, tức lỗi 500
+    trên trang chủ đúng lúc hệ thống khoẻ (cron chạy đúng, kho bình thường); (2) khi dựng một
+    component, Livewire chèn dấu `<!--[if BLOCK]><![endif]-->` ngay TRƯỚC mỗi `@if`, nên một gốc nằm
+    trong `@if` không còn đứng đầu dòng và Livewire không nhận ra nó là gốc — nó hoặc ném cùng ngoại
+    lệ trên, hoặc gắn `wire:id` nhầm vào một thẻ con. Vì vậy gốc dưới đây luôn được phát ra; lúc im
+    lặng nó RỖNG và ẨN (`display: none`: một phần tử ẩn không chiếm ô nào trên lưới trang chủ).
+    Test: `tests/Feature/Schedule/SystemHealthTest.php`, hai test "renders through Livewire…".
 --}}
 @php
     $band = 'border: 1px solid var(--danger-600); border-left-width: 4px; background-color: var(--danger-50); color: var(--danger-700); border-radius: 3px; padding: 12px 16px;';
+    $hasBand = $neverRan || $stale || $documentStore !== null;
 @endphp
 
-@if ($neverRan || $stale || $documentStore !== null)
-    <div style="display: flex; flex-direction: column; gap: 8px;">
+<div
+    data-widget="system-health-root"
+    data-state="{{ $hasBand ? 'alert' : 'idle' }}"
+    style="{{ $hasBand ? 'display: flex; flex-direction: column; gap: 8px;' : 'display: none;' }}"
+>
         @if ($neverRan || $stale)
             <div data-widget="system-health" style="{{ $band }}">
                 <div style="font-weight: 600;">
@@ -52,5 +65,4 @@
                 </div>
             </div>
         @endif
-    </div>
-@endif
+</div>
