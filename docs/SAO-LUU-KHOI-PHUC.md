@@ -570,7 +570,10 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`). Mọi lệnh `php ar
      `~/vk-crm-nang-cap.log` lúc nâng cấp, ở dòng mà mục đó chỉ cách chọn (dòng trước lần hỏng ĐẦU TIÊN,
      không nhất thiết dòng cuối) — theo mục "Nâng cấp hỏng: quay lại bản trước"
      của `docs/CAI-DAT.md` (máy chủ cũ còn chạy thì làm thẳng mục đó, không cần dựng máy mới), rồi
-     `migrate:status` lại.
+     `migrate:status` lại. Lần nâng cấp hỏng trước `up` thì quay lại không mất gì; đã `up` thì quay lại
+     MẤT dữ liệu mọi người ghi từ giờ của dòng sổ (khoản thu, tài liệu, cập nhật vụ việc), không lấy
+     lại được — mục đó có phép đếm, và có số khác 0 thì chỉ chủ văn phòng hoặc người phụ trách kỹ
+     thuật quyết có quay lại hay không (mặc định: giữ cổng đóng và sửa tiếp).
 
    Không chắc là trường hợp nào: dừng lại và hỏi người phụ trách kỹ thuật, đừng đoán.
 9. **Mở thử một hồ sơ khách hàng bất kỳ** và xác nhận đọc được `id_number` (không ném lỗi giải

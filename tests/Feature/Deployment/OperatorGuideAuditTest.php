@@ -2,9 +2,12 @@
 
 use App\Filament\Admin\Widgets\SystemHealthWidget;
 use App\Models\SystemHealth;
+use App\Models\User;
 use App\Notifications\Backup\BackupHasFailedNotification;
 use Dotenv\Dotenv;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Spatie\Backup\Events\BackupHasFailed;
 
 /*
@@ -360,6 +363,17 @@ it('A6: every artisan line of the backup guide and of the production install run
     $production = ogaSection(ogaFile('docs/CAI-DAT.md'), '## Cài lên máy chủ thật (production)', '## Thao tác tiền');
     $bare = [];
 
+    // Vòng sửa cuối 1 (I1): khối đứng NGAY sau một đoạn mở đầu bằng "**Shared hosting** —" và kết thúc
+    // bằng dấu hai chấm là dạng KHÔNG sudo, viết riêng vì dòng ghi sổ của VPS gọi `sudo sh -c`; nó phải
+    // không có `sudo`/`chown` nào, và không tính vào phép quét này.
+    $sharedBlock = '/^\*\*Shared hosting\*\* —(?:(?!\n\n).)*:\n\n```[a-z]*\n(.*?)```/ms';
+    preg_match_all($sharedBlock, $production, $shared);
+    expect($shared[1])->toHaveCount(2);
+    foreach ($shared[1] as $block) {
+        expect($block)->not->toContain('sudo')->not->toContain('chown');
+    }
+    $production = (string) preg_replace($sharedBlock, '', $production);
+
     foreach (['SAO-LUU' => $backup, 'CAI-DAT' => $production] as $name => $text) {
         foreach (ogaAllBlockLines($text) as $line) {
             if (! str_contains($line, 'php artisan')
@@ -551,4 +565,127 @@ it('B: the backup guide says alerts retry and that the admin home page shows a r
     expect(SystemHealthWidget::BACKUP_MAIL_FAILED_WINDOW_DAYS)->toBe(7)
         ->and(SystemHealth::offsiteBackupMaxAgeHours())->toBe(36)
         ->and((new BackupHasFailedNotification(new BackupHasFailed(new Exception('x'))))->tries)->toBe(5);
+});
+
+/*
+ * Vòng sửa cuối 1 (C2). Gạch "Một dòng của khối thứ hai hỏng" liệt kê "trang lỗi sau `up`", và mục quay lại
+ * nói "Không mất dữ liệu nào" rồi chỉ bảo `down` trước khi `db:wipe` + nạp bản dump của khối thứ nhất. Sau
+ * `up` đó là xoá im lặng mọi khoản thu, tài liệu, cập nhật vụ việc ghi từ lúc mở cổng — trong khi thư và
+ * thông báo về chúng đã tới khách, và tệp tải lên còn trên đĩa mà mất dòng `media`. Tài liệu phải nói thẳng
+ * là mất, cho một phép đếm chạy được, và cấm xoá khi chưa có quyết định của chủ văn phòng.
+ */
+function ogaAfterUpQuery(string $rollback): string
+{
+    expect(preg_match('/-e "(SELECT.*?)"\n/s', $rollback, $m))->toBe(1);
+
+    return $m[1];
+}
+
+it('C2: rolling back after up says data written since the log line is lost, counts it, and needs the owner', function () {
+    $rollback = ogaSection(ogaFile('docs/CAI-DAT.md'), '### Nâng cấp hỏng: quay lại bản trước', '## Thao tác tiền');
+    $flat = ogaFlat($rollback);
+
+    expect($flat)->not->toContain('Không mất dữ liệu nào: cổng đã đóng từ trước bản sao lưu đó.')
+        ->toContain('**Đã `up` rồi mới thấy hỏng**')
+        ->toContain('MẤT mọi dữ liệu ghi từ giờ của dòng sổ')
+        ->toContain('không lấy lại được')
+        ->toContain('chủ văn phòng hoặc người phụ trách kỹ thuật')
+        ->toContain('giữ cổng đóng và sửa tiếp');
+
+    // Phép đếm đứng SAU khi chọn dòng sổ (nó đọc giờ từ ~/quay-lai/diem) và TRƯỚC `db:wipe`.
+    $check = ogaBlockLines($rollback, 'causer_id IS NOT NULL');
+    expect($check[0])->toBe('T="$(cut -d\' \' -f1-2 ~/quay-lai/diem)"; echo "$T"')
+        ->and($check[1])->toStartWith('mariadb -u vk_crm -p vk_crm -e "SELECT')
+        ->and(strpos($rollback, 'causer_id IS NOT NULL'))->toBeGreaterThan(strpos($rollback, '> ~/quay-lai/diem'))
+        ->and(strpos($rollback, 'causer_id IS NOT NULL'))->toBeLessThan(strpos($rollback, 'db:wipe --force'));
+
+    // Gạch "Một dòng của khối thứ hai hỏng" và SAO-LUU bước 8 trường hợp 2 không hứa điều mục quay lại không làm.
+    $upgrade = ogaFlat(ogaSection(ogaFile('docs/CAI-DAT.md'), '## Nâng cấp lên bản mới', '### Bản cập nhật M12'));
+    expect($upgrade)->toContain('đã `up` thì quay lại MẤT dữ liệu');
+    $restore = ogaFlat(ogaSection(ogaFile('docs/SAO-LUU-KHOI-PHUC.md'), '### Quy trình cho máy chủ thật', '### Bảng số đo thật'));
+    expect($restore)->toContain('đã `up` thì quay lại MẤT dữ liệu');
+});
+
+it('C2: the after-up count runs on the real schema and counts what people wrote, not the upgrade itself', function () {
+    $rollback = ogaSection(ogaFile('docs/CAI-DAT.md'), '### Nâng cấp hỏng: quay lại bản trước', '## Thao tác tiền');
+    $query = ogaAfterUpQuery($rollback);
+
+    // Đúng sáu bảng, mỗi bảng tồn tại và có cột được đọc.
+    foreach (['activity_log', 'payments', 'documents', 'media', 'stage_logs', 'outbound_messages'] as $table) {
+        expect($query)->toContain("FROM {$table} ")
+            ->and(Schema::hasColumns($table, ['created_at', 'updated_at']))->toBeTrue();
+    }
+    expect(Schema::hasColumn('activity_log', 'causer_id'))->toBeTrue();
+
+    $t = now()->subMinutes(5)->format('Y-m-d H:i:s');
+    $run = fn (): array => array_values((array) DB::selectOne(str_replace('$T', $t, $query)));
+
+    expect(array_sum($run()))->toBe(0);
+
+    // Dòng nhật ký không người gây ra (db:seed của chính lần nâng cấp) không tính; dòng của một người thì tính.
+    activity()->log('seed');
+    expect(array_sum($run()))->toBe(0);
+
+    activity()->causedBy(User::factory()->create())->log('sửa vụ việc');
+    expect(array_sum($run()))->toBeGreaterThan(0);
+});
+
+/*
+ * Vòng sửa cuối 1 (I1). Shared hosting không có `sudo`: `$(sudo sh -c 'ls -t …')` in `sudo: command not found`
+ * ra stderr, `echo` vẫn thoát 0 và dòng sổ thiếu trường tệp zip; rồi bước chép của mục quay lại
+ * (`sudo cp "$(cut -d' ' -f4- …)"`) hỏng đúng lúc cần quay lại. Cả hai chỗ có dạng shared hosting chép được.
+ */
+it('I1: shared hosting has its own block-1 log line and rollback copy, without sudo or chown', function () {
+    $guide = ogaFile('docs/CAI-DAT.md');
+    $upgrade = ogaSection($guide, '## Nâng cấp lên bản mới', '### Bản cập nhật M12');
+    $rollback = ogaSection($guide, '### Nâng cấp hỏng: quay lại bản trước', '## Thao tác tiền');
+
+    $shared = ogaBlockLines($upgrade, '$(ls -t storage/app/backups');
+    expect($shared)->toBe([
+        'php artisan down',
+        'php artisan backup:run --only-db &&',
+        'echo "$(TZ=Asia/Ho_Chi_Minh date \'+%F %T\') $(git rev-parse HEAD) $(ls -t storage/app/backups/*/*.zip | head -1)" >> ~/vk-crm-nang-cap.log',
+    ]);
+
+    // Mọi máy: đọc dòng sổ vừa ghi, phải kết thúc bằng `.zip` — bắt được trường tệp bị thiếu.
+    expect(ogaFlat($upgrade))->toContain('`tail -n 1 ~/vk-crm-nang-cap.log`')
+        ->toContain('kết thúc bằng `.zip`');
+
+    // Mục quay lại: một khối chép tệp không sudo, không chown, và câu nói bỏ sudo ở khối quay mã.
+    preg_match_all('/^\s*```[a-z]*\n(.*?)^\s*```/ms', $rollback, $blocks);
+    $copyWithoutSudo = array_filter($blocks[1], fn (string $b): bool => str_contains($b, 'cp "$(cut -d\' \' -f4- ~/quay-lai/diem)" ~/quay-lai/truoc-nang-cap.zip')
+        && ! str_contains($b, 'sudo') && ! str_contains($b, 'chown'));
+    expect($copyWithoutSudo)->toHaveCount(1);
+
+    expect(ogaFlat($rollback))->toContain('**Shared hosting**')
+        ->toContain('bỏ tiền tố `sudo -u www-data`')
+        ->toContain('bỏ hẳn dòng `sudo chown -R www-data:www-data storage bootstrap/cache`');
+
+    // Vòng sửa cuối 2 (m-f1): shared hosting không có thư mục /var/www/vk-crm và thường không có client
+    // `mariadb` — câu đếm của bước 2 và lệnh nạp bản dump của bước 4 đi qua phpMyAdmin.
+    expect(ogaFlat($rollback))->toContain('thay `cd /var/www/vk-crm` bằng `cd` vào thư mục mã nguồn của bạn')
+        ->toContain('không có lệnh `mariadb`')
+        ->toContain('phpMyAdmin')
+        ->toContain('thay `$T` bằng giờ mà dòng `echo "$T"` in ra');
+});
+
+/*
+ * Vòng sửa cuối 1 (I2). Brief "Xong khi": PROGRESS có mục của làn, nêu đã sửa gì, ba quyết định đang chờ chủ
+ * văn phòng và lý do các việc B hoãn — không có mục đó thì ba quyết định treo không ai thấy.
+ */
+it('I2: PROGRESS has the lane section with the three owner decisions and the deferred items', function () {
+    $progress = ogaFile('docs/PROGRESS.md');
+    $section = ogaFlat(ogaSection($progress, '### Sửa sau kiểm tra nghiệp vụ toàn hệ thống (làn fc)', '## Ghi chú M14'));
+
+    expect(strpos($progress, '### Sửa sau kiểm tra nghiệp vụ toàn hệ thống (làn fc)'))
+        ->toBeGreaterThan(strpos($progress, '## Nghiệm thu bản 1.0'));
+
+    expect($section)->toContain('**Cần chủ văn phòng quyết:**')
+        ->toContain('`backup:run --only-db` lúc nâng cấp cũng được đẩy lên Google Drive và tính vào 30 bản giữ lại')
+        ->toContain('Gắn tag phiên bản')
+        ->toContain('`backup_off_server` ĐỎ chặn mở cổng')
+        ->toContain('**Hoãn, và lý do:**')
+        ->toContain('Gửi lại thư `staff.backup_alert.*`')
+        ->toContain('Git tag mỗi bản phát hành')
+        ->toContain('`LOG_DAILY_DAYS`');
 });

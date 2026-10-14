@@ -264,7 +264,8 @@ Tóm tắt những điều không được bỏ qua:
   `chmod 600 bootstrap/cache/config.php` → `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu. Chuỗi đủ người chạy từng
   dòng, để chép nguyên khối: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới"; hỏng giữa chừng thì quay về
   commit và bản sao lưu của một dòng sổ — dòng ghi trước lần hỏng ĐẦU TIÊN, không nhất thiết dòng cuối —
-  theo mục "Nâng cấp hỏng: quay lại bản trước" của cùng tài liệu.
+  theo mục "Nâng cấp hỏng: quay lại bản trước" của cùng tài liệu (đã `up` thì quay lại mất dữ liệu ghi
+  từ lúc đó — mục đó có phép đếm, và chủ văn phòng hoặc người phụ trách kỹ thuật quyết).
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
     (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) và

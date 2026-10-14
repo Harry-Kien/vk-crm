@@ -8726,6 +8726,72 @@ Lần rà soát lại vòng sửa 1 tìm một lỗi chặn gộp cùng loại v
   - Lượt đi chuỗi nâng cấp trên máy Ubuntu trống: lượt của vòng 1 đi tới cây đã gộp M11. "Bản cập nhật M14" là
     tài liệu của làn M14 và không được đi lại ở vòng này.
 
+### Sửa sau kiểm tra nghiệp vụ toàn hệ thống (làn fc)
+
+Đợt kiểm tra nghiệp vụ 2026-10-09 đi theo đúng chữ của `docs/CAI-DAT.md`, `docs/SAO-LUU-KHOI-PHUC.md` và
+`README.md` trên một máy Ubuntu 24.04 (người quản trị có `sudo`, PHP-FPM chạy bằng `www-data`). Làn fc
+(nhánh `audit-fix-fc`, từ `0b26a26`) sửa phần vận hành, sao lưu và cảnh báo. Mỗi chỗ có test:
+`tests/Feature/Deployment/OperatorGuideAuditTest.php` (tài liệu), `BackupLaunchConditionsTest`,
+`PreflightMailFailoverTest`, `tests/Feature/Backup/BackupAlertChannelsTest.php`,
+`tests/Feature/Security/ResetTwoFactorOAuthAuthorizeTest.php`.
+
+**Đã sửa:**
+
+- **Nâng cấp có đường quay lại.** Chuỗi nâng cấp tách hai khối. Khối thứ nhất: `down`, `backup:run
+  --only-db`, và chỉ khi sao lưu thoát 0 thì ghi một dòng sổ `~/vk-crm-nang-cap.log` (giờ Việt Nam, commit
+  đang chạy, tệp sao lưu vừa tạo). Khối thứ hai (`git pull` … `up`) chỉ chép khi thấy `Backup completed!`
+  và dòng sổ kết thúc bằng `.zip`. Mục mới "Nâng cấp hỏng: quay lại bản trước": chọn MỘT dòng sổ (dòng
+  trước lần khối thứ hai hỏng ĐẦU TIÊN, không phải dòng cuối khi đã chạy lại), lấy commit và tệp zip từ
+  đúng dòng đó, `git reset --hard`, `db:wipe`, nạp bản dump, `migrate:status`, preflight, `up`.
+- **Quay lại sau `up` không còn hứa "không mất dữ liệu".** Đã `up` rồi mới thấy hỏng thì quay lại MẤT mọi
+  khoản thu, tài liệu, cập nhật vụ việc ghi từ giờ của dòng sổ. Mục quay lại có phép đếm (nhật ký do người
+  dùng, khoản thu, tài liệu, tệp, cập nhật vụ việc, thư đã xếp sau giờ đó); có số khác 0 thì chỉ chủ văn
+  phòng hoặc người phụ trách kỹ thuật quyết, mặc định giữ cổng đóng và sửa tiếp.
+- **Shared hosting** có dạng riêng (không `sudo`, không `chown`) cho dòng ghi sổ và cho bước chép tệp sao
+  lưu khi quay lại; gói không có lệnh `mariadb`/`mysql` thì phép đếm và việc nạp bản dump đi qua phpMyAdmin.
+- Tài liệu vận hành khác: rclone tải theo `version.txt` và kiểm `SHA256SUMS` (`curl -f`); VPS đặt rclone ở
+  `/usr/local/bin`, cấu hình của `www-data` ở `/etc/vkcrm-rclone/rclone.conf`; mật khẩu trong ngoặc đơn;
+  chứng chỉ HTTPS lần đầu bằng certbot standalone; mọi `php artisan` của SAO-LUU và phần production chạy
+  bằng `sudo -u www-data`; bản sao lưu đầu tiên bằng tay trước lần khôi phục thử; khôi phục thật có bước
+  đưa máy về chạy; `HEARTBEAT_URL`, giới hạn upload của PHP-FPM, PHP của cron, `LOG_STACK=daily`,
+  `DB_HOST=localhost`.
+- **Cổng mở hệ thống không còn xanh giả về sao lưu.** `vkcrm:preflight` (production) có dòng
+  `backup_encryption` và `backup_off_server`, ĐỎ khi không mã hoá được hoặc không có đích ngoài máy chủ;
+  `vkcrm:backup-check` thêm hai dòng đó và thoát 1.
+- **Cảnh báo sao lưu có kênh thứ hai.** Ba thông báo sao lưu thử 5 lần (backoff 60/300/900/3600 giây). Lượt
+  đẩy lên Google Drive đã xác minh ghi `system_health.last_offsite_backup_at`. Ô "Tình trạng hệ thống" trên
+  trang chủ có dòng đỏ "Sao lưu cần xem ngay" (chỉ người có `settings.manage`) khi đã bật Google Drive mà
+  bản gần nhất cũ hơn 36 giờ hay chưa có, hoặc khi một thư báo lỗi sao lưu hỏng HẲN (job vào `failed_jobs`)
+  trong 7 ngày. Khi gộp main (gốc luôn có mặt của ô, 90685d4) dòng này được tính vào `$hasBand`, nên ô HIỆN
+  cả lúc lịch chạy khoẻ — đúng lúc dòng này cần được đọc; test dựng ô qua Livewire.
+- Dòng `MAIL_SCHEME` của preflight xét các mailer con smtp của `failover`/`roundrobin`. Sau "Đặt lại 2FA",
+  phiên cũ bấm Đồng ý trên `/oauth/authorize` nhận trang đăng nhập thay cho 403. SPEC §6.9 đính chính
+  2026-10-09 (thư nhắc liệt kê `itemsToRemindClientOf()`).
+
+**Cần chủ văn phòng quyết:**
+
+1. Bản `backup:run --only-db` lúc nâng cấp cũng được đẩy lên Google Drive và tính vào 30 bản giữ lại (mỗi
+   lần nâng cấp bớt một bản đêm cũ nhất). Giữ vậy (đơn giản, thêm một bản ngoài máy chủ) hay loại nó khỏi
+   lượt đẩy?
+2. Gắn tag phiên bản (`v1.0`, …) trên `main` cho mỗi bản phát hành — người điều phối hoặc chủ kho làm khi
+   phát hành.
+3. `backup_off_server` ĐỎ chặn mở cổng cho tới khi có Google Drive (hoặc một đĩa ngoài máy chủ) — đúng với
+   SPEC §10.8 và quyết định 2026-09-24; cần xác nhận.
+
+**Hoãn, và lý do:**
+
+- Gửi lại thư `staff.backup_alert.*` (màn hình Thư đã gửi loại trừ có chủ đích): thư báo một trạng thái đã
+  qua; dòng đỏ trên trang chủ và 5 lần thử nay mang cảnh báo. Đổi danh sách loại trừ chạm thiết kế M6.5.
+- Git tag mỗi bản phát hành: tag đặt trên `main`, làn không đụng `main` (quyết định 2 ở trên). Sổ
+  `~/vk-crm-nang-cap.log` ghi commit đang chạy mỗi lần nâng cấp, đủ để quay lại.
+- `LOG_DAILY_DAYS` không thêm vào `.env.example`: `EnvExampleTest` xếp nó vào nhóm biến framework không
+  dùng, mặc định 14 ngày đủ; `.env.example` giữ `LOG_STACK=single` cho máy dev.
+- Việc nhỏ chờ được (rà soát cuối): một ít văn xuôi SAO-LUU còn `php artisan` trần (Bước 6, Phụ lục D);
+  bản `--only-db` cũng đặt lại `last_offsite_backup_at`; dòng `backup_encryption` trùng một phần
+  `zip_aes256`; `QUEUE_FAILED_DRIVER=null`/`file` làm dòng thư hỏng im lặng; câu `ops_checks` viết cứng
+  "5 lần" và "7 ngày"; dòng sổ lấy tệp zip MỚI NHẤT chứ không chắc là tệp vừa tạo khi ghi đĩa local hỏng mà
+  `backup:run` vẫn thoát 0.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
