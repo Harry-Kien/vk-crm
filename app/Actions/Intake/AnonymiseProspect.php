@@ -50,8 +50,8 @@ use Spatie\Activitylog\Models\Activity;
  *    và danh sách bên thiếu định danh) — kể cả dòng của một lần chuyển đổi KHÔNG thành vụ, mà
  *    `ConvertIntakeToMatter` để lại với bản ghi (`$checkSubject` của `OpenMatter`, fix vòng 1 — rà soát
  *    Task 7, C1: dòng đó không mang mã `TN-…` của bản ghi, nên chỉ tìm được theo chủ thể); lý do trong
- *    các dòng `intake_conflict_overridden`; và khoá `confirmed_pairs` (chữ ký HMAC của danh tính) của
- *    các dòng ghi đè và xác nhận;
+ *    các dòng `intake_conflict_overridden` và (làn fa) lý do trong các dòng `intake_reopened`; và khoá
+ *    `confirmed_pairs` (chữ ký HMAC của danh tính) của các dòng ghi đè và xác nhận;
  *  - bằng chứng kiểm tra của bản ghi KHÁC và vụ việc đã TÌM THẤY người này qua nguồn dò thứ hai: mỗi
  *    khớp mang `matter_code` = mã `TN-…` của bản ghi này thì mất `party_name` — trong `conflict_result`
  *    của các bản ghi tiếp nhận khác và trong mọi dòng `conflict_check_run` (chủ thể là bản ghi khác, vụ
@@ -92,15 +92,19 @@ class AnonymiseProspect
     /**
      * Cột cá nhân về null bằng `forceFill`. `contact_phone_normalized` và `contact_id_number_hash` không
      * có ở đây: `IntakeRequest::fill()` chặn chúng, đường ghi duy nhất là `identify()`.
-     * `contact_name_normalized` theo `contact_name` (móc `saving` của model).
+     * `contact_name_normalized` theo `contact_name` (móc `saving` của model). Làn fa (A1): `organization_name`
+     * (tên chuẩn hoá theo nó) cũng vậy; dấu băm mã số thuế về null qua `identifyOrganization(null)`.
      */
     private const PERSONAL_COLUMNS = [
-        'contact_name', 'contact_phone', 'contact_email', 'referred_by', 'summary',
+        'contact_name', 'contact_phone', 'contact_email', 'referred_by', 'summary', 'organization_name',
         'decline_reason', 'conflict_override_reason', 'conflict_result',
     ];
 
-    /** Các sự kiện nhật ký của chính bản ghi mang dữ liệu người liên hệ — xem docblock lớp. */
-    private const OWN_TRAIL_EVENTS = ['conflict_check_run', 'intake_conflict_overridden', 'intake_conflict_acknowledged'];
+    /**
+     * Các sự kiện nhật ký của chính bản ghi mang dữ liệu người liên hệ — xem docblock lớp. Làn fa (mục
+     * nhỏ): `intake_reopened` mang lý do mở lại, chữ tự do có thể nêu tên người liên hệ.
+     */
+    private const OWN_TRAIL_EVENTS = ['conflict_check_run', 'intake_conflict_overridden', 'intake_conflict_acknowledged', 'intake_reopened'];
 
     /**
      * Các sự kiện của sổ tra khách mang `identifier_hash` (`FindClientByIdentifier`, và `CreateClient` khi
@@ -236,6 +240,7 @@ class AnonymiseProspect
 
         $locked->forceFill(array_fill_keys(self::PERSONAL_COLUMNS, null));
         $locked->identify(null, null);
+        $locked->identifyOrganization(null);
         $locked->forceFill([
             'anonymised_at' => now(),
             'anonymised_by' => $actor?->getKey(),
@@ -276,6 +281,11 @@ class AnonymiseProspect
 
                 if (($scrubbed['override_reason'] ?? null) !== null) {
                     $scrubbed['override_reason'] = __('intake.anonymise.placeholder');
+                }
+
+                // Làn fa (mục nhỏ): lý do mở lại (`ReopenIntake`) — chữ tự do, cùng luật với lý do ghi đè.
+                if ($row->event === 'intake_reopened' && ($scrubbed['reason'] ?? null) !== null) {
+                    $scrubbed['reason'] = __('intake.anonymise.placeholder');
                 }
 
                 $this->saveProperties($row, $properties, $scrubbed);
@@ -342,6 +352,7 @@ class AnonymiseProspect
                     ->where('intake_request_id', $other->getKey())
                     ->pluck('name_normalized')
                     ->push($other->contact_name_normalized)
+                    ->push($other->organization_name_normalized)
                     ->filter()
                     ->all();
 
@@ -425,6 +436,11 @@ class AnonymiseProspect
 
         if ($intake->contact_id_number_hash !== null) {
             $hashes->push($intake->contact_id_number_hash);
+        }
+
+        // Làn fa (A1): lần chuyển đổi tra khách bằng mã số thuế của tổ chức (chữ số, cùng HMAC).
+        if ($intake->organization_id_number_hash !== null) {
+            $hashes->push($intake->organization_id_number_hash);
         }
 
         return $hashes->unique()->values()->all();

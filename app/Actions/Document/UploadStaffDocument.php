@@ -308,7 +308,7 @@ class UploadStaffDocument
             $this->storeFile($document, $file);
 
             if ($settlesChecklistItem) {
-                $this->settleChecklistItem($lockedItem, $actor);
+                $this->settleChecklistItem($lockedItem, $actor, (int) $document->version);
             }
 
             // Nhật ký kiểm toán nằm BÊN TRONG transaction, cùng lý do với `PublishDocument` và
@@ -412,14 +412,17 @@ class UploadStaffDocument
      *
      * `rejection_reason` bị xoá cùng lúc: lý do từ chối hiện thẳng cho khách (SPEC §6.7), nên
      * một đầu mục đã `accepted` mà còn treo câu "ảnh bị mờ" là một dòng nói dối.
+     *
+     * Làn fa (A6/A7): `accepted_version` = version của tài liệu vừa nộp thay — đó là bản văn phòng nhận.
      */
-    private function settleChecklistItem(MatterChecklistItem $checklistItem, User $actor): void
+    private function settleChecklistItem(MatterChecklistItem $checklistItem, User $actor, int $version): void
     {
         $checklistItem->update([
             'status' => ChecklistItemStatus::Accepted,
             'rejection_reason' => null,
             'reviewed_by' => $actor->getKey(),
             'reviewed_at' => now(),
+            'accepted_version' => $version,
         ]);
     }
 }

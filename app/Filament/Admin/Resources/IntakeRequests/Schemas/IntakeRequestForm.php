@@ -9,6 +9,7 @@ use App\Filament\Admin\Resources\IntakeRequests\Tables\IntakeRequestsTable;
 use App\Models\IntakeRequest;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\ConflictOverride;
 use App\Support\Normalizer;
 use Closure;
 use Filament\Forms\Components\DateTimePicker;
@@ -31,7 +32,8 @@ use Illuminate\Support\Facades\Auth;
  * phải cùng người). Câu chuyện bổ sung sau, khi cổng mở.
  *
  * **`maxLength` = độ dài cột** (MariaDB strict; `IntakeRequestResourceTest` khẳng định từng số):
- * `contact_name` 200, `contact_phone` 20, `contact_email` 150, `referred_by` 200, tên bên đối lập
+ * `contact_name` 200, `contact_phone` 20, `contact_email` 150, `organization_name` 200 (làn fa, A1),
+ * `organization_id_number` 30 (không có cột — chỉ dấu băm, như CCCD), `referred_by` 200, tên bên đối lập
  * 200, SĐT bên đối lập 20. Số CCCD không có cột (chỉ lưu dấu băm): trần 30 bằng đúng luật của Action.
  * Phí đã báo: chuỗi tối đa 15 ký tự qua `Money::parse()` (cùng khuôn ô tiền M9).
  *
@@ -89,6 +91,18 @@ class IntakeRequestForm
                     ->required()
                     ->disabled(static::callerKeyLock($editing, 'contact_role'))
                     ->dehydrated(),
+                // Làn fa (A1): tổ chức người gọi đại diện — kiểm tra xung đột như một bên phía khách, và
+                // thành tên hồ sơ khách "tổ chức" lúc chuyển đổi. Tên = cột 200; mã số thuế chỉ lưu
+                // dấu băm (trần 30 như CCCD; trang sửa: để trống là giữ).
+                TextInput::make('organization_name')
+                    ->label(__('intake_org.fields.organization_name'))
+                    ->helperText(__('intake_org.fields.organization_name_help'))
+                    ->requiredWith('organization_id_number')
+                    ->maxLength(200),
+                TextInput::make('organization_id_number')
+                    ->label(__('intake_org.fields.organization_id_number'))
+                    ->helperText($editing ? __('intake_org.fields.organization_id_number_help_edit') : __('intake_org.fields.organization_id_number_help'))
+                    ->maxLength(30),
                 Select::make('source')
                     ->label(__('intake.fields.source'))
                     ->options(fn (): array => collect(IntakeSource::cases())
@@ -117,7 +131,9 @@ class IntakeRequestForm
                     ->helperText(__('intake.fields.received_at_help'))
                     ->seconds(false)
                     ->maxDate(fn () => now())
-                    ->visible(! $editing),
+                    // Làn fa (mục nhỏ): trang sửa cho trưởng phòng/quản trị sửa giờ nhận gõ sai — con số đo
+                    // phản hồi (R5); Action kiểm lại quyền, "không ở tương lai", "không sau lần phản hồi đầu".
+                    ->visible(! $editing || ConflictOverride::allowedForCurrentUser()),
             ]);
     }
 
@@ -149,7 +165,8 @@ class IntakeRequestForm
                             ->label(__('intake.fields.party_phone'))
                             ->helperText($editing ? __('intake.fields.party_identity_help_edit') : null),
                         TextInput::make('id_number')
-                            ->label(__('intake.fields.party_id_number'))
+                            // Làn fa (A1): bên đối lập hay là một công ty — cùng nhãn với màn hình vụ việc.
+                            ->label(__('intake_org.fields.party_id_number'))
                             ->maxLength(30),
                     ]),
             ]);

@@ -3,12 +3,15 @@
 namespace App\Actions\Document;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Enums\ChecklistItemStatus;
+use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentNotRetractable;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\DocumentDownload;
 use App\Models\Matter;
+use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -79,9 +82,27 @@ use Illuminate\Validation\ValidationException;
  *     và ≤ {@see self::REASON_MAX} (cột `text`; trần chủ động như các lý do khác của dự án). Sai thì
  *     `ValidationException` gắn đúng tên ô `retraction_reason` của form.
  *  8. Đếm lượt tải của khách, ghi bản ghi, ghi audit.
+ *  9. (Làn fa, A7) Đầu mục danh mục — {@see self::settleChecklistItem()}.
  *
  * Không gửi thư, không thông báo: khách thấy dòng rút ở lần mở cổng kế tiếp; listener thư
  * `client.document_published` (M6) không liên quan tới thao tác này.
+ *
+ * **Đầu mục danh mục (làn fa, kiểm tra nghiệp vụ 2026-10-09, A7).** Trước bản sửa, rút một tài liệu
+ * nhóm A đang là bản hiện tại của một đầu mục (ví dụ: luật sư nộp thay CCCD của NGƯỜI KHÁC — đầu mục tự
+ * thành "Đã nhận" — rồi rút) không đụng tới đầu mục: thanh tiến độ hai phía báo đủ, thư nhắc không gửi,
+ * khách không được mời nộp bản đúng, và gói bàn giao không có tệp nào cho mục đó. Nay, khi tài liệu là
+ * nhóm A, gắn một đầu mục đang `accepted` hoặc `pending_review`, và sau lần rút không còn tài liệu chưa
+ * rút nào ở version của nó hay version mới hơn (tức version hiện tại của đầu mục vừa mất hết tệp):
+ *  - nếu version hiện tại còn lại đúng là bản văn phòng đã nhận (`accepted_version`) và bản đó còn trên
+ *    cổng khách — tức tài liệu vừa rút là bản khách GỬI THÊM chưa ai nhận — đầu mục trở lại `accepted`
+ *    (cùng kết cục "Từ chối bản mới, giữ bản đã nhận", `KeepAcceptedChecklistVersion`; nhật ký
+ *    `checklist_item_kept_accepted_version`);
+ *  - không thì đầu mục về `missing` (`accepted_version = null`, `rejection_reason = null`) để thư nhắc và
+ *    cổng khách mời nộp lại; nhật ký `checklist_item_reopened` với trạng thái trước đó và id tài liệu
+ *    vừa rút. Không thư từ chối. Văn phòng muốn nhận lại một version cũ hơn còn trên cổng thì bấm "Đã
+ *    nhận" như thường (hộp duyệt hiện version lớn nhất còn tài liệu chưa rút).
+ * Đầu mục `missing`/`rejected`/`not_applicable` không đổi (đã là "còn phải nộp" hay "không cần"). Khoá đầu
+ * mục SAU `matters` và `documents`.
  *
  * **Chỗ gắn cho M9 (đã gắn lúc gộp M7 vào `main`).** Làn M9 yêu cầu Action này và
  * `DocumentPolicy::delete()` từ chối tài liệu đang được `payments.receipt_document_id` hoặc
@@ -194,8 +215,74 @@ class RetractDocument
                 'client_downloads' => $clientDownloads,
             ], $freshActor);
 
+            // 9. Làn fa (A7).
+            $this->settleChecklistItem($fresh, $freshActor, $matter);
+
             return $fresh;
         });
+    }
+
+    /** Bước 9 — xem docblock lớp, mục "Đầu mục danh mục". Chạy dưới khoá `matters` + `documents`. */
+    private function settleChecklistItem(Document $retracted, User $actor, Matter $matter): void
+    {
+        if ($retracted->group !== DocumentGroup::ClientProvided || $retracted->matter_checklist_item_id === null) {
+            return;
+        }
+
+        $item = $this->scopelessly(MatterChecklistItem::query())
+            ->lockForUpdate()
+            ->find($retracted->matter_checklist_item_id);
+
+        if ($item === null || (int) $item->matter_id !== (int) $matter->getKey()
+            || ! in_array($item->status, [ChecklistItemStatus::Accepted, ChecklistItemStatus::PendingReview], true)) {
+            return;
+        }
+
+        // Version lớn nhất còn tài liệu chưa rút — sau lần rút này.
+        $current = ReviewChecklistItem::currentVersion($item);
+
+        if ($current !== null && $current >= $retracted->version) {
+            return;
+        }
+
+        $previousStatus = $item->status;
+        $keepsAccepted = $current !== null
+            && $item->accepted_version === $current
+            && KeepAcceptedChecklistVersion::acceptedVersionStillReleased($item);
+
+        if ($keepsAccepted) {
+            $item->update([
+                'status' => ChecklistItemStatus::Accepted,
+                'rejection_reason' => null,
+                'reviewed_by' => $actor->getKey(),
+                'reviewed_at' => now(),
+            ]);
+
+            Audit::record('checklist_item_kept_accepted_version', $item, [
+                'matter_id' => $item->matter_id,
+                'client_id' => $matter->client_id,
+                'previous_status' => $previousStatus->value,
+                'accepted_version' => $item->accepted_version,
+                'retracted_document_ids' => [$retracted->getKey()],
+            ], $actor);
+
+            return;
+        }
+
+        $item->update([
+            'status' => ChecklistItemStatus::Missing,
+            'rejection_reason' => null,
+            'accepted_version' => null,
+            'reviewed_by' => $actor->getKey(),
+            'reviewed_at' => now(),
+        ]);
+
+        Audit::record('checklist_item_reopened', $item, [
+            'matter_id' => $item->matter_id,
+            'client_id' => $matter->client_id,
+            'previous_status' => $previousStatus->value,
+            'retracted_document_id' => $retracted->getKey(),
+        ], $actor);
     }
 
     private function validatedReason(string $reason): string

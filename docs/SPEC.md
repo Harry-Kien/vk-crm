@@ -1082,6 +1082,13 @@ Luồng ở `app/Actions/Document/SubmitClientDocument`:
 8. Đặt `matter_checklist_items.status = pending_review`.
 9. Thông báo trong hệ thống cho lead lawyer và trợ lý.
 
+**Đính chính 2026-10-09 (sửa sau kiểm tra nghiệp vụ toàn hệ thống, làn fa).** Bước 5: `vkcrm:preflight` (production)
+in một dòng VÀNG khi `CLAMAV_ENABLED=false` hay khi đã bật mà daemon không trả lời; hướng dẫn cài clamd ở
+`docs/CAI-DAT.md`, mục "Quét virus (ClamAV)". Rủi ro được chấp nhận và ghi rõ: tệp `.doc`/`.xls` đời cũ
+(định dạng OLE) có thể mang macro, và `FileGuard` chỉ mở gói `.docx`/`.xlsx` để chặn macro — với tệp đời
+cũ, quét virus là lớp bảo vệ duy nhất. Bước 7–8: khách gửi thêm vào một đầu mục văn phòng ĐÃ NHẬN thì cổng
+nói rõ và chỉ gửi khi khách tích xác nhận; văn phòng có "Từ chối bản mới, giữ bản đã nhận" (§6.12).
+
 ### 6.7 Duyệt tài liệu khách nộp — `ReviewChecklistItem`
 
 Nhân viên chọn `accepted` hoặc `rejected`. Nếu `rejected` thì bắt buộc nhập lý do
@@ -1463,6 +1470,19 @@ nhưng **không bao giờ tự xoá**. Việc tiêu huỷ hồ sơ pháp lý ph�
   `forceDestroy()`) trong `app/`, `routes/` và `database/seeders/`.
 - *`destroyed_by` (§4.19)* là admin đã GHI quyết định vào hệ thống, tức người chịu trách nhiệm về
   bản ghi đó. Người phê duyệt có tên trên biên bản được nêu trong lý do.
+
+**Đính chính 2026-10-09 (sửa sau kiểm tra nghiệp vụ toàn hệ thống, làn fa).** Hai điểm của nội dung gói:
+
+- *Nhóm A là ĐÚNG bản văn phòng đã nhận.* Đầu mục mang `accepted_version` (version văn phòng nhận gần
+  nhất — ghi khi bấm "Đã nhận" hay khi nhân sự nộp thay nhóm A; xoá khi từ chối, "Không cần nộp", đưa
+  về "Còn thiếu"). Gói lấy mọi tệp của version đó thay cho "version mới nhất" — khác nhau đúng khi khách
+  gửi thêm vào giấy đã nhận và văn phòng chọn "Từ chối bản mới, giữ bản đã nhận" (bản gửi thêm bị rút
+  khỏi cổng khách kèm lý do). Đầu mục không có `accepted_version` (nhận trước cột này) theo luật cũ.
+- *Không tài liệu "chỉ xem".* Tài liệu `published` mà `client_can_download = false` không vào gói, ở mọi
+  nhóm: văn phòng đã quyết khách biết có tài liệu nhưng chưa được giữ bản sao, và gói là một bản sao khách
+  giữ. Bật lại "Cho khách tải về" rồi sinh lại gói nếu muốn đưa vào. Văn bản nhóm B `signed_filed` chưa
+  từng công bố vẫn vào gói như trước — có liệt kê riêng chúng để luật sư quyết từng tài liệu hay không là
+  việc chờ chủ văn phòng quyết.
 
 ### 6.13 Tìm kiếm
 

@@ -23,6 +23,8 @@ class MatterChecklistItem extends Model
     protected $fillable = [
         'matter_id', 'name', 'description', 'is_required', 'sort_order',
         'status', 'rejection_reason', 'reviewed_by', 'reviewed_at',
+        // Làn fa (A6/A7): version nhóm A văn phòng đã nhận gần nhất — xem migration 2026_10_09_100002.
+        'accepted_version',
     ];
 
     protected $attributes = ['status' => 'missing'];
@@ -34,6 +36,7 @@ class MatterChecklistItem extends Model
             'sort_order' => 'integer',
             'status' => ChecklistItemStatus::class,
             'reviewed_at' => 'datetime',
+            'accepted_version' => 'integer',
         ];
     }
 

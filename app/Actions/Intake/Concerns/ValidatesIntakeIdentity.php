@@ -24,6 +24,8 @@ use Illuminate\Validation\ValidationException;
  * opposing_counsel` bị từ chối (M6.5 R13f). Người được giao phải đang hoạt động và có
  * `intake.create`. Phí đã báo: số nguyên đồng trong `[0, Money::MAX]`, hoặc chuỗi qua `Money::parse()`.
  * Tối đa {@see IntakeRequest::MAX_OPPOSING_PARTIES} bên đối lập (cùng trần với form và với gộp).
+ * Tổ chức người gọi đại diện (làn fa, A1): tên ≤ 200 (cột), mã số thuế ≤ 30 (chỉ dấu băm được lưu),
+ * mã số thuế không có tên tổ chức bị từ chối ở ô tên.
  *
  * Khác nhau giữa hai lần, có chủ đích:
  *  - `received_at` chỉ có ở lần ghi đầu (`$forUpdate = false`): sửa nó sau đó là sửa con số đo thời
@@ -42,6 +44,7 @@ trait ValidatesIntakeIdentity
     {
         $attributeKeys = [
             'contact_name', 'contact_phone', 'contact_email', 'contact_id_number', 'contact_role',
+            'organization_name', 'organization_id_number',
             'source', 'referred_by', 'matter_type_id', 'assigned_to',
             ...($forUpdate ? [] : ['received_at']),
         ];
@@ -61,6 +64,10 @@ trait ValidatesIntakeIdentity
             'contact_email' => ['nullable', 'string', 'email', 'max:150'],
             'contact_id_number' => ['nullable', 'string', 'max:30'],
             'contact_role' => ['nullable', Rule::enum(PartyRole::class)],
+            // Làn fa (A1): tổ chức người gọi đại diện. Tên = cột 200 (= `clients.name`); mã số thuế không có
+            // cột (chỉ dấu băm), trần 30 như CCCD. Mã số thuế mà không có tên tổ chức thì vô nghĩa.
+            'organization_name' => ['nullable', 'string', 'max:200', 'required_with:organization_id_number'],
+            'organization_id_number' => ['nullable', 'string', 'max:30'],
             'source' => ['required', Rule::enum(IntakeSource::class)],
             'referred_by' => ['nullable', 'string', 'max:200'],
             'matter_type_id' => ['nullable', 'integer', Rule::exists(MatterType::class, 'id')->whereNull('deleted_at')],
@@ -74,7 +81,7 @@ trait ValidatesIntakeIdentity
             'parties.*.role' => ['required', Rule::enum(PartyRole::class)],
             'parties.*.phone' => ['nullable', 'string', 'max:20'],
             'parties.*.id_number' => ['nullable', 'string', 'max:30'],
-        ], ['received_at.before_or_equal' => __('intake.errors.received_at_in_future')], __('intake.attributes'));
+        ], ['received_at.before_or_equal' => __('intake.errors.received_at_in_future')], [...__('intake.attributes'), ...__('intake_org.attributes')]);
 
         $validator->validate();
 
@@ -116,6 +123,8 @@ trait ValidatesIntakeIdentity
             'contact_email' => $this->nullableText($input['contact_email'] ?? null),
             'contact_id_number' => $this->nullableText($input['contact_id_number'] ?? null),
             'contact_role' => $role,
+            'organization_name' => $this->nullableText($input['organization_name'] ?? null),
+            'organization_id_number' => $this->nullableText($input['organization_id_number'] ?? null),
             'source' => $input['source'] instanceof IntakeSource ? $input['source'] : IntakeSource::from($input['source']),
             'referred_by' => $this->nullableText($input['referred_by'] ?? null),
             'matter_type_id' => filled($input['matter_type_id'] ?? null) ? (int) $input['matter_type_id'] : null,

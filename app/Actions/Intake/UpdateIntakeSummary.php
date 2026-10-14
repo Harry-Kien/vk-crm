@@ -28,13 +28,21 @@ use Illuminate\Validation\ValidationException;
  * một lần lưu đã qua bước hiện nút trước khi tab khác chuyển đổi xong cũng bị chặn)
  * bị từ chối. Rỗng hoặc chỉ khoảng trắng nghĩa là xoá câu chuyện (đặt null) — vẫn qua cổng. Dòng
  * `intake_summary_updated` chỉ mang số ký tự: nội dung câu chuyện không bao giờ vào nhật ký.
+ *
+ * **Hai người cùng ghi (làn fa, A3) — kiểm tra lạc quan.** Vì nhật ký không giữ nội dung (R7), một lần
+ * lưu đè lên câu chuyện người lưu CHƯA từng thấy làm mất hẳn phần của người kia ("người lưu sau thắng":
+ * luật sư A lưu biên bản tư vấn, trợ lý B mở trang từ trước gõ thêm một dòng rồi lưu). `$expectedVersion`
+ * là {@see IntakeRequest::summaryVersion()} của câu chuyện mà ô đã nạp; khác phiên bản của dòng vừa khoá
+ * → `ValidationException` khoá `summary` (câu `intake_concurrency.errors.summary_stale`), không ghi gì;
+ * chữ đang gõ ở lại trên màn hình để người đó chép sang bản mới. Kiểm sau cổng "đã xong việc", trước
+ * cổng câu chuyện. `null` = không so (lối vào không có form); màn hình luôn truyền.
  */
 class UpdateIntakeSummary
 {
     /** Cột `text` của MariaDB chứa tối đa 65.535 BYTE; chừa chỗ cho ký tự nhiều byte. */
     private const MAX_BYTES = 60000;
 
-    public function handle(User $actor, IntakeRequest $intake, ?string $summary): IntakeRequest
+    public function handle(User $actor, IntakeRequest $intake, ?string $summary, ?string $expectedVersion = null): IntakeRequest
     {
         Gate::forUser($actor)->authorize('update', $intake);
 
@@ -45,11 +53,16 @@ class UpdateIntakeSummary
             throw ValidationException::withMessages(['summary' => [__('intake.errors.summary_too_long')]]);
         }
 
-        return DB::transaction(function () use ($actor, $intake, $summary): IntakeRequest {
+        return DB::transaction(function () use ($actor, $intake, $summary, $expectedVersion): IntakeRequest {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
 
             if ($locked->isClosedToChanges()) {
                 throw ValidationException::withMessages(['summary' => [__('intake.errors.record_closed')]]);
+            }
+
+            // Làn fa (A3): kiểm tra lạc quan — xem docblock lớp. Sau cổng "đã xong việc", trước cổng câu chuyện.
+            if ($expectedVersion !== null && ! hash_equals($locked->summaryVersion(), $expectedVersion)) {
+                throw ValidationException::withMessages(['summary' => [__('intake_concurrency.errors.summary_stale')]]);
             }
 
             $blockers = IntakeSummaryGate::blockers($locked);

@@ -104,6 +104,14 @@ return [
         // app/Actions/Document/*.php
         'checklist_item_added' => 'Thêm đầu mục danh mục',
         'checklist_item_marked_not_applicable' => 'Đánh dấu không áp dụng đầu mục danh mục',
+        // --- Làn fa (kiểm tra nghiệp vụ 2026-10-09, A4–A7): sửa sai trên tài liệu và danh mục ---
+        'checklist_item_reopened' => 'Đưa đầu mục danh mục về "Còn thiếu"',
+        'checklist_item_updated' => 'Sửa đầu mục danh mục',
+        'checklist_item_kept_accepted_version' => 'Giữ bản đã nhận của đầu mục, rút bản gửi thêm',
+        'document_details_updated' => 'Sửa thông tin tài liệu',
+        'document_deleted' => 'Xoá tài liệu tải nhầm',
+        'intake_reopened' => 'Mở lại một lần liên hệ đã đóng',
+        // --- hết khối làn fa ---
         'checklist_item_reviewed' => 'Duyệt đầu mục danh mục',
         'document_signed_filed' => 'Đánh dấu đã ký, đã nộp',
         'document_regrouped' => 'Đổi nhóm tài liệu',

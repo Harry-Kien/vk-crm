@@ -2,6 +2,7 @@
 
 use App\Actions\Settings\WriteSettings;
 use App\Models\User;
+use App\Support\Files\VirusScanner;
 use App\Support\Mcp\McpSwitches;
 use App\Support\OfficeProfile;
 use Database\Seeders\DemoDataSeeder;
@@ -131,6 +132,19 @@ it('§preflight R1 production đủ điều kiện: mọi dòng XANH/VÀNG hợp
     config(preflightGreenProductionConfig());
     fakeStoragePrivateNotExposed();
     fakeMariadbDumpFound();
+    // Làn fa (kiểm tra nghiệp vụ 2026-10-09): "đủ điều kiện" gồm cả quét virus đang bật và daemon trả
+    // lời — không thì dòng ClamAV VÀNG (`PreflightClamAvTest`) và câu tổng kết không còn là "mọi điều
+    // kiện đều đạt".
+    config(['vkcrm.clamav.enabled' => true]);
+    app()->bind(VirusScanner::class, fn () => new class implements VirusScanner
+    {
+        public function scan(string $path): void {}
+
+        public function isActive(): bool
+        {
+            return true;
+        }
+    });
 
     $exitCode = Artisan::call('vkcrm:preflight');
     $output = Artisan::output();

@@ -99,6 +99,9 @@ function hpDocument(
         'group' => $group,
         'status' => $status,
         'title' => $title,
+        // Làn fa (kiểm tra nghiệp vụ 2026-10-09): tài liệu đã công bố mặc định cho khách tải — một bản
+        // "chỉ xem" (cờ tải tắt) không vào gói bàn giao (`CollectHandoverEntries::excludeViewOnly()`).
+        'client_can_download' => $status === DocumentStatus::Published,
         ...$attributes,
     ]);
 

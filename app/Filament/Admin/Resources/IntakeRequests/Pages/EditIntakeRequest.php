@@ -10,6 +10,7 @@ use App\Actions\Intake\DeclineIntake;
 use App\Actions\Intake\IntakeSummaryGate;
 use App\Actions\Intake\MergeIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
+use App\Actions\Intake\ReopenIntake;
 use App\Actions\Intake\RerunIntakeConflictCheck;
 use App\Actions\Intake\ResolveIntakeRedConflict;
 use App\Actions\Intake\UpdateIntakeIdentity;
@@ -42,6 +43,7 @@ use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Text;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Model;
@@ -66,6 +68,12 @@ use Spatie\Activitylog\Models\Activity;
  * ghi nhận thông báo / chưa kiểm tra / cần xác nhận / Đỏ, chờ quản lý / đã từ chối) và phải làm gì.
  * Nút "Lưu câu chuyện" vẫn bấm được khi ô khoá: một request sửa tay gửi thẳng `data.summary` đi tới
  * đúng Action, và Action từ chối (lỗi gắn vào ô câu chuyện) — cổng không phụ thuộc vào việc ô bị khoá.
+ *
+ * **Hai người cùng làm trên một bản ghi (làn fa, A2/A3):** trang giữ phiên bản của phần danh tính
+ * ({@see self::$identityVersion}) và của câu chuyện ({@see self::$summaryVersion}) mà nó đã nạp, gửi kèm
+ * mỗi lần lưu; Action từ chối một lần lưu trên phiên bản đã cũ (danh tính: thông báo; câu chuyện: lỗi ở
+ * ô, chữ đang gõ giữ nguyên) thay vì gỡ bên đối lập, ghi đè phí/người phụ trách, hay đè câu chuyện
+ * người khác vừa lưu.
  *
  * **Khối "Kiểm tra xung đột lợi ích":** ngày giờ lần kiểm tra gần nhất (không bao giờ chữ "đã kiểm
  * tra"), bảng kết quả đã lưu (`conflict_result`, cùng ranh giới `ConflictMatch`), và ba nút:
@@ -121,11 +129,32 @@ class EditIntakeRequest extends EditRecord
     #[Locked]
     public ?array $duplicates = null;
 
+    /**
+     * Làn fa (A2): phiên bản phần danh tính mà form đang hiện đã nạp ({@see IntakeRequest::identityEditVersion()}),
+     * gửi kèm mỗi lần Lưu để `UpdateIntakeIdentity` từ chối một form đã cũ thay vì gỡ bên đối lập hay
+     * ghi đè phí/người phụ trách người khác vừa lưu. Đặt lúc mở trang và sau mỗi lần Lưu thành công của
+     * CHÍNH trang này (form nạp lại từ bản ghi). `#[Locked]`: chỉ máy chủ ghi — một payload sửa tay
+     * không được tự "làm mới" phiên bản để đè lên bản mới mà nó chưa thấy.
+     */
+    #[Locked]
+    public ?string $identityVersion = null;
+
+    /**
+     * Làn fa (A3): phiên bản câu chuyện mà ô `summary` đã nạp ({@see IntakeRequest::summaryVersion()}), gửi
+     * kèm "Lưu câu chuyện". Đặt lúc mở trang và sau mỗi lần lưu câu chuyện thành công của chính trang này
+     * — KHÔNG sau một lần Lưu danh tính: lần đó giữ nguyên chữ đang gõ dở (`afterSave()`), không nạp lại
+     * câu chuyện từ bản ghi.
+     */
+    #[Locked]
+    public ?string $summaryVersion = null;
+
     public function mount(int|string $record): void
     {
         parent::mount($record);
 
         $this->duplicates = session()->pull(CreateIntakeRequest::duplicatesSessionKey($this->intake()->getKey()));
+        $this->identityVersion = $this->intake()->identityEditVersion();
+        $this->summaryVersion = $this->intake()->summaryVersion();
     }
 
     public function hasDatabaseTransactions(): bool
@@ -163,6 +192,12 @@ class EditIntakeRequest extends EditRecord
                     ->columnSpanFull()
                     ->schema([
                         View::make('filament.intake.check-panel')->viewData(fn (): array => $this->checkPanelViewData()),
+                        // Làn fa (mục nhỏ): chuyển đổi một bản Đỏ đã ghi đè cần trưởng phòng/quản trị.
+                        Text::make(__('intake_org.override_needs_manager'))
+                            ->color('warning')
+                            ->visible(fn (): bool => ! $this->intake()->isClosedToChanges()
+                                && Gate::allows('convert', $this->intake())
+                                && ConvertIntakeToMatter::overriddenRedNeedsManager($this->intake(), $this->actor())),
                         Actions::make([$this->rerunAction(), $this->acknowledgeAction(), $this->resolveRedAction()])->key('checkActions'),
                     ]),
                 Section::make(__('intake.sections.duplicates'))
@@ -204,11 +239,16 @@ class EditIntakeRequest extends EditRecord
             'contact_email' => $intake->contact_email,
             'contact_id_number' => null,
             'contact_role' => $intake->contact_role?->value,
+            // Làn fa (A1): mã số thuế của tổ chức cũng chỉ có dấu băm — ô để trống nghĩa là giữ.
+            'organization_name' => $intake->organization_name,
+            'organization_id_number' => null,
             'source' => $intake->source?->value,
             'referred_by' => $intake->referred_by,
             'matter_type_id' => $intake->matter_type_id,
             'quoted_amount' => $intake->quoted_amount === null ? null : Money::formatForInput($intake->quoted_amount),
             'assigned_to' => $intake->assigned_to,
+            // Làn fa (mục nhỏ): ô chỉ hiện với trưởng phòng/quản trị (`IntakeRequestForm`).
+            'received_at' => $intake->received_at?->format('Y-m-d H:i:s'),
             'summary' => $intake->summary,
             'parties' => $intake->parties()->orderBy('id')->get()
                 ->map(fn (IntakeParty $party): array => [
@@ -227,17 +267,23 @@ class EditIntakeRequest extends EditRecord
     {
         $actor = $this->actor();
 
-        $this->translatingIntakeFailures(fn () => app(UpdateIntakeIdentity::class)->handle($actor, $record, $data, $data['parties'] ?? []));
+        $this->translatingIntakeFailures(fn () => app(UpdateIntakeIdentity::class)->handle(
+            $actor, $record, $data, $data['parties'] ?? [], $this->identityVersion,
+        ));
 
         return $record->refresh();
     }
 
-    /** Nạp lại form từ bản ghi (id thật cho dòng bên đối lập mới), giữ câu chuyện đang gõ dở. */
+    /**
+     * Nạp lại form từ bản ghi (id thật cho dòng bên đối lập mới), giữ câu chuyện đang gõ dở. Phiên bản
+     * danh tính (làn fa, A2) theo form vừa nạp lại; phiên bản câu chuyện thì không — ô đó không nạp lại.
+     */
     protected function afterSave(): void
     {
         $summary = $this->data['summary'] ?? null;
 
         $this->fillForm();
+        $this->identityVersion = $this->intake()->identityEditVersion();
 
         $this->data['summary'] = $summary;
     }
@@ -250,7 +296,7 @@ class EditIntakeRequest extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [$this->convertAction(), $this->changeStatusAction(), $this->declineAction(), $this->mergeAction(), $this->eraseDataAction()];
+        return [$this->convertAction(), $this->changeStatusAction(), $this->declineAction(), $this->reopenAction(), $this->mergeAction(), $this->eraseDataAction()];
     }
 
     private function intake(): IntakeRequest
@@ -292,10 +338,12 @@ class EditIntakeRequest extends EditRecord
                 $summary = $this->data['summary'] ?? null;
 
                 $this->translatingIntakeFailures(fn () => app(UpdateIntakeSummary::class)->handle(
-                    $this->actor(), $this->intake(), is_string($summary) ? $summary : null,
+                    $this->actor(), $this->intake(), is_string($summary) ? $summary : null, $this->summaryVersion,
                 ));
 
                 $this->afterIntakeAction(__('intake.actions.summary_saved'));
+                // Làn fa (A3): trang này vừa ghi câu chuyện — phiên bản mới là của nó.
+                $this->summaryVersion = $this->intake()->summaryVersion();
             });
     }
 
@@ -411,7 +459,14 @@ class EditIntakeRequest extends EditRecord
                         ->mapWithKeys(fn (IntakeStatus $status): array => [$status->value => $status->label()])
                         ->all())
                     ->native(false)
+                    ->live()
                     ->required(),
+                // Làn fa (mục nhỏ): "Khách không theo tiếp" là trạng thái cuối — xác nhận trước khi đặt.
+                Checkbox::make('confirm_lost')
+                    ->label(__('intake_reopen.confirm_lost'))
+                    ->helperText(__('intake_reopen.confirm_lost_help'))
+                    ->visible(fn (Get $get): bool => $get('status') === IntakeStatus::Lost->value)
+                    ->accepted(),
             ])
             ->action(function (Action $action, array $data): void {
                 $this->runAction($action, fn () => app(ChangeIntakeStatus::class)->handle(
@@ -419,6 +474,42 @@ class EditIntakeRequest extends EditRecord
                 ));
 
                 $this->afterIntakeAction(__('intake.actions.status_changed'));
+            });
+    }
+
+    /**
+     * Làn fa (mục nhỏ) — "Mở lại" một bản "Khách không theo tiếp"/"Văn phòng từ chối" (`ReopenIntake`):
+     * chỉ quản lý/admin (`resolveConflict`), trên bản chưa xong việc ở một trong hai trạng thái đó
+     * ({@see ReopenIntake::REOPENABLE}, cùng danh sách Action hỏi).
+     */
+    private function reopenAction(): Action
+    {
+        return Action::make('reopen')
+            ->label(__('intake_reopen.action'))
+            ->color('gray')
+            ->visible(fn (): bool => ! $this->intake()->isClosedToChanges()
+                && in_array($this->intake()->status, ReopenIntake::REOPENABLE, true)
+                && Gate::allows('resolveConflict', $this->intake()))
+            ->modalHeading(__('intake_reopen.heading'))
+            ->modalDescription(__('intake_reopen.description'))
+            ->schema([
+                Textarea::make('reopen_reason')
+                    ->label(__('intake_reopen.reason'))
+                    ->helperText(__('intake_reopen.reason_help'))
+                    ->required()
+                    ->maxLength(ReopenIntake::REASON_MAX)
+                    ->rows(3),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $this->runAction($action, fn () => app(ReopenIntake::class)->handle(
+                    $this->actor(), $this->intake(), (string) ($data['reopen_reason'] ?? ''),
+                ));
+
+                $this->afterIntakeAction(__('intake_reopen.success'));
+                // Bản ghi vừa rời trạng thái đóng: phần danh tính mở lại, form nạp lại theo bản ghi.
+                $this->fillForm();
+                $this->identityVersion = $this->intake()->identityEditVersion();
+                $this->summaryVersion = $this->intake()->summaryVersion();
             });
     }
 
@@ -688,7 +779,8 @@ class EditIntakeRequest extends EditRecord
     }
 
     /**
-     * Có khớp nào mà "bên phía mình" KHÔNG phải người liên hệ hay một bên đối lập của chính bản ghi
+     * Có khớp nào mà "bên phía mình" KHÔNG phải người liên hệ, tổ chức người đó đại diện (làn fa, A1) hay
+     * một bên đối lập của chính bản ghi
      * này — tức bên đối lập mà cùng người đã khai ở một lần gọi trước, được `RunConflictCheck` mang
      * sang (fix vòng 1 của Task 2, C1). Màn hình nói điều đó bằng chữ, không thêm cột vào bảng.
      *
@@ -696,7 +788,7 @@ class EditIntakeRequest extends EditRecord
      */
     private function hasCarriedMatches(IntakeRequest $intake, array $result): bool
     {
-        $own = collect([$intake->contact_name, ...$intake->parties()->pluck('name')->all()])
+        $own = collect([$intake->contact_name, $intake->organization_name, ...$intake->parties()->pluck('name')->all()])
             ->map(fn (?string $name): ?string => Normalizer::name($name))
             ->filter()
             ->all();

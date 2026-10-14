@@ -633,8 +633,8 @@ class RunConflictCheck
     }
 
     /**
-     * NGUỒN DÒ THỨ HAI (M10 Task 2, R1) — xem docblock lớp, mục "M10 Task 2": người liên hệ và bên
-     * đối lập của các lần tiếp nhận còn mở. Mọi khớp là VÀNG (bên tìm thấy chưa là khách hàng, nên
+     * NGUỒN DÒ THỨ HAI (M10 Task 2, R1) — xem docblock lớp, mục "M10 Task 2": người liên hệ, tổ chức
+     * người liên hệ đại diện (làn fa, A1) và bên đối lập của các lần tiếp nhận còn mở. Mọi khớp là VÀNG (bên tìm thấy chưa là khách hàng, nên
      * không bao giờ đạt định nghĩa Đỏ), và mang đúng những trường của `ConflictMatch`: mã `TN-…`,
      * ngày liên hệ, vai và tên — không câu chuyện.
      *
@@ -692,6 +692,20 @@ class RunConflictCheck
             ->map(fn (IntakeRequest $request): ?ConflictMatch => $this->contactMatch($request, $sameCallerIntakes, $tierOf, $build))
             ->filter();
 
+        // Làn fa (A1): tổ chức mà người gọi của lần tiếp nhận khác đại diện — theo dấu băm mã số thuế hoặc
+        // tên chuẩn hoá (tổ chức không có SĐT riêng trên bản ghi). Cùng luật "người gọi lại" như người
+        // liên hệ: lần gọi trước của CHÍNH người này về CÙNG công ty không phải người khác văn phòng đã nghe.
+        $fromOrganizations = ($idNumberHash === null && $nameNormalized === null)
+            ? collect()
+            : $live(IntakeRequest::query())
+                ->whereNotNull('organization_name')
+                ->where(fn (Builder $q) => $q
+                    ->when($idNumberHash, fn ($w) => $w->orWhere('organization_id_number_hash', $idNumberHash))
+                    ->when($nameNormalized, fn ($w) => $w->orWhere('organization_name_normalized', $nameNormalized)))
+                ->get()
+                ->map(fn (IntakeRequest $request): ?ConflictMatch => $this->organizationMatch($request, $sameCallerIntakes, $tierOf, $build))
+                ->filter();
+
         $fromParties = IntakeParty::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->with(['intakeRequest' => fn ($q) => $q->withoutGlobalScope(ClientPortalScope::class)])
@@ -702,7 +716,31 @@ class RunConflictCheck
                 $found->intakeRequest, $found->role, $found->name, $tierOf($found->id_number_hash, $found->phone_normalized), $found,
             ));
 
-        return $fromContacts->concat($fromParties)->values();
+        return $fromContacts->concat($fromOrganizations)->concat($fromParties)->values();
+    }
+
+    /**
+     * Làn fa (A1): tổ chức mà người gọi của lần tiếp nhận `$request` đại diện khớp bên đang xét — cùng
+     * luật bỏ qua với {@see self::contactMatch()} (một lần gọi trước lành của chính người này gọi lại),
+     * vai = vai người liên hệ của lần đó, tên = tên tổ chức, tiêu chí theo dấu băm mã số thuế.
+     *
+     * @param  Collection<int, IntakeRequest>  $sameCallerIntakes
+     * @param  callable(?string, ?string): ConflictMatchTier  $tierOf
+     * @param  callable(IntakeRequest, PartyRole, ?string, ConflictMatchTier, IntakeRequest|IntakeParty): ConflictMatch  $build
+     */
+    private function organizationMatch(IntakeRequest $request, Collection $sameCallerIntakes, callable $tierOf, callable $build): ?ConflictMatch
+    {
+        if ($sameCallerIntakes->contains(fn (IntakeRequest $earlier): bool => $earlier->is($request)) && ! $request->locksRepeatCalls()) {
+            return null;
+        }
+
+        return $build(
+            $request,
+            $request->contact_role ?? PartyRole::Related,
+            $request->organization_name,
+            $tierOf($request->organization_id_number_hash, null),
+            $request,
+        );
     }
 
     /**

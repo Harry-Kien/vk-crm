@@ -100,6 +100,9 @@ function hrDocument(Matter $matter, DocumentGroup $group, DocumentStatus $status
         'group' => $group,
         'status' => $status,
         'title' => $title,
+        // Làn fa (kiểm tra nghiệp vụ 2026-10-09): đã công bố thì mặc định cho khách tải — bản "chỉ xem"
+        // không vào gói (`CollectHandoverEntries::excludeViewOnly()`).
+        'client_can_download' => $status === DocumentStatus::Published,
         ...$attributes,
     ]);
 

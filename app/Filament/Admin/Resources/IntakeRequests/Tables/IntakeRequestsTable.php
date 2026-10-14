@@ -36,9 +36,32 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class IntakeRequestsTable
 {
+    /** Ít nhất chừng này chữ số mới tìm theo SĐT — ít hơn thì khớp gần như mọi số. */
+    private const PHONE_SEARCH_MIN_DIGITS = 4;
+
+    /**
+     * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ): ô tìm kiếm của danh sách tìm theo SĐT, trên cột
+     * CHUẨN HOÁ (`contact_phone_normalized`, dạng `84…`), nên `0912 345 678`, `+84 912345678` hay chỉ
+     * `345678` đều ra cùng bản ghi. Lấy chữ số của chuỗi tìm, bỏ các số 0 đứng đầu (số 0 gọi nội hạt
+     * không có trong dạng chuẩn hoá), rồi tìm chuỗi con. Dưới {@see self::PHONE_SEARCH_MIN_DIGITS} chữ số
+     * thì vế này không khớp gì (tên và mã vẫn được tìm như trước). Vẫn trong phạm vi
+     * `IntakeRequestResource::getEloquentQuery()` (người xem chỉ tìm thấy bản ghi mình được thấy).
+     */
+    public static function searchPhone(Builder $query, string $search): Builder
+    {
+        $digits = ltrim((string) preg_replace('/\D+/', '', $search), '0');
+
+        return strlen($digits) < self::PHONE_SEARCH_MIN_DIGITS
+            ? $query->whereRaw('1 = 0')
+            : $query->where($query->qualifyColumn('contact_phone_normalized'), 'like', '%'.$digits.'%');
+    }
+
     public static function configure(Table $table): Table
     {
         return $table
+            // Làn fa (mục nhỏ): cả chuỗi tìm là MỘT cụm — SĐT viết "0912 345 678" không bị tách thành
+            // ba mẩu ngắn không khớp gì (`searchPhone()`); tên vẫn tìm được theo cụm liền nhau.
+            ->splitSearchTerms(false)
             ->columns([
                 TextColumn::make('code')
                     ->label(__('intake.fields.code'))
@@ -49,7 +72,9 @@ class IntakeRequestsTable
                     ->placeholder(__('intake.anonymise.placeholder'))
                     ->searchable(),
                 TextColumn::make('contact_phone')
-                    ->label(__('intake.fields.contact_phone')),
+                    ->label(__('intake.fields.contact_phone'))
+                    // Làn fa (mục nhỏ): tìm được theo SĐT gõ kiểu nào cũng được — xem `searchPhone()`.
+                    ->searchable(query: fn (Builder $query, string $search): Builder => static::searchPhone($query, $search)),
                 TextColumn::make('source')
                     ->label(__('intake.fields.source'))
                     ->formatStateUsing(fn (IntakeSource $state): string => $state->label()),

@@ -36,6 +36,7 @@ use Filament\Schemas\Components\EmbeddedSchema;
 use Filament\Schemas\Components\Form;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Text;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -163,6 +164,11 @@ class ConvertIntakeRequest extends Page
             ->statePath('data')
             ->columns(2)
             ->components([
+                // Làn fa (mục nhỏ): ghi đè Đỏ mà người bấm không ghi đè được — nói trước, không chặn.
+                Text::make(__('intake_org.override_needs_manager'))
+                    ->color('warning')
+                    ->columnSpanFull()
+                    ->visible(fn (): bool => ConvertIntakeToMatter::overriddenRedNeedsManager($this->intake(), $this->actor())),
                 Section::make(__('intake.convert.sections.carried'))
                     ->description(__('intake.convert.sections.carried_description'))
                     ->columnSpanFull()
@@ -176,12 +182,21 @@ class ConvertIntakeRequest extends Page
                             ->label(__('intake.convert.client_type'))
                             ->options(collect(ClientType::cases())->mapWithKeys(fn (ClientType $type): array => [$type->value => $type->label()])->all())
                             ->native(false)
+                            // Làn fa (A1): loại khách đổi chính bên sẽ thành khách (người gọi hay tổ chức),
+                            // tức đổi bên mà lần kiểm tra xét và hồ sơ được tra ra.
+                            ->live()
+                            ->afterStateUpdated(function (): void {
+                                $this->forgetConflictResult();
+                                $this->forgetClientMatch();
+                            })
                             ->required(),
                         TextInput::make('client_id_number')
                             ->label(__('intake.convert.id_number'))
-                            ->helperText($intake->contact_id_number_hash !== null
-                                ? __('intake.convert.id_number_recorded_help')
-                                : __('intake.convert.id_number_help'))
+                            ->helperText(fn (Get $get): string => match (true) {
+                                $get('client_type') === ClientType::Organization->value => __('intake_org.convert.id_number_organization_help'),
+                                $intake->contact_id_number_hash !== null => __('intake.convert.id_number_recorded_help'),
+                                default => __('intake.convert.id_number_help'),
+                            })
                             // Cùng trần với ô CCCD của khối "Tạo khách mới" (`MatterForm`) và luật Action.
                             ->maxLength(20)
                             // Số căn cước đổi khách hàng được tra ra, tức đổi chính bên mà kiểm tra xét.
@@ -452,17 +467,21 @@ class ConvertIntakeRequest extends Page
         $type = $intake->matter_type_id === null
             ? null
             : MatterType::query()->where('is_active', true)->find($intake->matter_type_id);
+        // Làn fa (A1): người gọi đại diện cho một tổ chức → khách mặc định là tổ chức đó, và tiêu đề gợi ý
+        // mang tên tổ chức.
+        $organization = $intake->speaksForOrganization();
+        $name = $organization ? $intake->organization_name : $intake->contact_name;
 
         return [
-            'client_type' => ClientType::Individual->value,
+            'client_type' => $organization ? ClientType::Organization->value : ClientType::Individual->value,
             'client_id_number' => null,
             'client_role' => $intake->contact_role?->value,
             'matter_type_id' => $type?->getKey(),
             // Ai có `intake.convert` hôm nay cũng có `matter.transitionStage` (ô chọn dưới chỉ nhận người đó).
             'lead_lawyer_id' => $this->actor()->getKey(),
             'title' => Str::limit($type === null
-                ? (string) $intake->contact_name
-                : __('intake.convert.default_title', ['name' => $intake->contact_name, 'type' => $type->name]), 250, ''),
+                ? (string) $name
+                : __('intake.convert.default_title', ['name' => $name, 'type' => $type->name]), 250, ''),
             'description_internal' => $intake->summary,
             'opened_at' => today()->toDateString(),
             'confidentiality' => Confidentiality::Normal->value,
@@ -497,7 +516,28 @@ class ConvertIntakeRequest extends Page
             Text::make($intake->contact_id_number_hash !== null
                 ? __('intake.convert.contact_id_line')
                 : __('intake.convert.contact_no_id_line')),
+            ...$this->organizationLines($intake),
             ...($parties === [] ? [Text::make(__('intake.convert.no_parties'))->color('gray')] : $parties),
+        ];
+    }
+
+    /**
+     * Làn fa (A1): tổ chức người gọi đại diện — tên, và có mã số thuế hay không (không bao giờ số: chỉ
+     * dấu băm tồn tại). Rỗng khi bản ghi không có tổ chức.
+     *
+     * @return list<Text>
+     */
+    private function organizationLines(IntakeRequest $intake): array
+    {
+        if (! $intake->speaksForOrganization()) {
+            return [];
+        }
+
+        return [
+            Text::make(__('intake_org.convert.organization_line', ['name' => $intake->organization_name])),
+            Text::make($intake->organization_id_number_hash !== null
+                ? __('intake_org.convert.organization_tax_line')
+                : __('intake_org.convert.organization_no_tax_line')),
         ];
     }
 

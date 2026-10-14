@@ -10,6 +10,7 @@ use App\Enums\Confidentiality;
 use App\Enums\ConflictLevel;
 use App\Enums\IntakeStatus;
 use App\Enums\PartyRole;
+use App\Enums\Permission;
 use App\Exceptions\ExistingClientConfirmationRequired;
 use App\Models\Client;
 use App\Models\IntakeParty;
@@ -17,6 +18,7 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\ConflictOverride;
 use App\Support\Intake\IntakeConversionResult;
 use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
@@ -45,7 +47,13 @@ use Illuminate\Validation\ValidationException;
  *  3. **Dữ liệu:** các ô của vụ việc (cùng luật cột với `matters`), loại khách, và số căn cước thô
  *     tuỳ chọn — phải có chữ số; nếu bản ghi đã lưu dấu băm CCCD của người liên hệ thì số gõ phải
  *     băm ra ĐÚNG dấu đó (gõ nhầm một số là ghi sai định danh lên hồ sơ khách, thứ mọi lần kiểm tra
- *     sau dựa vào).
+ *     sau dựa vào). Luật sư phụ trách phải đang hoạt động và có `matter.transitionStage` (cùng định
+ *     nghĩa ô chọn `CreateMatter::leadLawyerOptions()` — làn fa, mục nhỏ).
+ *     **Khách là tổ chức (làn fa, A1):** `client_type = organization` chỉ nhận khi bản ghi có tên tổ
+ *     chức ({@see IntakeRequest::speaksForOrganization()}) — tổ chức đó đã qua kiểm tra xung đột lúc
+ *     tiếp nhận; không thì lỗi ở ô loại khách, KHÔNG BAO GIỜ đặt tên công ty bằng tên người gọi. Khi
+ *     đó số gõ là mã số thuế, và phải khớp dấu băm mã số thuế đã ghi của tổ chức (nếu có). Hồ sơ khách
+ *     mới mang tên tổ chức, người gọi là `representative_name` (cắt về 120 ký tự, trần cột).
  *  4. **Khách hàng — tra trước, tạo sau, không bao giờ theo tên** (R3, R4, M6.5 R4):
  *     `FindClientByIdentifier` với số căn cước vừa gõ (định danh mạnh hơn: một số máy có thể dùng
  *     chung), rồi với SĐT người liên hệ (dạng đã gõ lúc tiếp nhận). Không khớp thì
@@ -105,6 +113,9 @@ class ConvertIntakeToMatter
 {
     /** Cùng trần byte với ô câu chuyện (`UpdateIntakeSummary`): cột `text` 65.535 byte. */
     public const DESCRIPTION_MAX_BYTES = 60000;
+
+    /** Làn fa (A1): cột `clients.representative_name` là `string(120)`; tên người liên hệ tới 200. */
+    public const REPRESENTATIVE_MAX_CHARS = 120;
 
     /**
      * @param  array<string, mixed>  $attributes  Vụ việc: `title`, `matter_type_id`, `lead_lawyer_id`,
@@ -201,6 +212,19 @@ class ConvertIntakeToMatter
         };
     }
 
+    /**
+     * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ): bản ghi có một ghi đè Đỏ còn hiệu lực
+     * ({@see IntakeRequest::hasConflictOverride()}) mà `$user` không ghi đè được Đỏ (`ConflictOverride`:
+     * chỉ quản lý/admin). Lần chuyển đổi chạy lại kiểm tra trong `OpenMatter`, khớp Đỏ đó thường vẫn còn,
+     * và chỉ người ghi đè được mới cho qua — nên với người này lần bấm thường dừng ở bảng Đỏ. Màn hình nói
+     * trước điều đó (trang bản ghi và đầu trang chuyển đổi); không chặn: nếu khớp Đỏ đã hết, chuyển đổi
+     * vẫn đi được.
+     */
+    public static function overriddenRedNeedsManager(IntakeRequest $intake, User $user): bool
+    {
+        return $intake->hasConflictOverride() && ! ConflictOverride::allowedFor($user);
+    }
+
     private function refuseUnlessConvertible(IntakeRequest $intake): void
     {
         $reason = static::refusal($intake);
@@ -220,11 +244,24 @@ class ConvertIntakeToMatter
     private function validated(array $attributes, IntakeRequest $intake): array
     {
         $attributes = array_map(fn (mixed $value): mixed => $value instanceof BackedEnum ? $value->value : $value, $attributes);
+        $asOrganization = self::convertsToOrganization($attributes);
+        // Làn fa (A1): số gõ ở ô định danh phải khớp định danh ĐÃ GHI của đúng bên sẽ thành khách — mã số
+        // thuế của tổ chức khi khách là tổ chức, CCCD của người liên hệ khi khách là cá nhân.
+        $recordedHash = self::recordedClientIdHash($intake, $asOrganization);
+        $mismatch = $asOrganization ? __('intake_org.errors.convert_tax_code_mismatch') : __('intake.errors.convert_id_number_mismatch');
 
         return Validator::make($attributes, [
             'title' => ['required', 'string', 'max:250'],
             'matter_type_id' => ['required', 'integer', Rule::exists('matter_types', 'id')],
-            'lead_lawyer_id' => ['required', 'integer', Rule::exists('users', 'id')],
+            // Làn fa (mục nhỏ): cùng định nghĩa với ô chọn của form mở vụ (`CreateMatter::leadLawyerOptions()`)
+            // — đang hoạt động VÀ có `matter.transitionStage`; Action không tin màn hình.
+            'lead_lawyer_id' => ['required', 'integer', Rule::exists('users', 'id'), function (string $attribute, mixed $value, Closure $fail): void {
+                $lawyer = is_numeric($value) ? User::query()->find((int) $value) : null;
+
+                if ($lawyer !== null && (! $lawyer->is_active || ! $lawyer->can(Permission::MatterTransitionStage->value))) {
+                    $fail(__('intake_org.errors.convert_lead_lawyer_ineligible'));
+                }
+            }],
             'client_role' => ['required', Rule::enum(PartyRole::class)],
             'opened_at' => ['required', 'date'],
             'confidentiality' => ['required', Rule::enum(Confidentiality::class)],
@@ -235,17 +272,44 @@ class ConvertIntakeToMatter
                     $fail(__('intake.errors.description_too_long'));
                 }
             }],
-            'client_type' => ['required', Rule::enum(ClientType::class)],
-            'client_id_number' => ['nullable', 'string', 'max:20', function (string $attribute, mixed $value, Closure $fail) use ($intake): void {
+            'client_type' => ['required', Rule::enum(ClientType::class), function (string $attribute, mixed $value, Closure $fail) use ($asOrganization, $intake): void {
+                // Làn fa (A1): một khách "tổ chức" mang tên tổ chức, và tổ chức đó phải đã qua kiểm tra
+                // xung đột lúc tiếp nhận — không bao giờ lấy tên người gọi làm tên công ty.
+                if ($asOrganization && ! $intake->speaksForOrganization()) {
+                    $fail(__('intake_org.errors.convert_needs_organization'));
+                }
+            }],
+            'client_id_number' => ['nullable', 'string', 'max:20', function (string $attribute, mixed $value, Closure $fail) use ($recordedHash, $mismatch): void {
                 $hash = Normalizer::idNumberHash(is_string($value) ? $value : null);
 
                 if ($hash === null) {
                     $fail(__('intake.errors.id_number_invalid'));
-                } elseif ($intake->contact_id_number_hash !== null && $hash !== $intake->contact_id_number_hash) {
-                    $fail(__('intake.errors.convert_id_number_mismatch'));
+                } elseif ($recordedHash !== null && $hash !== $recordedHash) {
+                    $fail($mismatch);
                 }
             }],
         ])->validate();
+    }
+
+    /**
+     * Làn fa (A1): lần chuyển đổi này tạo/gắn một khách TỔ CHỨC không (`client_type = organization`).
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private static function convertsToOrganization(array $attributes): bool
+    {
+        $type = $attributes['client_type'] ?? null;
+
+        return ($type instanceof ClientType ? $type->value : $type) === ClientType::Organization->value;
+    }
+
+    /**
+     * Làn fa (A1): dấu băm định danh ĐÃ GHI lúc tiếp nhận của bên sẽ thành khách — mã số thuế của tổ chức,
+     * hay CCCD của người liên hệ. Bước 3 buộc số gõ khớp nó; bước 4 đối chiếu nó với hồ sơ khách đã có.
+     */
+    private static function recordedClientIdHash(IntakeRequest $intake, bool $asOrganization): ?string
+    {
+        return $asOrganization ? $intake->organization_id_number_hash : $intake->contact_id_number_hash;
     }
 
     /**
@@ -270,16 +334,21 @@ class ConvertIntakeToMatter
             }
         }
 
+        // Làn fa (A1): khách tổ chức mang TÊN TỔ CHỨC (đã qua kiểm tra lúc tiếp nhận); người gọi là người
+        // đại diện — cắt về trần cột `clients.representative_name` (120) theo ký tự; tên đầy đủ vẫn ở bản ghi.
+        $asOrganization = self::convertsToOrganization($data);
+
         $client ??= app(CreateClient::class)->resolve($actor, [
             'type' => $data['client_type'],
-            'name' => $intake->contact_name,
+            'name' => $asOrganization ? $intake->organization_name : $intake->contact_name,
+            'representative_name' => $asOrganization ? mb_substr((string) $intake->contact_name, 0, self::REPRESENTATIVE_MAX_CHARS) : null,
             'id_number' => $idNumber,
             'phone' => $intake->contact_phone,
             'email' => $intake->contact_email,
         ]);
 
         if ($client->exists) {
-            $this->guardExistingClient($client, $intake, $idNumber, $confirmedClientId);
+            $this->guardExistingClient($client, self::recordedClientIdHash($intake, $asOrganization), $idNumber, $confirmedClientId);
         }
 
         return $client;
@@ -288,12 +357,13 @@ class ConvertIntakeToMatter
     /**
      * Ba điều kiện để GẮN người liên hệ vào một hồ sơ khách ĐÃ CÓ — (a), (b), (c) ở bước 4 của docblock
      * lớp. Số căn cước "đã biết" của người liên hệ là số vừa gõ (bước 3 đã buộc nó khớp dấu băm lúc
-     * tiếp nhận, nếu có), không thì dấu băm lúc tiếp nhận. Hồ sơ không có số căn cước thì không có gì
-     * để mâu thuẫn (a), nhưng cũng không nhận được số vừa gõ (b).
+     * tiếp nhận, nếu có), không thì dấu băm lúc tiếp nhận (`$recordedHash` — làn fa, A1: với khách tổ
+     * chức là dấu băm mã số thuế của tổ chức). Hồ sơ không có số căn cước thì không có gì để mâu thuẫn
+     * (a), nhưng cũng không nhận được số vừa gõ (b).
      */
-    private function guardExistingClient(Client $client, IntakeRequest $intake, ?string $idNumber, ?int $confirmedClientId): void
+    private function guardExistingClient(Client $client, ?string $recordedHash, ?string $idNumber, ?int $confirmedClientId): void
     {
-        $knownHash = Normalizer::idNumberHash($idNumber) ?? $intake->contact_id_number_hash;
+        $knownHash = Normalizer::idNumberHash($idNumber) ?? $recordedHash;
         $clientHash = Normalizer::idNumberHash($client->id_number);
         $names = ['code' => $client->code, 'name' => $client->name];
 

@@ -223,6 +223,14 @@ class SubmitDocument extends Page
      */
     public ?array $data = [];
 
+    /**
+     * Làn fa (A6): khách xác nhận vẫn muốn gửi thêm vào một đầu mục văn phòng ĐÃ NHẬN — thuộc tính thứ
+     * hai trình duyệt được ghi (ô tích ở khối 1). Không tích thì {@see self::submit()} từ chối trước mọi
+     * cổng khác. Một ô tích đặt tay qua request sửa tay chỉ làm được đúng điều nút đó cho làm (gửi thêm —
+     * vẫn là đường sửa sai hợp lệ của khách); nó không mở được gì khác. Đặt lại mỗi lần đổi đầu mục.
+     */
+    public bool $confirmResubmission = false;
+
     /** Đã gửi xong trong request trước đó — quyết định khối "Đang chờ văn phòng kiểm tra". */
     #[Locked]
     public bool $submitted = false;
@@ -445,6 +453,8 @@ class SubmitDocument extends Page
 
         $this->submitted = false;
         $this->submittedItemName = null;
+        // Làn fa (A6): xác nhận gửi thêm là xác nhận cho MỘT đầu mục.
+        $this->confirmResubmission = false;
     }
 
     /** Bỏ chọn để quay lại bước 1. Không giải gì cả — không có giá trị nào đi ra từ đây. */
@@ -455,6 +465,17 @@ class SubmitDocument extends Page
         $this->form->fill();
         $this->submitted = false;
         $this->submittedItemName = null;
+        $this->confirmResubmission = false;
+    }
+
+    /**
+     * Làn fa (A6): đầu mục đang chọn là giấy văn phòng ĐÃ NHẬN — khối 1 nói điều đó và hỏi xác nhận
+     * trước khi gửi thêm. Gửi thêm vẫn là đường sửa sai hợp lệ của khách (`SubmitClientDocument`);
+     * văn phòng có "Từ chối bản mới, giữ bản đã nhận" nếu bản gửi thêm không dùng được.
+     */
+    public function needsResubmissionConfirmation(?MatterChecklistItem $item): bool
+    {
+        return $item !== null && $item->status === ChecklistItemStatus::Accepted;
     }
 
     /** Đầu mục đang chọn, đã giải lại và đã gác — `null` khi khách chưa chọn gì. */
@@ -771,6 +792,12 @@ class SubmitDocument extends Page
     public function submit(?int $selectedFileCount = null): void
     {
         $item = $this->requireChosenItem();
+
+        // Làn fa (A6): gửi thêm vào giấy văn phòng đã nhận chỉ khi khách đã xác nhận — trước mọi cổng
+        // đếm, nên một lần chưa xác nhận không tốn suất nào.
+        if ($this->needsResubmissionConfirmation($item) && ! $this->confirmResubmission) {
+            throw ValidationException::withMessages(['item' => [__('document_corrections.portal.confirm_required')]]);
+        }
 
         // Trước MỌI cổng khác: một lô chưa tới đủ thì hỏi trần lô, bộ đếm hay luật của ô đều là
         // hỏi về một lô SAI — và nó không được tốn suất nào.

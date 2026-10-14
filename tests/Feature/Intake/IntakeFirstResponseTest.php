@@ -61,7 +61,7 @@ it('records the first response when a person first moves the record out of new o
 
     $this->travelTo(CarbonImmutable::parse('2026-10-07 10:20', 'Asia/Ho_Chi_Minh'));
     $this->actingAs($assistant, 'web');
-    ifrEdit($intake)->callAction('changeStatus', data: ['status' => $to->value])->assertHasNoErrors();
+    ifrEdit($intake)->callAction('changeStatus', data: ['status' => $to->value, 'confirm_lost' => true])->assertHasNoErrors();
 
     expect($intake->fresh()->status)->toBe($to)
         ->and($intake->fresh()->first_response_at?->format('Y-m-d H:i'))->toBe('2026-10-07 10:20');
@@ -221,7 +221,7 @@ it('records the first response and the retention date in the same save when a re
         ->and($answered->fresh()->retention_until?->toDateString())->toBe('2028-10-07');
 })->with([
     'khách không theo tiếp' => fn (IntakeRequest $i) => ifrEdit($i)
-        ->callAction('changeStatus', data: ['status' => IntakeStatus::Lost->value])->assertHasNoErrors(),
+        ->callAction('changeStatus', data: ['status' => IntakeStatus::Lost->value, 'confirm_lost' => true])->assertHasNoErrors(),
     'từ chối' => fn (IntakeRequest $i) => ifrEdit($i)
         ->callAction('decline', data: ['decline_reason' => 'Ngoài lĩnh vực'])->assertHasNoErrors(),
 ]);
