@@ -290,8 +290,8 @@ return [
         'action' => [
             'record_self' => 'Anh/chị ghi khoản thu khi đã nhận được tiền.',
             'record_other' => 'Kế toán hoặc quản trị viên ghi khoản thu khi đã nhận được tiền.',
-            'amend_self' => 'Nếu khách hàng đã thoả thuận lại lịch thu, anh/chị cập nhật phụ lục hợp đồng.',
-            'amend_other' => 'Nếu khách hàng đã thoả thuận lại lịch thu, luật sư phụ trách cập nhật phụ lục hợp đồng.',
+            'amend_self' => 'Nếu khách hàng đã thoả thuận lại ngày trả, anh/chị bấm "Dời hạn" ở đợt này; nếu đổi cả số tiền hay lịch thu, anh/chị ký phụ lục hợp đồng.',
+            'amend_other' => 'Nếu khách hàng đã thoả thuận lại ngày trả, luật sư phụ trách dời hạn đợt này hoặc ký phụ lục hợp đồng.',
             'repeat' => 'Thư này nhắc lại sau :days ngày nếu đợt vẫn chưa được thu đủ.',
         ],
         'salutation' => ':office',

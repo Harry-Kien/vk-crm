@@ -50,8 +50,8 @@ function overdueParts(Matter $matter): array
 
 const OVERDUE_RECORD_SELF = 'Anh/chị ghi khoản thu khi đã nhận được tiền.';
 const OVERDUE_RECORD_OTHER = 'Kế toán hoặc quản trị viên ghi khoản thu khi đã nhận được tiền.';
-const OVERDUE_AMEND_SELF = 'anh/chị cập nhật phụ lục hợp đồng';
-const OVERDUE_AMEND_OTHER = 'luật sư phụ trách cập nhật phụ lục hợp đồng';
+const OVERDUE_AMEND_SELF = 'anh/chị bấm "Dời hạn" ở đợt này';
+const OVERDUE_AMEND_OTHER = 'luật sư phụ trách dời hạn đợt này hoặc ký phụ lục hợp đồng';
 // Nhịp nhắc lại đọc từ đúng hằng số job dùng để chống trùng (rà soát cuối làn, minor): câu trong thư
 // không được chép cứng "bảy ngày" cạnh một hằng số có thể đổi.
 const OVERDUE_REPEAT = 'Thư này nhắc lại sau '.SendInstalmentOverdueMail::REPEAT_EVERY_DAYS.' ngày';

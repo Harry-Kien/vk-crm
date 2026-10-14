@@ -129,7 +129,8 @@ class InstalmentOverdue extends BrandedMailable
      *
      *  - ghi khoản thu: `PaymentPolicy::create` theo ĐỢT (kế toán, admin; luật sư phụ trách chỉ trên
      *    vụ `restricted`; quản lý và luật sư trên vụ thường thì không);
-     *  - cập nhật phụ lục: `ContractPolicy::update` (admin, quản lý, luật sư; kế toán thì không).
+     *  - thoả thuận lại ngày trả: `InstalmentPolicy::reschedule` theo ĐỢT — nút "Dời hạn" (gộp làn fb,
+     *    2026-10-14); câu nói thêm phụ lục cho trường hợp đổi cả số tiền hay lịch thu.
      *
      * Ai không làm được thì câu chỉ tới vai làm được ("Kế toán hoặc quản trị viên ghi khoản thu…" —
      * cả hai đều có quyền ghi trên vụ thường, nên câu vẫn đúng khi chuỗi dự phòng R3 tới quản lý vì
@@ -145,7 +146,7 @@ class InstalmentOverdue extends BrandedMailable
             __($gate->allows('create', [Payment::class, $this->instalment])
                 ? 'billing.overdue_email.action.record_self'
                 : 'billing.overdue_email.action.record_other'),
-            __($gate->allows('update', $this->instalment->contract)
+            __($gate->allows('reschedule', $this->instalment)
                 ? 'billing.overdue_email.action.amend_self'
                 : 'billing.overdue_email.action.amend_other'),
             __('billing.overdue_email.action.repeat', ['days' => SendInstalmentOverdueMail::REPEAT_EVERY_DAYS]),
