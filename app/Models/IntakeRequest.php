@@ -102,6 +102,7 @@ class IntakeRequest extends Model
      */
     protected $fillable = [
         'contact_name', 'contact_phone', 'contact_email', 'contact_role',
+        'organization_name',
         'source', 'referred_by', 'matter_type_id', 'summary', 'quoted_amount',
         'conflict_level', 'conflict_checked_at', 'conflict_result',
         'conflict_acknowledged_by', 'conflict_acknowledged_at',
@@ -144,6 +145,8 @@ class IntakeRequest extends Model
         // cái lệch đó im lặng (M10, "Những chỗ đã biết trước là sẽ cắn"). Null (đã ẩn danh) → null.
         static::saving(function (IntakeRequest $intake): void {
             $intake->contact_name_normalized = Normalizer::name($intake->contact_name);
+            // Làn fa (A1): tên tổ chức người gọi đại diện — cùng phép chuẩn hoá, cùng lý do.
+            $intake->organization_name_normalized = Normalizer::name($intake->organization_name);
         });
 
         // M10 Task 7 (R7b): MỘT chỗ đặt hạn lưu cho mọi đường vào `declined`/`lost`/`merged`.
@@ -311,13 +314,35 @@ class IntakeRequest extends Model
 
     /**
      * `identify()` là đường ghi duy nhất cho `contact_id_number_hash` và `contact_phone_normalized`
-     * (cùng khuôn `MatterParty::fill()`): chặn cả khi factory gọi qua `Model::unguarded()`.
+     * (cùng khuôn `MatterParty::fill()`): chặn cả khi factory gọi qua `Model::unguarded()`. Cùng luật cho
+     * dấu băm mã số thuế của tổ chức (làn fa, A1): chỉ {@see self::identifyOrganization()} ghi được.
      */
     public function fill(array $attributes): static
     {
-        unset($attributes['contact_id_number_hash'], $attributes['contact_phone_normalized']);
+        unset($attributes['contact_id_number_hash'], $attributes['contact_phone_normalized'], $attributes['organization_id_number_hash']);
 
         return parent::fill($attributes);
+    }
+
+    /**
+     * Làn fa (A1): dấu băm mã số thuế (hay số định danh khác) của tổ chức người gọi đại diện — cùng
+     * `Normalizer::idNumberHash()` với CCCD và với `matter_parties.id_number_hash`, để một công ty là bên
+     * của một vụ việc khớp được theo mã số thuế. Số thô không được lưu (R7).
+     */
+    public function identifyOrganization(?string $taxCode): static
+    {
+        $this->organization_id_number_hash = Normalizer::idNumberHash($taxCode);
+
+        return $this;
+    }
+
+    /**
+     * Bản ghi có nói người gọi đại diện cho một tổ chức không (làn fa, A1): có tên tổ chức. Một mã số
+     * thuế không có tên thì luật nhập liệu (`ValidatesIntakeIdentity`) đã từ chối.
+     */
+    public function speaksForOrganization(): bool
+    {
+        return filled($this->organization_name);
     }
 
     /**
@@ -840,7 +865,8 @@ class IntakeRequest extends Model
     /**
      * Dấu vân tay của phần danh tính mà một lần kiểm tra xung đột đã chạy trên đó (vai dự kiến, tên
      * chuẩn hoá, SĐT chuẩn hoá, dấu băm CCCD của người liên hệ, cùng vai + tên + SĐT + dấu băm của
-     * từng bên đối lập). Lưu kèm `conflict_result`; cổng ô câu chuyện so nó với danh tính HIỆN TẠI:
+     * từng bên đối lập; và — làn fa, A1 — tên chuẩn hoá + dấu băm mã số thuế của tổ chức người gọi đại
+     * diện, khi có). Lưu kèm `conflict_result`; cổng ô câu chuyện so nó với danh tính HIỆN TẠI:
      * ai sửa danh tính mà chưa chạy lại kiểm tra thì kết quả cũ không còn là bằng chứng. HMAC với
      * `APP_KEY` chứ không phải sha256 trần — số điện thoại và CCCD có không gian nhỏ, dò ngược được.
      */
@@ -854,13 +880,63 @@ class IntakeRequest extends Model
             ->values()
             ->all();
 
-        return Audit::identifierHash((string) json_encode([
+        $identity = [
             $this->contact_role?->value,
             $this->contact_name_normalized,
             $this->contact_phone_normalized,
             $this->contact_id_number_hash,
             $parties,
+        ];
+
+        // Làn fa (A1): tổ chức người gọi đại diện là một phần danh tính đã kiểm tra — CHỈ thêm khi có,
+        // để dấu vân tay của mọi bản ghi không có tổ chức (mọi bản ghi trước cột này) giữ nguyên từng
+        // byte: đổi nó là đóng lại ô câu chuyện ("chưa kiểm tra cho danh tính hiện tại") của cả kho.
+        if ($this->organization_name_normalized !== null || $this->organization_id_number_hash !== null) {
+            $identity[] = ['organization', $this->organization_name_normalized, $this->organization_id_number_hash];
+        }
+
+        return Audit::identifierHash((string) json_encode($identity));
+    }
+
+    /**
+     * Phiên bản của mọi thứ form danh tính GHI (làn fa, A2) — kiểm tra lạc quan của
+     * `UpdateIntakeIdentity`: trang sửa giữ giá trị này lúc nạp form, và Action từ chối một lần lưu
+     * mang phiên bản khác phiên bản của dòng vừa khoá. Rộng hơn {@see self::identityFingerprint()} có
+     * chủ đích: dấu vân tay chỉ hỏi "lần kiểm tra xung đột còn đúng không", còn đây hỏi "form này có
+     * đang ghi đè thứ ai đó vừa lưu không" — nên gồm cả nguồn, người giới thiệu, lĩnh vực, phí, người phụ
+     * trách, và `id` từng bên đối lập (một form cũ không có dòng của bên vừa thêm sẽ GỠ nó).
+     *
+     * So theo NỘI DUNG, không theo `updated_at`: kiểm tra lại, xác nhận, ghi nhận thông báo hay lưu câu
+     * chuyện cũng chạm `updated_at` mà không đổi gì của form này — so `updated_at` thì những việc đó làm
+     * form của người khác hỏng oan; và hai lần lưu trong cùng một giây có cùng `updated_at`. HMAC như dấu
+     * vân tay: giá trị này đi xuống trình duyệt (trạng thái Livewire), SĐT và CCCD dò ngược được từ một
+     * sha256 trần.
+     */
+    public function identityEditVersion(): string
+    {
+        $parties = $this->parties()->orderBy('id')->get()
+            ->map(fn (IntakeParty $party): array => [
+                $party->getKey(), $party->role?->value, $party->name, $party->phone_normalized, $party->id_number_hash,
+            ])
+            ->all();
+
+        return Audit::identifierHash((string) json_encode([
+            $this->contact_name, $this->contact_phone, $this->contact_email, $this->contact_id_number_hash,
+            $this->contact_role?->value, $this->organization_name, $this->organization_id_number_hash,
+            $this->source?->value, $this->referred_by, $this->matter_type_id, $this->quoted_amount, $this->assigned_to,
+            $parties,
         ]));
+    }
+
+    /**
+     * Phiên bản của ô câu chuyện (làn fa, A3) — kiểm tra lạc quan của `UpdateIntakeSummary`: trang sửa
+     * giữ giá trị này lúc nạp ô, và Action từ chối một lần lưu đè lên câu chuyện mà người lưu chưa từng
+     * thấy ("người lưu sau thắng" làm mất hẳn phần của người kia: nhật ký không giữ nội dung, R7). HMAC
+     * vì cùng lý do với {@see self::identityEditVersion()}: câu chuyện là dữ liệu bí mật.
+     */
+    public function summaryVersion(): string
+    {
+        return Audit::identifierHash('summary|'.($this->summary ?? ''));
     }
 
     /**

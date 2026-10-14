@@ -19,7 +19,7 @@ use Illuminate\Validation\ValidationException;
  * và thành chỉ đọc.
  *
  * **Gộp không được là đường rửa Đỏ thứ hai** (phán quyết controller khi chốt fix vòng 1 của Task 2).
- * Vì bản đã gộp không còn là "lần gọi trước" của ai, hai thứ của nó phải SANG bản đích, nếu không
+ * Vì bản đã gộp không còn là "lần gọi trước" của ai, ba thứ của nó phải SANG bản đích, nếu không
  * chúng biến mất khỏi kiểm tra xung đột:
  *  1. **Các bên đối lập** của bản nguồn chuyển sang bản đích (đổi `intake_request_id`; một bên mà bản
  *     đích đã có — cùng vai, tên chuẩn hoá, SĐT chuẩn hoá và dấu băm — thì bỏ, không nhân đôi). Áp cho
@@ -30,8 +30,20 @@ use Illuminate\Validation\ValidationException;
  *     thời điểm SỚM HƠN của hai bản. Chỉ quản lý/admin xử lý được nó (`ResolveIntakeRedConflict`) —
  *     nên một trợ lý gộp một bản Đỏ vào bản Xanh của cùng người vẫn không ghi được câu chuyện ở bản
  *     đích.
+ *  3. **Tổ chức người gọi đại diện** (làn fa A1; sửa sau rà soát cuối, F1). Tổ chức đứng trong kiểm tra
+ *     xung đột như một bên phía mình thứ hai (`CheckIntakeConflict::organizationParty()`); bản nguồn đã
+ *     gộp rời nguồn dò thứ hai, nên tổ chức của nó phải sang bản đích, nếu không một khớp của công ty
+ *     (ví dụ Vàng theo tên với bên đối lập của một vụ đang làm) biến mất, ô câu chuyện mở và bản đích
+ *     chuyển đổi được thành khách cá nhân. Bản đích chưa ghi tổ chức → nhận tên và dấu băm mã số thuế
+ *     của bản nguồn. Cả hai cùng một tổ chức (tên chuẩn hoá trùng, và hai mã số thuế không mâu thuẫn:
+ *     trùng nhau hoặc một bên chưa có) → giữ của bản đích, bổ sung mã số thuế của bản nguồn nếu bản
+ *     đích chưa có. Còn lại — tên khác nhau, hay cùng tên mà mã số thuế khác nhau — gộp bị TỪ CHỐI
+ *     (`merge_target`, câu `intake_org.errors.merge_organization_differs`): giữ một trong hai là bỏ tổ
+ *     chức kia khỏi kiểm tra, và hai tổ chức khác nhau thì không phải cùng một lần liên hệ. Cùng tổ chức
+ *     mà gõ tên khác nhau → người dùng sửa tên ở một bản cho trùng rồi gộp lại.
  * Sau đó bản đích được KIỂM TRA LẠI ngay (`CheckIntakeConflict`, trong cùng khoá và transaction): danh
- * sách bên đối lập của nó vừa đổi, và một bên mang sang có thể khớp một khách hiện hữu (Đỏ thật).
+ * sách bên đối lập (và có thể tổ chức) của nó vừa đổi, và một bên mang sang có thể khớp một khách hiện
+ * hữu (Đỏ thật).
  *
  * **Bản người liên hệ của nguồn không sang — nên khoá người gọi lại phải được giữ bằng luật gộp (fix
  * vòng 1 của Task 3, rà soát C1).** Khoá đó ({@see IntakeRequest::sameCallerIntakes()}) đọc ở lần gọi
@@ -53,15 +65,16 @@ use Illuminate\Validation\ValidationException;
  * Quyền: sửa được CẢ HAI bản (`IntakeRequestPolicy::update`) — người không có `intake.viewAny` chỉ
  * gộp giữa các bản của mình/được giao. Từ chối: gộp vào chính nó; bản nguồn hoặc bản đích đã xong
  * việc ({@see IntakeRequest::isClosedToChanges()}: đã gộp, đã ẩn danh, đã chuyển thành vụ); luật khoá
- * người gọi lại ở trên; bản đích sẽ có hơn {@see IntakeRequest::MAX_OPPOSING_PARTIES} bên đối lập sau
- * khi gộp (đếm sau khi bỏ bên trùng — cùng trần với form, để bản đích còn sửa được). Một bản đã từ
- * chối vẫn nhận gộp vào (chỉ THÊM bên đối lập và dấu Đỏ), và gộp đi được theo luật ở trên (nó vẫn là
- * một lần liên hệ thật).
+ * người gọi lại ở trên; hai bản ghi hai tổ chức khác nhau (mục 3 ở trên); bản đích sẽ có hơn
+ * {@see IntakeRequest::MAX_OPPOSING_PARTIES} bên đối lập sau khi gộp (đếm sau khi bỏ bên trùng — cùng trần
+ * với form, để bản đích còn sửa được). Một bản đã từ chối vẫn nhận gộp vào (chỉ THÊM bên đối lập, dấu Đỏ
+ * và tổ chức còn thiếu), và gộp đi được theo luật ở trên (nó vẫn là một lần liên hệ thật).
  *
  * Chạy dưới khoá `conflict-check` (nó đổi đầu vào của kiểm tra xung đột). Câu đầu tiên của transaction
  * khoá CẢ HAI dòng, theo thứ tự id tăng dần (hai lần gộp ngược chiều nhau không khoá chéo). Nhật ký:
  * `intake_merged` trên bản nguồn (mã bản đích, số bên đã chuyển) và `intake_merge_received` trên bản
- * đích (mã bản nguồn, số bên) — không tên, không SĐT. Bản ghi tự động của model tắt cho hai lần lưu.
+ * đích (mã bản nguồn, số bên, và `organization_carried: true` CHỈ khi bản đích vừa nhận hay bổ sung tổ
+ * chức từ bản nguồn) — không tên, không SĐT, không mã số thuế. Bản ghi tự động của model tắt cho hai lần lưu.
  *
  * **Gộp không phải một lần phản hồi** (R5, Task 5): `first_response_at` của cả hai bản không đổi. Bản
  * nguồn rời `new` mà không có mốc phản hồi; đồng hồ của người gọi chạy tiếp ở bản đích, tính từ
@@ -108,6 +121,9 @@ class MergeIntake
                 throw ValidationException::withMessages(['merge_target' => [__('intake.errors.merge_drops_caller')]]);
             }
 
+            // Tổ chức của bản nguồn không được rời kiểm tra xung đột (F1) — từ chối ở đây, trước mọi thay đổi.
+            $organization = $this->organizationAfterMerge($lockedSource, $lockedTarget);
+
             $moved = $this->moveParties($lockedSource, $lockedTarget);
 
             // Trần số bên đối lập của một bản ghi: vượt thì từ chối, và transaction hoàn lại các dòng
@@ -124,6 +140,12 @@ class MergeIntake
                 $lockedTarget->conflict_red_pending_since = ($current !== null && $current->lessThan($since)) ? $current : $since;
             }
 
+            if ($organization !== null) {
+                $lockedTarget->organization_name = $organization['name'];
+                // Không qua `fill()` (nó bỏ dấu băm có chủ đích): dấu băm chép nguyên từ bản nguồn.
+                $lockedTarget->organization_id_number_hash = $organization['hash'];
+            }
+
             $lockedSource->fill(['status' => IntakeStatus::Merged, 'merged_into_id' => $lockedTarget->getKey()]);
             $lockedSource->blameOn($actor);
             $lockedSource->disableLogging()->save();
@@ -136,10 +158,45 @@ class MergeIntake
             app(CheckIntakeConflict::class)->handle($actor, $lockedTarget);
 
             Audit::record('intake_merged', $lockedSource, ['merged_into' => $lockedTarget->code, 'moved_parties' => $moved], $actor);
-            Audit::record('intake_merge_received', $lockedTarget, ['merged_from' => $lockedSource->code, 'moved_parties' => $moved], $actor);
+            Audit::record('intake_merge_received', $lockedTarget, [
+                'merged_from' => $lockedSource->code,
+                'moved_parties' => $moved,
+                ...($organization !== null ? ['organization_carried' => true] : []),
+            ], $actor);
 
             return $lockedTarget;
         }));
+    }
+
+    /**
+     * Tổ chức bản đích phải mang sau khi gộp (F1, luật ở docblock lớp, mục 3): `null` = bản đích giữ
+     * nguyên (bản nguồn không ghi tổ chức, hoặc cùng tổ chức và bản đích đã đủ); mảng = tên và dấu băm
+     * mã số thuế bản đích nhận. Hai tổ chức khác nhau → `ValidationException` trên `merge_target`.
+     *
+     * @return array{name: string, hash: ?string}|null
+     */
+    private function organizationAfterMerge(IntakeRequest $source, IntakeRequest $target): ?array
+    {
+        if (! $source->speaksForOrganization()) {
+            return null;
+        }
+
+        if (! $target->speaksForOrganization()) {
+            return ['name' => $source->organization_name, 'hash' => $source->organization_id_number_hash];
+        }
+
+        $sameName = $source->organization_name_normalized === $target->organization_name_normalized;
+        $taxCodesAgree = $source->organization_id_number_hash === null
+            || $target->organization_id_number_hash === null
+            || $source->organization_id_number_hash === $target->organization_id_number_hash;
+
+        if (! $sameName || ! $taxCodesAgree) {
+            throw ValidationException::withMessages(['merge_target' => [__('intake_org.errors.merge_organization_differs')]]);
+        }
+
+        return $target->organization_id_number_hash === null && $source->organization_id_number_hash !== null
+            ? ['name' => $target->organization_name, 'hash' => $source->organization_id_number_hash]
+            : null;
     }
 
     /** Chuyển các bên đối lập sang bản đích, bỏ những bên bản đích đã có y hệt. Trả số dòng đã chuyển. */

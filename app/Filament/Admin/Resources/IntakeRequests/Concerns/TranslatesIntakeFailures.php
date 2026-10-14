@@ -30,6 +30,7 @@ trait TranslatesIntakeFailures
     /** Các khoá lỗi của Action có ô cùng tên ở form chính. */
     private const FORM_FIELDS = [
         'contact_name', 'contact_phone', 'contact_email', 'contact_id_number', 'contact_role', 'source',
+        'organization_name', 'organization_id_number',
         'referred_by', 'matter_type_id', 'quoted_amount', 'assigned_to', 'received_at', 'summary',
     ];
 

@@ -13,6 +13,7 @@ use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Support\Files\FileGuard;
 use App\Support\Handover\HandoverEntry;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Normalizer;
@@ -44,6 +45,13 @@ use Normalizer;
  *    cố ý thêm nó vào. Với đầu mục đã duyệt, "version mới nhất" tính trên MỌI version rồi mới lọc
  *    trạng thái: version mới nhất chưa phát hành (hay bị rút) thì đầu mục không có gì trong gói,
  *    chứ không lùi về một version đã bị thay.
+ *    **Làn fa (A6): đầu mục có `accepted_version` thì gói lấy ĐÚNG version đó** (bản văn phòng đã
+ *    nhận; `ReviewChecklistItem`/`UploadStaffDocument` ghi) thay cho "version mới nhất" — khác nhau
+ *    đúng ở trường hợp "Từ chối bản mới, giữ bản đã nhận" (`KeepAcceptedChecklistVersion`): version
+ *    mới nhất là bản gửi thêm vừa rút, bản đã nhận là version trước. Vẫn lọc trạng thái như trên.
+ *    Không có `accepted_version` (nhận trước cột này mà migration không điền được) thì luật cũ.
+ *  - **Làn fa (kiểm tra nghiệp vụ 2026-10-09): không tài liệu "chỉ xem"** — `published` mà
+ *    `client_can_download = false` ({@see self::excludeViewOnly()}), ở mọi nhóm.
  *  - **Không bao giờ**: nhóm D; tài liệu đã xoá mềm (`SoftDeletingScope` của `Document` giữ
  *    nguyên — truy vấn dưới đây KHÔNG gọi `withTrashed()`); chính tài liệu gói của lần trước, ở
  *    MỌI version ({@see MatterArchive::handoverDocumentIds()}); tài liệu không có tệp nào.
@@ -158,7 +166,11 @@ class CollectHandoverEntries
         $documents = collect();
 
         foreach ($acceptedItems as $item) {
-            $latestVersion = $this->scopelessly(Document::query())
+            // Làn fa (A6): gói mang ĐÚNG bản văn phòng đã nhận (`accepted_version`) — sau "Từ chối bản
+            // mới, giữ bản đã nhận" version mới nhất là bản gửi thêm đã rút, và luật cũ cho ra một mục
+            // không tệp. Không có `accepted_version` (đầu mục nhận trước cột này mà migration không điền
+            // được) thì giữ luật cũ: version lớn nhất, kể cả bản đã rút, rồi mới lọc.
+            $latestVersion = $item->accepted_version ?? $this->scopelessly(Document::query())
                 ->where('matter_id', $matter->getKey())
                 ->where('matter_checklist_item_id', $item->getKey())
                 ->where('group', DocumentGroup::ClientProvided->value)
@@ -176,6 +188,7 @@ class CollectHandoverEntries
                     ->where('group', DocumentGroup::ClientProvided->value)
                     ->where('version', $latestVersion)
                     ->whereIn('status', self::RELEASED_STATUSES)
+                    ->tap(fn (Builder $query) => self::excludeViewOnly($query))
                     ->whereNotIn('id', $excluded->all())
                     ->orderBy('id')
                     ->get(),
@@ -188,6 +201,7 @@ class CollectHandoverEntries
             ->whereNull('matter_checklist_item_id')
             ->where('group', DocumentGroup::ClientProvided->value)
             ->whereIn('status', self::RELEASED_STATUSES)
+            ->tap(fn (Builder $query) => self::excludeViewOnly($query))
             ->whereNotIn('id', $excluded->all())
             ->orderBy('id')
             ->get();
@@ -205,12 +219,29 @@ class CollectHandoverEntries
             ->where('matter_id', $matter->getKey())
             ->whereIn('group', [DocumentGroup::Issued->value, DocumentGroup::Authority->value])
             ->whereIn('status', self::RELEASED_STATUSES)
+            ->tap(fn (Builder $query) => self::excludeViewOnly($query))
             ->whereNotIn('id', $excluded->all())
             ->orderBy('group')
             ->orderByRaw('issued_at is null')
             ->orderBy('issued_at')
             ->orderBy('id')
             ->get();
+    }
+
+    /**
+     * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ): bỏ khỏi gói mọi tài liệu văn phòng đã công bố
+     * "chỉ xem, không cho tải" (`published` + `client_can_download = false`) — văn phòng đã quyết khách
+     * biết có tài liệu nhưng CHƯA được giữ bản sao (`documents.tab.fields.client_can_download_help`),
+     * và gói bàn giao là một bản sao khách giữ. Muốn đưa vào gói thì bật lại "Cho khách tải về" rồi sinh
+     * lại gói. Áp cho mọi nhóm vào gói.
+     *
+     * @param  Builder<Document>  $query
+     */
+    private static function excludeViewOnly(Builder $query): void
+    {
+        $query->where(fn (Builder $q) => $q
+            ->where('status', '!=', DocumentStatus::Published->value)
+            ->orWhere('client_can_download', true));
     }
 
     /**

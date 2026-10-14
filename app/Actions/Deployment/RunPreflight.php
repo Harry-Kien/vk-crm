@@ -11,6 +11,7 @@ use App\Models\IntakeRequest;
 use App\Models\User;
 use App\Support\Backup\RcloneProcess;
 use App\Support\Billing\ScheduleTotal;
+use App\Support\Files\VirusScanner;
 use App\Support\Mcp\McpSwitches;
 use App\Support\OfficeProfile;
 use App\Support\Push\VapidKeys;
@@ -174,7 +175,29 @@ class RunPreflight
             $this->passportKeysRow(),
             $this->mcpFilingDateRow(),
             ...$this->documentStoreRows(),
+            $this->virusScannerRow(),
         ];
+    }
+
+    /**
+     * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ "quét virus"): VÀNG khi `CLAMAV_ENABLED` tắt (mọi tệp
+     * khách và nhân sự tải lên chỉ qua `FileGuard`, không ai quét mã độc — `NullScanner`), và VÀNG khi bật
+     * mà daemon không trả lời PING (`VirusScanner::isActive()`, cùng câu hỏi `php artisan about` hỏi):
+     * lúc đó MỌI tệp tải lên bị từ chối. Không ĐỎ: chủ văn phòng có thể chủ động chạy không quét (máy
+     * chủ chia sẻ không cài được clamd) — preflight chỉ nhắc; hướng dẫn cài và thử bằng tệp EICAR ở
+     * `docs/CAI-DAT.md`, mục "Quét virus (ClamAV)".
+     */
+    private function virusScannerRow(): array
+    {
+        if (! (bool) config('vkcrm.clamav.enabled')) {
+            return $this->row('clamav', PreflightLevel::Yellow, __('preflight_clamav.disabled'));
+        }
+
+        return app(VirusScanner::class)->isActive()
+            ? $this->row('clamav', PreflightLevel::Green, __('preflight_clamav.ok'))
+            : $this->row('clamav', PreflightLevel::Yellow, __('preflight_clamav.unreachable', [
+                'socket' => (string) config('vkcrm.clamav.socket'),
+            ]));
     }
 
     /**

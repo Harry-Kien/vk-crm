@@ -4,8 +4,12 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Document\AddChecklistItem;
 use App\Actions\Document\ChecklistProgress;
+use App\Actions\Document\KeepAcceptedChecklistVersion;
 use App\Actions\Document\MarkChecklistItemNotApplicable;
+use App\Actions\Document\ReopenChecklistItem;
+use App\Actions\Document\RetractDocument;
 use App\Actions\Document\ReviewChecklistItem;
+use App\Actions\Document\UpdateChecklistItem;
 use App\Actions\Notification\NotifyClientOfChecklistItemRejected;
 use App\Enums\ChecklistItemStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
@@ -231,6 +235,10 @@ class ChecklistRelationManager extends RelationManager
                 $this->acceptAction(),
                 $this->rejectAction(),
                 $this->markNotApplicableAction(),
+                // Làn fa (A5, A6): sửa sai trên đầu mục.
+                $this->keepAcceptedAction(),
+                $this->reopenAction(),
+                $this->editItemAction(),
             ])
             // Bộ đếm tài liệu của CỘT là đúng bộ đếm mà mẫu số của thanh tiến độ dùng, lấy từ
             // `ChecklistProgress` chứ không viết lại: một `withCount` thứ hai ở đây là cách để
@@ -276,6 +284,8 @@ class ChecklistRelationManager extends RelationManager
                     ->maxLength(200),
                 Textarea::make('description')
                     ->label(__('checklist.tab.fields.item_description'))
+                    // Cột `text` (65.535 byte) — sửa sau rà soát cuối, F3.
+                    ->maxLength(MatterChecklistItem::DESCRIPTION_MAX_LENGTH)
                     ->columnSpanFull(),
                 Toggle::make('is_required')
                     ->label(__('checklist.tab.fields.item_is_required'))
@@ -523,6 +533,110 @@ class ChecklistRelationManager extends RelationManager
                 fn () => app(MarkChecklistItemNotApplicable::class)->handle(
                     checklistItem: $record,
                     actor: Auth::user(),
+                ),
+            ));
+    }
+
+    /**
+     * Làn fa (A5) — "Đưa về 'Còn thiếu'" (`ReopenChecklistItem`): chỉ trên đầu mục "Đã nhận" hoặc "Không
+     * cần nộp" ({@see ReopenChecklistItem::REOPENABLE}, cùng danh sách Action hỏi), với người duyệt được
+     * (`review`), khi vụ còn mở. Không thư nào đi.
+     */
+    private function reopenAction(): Action
+    {
+        return Action::make('reopen')
+            ->label(__('document_corrections.reopen.action'))
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('document_corrections.reopen.heading'))
+            ->modalDescription(__('document_corrections.reopen.description'))
+            ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
+            ->visible(fn (MatterChecklistItem $record): bool => in_array($record->status, ReopenChecklistItem::REOPENABLE, true)
+                && $this->getOwnerRecord()->isOpen())
+            ->successNotificationTitle(__('document_corrections.reopen.success'))
+            ->action(fn (Action $action, MatterChecklistItem $record) => $this->runAction(
+                $action,
+                fn () => app(ReopenChecklistItem::class)->handle(checklistItem: $record, actor: Auth::user()),
+            ));
+    }
+
+    /**
+     * Làn fa (A5) — "Sửa đầu mục" (`UpdateChecklistItem`): tên, mô tả, bắt buộc — cho riêng hồ sơ này.
+     * Quyền `update` của `MatterChecklistItemPolicy` (= duyệt), khi vụ còn mở. `maxLength` = cột 200.
+     */
+    private function editItemAction(): Action
+    {
+        return Action::make('editItem')
+            ->label(__('document_corrections.edit_item.action'))
+            ->icon(Heroicon::OutlinedPencilSquare)
+            ->color('gray')
+            ->modalHeading(__('document_corrections.edit_item.heading'))
+            ->modalDescription(__('document_corrections.edit_item.description'))
+            ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('update', $record))
+            ->visible(fn (): bool => $this->getOwnerRecord()->isOpen())
+            ->fillForm(fn (MatterChecklistItem $record): array => [
+                'name' => $record->name,
+                'description' => $record->description,
+                'is_required' => (bool) $record->is_required,
+            ])
+            ->schema([
+                TextInput::make('name')
+                    ->label(__('document_corrections.edit_item.name'))
+                    ->required()
+                    ->maxLength(UpdateChecklistItem::MAX_NAME_LENGTH),
+                Textarea::make('description')
+                    ->label(__('document_corrections.edit_item.description_field'))
+                    ->maxLength(MatterChecklistItem::DESCRIPTION_MAX_LENGTH)
+                    ->columnSpanFull(),
+                Toggle::make('is_required')
+                    ->label(__('document_corrections.edit_item.is_required')),
+            ])
+            ->successNotificationTitle(__('document_corrections.edit_item.success'))
+            ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(UpdateChecklistItem::class)->handle(
+                    checklistItem: $record,
+                    actor: Auth::user(),
+                    name: (string) ($data['name'] ?? ''),
+                    description: $data['description'] ?? null,
+                    isRequired: (bool) ($data['is_required'] ?? false),
+                ),
+            ));
+    }
+
+    /**
+     * Làn fa (A6) — "Từ chối bản mới, giữ bản đã nhận" (`KeepAcceptedChecklistVersion`): hiện theo
+     * {@see KeepAcceptedChecklistVersion::isAvailable()} — đầu mục đang chờ duyệt một bản khách gửi thêm
+     * sau một bản văn phòng đã nhận, và bản đó còn trên cổng — với người duyệt được, khi vụ còn mở. Ô lý
+     * do không đặt `minLength` (ngưỡng ở Action, lỗi về đúng ô); `maxLength` = trần của Action.
+     */
+    private function keepAcceptedAction(): Action
+    {
+        return Action::make('keepAccepted')
+            ->label(__('document_corrections.keep_accepted.action'))
+            ->icon(Heroicon::OutlinedShieldCheck)
+            ->color('warning')
+            ->modalHeading(__('document_corrections.keep_accepted.heading'))
+            ->modalDescription(__('document_corrections.keep_accepted.description'))
+            ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
+            ->visible(fn (MatterChecklistItem $record): bool => KeepAcceptedChecklistVersion::isAvailable($record)
+                && $this->getOwnerRecord()->isOpen())
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('document_corrections.keep_accepted.reason'))
+                    ->helperText(__('document_corrections.keep_accepted.reason_help', ['min' => RetractDocument::REASON_MIN]))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(RetractDocument::REASON_MAX),
+            ])
+            ->successNotificationTitle(__('document_corrections.keep_accepted.success'))
+            ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(KeepAcceptedChecklistVersion::class)->handle(
+                    checklistItem: $record,
+                    actor: Auth::user(),
+                    reason: (string) ($data['reason'] ?? ''),
                 ),
             ));
     }

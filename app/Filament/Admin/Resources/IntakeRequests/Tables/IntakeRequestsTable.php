@@ -10,6 +10,7 @@ use App\Models\IntakeRequest;
 use App\Models\User;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -36,6 +37,40 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class IntakeRequestsTable
 {
+    /** Ít nhất chừng này chữ số mới tìm theo SĐT — ít hơn thì khớp gần như mọi số. */
+    private const PHONE_SEARCH_MIN_DIGITS = 4;
+
+    /**
+     * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ): ô tìm kiếm của danh sách tìm theo SĐT, trên cột
+     * CHUẨN HOÁ (`contact_phone_normalized`, dạng `84…`), nên `0912 345 678`, `+84 912345678` hay chỉ
+     * `345678` đều ra cùng bản ghi. Lấy chữ số của chuỗi tìm, bỏ các số 0 đứng đầu (số 0 gọi nội hạt
+     * không có trong dạng chuẩn hoá), rồi tìm chuỗi con. Dưới {@see self::PHONE_SEARCH_MIN_DIGITS} chữ số
+     * thì vế này không khớp gì (tên và mã vẫn được tìm như trước). Vẫn trong phạm vi
+     * `IntakeRequestResource::getEloquentQuery()` (người xem chỉ tìm thấy bản ghi mình được thấy).
+     *
+     * `$search` là CẢ CHUỖI người dùng gõ, không phải một mẩu (sửa sau rà soát cuối, F4): bảng vẫn tách
+     * chuỗi tìm thành từng từ — mỗi từ phải khớp một cột, nên "Nguyễn An" ra "Nguyễn Văn An" như trước
+     * khi có tìm theo SĐT — còn cột SĐT đọc chuỗi đầy đủ qua `getTableSearch()` của trang, để "0912 345
+     * 678" không thành ba mẩu ngắn không khớp gì. Mỗi từ của một chuỗi SĐT vì thế đều được vế SĐT trả lời.
+     */
+    public static function searchPhone(Builder $query, string $search): Builder
+    {
+        $digits = ltrim((string) preg_replace('/\D+/', '', $search), '0');
+
+        return strlen($digits) < self::PHONE_SEARCH_MIN_DIGITS
+            ? $query->whereRaw('1 = 0')
+            : $query->where($query->qualifyColumn('contact_phone_normalized'), 'like', '%'.$digits.'%');
+    }
+
+    /**
+     * Chuỗi tìm đầy đủ của trang (F4) — `getTableSearch()` nằm ở trait `InteractsWithTable`, không ở
+     * hợp đồng `HasTable`; trang nào không có nó (hay ô tìm rỗng) thì dùng mẩu Filament đưa vào.
+     */
+    private static function wholeSearch(HasTable $livewire, string $search): string
+    {
+        return method_exists($livewire, 'getTableSearch') ? ($livewire->getTableSearch() ?? $search) : $search;
+    }
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -49,7 +84,10 @@ class IntakeRequestsTable
                     ->placeholder(__('intake.anonymise.placeholder'))
                     ->searchable(),
                 TextColumn::make('contact_phone')
-                    ->label(__('intake.fields.contact_phone')),
+                    ->label(__('intake.fields.contact_phone'))
+                    // Làn fa (mục nhỏ): tìm được theo SĐT gõ kiểu nào cũng được — xem `searchPhone()`.
+                    // Tên và mã vẫn tìm theo từng từ (mặc định của bảng); vế SĐT đọc CẢ chuỗi đã gõ.
+                    ->searchable(query: fn (Builder $query, string $search, HasTable $livewire): Builder => static::searchPhone($query, static::wholeSearch($livewire, $search))),
                 TextColumn::make('source')
                     ->label(__('intake.fields.source'))
                     ->formatStateUsing(fn (IntakeSource $state): string => $state->label()),

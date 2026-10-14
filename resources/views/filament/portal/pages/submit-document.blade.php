@@ -67,6 +67,18 @@
                     </div>
                 @endif
 
+                {{-- Làn fa (A6): giấy văn phòng ĐÃ NHẬN — nói rõ, và chỉ gửi thêm khi khách tích xác nhận
+                     (`SubmitDocument::submit()` từ chối nếu chưa tích). --}}
+                @if ($this->needsResubmissionConfirmation($chosen))
+                    <div data-portal-notice="already-accepted" style="margin-top:0.75rem;border-radius:0.5rem;padding:0.625rem;background-color:color-mix(in srgb, var(--warning-500) 14%, transparent);">
+                        <p style="font-weight:600;line-height:1.5;">{{ __('document_corrections.portal.already_accepted') }}</p>
+                        <label style="min-height:44px;display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;">
+                            <input type="checkbox" wire:model="confirmResubmission" style="width:1.25rem;height:1.25rem;">
+                            <span>{{ __('document_corrections.portal.confirm_resubmission') }}</span>
+                        </label>
+                    </div>
+                @endif
+
                 <button type="button" wire:click="clearItem"
                         style="{{ $tap }}margin-top:0.75rem;border:1px solid var(--primary-600);color:var(--primary-600);background-color:transparent;">
                     {{ __('portal_submit.steps.item.change') }}

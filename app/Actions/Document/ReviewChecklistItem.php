@@ -5,6 +5,7 @@ namespace App\Actions\Document;
 use App\Actions\Document\Concerns\OpensChecklistItem;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Events\ChecklistItemRejected;
 use App\Exceptions\ChecklistItemNotReviewable;
 use App\Filament\Portal\Pages\MatterProgress;
@@ -13,6 +14,7 @@ use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -147,6 +149,11 @@ class ReviewChecklistItem
                 'rejection_reason' => $reason,
                 'reviewed_by' => $actor->getKey(),
                 'reviewed_at' => now(),
+                // Làn fa (A6/A7): nhận → version của tập vừa nhận (null khi nhận mà không có tệp nào —
+                // khách mang giấy ra tận văn phòng); từ chối → null (không còn bản đã nhận nào đứng).
+                'accepted_version' => $decision === ChecklistItemStatus::Accepted
+                    ? self::currentVersion($fresh)
+                    : null,
             ]);
 
             // Từ chối là một việc khách phải được biết ngay (SPEC §9, mẫu `client.document_
@@ -198,30 +205,50 @@ class ReviewChecklistItem
      * tệp trong hộp duyệt lẫn ô ẩn mang tập id gửi ngược vào {@see self::handle()} — một nguồn sự
      * thật duy nhất cho "hộp đang hiện gì", không phải luật viết lại lần thứ hai bên màn hình.
      *
+     * **Làn fa (A6/A7): tài liệu ĐÃ RÚT không bao giờ là "hiện tại".** Văn phòng đã rút nó khỏi tay
+     * khách kèm lý do; nhận nó (hay hỏi lại "tập có đổi không" trên nó) là nhận một thứ chính văn phòng
+     * đã gạt đi. Nên version hiện tại là version lớn nhất CÒN tài liệu chưa rút, và tập chỉ gồm những tài
+     * liệu chưa rút của version đó — giống hệt thứ khách thấy (`MatterProgress` chỉ đọc tài liệu khách
+     * xem được, mà tài liệu đã rút thì không).
+     *
      * @return array<int, int>
      */
     public static function currentDocumentIds(MatterChecklistItem $checklistItem): array
     {
-        $latestVersion = Document::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->where('matter_id', $checklistItem->matter_id)
-            ->where('matter_checklist_item_id', $checklistItem->getKey())
-            ->where('group', DocumentGroup::ClientProvided->value)
-            ->max('version');
+        $latestVersion = self::currentVersion($checklistItem);
 
         if ($latestVersion === null) {
             return [];
         }
 
+        return self::liveClientProvided($checklistItem)
+            ->where('version', $latestVersion)
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * Version của {@see self::currentDocumentIds()} — lớn nhất trong chuỗi nhóm A của đầu mục còn tài
+     * liệu chưa rút — hoặc null khi chưa có. Làn fa (A6/A7): đây là con số `accepted_version` ghi khi
+     * văn phòng bấm "Đã nhận".
+     */
+    public static function currentVersion(MatterChecklistItem $checklistItem): ?int
+    {
+        $version = self::liveClientProvided($checklistItem)->max('version');
+
+        return $version === null ? null : (int) $version;
+    }
+
+    /** @return Builder<Document> tài liệu nhóm A chưa rút (chưa xoá mềm) của đầu mục. */
+    private static function liveClientProvided(MatterChecklistItem $checklistItem): Builder
+    {
         return Document::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->where('matter_id', $checklistItem->matter_id)
             ->where('matter_checklist_item_id', $checklistItem->getKey())
             ->where('group', DocumentGroup::ClientProvided->value)
-            ->where('version', $latestVersion)
-            ->orderBy('id')
-            ->pluck('id')
-            ->all();
+            ->where('status', '!=', DocumentStatus::Retracted->value);
     }
 
     /**

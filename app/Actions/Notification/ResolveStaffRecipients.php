@@ -333,6 +333,46 @@ class ResolveStaffRecipients
     }
 
     /**
+     * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ) — người nhận thông báo "bạn vừa được giao một lần
+     * tiếp nhận": đúng người được giao (`assigned_to`), trừ `$except` (người tự giao cho chính mình).
+     * Không lặp lại hai bộ lọc tầng 1 của {@see self::forIntake()}: hàm này chỉ được gọi ngay sau lần
+     * lưu vừa ĐẶT người được giao, mà luật nhập liệu (`ValidatesIntakeIdentity`) chỉ nhận người đang
+     * hoạt động có `intake.create` — người đó thấy bản ghi được giao cho mình (`isVisibleTo()`). Quan hệ
+     * `assignee` bỏ người đã xoá mềm. Không ai thì rỗng — đây không phải cảnh báo cần lưới an toàn.
+     *
+     * @return Collection<int, User>
+     */
+    public function forIntakeAssignment(IntakeRequest $intake, ?User $except = null): Collection
+    {
+        $assignee = $intake->assignee()->first();
+
+        return $assignee instanceof User && ! $assignee->is($except)
+            ? collect([$assignee])
+            : collect();
+    }
+
+    /**
+     * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ) — người nhận thông báo "một lần tiếp nhận vừa ra Đỏ
+     * chờ xử lý": mọi trưởng phòng/quản trị (`ConflictOverride` — đúng những vai `IntakeRequestPolicy::
+     * resolveConflict` cho xử lý Đỏ) đang hoạt động, chưa xoá mềm. Không hỏi thêm "xem được bản ghi":
+     * hàm này chỉ chạy khi một bản ghi CÒN MỞ vừa ra Đỏ, và `intake.viewAny` của hai vai này chỉ không
+     * thấy những bản đã chuyển đổi/gộp vào một vụ `restricted` (`IntakeRequest::scopeVisibleTo()`). Trước
+     * bản sửa không ai được báo: người được giao (nếu có) không xử lý được Đỏ, còn quản lý chỉ thấy khi
+     * tự mở bộ lọc. Bản ghi được truyền vào để một luật hẹp hơn về sau có chỗ đọc.
+     *
+     * @return Collection<int, User>
+     */
+    public function forIntakeConflictResolution(IntakeRequest $intake): Collection
+    {
+        return User::query()
+            ->where('is_active', true)
+            ->role([Role::Manager->value, Role::Admin->value])
+            ->orderBy('id')
+            ->get()
+            ->values();
+    }
+
+    /**
      * Người nhận thông báo về việc dùng trợ lý AI của một NHÂN SỰ (M11 R8, Task 8 — cảnh báo "đọc quá
      * 200 bản ghi một giờ", `App\Actions\Mcp\AlertOnMcpReadVolume`): mọi người có quyền
      * `settings.manage` — chính những người bật, tắt và thu hồi được truy cập AI của nhân sự (R2) —

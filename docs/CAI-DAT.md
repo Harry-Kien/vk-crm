@@ -1193,6 +1193,35 @@ khi coi là đã có sao lưu (R3): sao lưu chưa khôi phục thử thì chưa
 biến mất), quản trị viên đã cài 2FA, một lần khôi phục thử đã chạy. Giờ mới gửi đường dẫn
 `/portal` cho khách.
 
+### Quét virus (ClamAV)
+
+Mặc định `CLAMAV_ENABLED=false`: tệp khách và nhân sự tải lên chỉ được kiểm loại tệp và cấu trúc
+(`FileGuard`), không ai quét mã độc. `vkcrm:preflight` in một dòng VÀNG khi quét virus tắt, và một dòng
+VÀNG khi đã bật mà daemon không trả lời (lúc đó MỌI tệp tải lên bị từ chối) — hai dòng chỉ in khi `APP_ENV=production`. Trên máy chủ riêng (VPS)
+nên bật:
+
+1. Cài daemon: `sudo apt install clamav-daemon clamav-freshclam`, chờ `freshclam` tải xong cơ sở dữ
+   liệu mẫu virus lần đầu (vài phút), rồi `sudo systemctl enable --now clamav-daemon`.
+2. Tìm socket: `grep LocalSocket /etc/clamav/clamd.conf` (thường `/var/run/clamav/clamd.ctl`). Người
+   dùng chạy PHP (ví dụ `www-data`) phải đọc ghi được socket đó: `sudo usermod -aG clamav www-data` rồi
+   khởi động lại PHP-FPM.
+3. Trong `.env`: `CLAMAV_ENABLED=true`, `CLAMAV_SOCKET=<đường dẫn ở bước 2>`, rồi nạp lại cấu hình như
+   mọi lần sửa `.env` (Bước 7): `sudo -u www-data php artisan optimize`, ngay sau đó
+   `sudo -u www-data chmod 600 bootstrap/cache/config.php`.
+4. Kiểm tra: `sudo -u www-data php artisan vkcrm:preflight` phải in dòng XANH "Quét virus đang bật, daemon ClamAV trả lời", và
+   `sudo -u www-data php artisan about` ghi "BẬT — ClamAvScanner, daemon trả lời PING".
+5. Thử daemon bằng tệp EICAR (chuỗi thử chuẩn, vô hại, mọi trình quét đều báo là virus): trên máy
+   chủ tạo `/tmp/eicar.txt` chứa đúng dòng
+   `X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*`, chạy
+   `clamdscan --fdpass /tmp/eicar.txt` — phải in `Eicar-Signature FOUND` (hay tên tương tự) — rồi xoá
+   tệp đó. Ứng dụng gửi mọi tệp tải lên qua đúng socket này sau khi tệp qua bước kiểm loại tệp; dòng
+   XANH ở bước 4 là bằng chứng ứng dụng nói chuyện được với daemon.
+
+Máy chủ chia sẻ (shared hosting) thường không cài được clamd: để `CLAMAV_ENABLED=false` và chấp nhận
+dòng VÀNG — đó là quyết định của chủ văn phòng. Tệp Word/Excel đời cũ (`.doc`, `.xls`) có thể mang
+macro; hệ thống chỉ mở và chặn macro trong `.docx`/`.xlsx`, nên với tệp đời cũ việc quét virus là lớp
+bảo vệ duy nhất.
+
 ### Máy chủ MCP (kết nối AI cho nhân sự)
 
 Từ M11, nhân sự nối tài khoản AI của chính mình (Claude, ChatGPT, Claude Code, VS Code…) vào hệ

@@ -4,16 +4,19 @@ namespace App\Actions\Intake;
 
 use App\Actions\Intake\Concerns\HoldsConflictCheckLock;
 use App\Actions\Intake\Concerns\ValidatesIntakeIdentity;
+use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\IntakeStatus;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
 use App\Models\User;
+use App\Notifications\Staff\IntakeAssigned;
 use App\Support\Audit;
 use App\Support\Intake\IntakeDuplicates;
 use App\Support\Intake\RecordIntakeResult;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * Ghi nhận MỘT lần có người liên hệ văn phòng và chạy kiểm tra xung đột lợi ích NGAY Ở LẦN CHẠM ĐẦU
@@ -53,7 +56,8 @@ use Illuminate\Support\Facades\Gate;
  * (`UpdateIntakeIdentity`): {@see ValidatesIntakeIdentity}.
  *
  * Phí đã báo (`quoted_amount`): số nguyên đồng, hoặc chuỗi qua `Money::parse()` (M9). Không thư nào
- * được gửi ở đây.
+ * được gửi ở đây. Làn fa (mục nhỏ): người được giao (khác người ghi) nhận MỘT thông báo trong hệ thống
+ * (`IntakeAssigned`, chỉ mã và nguồn) sau commit; Đỏ chờ lần đầu thì `CheckIntakeConflict` báo người xử lý Đỏ.
  */
 class RecordIntake
 {
@@ -63,7 +67,9 @@ class RecordIntake
     /**
      * @param  array<string, mixed>  $attributes  `contact_name` (bắt buộc), `source` (bắt buộc),
      *                                            `contact_phone`, `contact_email`, `contact_id_number`, `contact_role`, `referred_by`,
-     *                                            `matter_type_id`, `quoted_amount`, `assigned_to`, `received_at`. Khoá khác, kể cả
+     *                                            `matter_type_id`, `quoted_amount`, `assigned_to`, `received_at`, `organization_name`,
+     *                                            `organization_id_number` (làn fa, A1: tổ chức người gọi đại diện — mã số thuế chỉ lưu dấu
+     *                                            băm). Khoá khác, kể cả
      *                                            `summary`, bị bỏ qua.
      * @param  array<int, array<string, mixed>>  $opposingParties  Mỗi bên: `name`, `role` (bắt
      *                                                             buộc), `phone`, `id_number` (không bắt buộc — người gọi thường không biết; thiếu cả hai
@@ -83,6 +89,7 @@ class RecordIntake
                 'contact_phone' => $data['contact_phone'],
                 'contact_email' => $data['contact_email'],
                 'contact_role' => $data['contact_role'],
+                'organization_name' => $data['organization_name'],
                 'source' => $data['source'],
                 'referred_by' => $data['referred_by'],
                 'matter_type_id' => $data['matter_type_id'],
@@ -92,6 +99,7 @@ class RecordIntake
                 'received_at' => $data['received_at'] !== null ? CarbonImmutable::parse($data['received_at']) : now(),
             ]);
             $intake->identify($data['contact_id_number'], $data['contact_phone']);
+            $intake->identifyOrganization($data['organization_id_number']);
 
             // Actor tường minh: `created_by` không suy từ phiên. Bản ghi tự động của model bị tắt —
             // nó gán causer theo phiên; dòng `intake_recorded` bên dưới thay nó với đúng actor.
@@ -118,6 +126,15 @@ class RecordIntake
 
             return [$intake, $conflict];
         }));
+
+        // Làn fa (mục nhỏ): người được giao (khác người ghi) nhận thông báo trong hệ thống — NGOÀI
+        // transaction, sau khi bản ghi đã commit.
+        if ($intake->assigned_to !== null) {
+            Notification::send(
+                app(ResolveStaffRecipients::class)->forIntakeAssignment($intake, $actor),
+                new IntakeAssigned($intake),
+            );
+        }
 
         $duplicates = $actor === null
             ? new IntakeDuplicates(collect(), false, collect(), false, true)

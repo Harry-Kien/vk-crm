@@ -2,12 +2,14 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Document\DeleteDocument;
 use App\Actions\Document\MarkDocumentSignedFiled;
 use App\Actions\Document\PublishDocument;
 use App\Actions\Document\RegroupDocument;
 use App\Actions\Document\RetractDocument;
 use App\Actions\Document\ReturnDocumentToDraft;
 use App\Actions\Document\SubmitDocumentForApproval;
+use App\Actions\Document\UpdateDocumentDetails;
 use App\Actions\Document\UploadStaffDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
@@ -390,6 +392,9 @@ class DocumentsRelationManager extends RelationManager
                 $this->publishAction(),
                 $this->retractAction(),
                 $this->regroupAction(),
+                // Làn fa (A4): sửa thông tin và xoá tài liệu tải nhầm.
+                $this->editDetailsAction(),
+                $this->deleteDocumentAction(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query)
                 // **Nhóm D phải bị loại KHỎI TRUY VẤN, không chỉ khỏi các nút.** Filament dựng
@@ -694,7 +699,11 @@ class DocumentsRelationManager extends RelationManager
             ->icon(Heroicon::OutlinedNoSymbol)
             ->color('danger')
             ->modalHeading(__('retraction.action.modal_heading'))
-            ->modalDescription(__('retraction.action.modal_description'))
+            // Làn fa (A7): rút một tài liệu nhóm A gắn đầu mục có thể đưa đầu mục về "Còn thiếu" —
+            // người rút phải biết trước khi bấm.
+            ->modalDescription(fn (Document $record): string => $record->group === DocumentGroup::ClientProvided && $record->matter_checklist_item_id !== null
+                ? __('retraction.action.modal_description').' '.__('document_corrections.retract.checklist_note')
+                : __('retraction.action.modal_description'))
             ->modalSubmitActionLabel(__('retraction.action.submit'))
             ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
             ->visible(fn (Document $record): bool => $record->isReleasedToPortal())
@@ -713,6 +722,89 @@ class DocumentsRelationManager extends RelationManager
                     document: $record,
                     actor: Auth::user(),
                     reason: (string) ($data['retraction_reason'] ?? ''),
+                ),
+            ));
+    }
+
+    /**
+     * Làn fa (A4) — "Sửa thông tin": tiêu đề, ngày ban hành, đầu mục (`UpdateDocumentDetails`). Hai cổng,
+     * cùng câu Action hỏi: `update` luôn, cộng `publish` khi tài liệu đang ra tới khách
+     * (`isReleasedToPortal()`) — trợ lý sửa được bản nháp, không sửa được thứ khách đang đọc. Form đọc từ
+     * chính bản ghi; `maxLength` = cột 250. Ô đầu mục mời mọi đầu mục còn trong danh mục; một tài liệu
+     * nhóm A chọn đầu mục khác thì Action từ chối ở đúng ô đó (chuỗi nộp, xem docblock Action).
+     */
+    private function editDetailsAction(): Action
+    {
+        return Action::make('editDetails')
+            ->label(__('document_corrections.edit.action'))
+            ->icon(Heroicon::OutlinedPencilSquare)
+            ->color('gray')
+            ->modalHeading(__('document_corrections.edit.heading'))
+            ->modalDescription(__('document_corrections.edit.description'))
+            ->authorize(fn (Document $record): bool => Gate::allows('update', $record)
+                && (! $record->isReleasedToPortal() || Gate::allows('publish', $record)))
+            ->fillForm(fn (Document $record): array => [
+                'title' => $record->title,
+                'issued_at' => $record->issued_at?->toDateString(),
+                'matter_checklist_item_id' => $record->matter_checklist_item_id,
+            ])
+            ->schema([
+                TextInput::make('title')
+                    ->label(__('document_corrections.edit.title'))
+                    ->required()
+                    ->maxLength(UpdateDocumentDetails::MAX_TITLE_LENGTH),
+                DatePicker::make('issued_at')
+                    ->label(__('document_corrections.edit.issued_at'))
+                    ->native(false),
+                Select::make('matter_checklist_item_id')
+                    ->label(__('document_corrections.edit.checklist_item'))
+                    ->helperText(__('document_corrections.edit.checklist_item_help'))
+                    ->placeholder(__('document_corrections.edit.checklist_item_none'))
+                    ->options(fn (): array => static::checklistItemOptions($this->getOwnerRecord())),
+            ])
+            ->successNotificationTitle(__('document_corrections.edit.success'))
+            ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(UpdateDocumentDetails::class)->handle(
+                    document: $record,
+                    actor: Auth::user(),
+                    title: (string) ($data['title'] ?? ''),
+                    issuedAt: ($data['issued_at'] ?? null) ?: null,
+                    checklistItemId: filled($data['matter_checklist_item_id'] ?? null) ? (int) $data['matter_checklist_item_id'] : null,
+                ),
+            ));
+    }
+
+    /**
+     * Làn fa (A4) — "Xoá" một tài liệu tải nhầm mà khách chưa từng thấy (`DeleteDocument`). Hiện theo
+     * đúng `DocumentPolicy::delete` (không ra tới khách, chưa rút, `document.publish` + quyền sửa, không
+     * làm bằng chứng tiền) — luật đã có từ M4/M7/M9, nay mới có nút. Ô lý do không đặt `minLength`: ngưỡng
+     * ở một chỗ, Action, lời từ chối về đúng ô (`ReportsActionFailures`).
+     */
+    private function deleteDocumentAction(): Action
+    {
+        return Action::make('deleteDocument')
+            ->label(__('document_corrections.delete.action'))
+            ->icon(Heroicon::OutlinedTrash)
+            ->color('danger')
+            ->modalHeading(__('document_corrections.delete.heading'))
+            ->modalDescription(__('document_corrections.delete.description'))
+            ->authorize(fn (Document $record): bool => Gate::allows('delete', $record))
+            ->schema([
+                Textarea::make('delete_reason')
+                    ->label(__('document_corrections.delete.reason'))
+                    ->helperText(__('document_corrections.delete.reason_help', ['min' => DeleteDocument::REASON_MIN]))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(DeleteDocument::REASON_MAX),
+            ])
+            ->successNotificationTitle(__('document_corrections.delete.success'))
+            ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(DeleteDocument::class)->handle(
+                    document: $record,
+                    actor: Auth::user(),
+                    reason: (string) ($data['delete_reason'] ?? ''),
                 ),
             ));
     }

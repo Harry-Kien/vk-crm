@@ -84,6 +84,15 @@ class AddChecklistItem
             ]);
         }
 
+        // Làn fa, sửa sau rà soát cuối (F3): mô tả nằm trong cột `text` (65.535 byte) — quá trần thì
+        // từ chối trên đúng ô, không để MariaDB strict trả 500. Trần và lý do ở
+        // `MatterChecklistItem::DESCRIPTION_MAX_LENGTH`; cùng câu với `UpdateChecklistItem`.
+        if ($description !== null && mb_strlen($description) > MatterChecklistItem::DESCRIPTION_MAX_LENGTH) {
+            throw ValidationException::withMessages([
+                'description' => [__('document_corrections.description_too_long', ['max' => MatterChecklistItem::DESCRIPTION_MAX_LENGTH])],
+            ]);
+        }
+
         return DB::transaction(function () use ($matter, $actor, $name, $description, $isRequired): MatterChecklistItem {
             // Khoá dòng vụ việc trước khi hỏi lại tên có trùng không — cùng lý do
             // `AddTeamMember` khoá trước khi hỏi "đã trong đội ngũ chưa": không có khoá, hai lần

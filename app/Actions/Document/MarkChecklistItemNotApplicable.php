@@ -75,6 +75,8 @@ class MarkChecklistItemNotApplicable
                 'rejection_reason' => null,
                 'reviewed_by' => $actor->getKey(),
                 'reviewed_at' => now(),
+                // Làn fa (A6/A7): "không cần nộp" không phải một bản đã nhận.
+                'accepted_version' => null,
             ]);
 
             // Bên TRONG transaction, cùng lý do với `ReviewChecklistItem`. Và dòng này là dấu vết

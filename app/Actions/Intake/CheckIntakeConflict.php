@@ -2,6 +2,7 @@
 
 namespace App\Actions\Intake;
 
+use App\Actions\Notification\ResolveStaffRecipients;
 use App\Actions\RunConflictCheck;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
@@ -9,8 +10,11 @@ use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Notifications\Staff\IntakeRedPending;
 use App\Support\ConflictCheckResult;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * Chạy `RunConflictCheck` cho một lần tiếp nhận và GHI kết quả lên bản ghi (M10 R1) — bước dùng
@@ -31,6 +35,8 @@ use Illuminate\Support\Collection;
  *    (đối của nguyên đơn là bị đơn và ngược lại), còn không thì `related` — để Đỏ không lặng lẽ tắt chỉ
  *    vì người gọi chưa nói mình là nguyên đơn hay bị đơn. Vai suy ra chỉ dùng cho lần kiểm tra, KHÔNG
  *    ghi lại vào `contact_role`.
+ *  - Tổ chức người gọi đại diện (làn fa, A1), khi có = một `MatterParty` `is_our_client` THỨ HAI, cùng
+ *    vai, tên tổ chức, dấu băm mã số thuế ({@see self::organizationParty()}).
  *  - Bên đối lập = {@see IntakeParty::toConflictParty()}.
  *
  * **Ghi lên bản ghi:** `conflict_level` (mức của các khớp MỚI, như `OpenMatter`), `conflict_checked_at`,
@@ -61,6 +67,11 @@ use Illuminate\Support\Collection;
  *    tra gần nhất chưa thấy" của hàm đó không bao giờ đúng: một ghi đè còn sót qua bước trên che hết.
  * KHÔNG BAO GIỜ xoá ở đây — một lần chạy ra Xanh, kể cả do quản lý chạy, không xử lý được Đỏ (R1: chỉ
  * từ chối hoặc ghi đè kèm lý do). Chỉ `ResolveIntakeRedConflict` xoá nó.
+ *
+ * **Báo người xử lý Đỏ (làn fa, mục nhỏ).** Khi lần chạy này đặt dấu Đỏ chờ LẦN ĐẦU (trước đó null),
+ * mọi trưởng phòng/quản trị xử lý được Đỏ trên bản ghi
+ * ({@see ResolveStaffRecipients::forIntakeConflictResolution()}) nhận thông báo trong hệ thống
+ * {@see IntakeRedPending} — sau khi transaction của người gọi commit (`DB::afterCommit`), chỉ mã bản ghi.
  */
 class CheckIntakeConflict
 {
@@ -103,7 +114,10 @@ class CheckIntakeConflict
         }
 
         // Sau bước xoá ở trên: "chưa có ghi đè còn hiệu lực" phải là trạng thái SAU lần chạy này.
+        $redJustPending = false;
+
         if ($result->level === ConflictLevel::Red || $intake->isHeldByRepeatCallLock($contactRole)) {
+            $redJustPending = $intake->conflict_red_pending_since === null;
             $intake->conflict_red_pending_since ??= now();
         }
 
@@ -112,6 +126,15 @@ class CheckIntakeConflict
         }
 
         $intake->save();
+
+        // Làn fa (mục nhỏ): báo trưởng phòng/quản trị khi dấu Đỏ chờ được đặt LẦN ĐẦU — sau commit (người
+        // gọi đang ở trong transaction), chỉ mã bản ghi. Một lần chạy lại khi Đỏ vẫn chờ không báo lại.
+        if ($redJustPending) {
+            DB::afterCommit(fn () => Notification::send(
+                app(ResolveStaffRecipients::class)->forIntakeConflictResolution($intake),
+                new IntakeRedPending($intake),
+            ));
+        }
 
         return $result;
     }
@@ -131,8 +154,36 @@ class CheckIntakeConflict
         $contact->phone_normalized = $intake->contact_phone_normalized;
 
         return collect([
+            // Người liên hệ PHẢI đứng đầu: `RunConflictCheck` lấy bên `is_our_client` ĐẦU TIÊN làm người
+            // gọi để nhận ra cuộc gọi lại.
             $contact,
+            ...$this->organizationParty($intake, $contactRole),
             ...$intakeParties->map(fn (IntakeParty $party): MatterParty => $party->toConflictParty())->all(),
         ]);
+    }
+
+    /**
+     * Làn fa (A1): tổ chức người gọi đại diện, như một bên PHÍA MÌNH thứ hai — cùng vai với người liên
+     * hệ (công ty và người đại diện đứng cùng một phía), tên tổ chức, dấu băm mã số thuế, không SĐT (số
+     * máy là của người gọi, không phải của công ty — mượn nó sẽ cho khớp sai). Không có mã số thuế thì
+     * tổ chức là một bên "thiếu định danh" như mọi bên chỉ có tên: kết quả Xanh không đáng tin, ô câu
+     * chuyện đòi bước xác nhận (`IntakeSummaryGate` bước 4).
+     *
+     * @return list<MatterParty>
+     */
+    private function organizationParty(IntakeRequest $intake, PartyRole $contactRole): array
+    {
+        if (! $intake->speaksForOrganization()) {
+            return [];
+        }
+
+        $organization = new MatterParty([
+            'role' => $contactRole,
+            'name' => $intake->organization_name,
+            'is_our_client' => true,
+        ]);
+        $organization->id_number_hash = $intake->organization_id_number_hash;
+
+        return [$organization];
     }
 }

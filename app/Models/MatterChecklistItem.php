@@ -20,9 +20,20 @@ class MatterChecklistItem extends Model
     use RestrictedToClientPortal;
     use SoftDeletes;
 
+    /**
+     * Làn fa, sửa sau rà soát cuối (F3): trần KÝ TỰ của `description` — cột `text` chứa tối đa 65.535
+     * BYTE, một ký tự utf8mb4 tối đa 4 byte, nên 65.535 / 4 làm tròn xuống: mọi chuỗi qua trần, kể cả toàn
+     * ký tự 4 byte, vừa cột (MariaDB strict không còn trả 500). Cùng cách `LogCommunication::SUMMARY_MAX_LENGTH`.
+     * Form ("Thêm đầu mục", "Sửa đầu mục") và hai Action (`AddChecklistItem`, `UpdateChecklistItem`) đọc
+     * cùng hằng số này.
+     */
+    public const DESCRIPTION_MAX_LENGTH = 16383;
+
     protected $fillable = [
         'matter_id', 'name', 'description', 'is_required', 'sort_order',
         'status', 'rejection_reason', 'reviewed_by', 'reviewed_at',
+        // Làn fa (A6/A7): version nhóm A văn phòng đã nhận gần nhất — xem migration 2026_10_09_100002.
+        'accepted_version',
     ];
 
     protected $attributes = ['status' => 'missing'];
@@ -34,6 +45,7 @@ class MatterChecklistItem extends Model
             'sort_order' => 'integer',
             'status' => ChecklistItemStatus::class,
             'reviewed_at' => 'datetime',
+            'accepted_version' => 'integer',
         ];
     }
 
