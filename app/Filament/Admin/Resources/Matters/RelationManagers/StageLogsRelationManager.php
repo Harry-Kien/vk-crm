@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Matter\RequestHandoverPackage;
 use App\Actions\Matter\RetractStageLog;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
@@ -380,6 +381,10 @@ class StageLogsRelationManager extends RelationManager
      * rút). Action tự hỏi lại cả hai dưới khoá. Ô lý do không đặt `minLength()`: ngưỡng chỉ ở Action
      * (đếm sau khi gỡ khoảng trắng Unicode), lời từ chối về đúng ô qua `ReportsActionFailures`;
      * `maxLength()` bằng trần chủ động của Action.
+     *
+     * Vòng sửa 1: câu thứ hai của hộp thoại nói lần rút làm gì với gói bàn giao ĐÃ DỰNG của vụ
+     * ({@see RequestHandoverPackage::indexImpact()} — sinh lại, phải rút gói trước, gói cũ, hay không
+     * có gói), đọc lúc mở hộp thoại; Action hỏi lại cùng phép phân loại dưới khoá.
      */
     private function retractAction(): Action
     {
@@ -388,7 +393,8 @@ class StageLogsRelationManager extends RelationManager
             ->icon(Heroicon::OutlinedEyeSlash)
             ->color('danger')
             ->modalHeading(__('lifecycle.stage_log.modal_heading'))
-            ->modalDescription(__('lifecycle.stage_log.modal_description'))
+            ->modalDescription(fn (): string => __('lifecycle.stage_log.modal_description').' '
+                .app(RequestHandoverPackage::class)->indexImpact((int) $this->getOwnerRecord()->getKey())->label())
             ->modalSubmitActionLabel(__('lifecycle.stage_log.submit'))
             ->authorize(fn (StageLog $record): bool => Gate::allows('publish', $record->setRelation('matter', $this->getOwnerRecord())))
             ->visible(fn (StageLog $record): bool => $record->is_published && ! $record->isRetracted())

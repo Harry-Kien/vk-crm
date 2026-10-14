@@ -422,9 +422,16 @@ bắt buộc không rỗng và tối thiểu 30 ký tự.**
 NỘI DUNG của dòng. Một dòng đã công bố nhầm (ví dụ cập nhật của khách khác) được rút qua
 `RetractStageLog`: người có `stageLog.publish` nhập lý do (≥ 20 ký tự, chỉ nội bộ), Action đặt
 `is_published = false` và ba cột dấu vết, ghi `stage_log_retracted`. Dòng biến khỏi cổng, khỏi mục
-lục gói bàn giao và không được gửi thư nữa (cả ba chỗ đọc `is_published`); nhân sự vẫn đọc được nội
-dung cũ, gạch ngang, kèm ai rút và lý do. Không có đường công bố lại một dòng đã rút; thư đã gửi
-không thu hồi được.
+lục của mọi gói bàn giao dựng SAU lần rút, và không được gửi thư nữa (cả ba chỗ đọc `is_published`);
+nhân sự vẫn đọc được nội dung cũ, gạch ngang, kèm ai rút và lý do. Không có đường công bố lại một
+dòng đã rút; thư đã gửi không thu hồi được. Một gói ĐÃ DỰNG trước lần rút (thường là gói tự sinh lúc
+đóng vụ, đang chờ công bố) vẫn in dòng đó trong `MUC-LUC.pdf`, nên (vòng sửa 1 của làn fm) hộp thoại
+rút nói rõ điều sẽ xảy ra với gói, và cùng transaction với lần rút: gói chưa ra tới khách của một vụ
+đang kết thúc (hồ sơ chưa tiêu huỷ) được tự xếp sinh lại — người rút đứng tên lần yêu cầu, nhật ký
+`handover_package_requested` mang `trigger = stage_log_retracted`, dấu yêu cầu mới thay dấu của lần
+sinh đang chờ; gói đang công bố cho khách thì KHÔNG tự sinh lại (một đường rút duy nhất, §6.12) — hộp
+thoại bảo rút gói bằng "Rút lại" rồi sinh lại; vụ đã mở lại mà còn gói cũ thì hộp thoại cảnh báo
+đừng công bố gói đó.
 
 ### 4.9 `checklist_templates` và `checklist_template_items`
 

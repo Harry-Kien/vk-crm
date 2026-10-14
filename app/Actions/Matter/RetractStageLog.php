@@ -25,8 +25,16 @@ use Illuminate\Validation\ValidationException;
  * (`stage_log_views`) giữ nguyên — chúng là sự thật đã xảy ra. Vì mọi chỗ đưa dòng tiến độ tới khách
  * đều đọc `is_published` — cổng (`StageLog::applyClientPortalConstraints`), thư
  * (`NotifyClientOfStageUpdate` đọc lại lúc gửi), mục lục gói bàn giao (`RenderHandoverIndex`) — tắt
- * cờ đó là đủ để dòng rời cả ba, không cần luật thứ hai. Không có đường công bố lại một dòng đã rút:
- * muốn khách đọc nội dung đúng thì đăng một cập nhật mới.
+ * cờ đó là đủ để dòng rời cổng và thư, và rời mục lục của mọi gói DỰNG SAU lần rút. Không có đường
+ * công bố lại một dòng đã rút: muốn khách đọc nội dung đúng thì đăng một cập nhật mới.
+ *
+ * **Gói đã dựng trước lần rút (vòng sửa 1).** Mục lục là một tệp PDF đã in: gói tự sinh lúc đóng vụ
+ * và chờ luật sư công bố vẫn mang dòng vừa rút. Nên, trong CÙNG transaction và sau khi dòng đã rút,
+ * Action gọi {@see RequestHandoverPackage::refreshAfterRetraction()}: gói chưa ra tới khách của một
+ * vụ đang kết thúc thì được xếp sinh lại (job chạy sau commit); gói đang công bố thì không (một đường
+ * rút duy nhất) — hộp thoại, đọc cùng phép phân loại ({@see RequestHandoverPackage::indexImpact()}),
+ * bảo người dùng rút gói trước; vụ đã mở lại thì hộp thoại cảnh báo gói cũ. Khoá theo thứ tự
+ * `matters` → `stage_logs` → `matter_archives` → `documents`.
  *
  * Lý do rút là chữ NỘI BỘ: dòng biến hẳn khỏi cổng, không để lại dòng "đã rút" nào cho khách (khác tài
  * liệu), vì ca rút điển hình là thông tin của khách khác — một dấu vết trên cổng chỉ gợi thêm câu hỏi.
@@ -46,6 +54,8 @@ class RetractStageLog
 
     /** Trần chủ động cho cột `text`, cùng con số `RetractDocument::REASON_MAX`. */
     public const REASON_MAX = 5000;
+
+    public function __construct(private readonly RequestHandoverPackage $requestPackage) {}
 
     /**
      * @throws AuthorizationException
@@ -103,6 +113,9 @@ class RetractStageLog
                 'stage_log_id' => $fresh->getKey(),
                 'was_notified' => $fresh->notified_at !== null,
             ], $actor);
+
+            // Vòng sửa 1: gói đã dựng trước lần rút vẫn in dòng này — xem docblock lớp.
+            $this->requestPackage->refreshAfterRetraction($matter->getKey(), $actor);
 
             return $fresh;
         });

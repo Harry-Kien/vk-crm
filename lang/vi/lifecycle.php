@@ -31,7 +31,15 @@ return [
     'stage_log' => [
         'action' => 'Rút khỏi cổng',
         'modal_heading' => 'Rút dòng tiến độ khỏi cổng khách hàng',
-        'modal_description' => 'Khách sẽ không còn thấy dòng này trên cổng, và nó không vào mục lục gói bàn giao. Dòng vẫn nằm trong sổ tiến độ nội bộ (không xoá, không sửa). Thư báo đã gửi thì không thu hồi được. Muốn khách đọc nội dung đúng, hãy đăng một cập nhật mới.',
+        'modal_description' => 'Khách sẽ không còn thấy dòng này trên cổng. Dòng vẫn nằm trong sổ tiến độ nội bộ (không xoá, không sửa). Thư báo đã gửi thì không thu hồi được. Muốn khách đọc nội dung đúng, hãy đăng một cập nhật mới.',
+        // Vòng sửa 1: mục lục (MUC-LUC.pdf) của một gói ĐÃ DỰNG vẫn mang dòng này — câu nối thêm vào
+        // hộp thoại theo App\Enums\HandoverIndexImpact.
+        'index_impact' => [
+            'none' => 'Gói bàn giao sinh sau này sẽ không có dòng này trong mục lục.',
+            'regenerated' => 'Vụ đã có gói bàn giao chưa công bố cho khách, và mục lục của gói đó còn dòng này: hệ thống sẽ tự sinh lại gói để bỏ dòng này. Đừng công bố gói cũ — chờ gói mới ở khối "Gói bàn giao hồ sơ".',
+            'released' => 'Gói bàn giao ĐANG công bố cho khách vẫn có dòng này trong mục lục (MUC-LUC.pdf), và rút dòng này không đổi được gói đó. Hãy rút gói bằng nút "Rút lại" trên dòng của nó ở tab Tài liệu, rồi bấm "Sinh lại gói bàn giao".',
+            'stale' => 'Gói bàn giao đã sinh trước đây vẫn có dòng này trong mục lục, và hệ thống không tự sinh lại được khi vụ chưa kết thúc. Đừng công bố gói đó; khi vụ kết thúc, bấm "Sinh lại gói bàn giao" trước khi công bố.',
+        ],
         'submit' => 'Rút khỏi cổng',
         'success' => 'Đã rút dòng tiến độ khỏi cổng khách hàng.',
         'reason' => 'Lý do rút (chỉ nội bộ)',
