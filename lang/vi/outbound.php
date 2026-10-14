@@ -122,7 +122,7 @@ return [
                 // M14 Task 5 (lý do ở docblock `ResendTargets`).
                 'staff.document_store_alert.*' => 'thư cảnh báo kho tài liệu nói về một lần kiểm sức khoẻ đã qua; nếu sự cố còn, lượt kiểm mỗi giờ sẽ tự báo lại (mỗi loại sự cố một thư mỗi ngày, thư lỗi không chặn lần gửi sau). Xem tình trạng hiện tại ở trang "Kho tài liệu".',
                 // Làn nt Task 1 (lý do ở docblock `ResendTargets`).
-                'client.payment_received' => 'thư xác nhận đã nhận tiền gắn với vụ việc chứ không với khoản thu, nên không dựng lại được; hệ thống đã tự thử lại nhiều lần và chuông báo lỗi đã tới luật sư phụ trách. Hãy báo khách bằng kênh khác nếu cần.',
+                'client.payment_received' => 'thư xác nhận đã nhận tiền gắn với vụ việc chứ không với khoản thu, nên không dựng lại được; hệ thống tự thử lại nhiều lần, thử hết mà vẫn lỗi thì luật sư phụ trách nhận chuông báo. Thư chỉ đi tới tài khoản mà cổng khách còn cho xem vụ. Hãy báo khách bằng kênh khác nếu cần.',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],

@@ -67,9 +67,9 @@ use Illuminate\Validation\ValidationException;
  *  9. `Audit::record('payment_recorded', …, $actor)` bên trong transaction.
  * 10. (làn nt Task 1) Công tắc "Nhắc lịch thanh toán cho khách" bật ({@see ClientPaymentSettings},
  *     mặc định tắt) thì xếp {@see SendPaymentReceivedMail} bằng `->afterCommit()` — thư xác nhận tới
- *     tài khoản cổng R12 của khách; R2: không thư nào đi từ bên trong transaction này, và transaction bị
- *     huỷ (hay chạy lại vì deadlock) thì lần xếp của nó bị bỏ cùng. Tắt thì không xếp gì. Job tự hỏi lại
- *     công tắc và đọc lại khoản thu lúc chạy (docblock của job).
+ *     tài khoản cổng R12 của khách mà cổng còn cho xem vụ; R2: không thư nào đi từ bên trong transaction
+ *     này, và transaction bị huỷ (hay chạy lại vì deadlock) thì lần xếp của nó bị bỏ cùng. Tắt thì không
+ *     xếp gì. Job tự hỏi lại công tắc, đọc lại khoản thu và người nhận lúc chạy (docblock của job).
  */
 class RecordPayment
 {

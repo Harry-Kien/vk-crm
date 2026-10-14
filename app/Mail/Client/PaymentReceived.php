@@ -19,7 +19,8 @@ use Illuminate\Mail\Mailables\Envelope;
 /**
  * Mẫu `client.payment_received` (làn nt Task 1) — xác nhận văn phòng đã nhận một khoản thanh toán.
  * Chỉ gửi khi công tắc "Nhắc lịch thanh toán cho khách" bật; xếp và gửi bởi
- * {@see SendPaymentReceivedMail}, tới tài khoản đã qua R12.
+ * {@see SendPaymentReceivedMail}, tới tài khoản đã qua R12 mà cổng còn cho xem vụ (job lọc bằng
+ * `ResolveClientRecipients::onPortal()`) — nên lúc thư đi, lời mời đăng nhập cổng để xem chi tiết là thật.
  *
  * **Nội dung — chỉ những gì khách đã biết về tiền của mình:** mã hồ sơ, số tiền đã nhận, ngày nhận
  * (`paid_on`), và còn phải thanh toán bao nhiêu theo hợp đồng (job tính lúc gửi và truyền vào — mailable

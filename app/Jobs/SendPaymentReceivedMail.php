@@ -41,10 +41,16 @@ use Throwable;
  *     cho khách; khoản đã huỷ trước khi job chạy thì cũng không có thư xác nhận. Khoản huỷ SAU khi thư
  *     đã đi thì thôi (khối tiền trên cổng tự bỏ khoản đã huỷ);
  *  3. **vụ việc còn** (chưa xoá mềm);
- *  4. **người nhận** = {@see ResolveClientRecipients::recipientsFor()} của khách sở hữu vụ — R12: tài
- *     khoản đang hoạt động, đã kích hoạt, khách chưa bị xoá. Không thêm bước "vụ còn trên cổng": thư
- *     xác nhận tiền KHÁCH đã trả, nói về chính khoản tiền đó, và chỉ mời vào trang chủ của cổng (không
- *     liên kết tới trang của vụ, nên không có trang 404 nào để dẫn tới).
+ *  4. **người nhận** — hai bước như cả năm thư khách-về-một-vụ khác (`NotifyClientOfStageUpdate`,
+ *     `NotifyClientOfDocumentPublished`, `NotifyClientOfChecklistItemRejected`,
+ *     `NotifyClientOfRequestAnswered`, `SendMissingDocumentsMail`):
+ *     {@see ResolveClientRecipients::recipientsFor()} của khách sở hữu vụ (R12: tài khoản đang hoạt
+ *     động, đã kích hoạt, khách chưa bị xoá), rồi {@see ResolveClientRecipients::onPortal()} — chỉ giữ
+ *     tài khoản mà cổng còn cho xem vụ (`MatterPolicy::view` nhánh khách: vụ đã công bố lên cổng,
+ *     chưa xoá, khách chưa xoá, chưa quá hạn tra cứu). Thư mang mã hồ sơ (và với vụ thường cả số
+ *     tiền, ngày, số còn lại) và mời khách đăng nhập cổng để xem chi tiết; vụ văn phòng giữ ngoài cổng
+ *     hay đã hết hạn tra cứu thì cổng không cho xem, nên không ai nhận thư — kể cả mã hồ sơ của một vụ
+ *     hạn chế cũng không tới người cổng từ chối cho xem vụ đó.
  *
  * "Còn lại bao nhiêu" cũng tính lúc gửi: tổng {@see Instalment::outstanding()} của các đợt chưa huỷ của
  * hợp đồng (hợp đồng không còn `active` thì 0) — nên hai khoản thu ghi liền nhau cho hai thư nói đúng
@@ -155,7 +161,8 @@ class SendPaymentReceivedMail implements ShouldQueue
             return null;
         }
 
-        $recipients = app(ResolveClientRecipients::class)->recipientsFor((int) $matter->client_id);
+        $resolver = app(ResolveClientRecipients::class);
+        $recipients = $resolver->onPortal($matter, $resolver->recipientsFor((int) $matter->client_id));
 
         if ($recipients->isEmpty()) {
             return null;

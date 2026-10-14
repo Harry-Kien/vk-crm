@@ -68,8 +68,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *    sổ thư gắn với VỤ VIỆC (để ai xem được vụ thì xem được dòng — `payment` không có `matter_id` trực
  *    tiếp nên một dòng gắn khoản thu chỉ admin thấy), và từ vụ việc không dựng lại được khoản thu nào.
  *    Job `SendPaymentReceivedMail` tự thử lại năm lần; hỏng hẳn thì ghi `payment_received_mail_failed`
- *    và rung chuông cho luật sư phụ trách để báo khách bằng kênh khác. Khoản thu vẫn hiện ở khối tiền
- *    trên cổng khách khi vụ còn trên cổng.
+ *    và rung chuông cho luật sư phụ trách để báo khách bằng kênh khác. Thư chỉ từng đi tới tài khoản mà
+ *    cổng cho xem vụ (job lọc bằng `ResolveClientRecipients::onPortal()`), và khoản thu vẫn hiện ở khối
+ *    tiền trên cổng khách khi vụ còn trên cổng.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai

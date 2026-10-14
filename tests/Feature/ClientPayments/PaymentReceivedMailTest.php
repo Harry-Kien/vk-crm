@@ -14,6 +14,7 @@ use App\Models\ClientUser;
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Models\Payment;
 use App\Models\Setting;
@@ -24,6 +25,7 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
@@ -236,6 +238,78 @@ it('only names the matter code and invites the client to sign in for a restricte
         ->not->toContain('6.000.000')
         ->not->toContain('19/10/2026')
         ->not->toContain('TENDOT-XNHAN');
+});
+
+// =========================================================================================
+// Vụ không còn trên cổng của khách: không thư nào (vòng sửa 1)
+// =========================================================================================
+
+/*
+| Thư nói về MỘT vụ, nên như năm thư khách-về-một-vụ khác nó chỉ đi tới tài khoản mà cổng còn cho
+| xem vụ đó (`ResolveClientRecipients::onPortal()` — `MatterPolicy::view` nhánh khách). Thiếu bước
+| này thì một vụ văn phòng giữ ngoài cổng (hay đã quá hạn tra cứu) vẫn gửi mã hồ sơ — và với vụ
+| thường cả số tiền, ngày, số còn lại — tới những người cổng không cho xem vụ, kèm lời mời "đăng
+| nhập cổng để xem chi tiết" mà cổng không giữ được. Khách vẫn có vụ khác trên cổng ($this->matter),
+| nên các tài khoản vẫn qua R12: chỉ bước "vụ còn trên cổng" chặn được.
+|
+| Mutation probe: bỏ `onPortal()` khỏi `SendPaymentReceivedMail::context()` → ba hàng của test đầu
+| và test "gỡ khỏi cổng sau khi xếp" ĐỎ.
+*/
+it('mails nobody when the portal does not show the matter to the client', function (string $case) {
+    prmSwitch(true);
+
+    $matter = Matter::factory()
+        ->when($case === 'restricted, unpublished', fn ($factory) => $factory->restricted())
+        ->for($this->client)
+        ->create([
+            'code' => 'VK-2026-HC-0099',
+            'lead_lawyer_id' => $this->lead->id,
+            'is_published_to_portal' => $case === 'access expired',
+        ]);
+
+    if ($case === 'access expired') {
+        MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => '2026-10-19']);
+    }
+
+    [, $instalment] = prmContract($matter);
+
+    expect(Gate::forUser($this->wife)->allows('view', $matter->fresh()))->toBeFalse();
+
+    // Vụ thường: kế toán ghi (luật sư không có `payment.record`); vụ hạn chế: chỉ admin hoặc luật sư phụ trách.
+    prmRecordThroughTab($matter, $instalment, '4.000.000', $case === 'restricted, unpublished' ? $this->lead : $this->accountant);
+
+    expect(Payment::query()->count())->toBe(1)
+        ->and(prmSentMails())->toBe([])
+        ->and(OutboundMessage::query()->withoutGlobalScopes()->where('template', 'client.payment_received')->count())->toBe(0);
+})->with([
+    'normal, unpublished' => ['normal, unpublished'],
+    'restricted, unpublished' => ['restricted, unpublished'],
+    'access expired' => ['access expired'],
+]);
+
+it('still mails on the last day the client may look the matter up', function () {
+    prmSwitch(true);
+
+    MatterArchive::factory()->create(['matter_id' => $this->matter->id, 'client_access_until' => '2026-10-20']);
+
+    expect(Gate::forUser($this->wife)->allows('view', $this->matter->fresh()))->toBeTrue();
+
+    prmRecordThroughTab($this->matter, $this->instalment, '4.000.000');
+
+    expect(prmRecipients())->toBe(['chong@example.test', 'vo@example.test']);
+});
+
+it('reads the portal at send time: a matter taken off the portal after queueing mails nobody', function () {
+    prmSwitch(true);
+    Queue::fake();
+
+    prmRecordThroughTab($this->matter, $this->instalment, '4.000.000');
+    $job = Queue::pushed(SendPaymentReceivedMail::class)->sole();
+
+    $this->matter->update(['is_published_to_portal' => false]);
+    $job->handle();
+
+    expect(prmSentMails())->toBe([]);
 });
 
 it('also mails the client when the payment is recorded on the receivables page', function () {
