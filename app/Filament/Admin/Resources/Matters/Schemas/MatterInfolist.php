@@ -168,7 +168,11 @@ class MatterInfolist
                             ->placeholder('—'),
                         TextEntry::make('archive.client_access_expired_hint')
                             ->label('')
-                            ->state(fn (): string => __('lifecycle.access.expired_hint'))
+                            // Vòng sửa 2 (F3): người không gia hạn được đọc câu "nhờ luật sư phụ trách hoặc
+                            // quản trị viên", không đọc lời bảo bấm một nút họ không thấy.
+                            ->state(fn (Matter $record): string => Gate::allows('extendClientAccess', $record)
+                                ? __('lifecycle.access.expired_hint')
+                                : __('lifecycle.access.expired_hint_ask'))
                             ->color('warning')
                             ->visible(fn (Matter $record): bool => $record->archive instanceof MatterArchive
                                 && $record->archive->isClientAccessExpired())

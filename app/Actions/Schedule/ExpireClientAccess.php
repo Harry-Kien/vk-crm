@@ -188,13 +188,6 @@ class ExpireClientAccess
     }
 
     /**
-     * Vụ việc (chưa xoá mềm) có dòng lưu trữ (chưa xoá mềm) đã hết hạn tra cứu. `ClientPortalScope`
-     * của `MatterArchive` gỡ trong truy vấn con vì cùng lý do với `Matter::applyClientPortalConstraints()`.
-     *
-     * @param  Builder<Matter>  $query
-     * @return Builder<Matter>
-     */
-    /**
      * Làn fm B5: tác vụ này đã tắt `$account` (dòng `portal_account_deactivated` lý do
      * {@see self::REASON}) vào ngày SAU `$expiry` — tức đã xử lý đúng hạn tra cứu này rồi.
      */
@@ -209,6 +202,13 @@ class ExpireClientAccess
             ->exists();
     }
 
+    /**
+     * Vụ việc (chưa xoá mềm) có dòng lưu trữ (chưa xoá mềm) đã hết hạn tra cứu. `ClientPortalScope`
+     * của `MatterArchive` gỡ trong truy vấn con vì cùng lý do với `Matter::applyClientPortalConstraints()`.
+     *
+     * @param  Builder<Matter>  $query
+     * @return Builder<Matter>
+     */
     private function expiredMatters(Builder $query): Builder
     {
         return $query->whereHas('archive', fn (Builder $archive) => $archive

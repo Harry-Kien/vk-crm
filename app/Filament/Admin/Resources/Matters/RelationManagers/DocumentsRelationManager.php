@@ -617,6 +617,18 @@ class DocumentsRelationManager extends RelationManager
     }
 
     /**
+     * Làn fm, vòng sửa 2 (F3): khoá câu chữ về hạn tra cứu hợp với người đang xem — bản thường (nói
+     * thẳng "gia hạn") cho người qua `MatterPolicy::extendClientAccess` (luật sư phụ trách hoặc quản trị
+     * viên), bản `_ask` (nói NHỜ hai người đó) cho mọi người khác công bố được tài liệu.
+     */
+    private function clientAccessCopyKey(string $key): string
+    {
+        return Gate::allows('extendClientAccess', $this->getOwnerRecord())
+            ? "lifecycle.access.{$key}"
+            : "lifecycle.access.{$key}_ask";
+    }
+
+    /**
      * SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp. Tài liệu đã rút cũng không (M7
      * Task 7).
      *
@@ -685,8 +697,9 @@ class DocumentsRelationManager extends RelationManager
                 Hidden::make('mounted_is_released'),
                 // Làn fm A5: vụ đã kết thúc và quá hạn tra cứu — khách không thấy tài liệu và không
                 // nhận thư (`MatterPolicy::view` nhánh khách, `NotifyClientOfDocumentPublished`). Nói
-                // trước khi bấm, như câu cảnh báo cùng điều kiện trên form tiến độ.
-                Text::make(fn (): string => __('lifecycle.access.publish_warning', [
+                // trước khi bấm, như câu cảnh báo cùng điều kiện trên form tiến độ. Vòng sửa 2 (F3): câu theo
+                // người xem (`clientAccessCopyKey()`).
+                Text::make(fn (): string => __($this->clientAccessCopyKey('publish_warning'), [
                     'date' => $this->clientAccessExpiredOn() ?? '',
                 ]))
                     ->icon(Heroicon::OutlinedExclamationTriangle)
@@ -695,7 +708,7 @@ class DocumentsRelationManager extends RelationManager
             ])
             // Làn fm A5: không báo "đã công bố cho khách" khi khách sẽ không thấy gì.
             ->successNotificationTitle(fn (): string => $this->clientAccessExpiredOn() !== null
-                ? __('lifecycle.access.published_not_visible')
+                ? __($this->clientAccessCopyKey('published_not_visible'))
                 : __('documents.tab.actions.publish_success'))
             ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
                 $action,

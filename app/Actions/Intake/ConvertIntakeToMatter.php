@@ -4,6 +4,7 @@ namespace App\Actions\Intake;
 
 use App\Actions\Client\CreateClient;
 use App\Actions\Client\FindClientByIdentifier;
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Actions\OpenMatter;
 use App\Enums\ClientType;
 use App\Enums\Confidentiality;
@@ -103,8 +104,11 @@ use Illuminate\Validation\ValidationException;
  */
 class ConvertIntakeToMatter
 {
-    /** Cùng trần byte với ô câu chuyện (`UpdateIntakeSummary`): cột `text` 65.535 byte. */
-    public const DESCRIPTION_MAX_BYTES = 60000;
+    /**
+     * Cùng trần byte với ô câu chuyện (`UpdateIntakeSummary`) và với ghi chú nội bộ ở trang Sửa vụ việc
+     * (`UpdateMatterDetails`, vòng sửa 2 làn fm, F2): cột `text` 65.535 byte.
+     */
+    public const DESCRIPTION_MAX_BYTES = UpdateMatterDetails::DESCRIPTION_INTERNAL_MAX_BYTES;
 
     /**
      * @param  array<string, mixed>  $attributes  Vụ việc: `title`, `matter_type_id`, `lead_lawyer_id`,
@@ -226,6 +230,8 @@ class ConvertIntakeToMatter
             'matter_type_id' => ['required', 'integer', Rule::exists('matter_types', 'id')],
             'lead_lawyer_id' => ['required', 'integer', Rule::exists('users', 'id')],
             'client_role' => ['required', Rule::enum(PartyRole::class)],
+            // Vòng sửa 2 làn fm (F2): "không sau hôm nay" và trần KÝ TỰ của ghi chú do `OpenMatter` hỏi
+            // (`UpdateMatterDetails::assertNewMatterDetails()`), cùng một luật cho mọi đường mở vụ.
             'opened_at' => ['required', 'date'],
             'confidentiality' => ['required', Rule::enum(Confidentiality::class)],
             'court_name' => ['nullable', 'string', 'max:200'],

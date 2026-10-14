@@ -235,3 +235,64 @@ it('never shortens a deadline that is still running', function () {
 
     expect(MatterArchive::query()->where('matter_id', $matter->id)->first()->client_access_until->toDateString())->toBe('2026-06-20');
 });
+
+/**
+ * Làn fm, vòng sửa 2 (F3): người công bố được tài liệu chưa chắc gia hạn được tra cứu — chỉ luật sư phụ
+ * trách hoặc quản trị viên (`MatterPolicy::extendClientAccess`). Một luật sư cộng sự trong đội ngũ
+ * công bố được nhưng không thấy nút gia hạn, nên câu chữ phải bảo họ NHỜ ai; người gia hạn được thì đọc
+ * câu nói thẳng "gia hạn". Cả hai đều được báo trước rằng tài liệu công bố lúc này không có thư báo cho
+ * khách, kể cả sau khi gia hạn (`ExtendClientAccess` không gửi lại thư nào).
+ *
+ * Câu chữ so bằng chuỗi tiếng Việt viết thẳng (không qua `__()`), để test đỏ trên câu chữ cũ.
+ */
+dataset('fm access copy viewers', [
+    'luật sư phụ trách' => ['lead', true],
+    'quản trị viên' => ['admin', true],
+    'luật sư cộng sự trong đội ngũ' => ['associate', false],
+]);
+
+it('tells each viewer of an expired matter what they themselves can do, and that no client mail will go', function (string $who, bool $canExtend) {
+    [$lawyer, $matter] = fmExpiredClosedMatter();
+    $viewer = match ($who) {
+        'lead' => $lawyer,
+        'admin' => User::factory()->withRole(Role::Admin)->create(),
+        'associate' => User::factory()->withRole(Role::Lawyer)->create(),
+    };
+
+    if ($who === 'associate') {
+        $matter->addTeamMember($viewer, MatterRole::Associate);
+    }
+
+    $document = fmAuthorityDocument($matter);
+
+    $this->actingAs($viewer, 'web');
+
+    $page = $this->livewire(ViewMatter::class, ['record' => $matter->getKey()]);
+    $canExtend ? $page->assertActionVisible('extendClientAccess') : $page->assertActionHidden('extendClientAccess');
+
+    $askHint = 'Chỉ luật sư phụ trách hoặc quản trị viên gia hạn được: nếu khách cần tra cứu lại, hãy nhờ họ gia hạn.';
+    $directHint = 'Gia hạn bằng nút "Gia hạn tra cứu cho khách".';
+    $canExtend
+        ? $page->assertSee($directHint)->assertDontSee($askHint)
+        : $page->assertSee($askHint)->assertDontSee($directHint);
+
+    $manager = $this->livewire(DocumentsRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class]);
+    $manager->mountAction(TestAction::make('publish')->table($document));
+
+    $warning = collect(fmPublishDialogWarnings($manager))->first(fn (string $text): bool => str_contains($text, '30/05/2026'));
+
+    expect($warning)->toContain('Tài liệu công bố lúc này sẽ không có thư báo cho khách, kể cả sau khi được gia hạn.');
+
+    $canExtend
+        ? expect($warning)->toContain('Gia hạn tra cứu (nút "Gia hạn tra cứu cho khách" ở trang vụ) trước khi công bố.')
+            ->and($warning)->not->toContain('hãy nhờ họ')
+        : expect($warning)->toContain('Chỉ luật sư phụ trách hoặc quản trị viên gia hạn được: hãy nhờ họ gia hạn trước khi công bố.')
+            ->and($warning)->not->toContain('Gia hạn tra cứu (nút');
+
+    $this->livewire(DocumentsRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class])
+        ->callAction(TestAction::make('publish')->table($document), data: ['client_can_view' => true, 'client_can_download' => true])
+        ->assertHasNoActionErrors()
+        ->assertNotified($canExtend
+            ? 'Đã công bố, nhưng khách chưa thấy tài liệu vì vụ đã hết hạn tra cứu. Gia hạn tra cứu ở trang vụ để khách xem được; thư báo về tài liệu này sẽ không được gửi.'
+            : 'Đã công bố, nhưng khách chưa thấy tài liệu vì vụ đã hết hạn tra cứu. Nhờ luật sư phụ trách hoặc quản trị viên gia hạn tra cứu để khách xem được; thư báo về tài liệu này sẽ không được gửi.');
+})->with('fm access copy viewers');

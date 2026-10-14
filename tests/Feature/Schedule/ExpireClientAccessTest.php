@@ -533,3 +533,16 @@ it('still switches off an account that staff once switched off and on themselves
 
     expect($account->fresh()->is_active)->toBeFalse();
 });
+
+/**
+ * Làn fm, vòng sửa 2 (F4): docblock `@param/@return Builder<Matter>` thuộc về `expiredMatters()`, không
+ * nằm mồ côi phía trên docblock của `switchedOffSince()` (làn fm B5 chèn hàm mới vào giữa).
+ */
+it('keeps each private helper under its own docblock', function () {
+    $expired = (new ReflectionMethod(ExpireClientAccess::class, 'expiredMatters'))->getDocComment();
+    $switched = (new ReflectionMethod(ExpireClientAccess::class, 'switchedOffSince'))->getDocComment();
+
+    expect($expired)->toBeString()
+        ->and($expired)->toContain('@return Builder<Matter>')
+        ->and($switched)->not->toContain('Builder<Matter>');
+});

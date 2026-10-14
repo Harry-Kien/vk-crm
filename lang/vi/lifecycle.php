@@ -58,6 +58,8 @@ return [
     'details' => [
         'internal_only' => 'Chỉ nội bộ',
         'internal_note_too_long' => 'Ghi chú nội bộ dài tối đa :max ký tự.',
+        // Làn fm, vòng sửa 2 (F2): trần byte của cột, khi ghi chú có nhiều ký tự đặc biệt (biểu tượng cảm xúc).
+        'internal_note_too_many_bytes' => 'Ghi chú nội bộ quá dài: ký tự đặc biệt (như biểu tượng cảm xúc) chiếm nhiều chỗ hơn chữ thường. Hãy rút gọn ghi chú.',
         'opened_at_invalid' => 'Ngày mở hồ sơ không hợp lệ.',
         'opened_at_future' => 'Ngày mở hồ sơ không được sau hôm nay.',
         'opened_at_after_closed' => 'Ngày mở hồ sơ không được sau ngày vụ việc kết thúc.',
@@ -87,7 +89,11 @@ return [
     // A5 — hạn khách tra cứu hồ sơ đã kết thúc (khối "Lưu trữ hồ sơ", nút gia hạn, hộp công bố).
     'access' => [
         'until_label' => 'Khách tra cứu được tới hết ngày',
+        // Làn fm, vòng sửa 2 (F3): chỉ luật sư phụ trách hoặc quản trị viên gia hạn được
+        // (MatterPolicy::extendClientAccess). Mỗi câu có hai bản: bản thường cho người gia hạn được
+        // (nói thẳng "gia hạn"), bản `_ask` cho người khác (nói NHỜ ai) — không hứa điều họ không làm được.
         'expired_hint' => 'Đã hết hạn tra cứu: khách không còn thấy vụ này trên cổng và không nhận thư về vụ. Gia hạn bằng nút "Gia hạn tra cứu cho khách".',
+        'expired_hint_ask' => 'Đã hết hạn tra cứu: khách không còn thấy vụ này trên cổng và không nhận thư về vụ. Chỉ luật sư phụ trách hoặc quản trị viên gia hạn được: nếu khách cần tra cứu lại, hãy nhờ họ gia hạn.',
         'action' => 'Gia hạn tra cứu cho khách',
         'modal_heading' => 'Gia hạn tra cứu cho khách',
         'modal_description' => 'Hạn hiện tại: hết ngày :date. Khách thấy lại vụ trên cổng (nếu vụ đang bật công bố) tới hết ngày mới. Nếu tài khoản cổng của khách đã bị hệ thống tự tắt vì không còn vụ nào, hãy bật lại ở mục Tài khoản cổng. Lý do được ghi vào nhật ký.',
@@ -101,8 +107,12 @@ return [
         'until_too_late' => 'Mỗi lần chỉ gia hạn tối đa :days ngày kể từ hôm nay.',
         'reason_required' => 'Hãy nhập lý do gia hạn.',
         'reason_max' => 'Lý do gia hạn dài tối đa :max ký tự.',
-        'publish_warning' => 'Vụ việc đã hết hạn tra cứu từ sau ngày :date: khách sẽ không thấy tài liệu này và không nhận thư. Gia hạn tra cứu ở trang vụ trước khi công bố.',
-        'published_not_visible' => 'Đã công bố, nhưng khách chưa thấy tài liệu vì vụ đã hết hạn tra cứu. Gia hạn tra cứu ở trang vụ để khách xem được.',
+        // F3: thư báo tài liệu chỉ được xét lúc công bố (NotifyClientOfDocumentPublished); gia hạn sau
+        // đó (ExtendClientAccess) không gửi lại — nói trước điều này, ở cả hai bản.
+        'publish_warning' => 'Vụ việc đã hết hạn tra cứu từ sau ngày :date: khách sẽ không thấy tài liệu này. Gia hạn tra cứu (nút "Gia hạn tra cứu cho khách" ở trang vụ) trước khi công bố. Tài liệu công bố lúc này sẽ không có thư báo cho khách, kể cả sau khi được gia hạn.',
+        'publish_warning_ask' => 'Vụ việc đã hết hạn tra cứu từ sau ngày :date: khách sẽ không thấy tài liệu này. Chỉ luật sư phụ trách hoặc quản trị viên gia hạn được: hãy nhờ họ gia hạn trước khi công bố. Tài liệu công bố lúc này sẽ không có thư báo cho khách, kể cả sau khi được gia hạn.',
+        'published_not_visible' => 'Đã công bố, nhưng khách chưa thấy tài liệu vì vụ đã hết hạn tra cứu. Gia hạn tra cứu ở trang vụ để khách xem được; thư báo về tài liệu này sẽ không được gửi.',
+        'published_not_visible_ask' => 'Đã công bố, nhưng khách chưa thấy tài liệu vì vụ đã hết hạn tra cứu. Nhờ luật sư phụ trách hoặc quản trị viên gia hạn tra cứu để khách xem được; thư báo về tài liệu này sẽ không được gửi.',
     ],
 
     // B4 — mở lại vụ đã kết thúc hoặc đi ngoài luồng giai đoạn thông thường (TransitionMatterStage).
