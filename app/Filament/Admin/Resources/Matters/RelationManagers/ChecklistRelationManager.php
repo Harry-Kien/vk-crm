@@ -284,6 +284,8 @@ class ChecklistRelationManager extends RelationManager
                     ->maxLength(200),
                 Textarea::make('description')
                     ->label(__('checklist.tab.fields.item_description'))
+                    // Cột `text` (65.535 byte) — sửa sau rà soát cuối, F3.
+                    ->maxLength(MatterChecklistItem::DESCRIPTION_MAX_LENGTH)
                     ->columnSpanFull(),
                 Toggle::make('is_required')
                     ->label(__('checklist.tab.fields.item_is_required'))
@@ -585,6 +587,7 @@ class ChecklistRelationManager extends RelationManager
                     ->maxLength(UpdateChecklistItem::MAX_NAME_LENGTH),
                 Textarea::make('description')
                     ->label(__('document_corrections.edit_item.description_field'))
+                    ->maxLength(MatterChecklistItem::DESCRIPTION_MAX_LENGTH)
                     ->columnSpanFull(),
                 Toggle::make('is_required')
                     ->label(__('document_corrections.edit_item.is_required')),

@@ -8726,6 +8726,109 @@ Lần rà soát lại vòng sửa 1 tìm một lỗi chặn gộp cùng loại v
   - Lượt đi chuỗi nâng cấp trên máy Ubuntu trống: lượt của vòng 1 đi tới cây đã gộp M11. "Bản cập nhật M14" là
     tài liệu của làn M14 và không được đi lại ở vòng này.
 
+### Sửa sau kiểm tra nghiệp vụ toàn hệ thống (làn fa)
+
+Nhánh `audit-fix-fa`, gốc `0b26a26`. Nguồn: đợt kiểm tra nghiệp vụ 2026-10-09 trên `main` (10 luồng + đọc
+lạnh) — bảy mục A (tiếp nhận khách và tài liệu) và một danh sách việc nhỏ B. Mọi mục có test đỏ trước (hành vi
+màn hình qua Livewire), phép thử ngược cho từng điều kiện mới; câu chữ qua `lang/vi` ở tệp riêng
+(`intake_org.php`, `intake_concurrency.php`, `intake_reopen.php`, `intake_alerts.php`,
+`document_corrections.php`, `preflight_clamav.php`). Migration: `2026_10_09_100001` (tổ chức của người gọi),
+`2026_10_09_100002` (`accepted_version` của đầu mục, điền ngược).
+
+#### Đã sửa
+
+- **A1 — khách là doanh nghiệp** (`c2e3529b`, vòng sửa 1 `5dd6beab`, vòng sửa cuối): bản ghi tiếp nhận có tên tổ
+  chức người gọi đại diện và dấu băm mã số thuế (không lưu số thô); tổ chức vào kiểm tra xung đột như một bên
+  phía mình thứ hai và vào nguồn dò thứ hai; chuyển đổi "Tổ chức" mang tên công ty, người gọi là người đại
+  diện, MST phải khớp số đã ghi; khách tổ chức chỉ tra hồ sơ đã có theo MST (không theo SĐT người gọi), và hồ
+  sơ khác loại không bao giờ được gắn (câu riêng, không hỏi xác nhận). Vòng sửa cuối: **gộp hai lần tiếp nhận
+  mang tổ chức của bản gộp sang bản đích** (bản đích chưa ghi tổ chức thì nhận tên + dấu băm MST; cùng tổ chức
+  thì bổ sung MST còn thiếu); hai bản ghi hai tổ chức khác nhau (tên khác, hay cùng tên mà MST khác) thì gộp bị
+  từ chối — trước đó gộp làm mất khớp Vàng của công ty và mở ô câu chuyện.
+- **A2/A3 — hai người cùng sửa một bản ghi**: phần danh tính và ô câu chuyện kiểm tra lạc quan theo NỘI DUNG;
+  form cũ bị từ chối (tải lại trang) thay vì gỡ bên đối lập, đè phí/người phụ trách hay đè câu chuyện.
+- **A4 — "Sửa thông tin" và "Xoá" tài liệu tải nhầm** (tiêu đề, ngày ban hành, đầu mục, cũ → mới trong nhật
+  ký; xoá mềm theo `DocumentPolicy::delete`, có lý do). Modal "Xoá" nói đúng: chưa có màn hình khôi phục.
+- **A5 — đầu mục danh mục**: "Đưa về 'Còn thiếu'" (từ "Không cần nộp"/"Đã nhận"), "Sửa đầu mục" (tên, mô tả,
+  bắt buộc). Vòng sửa cuối: mô tả đầu mục có trần 16.383 ký tự ở cả form "Thêm đầu mục"/"Sửa đầu mục" và hai
+  Action (cột `text` 65.535 byte; trước đó MariaDB strict trả 500 với chuỗi quá dài).
+- **A6 — khách gửi thêm vào giấy đã nhận**: `accepted_version`; "Từ chối bản mới, giữ bản đã nhận"; gói bàn
+  giao mang đúng bản đã nhận; cổng khách hỏi xác nhận trước khi gửi thêm.
+- **A7 — rút tài liệu nhóm A đang là bản hiện tại**: đầu mục về "Đã nhận" (nếu bản đã nhận còn đứng) hoặc
+  "Còn thiếu", không thư từ chối.
+- **B đã làm**: luật sư phụ trách lúc chuyển đổi phải đang hoạt động và có quyền; danh sách Tiếp nhận tìm theo
+  SĐT gõ kiểu nào cũng được (vòng sửa cuối: tên vẫn tìm theo từng từ — "Nguyễn An" ra "Nguyễn Văn An"); câu báo
+  bản Đỏ đã ghi đè cần trưởng phòng; mở lại bản "Khách không theo tiếp"/"Từ chối" (lý do được làm sạch khi ẩn
+  danh); xác nhận trước "Khách không theo tiếp"; thông báo trong hệ thống khi được giao và khi ra Đỏ chờ;
+  trưởng phòng sửa giờ nhận (so theo phút); gói bàn giao bỏ tài liệu "chỉ xem"; preflight VÀNG khi ClamAV tắt
+  + hướng dẫn CAI-DAT; QUY-TRINH cập nhật; SPEC §6.6/§6.12 đính chính.
+
+#### B chưa làm — lý do
+
+- **Trợ lý nộp giấy khách mang tới (nhóm A) ở dạng "chờ duyệt"**: đổi nghĩa nhóm A nhân sự nộp (SPEC
+  §4.11/§6.6, `settleChecklistItem`, `RefusesWhileAwaitingReview`, test M4 ghim) — cần chủ văn phòng chọn mô
+  hình; không rẻ, không an toàn trong làn song song.
+- **Đường dẫn tải ký 5 phút dựng sẵn trên bảng nhân sự**: là phán quyết tạm của M12 Task 1 (PWA cửa sổ
+  standalone không mở tab mới); đổi sang Action chuyển hướng cần đo lại trên iPhone thật.
+- **Widget "Đỏ chờ xử lý" trên trang chủ và đổi người nhận nhắc quá hạn của bản Đỏ**: đã có thông báo tới
+  trưởng phòng/quản trị và bộ lọc "Đỏ chờ trưởng phòng xử lý"; widget đụng trang chủ dùng chung mà làn khác
+  cũng sửa.
+- **Liệt kê trong modal công bố gói bàn giao những tài liệu khách chưa từng thấy** (nhóm B "đã ký, đã nộp"
+  chưa công bố): cần chủ văn phòng quyết có đưa chúng vào gói hay không (ghi ở SPEC §6.12).
+- **Từ chối `.doc/.xls` đời cũ (OLE) có macro**: cần bộ đọc OLE (không thêm gói composer); chấp nhận rủi ro,
+  ghi ở SPEC §6.6 và CAI-DAT.
+
+#### Cần chủ văn phòng quyết
+
+Mỗi mục đã chọn phương án an toàn: giữ dữ liệu, có nhật ký, đảo ngược được.
+
+1. **Trợ lý nộp giấy khách mang tới (nhóm A).** Hiện vẫn chỉ người có `document.publish`. Đề xuất: trợ lý nộp
+   ở dạng "chờ duyệt", luật sư bấm "Đã nhận". Chưa làm.
+2. **Văn bản nhóm B "đã ký, đã nộp" chưa từng công bố có vào gói bàn giao không.** Hiện: vẫn vào (như trước).
+   Tài liệu "chỉ xem" thì đã bỏ khỏi gói.
+3. **Hai người lưu cùng lúc:** lần lưu trên bản cũ bị từ chối hẳn (người dùng tải lại trang). Không gộp tự động
+   vì có thể gộp sai bên đối lập.
+4. **Ai mở lại một bản "Khách không theo tiếp"/"Từ chối":** chỉ trưởng phòng/quản trị. Bản từ chối vì xung đột
+   mở lại vẫn khoá như Đỏ chờ xử lý.
+5. **Ai sửa giờ nhận cuộc gọi:** chỉ trưởng phòng/quản trị (người nhận cuộc gọi không tự sửa con số đo phản hồi
+   của mình).
+6. **"Từ chối bản mới, giữ bản đã nhận"** dùng quyền duyệt (`checklist.review`, trợ lý có), không đòi
+   `document.publish` như nút "Rút lại" của tab Tài liệu.
+7. **ClamAV:** preflight chỉ VÀNG (không ĐỎ) khi tắt — máy chủ chia sẻ có thể không cài được; `.doc/.xls` đời cũ
+   có macro được chấp nhận là rủi ro.
+8. **Đường dẫn tải 5 phút** dựng sẵn trên bảng nhân sự: giữ như M12 cho tới khi đo trên iPhone thật.
+9. **Khôi phục tài liệu đã xoá trên màn hình** (bộ lọc "đã xoá" và nút "Khôi phục" cho quản trị, có nhật ký).
+   Hiện chỉ khôi phục được trên CSDL, và modal "Xoá" nói đúng như vậy.
+10. **Người gọi việc RIÊNG mà SĐT trùng hồ sơ khách TỔ CHỨC** (giám đốc dùng số di động làm số công ty): chuyển
+    đổi "Cá nhân" bị từ chối kèm câu chỉ đường; lối đi hiện tại là người quản lý hồ sơ khách hàng tạo hồ sơ cá
+    nhân (kèm CCCD) rồi gõ CCCD ở ô định danh. Phương án khác: với khách cá nhân bỏ qua khớp SĐT trên hồ sơ tổ
+    chức và tạo hồ sơ mới — chưa làm, vì có thể sinh hồ sơ trùng.
+11. **Tổ chức không có mã số thuế**: mỗi lần chuyển đổi cùng công ty mà không gõ MST tạo thêm một hồ sơ tổ chức
+    (không tra theo tên — R4). Khuyến nghị luôn ghi MST lúc tiếp nhận hoặc chuyển đổi; hồ sơ trùng gộp được về sau.
+12. **Gộp hai lần tiếp nhận ghi hai tổ chức khác nhau** bị từ chối (giữ một bên là bỏ tổ chức kia khỏi kiểm tra
+    xung đột). Cùng một công ty mà gõ tên khác nhau thì sửa tên ở một bản cho trùng rồi gộp lại.
+
+#### Việc nhỏ còn để lại
+
+- Phiên bản sửa danh tính chưa gồm giờ nhận: hai trưởng phòng cùng mở trang, một người sửa giờ nhận, người kia
+  lưu form cũ thì giờ nhận bị đè lại (nhật ký có dòng từ/đến).
+- Mở lại một bản bị từ chối vì xung đột không gửi thông báo "Đỏ chờ" (người mở lại chính là trưởng phòng/quản
+  trị).
+- Nút "Từ chối bản mới, giữ bản đã nhận" hỏi hai truy vấn mỗi dòng khi dựng bảng danh mục — chấp nhận ở quy mô
+  một văn phòng.
+- Câu báo bản Đỏ đã ghi đè nói "trưởng phòng ghi đè" — quản trị cũng ghi đè được.
+
+#### Kiểm chứng
+
+- `c2e3529b`: cả bộ 8873 passed, 36 skipped, 0 failed; MariaDB 252 passed; pint PASS; 21 phép thử ngược đều đỏ.
+- `5dd6beab` (vòng sửa 1): cả bộ 8880 passed, 36 skipped, 0 failed; MariaDB 106 passed; pint PASS.
+- Vòng sửa cuối (F1–F4): 3 tệp test mới/sửa ĐỎ 12/20 trên `5dd6beab` (riêng tệp mô tả đầu mục: ĐỎ 4/5 khi chỉ
+  thêm hằng số trần), XANH 20/20; 12 phép thử ngược đều đỏ; các tệp test chạm vào 845 passed; cả bộ
+  `test --parallel --processes=2` 8888 passed, 36 skipped, 7 failed — cả 7 ở gói bàn giao / kho tệp / dữ liệu
+  demo (hai tiến trình song song thấy tệp của nhau trên ổ `private`), chạy lại riêng 4 tệp đó 106 passed;
+  MariaDB 167 passed; pint PASS.
+- Chưa làm: phép quét bằng mắt trên trình duyệt thật.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM

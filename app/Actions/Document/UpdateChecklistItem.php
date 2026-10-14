@@ -19,7 +19,9 @@ use Illuminate\Validation\ValidationException;
  * Mở đầu mục qua {@see OpensChecklistItem} (khoá `matters` trước; quyền `MatterChecklistItemPolicy::update`
  * = `review` = `checklist.review`; hồ sơ đã kết thúc thì chỉ đọc). Tên: gỡ khoảng trắng Unicode hai đầu,
  * bắt buộc, ≤ {@see self::MAX_NAME_LENGTH} (cột), không trùng tên một đầu mục KHÁC của cùng hồ sơ — kể
- * cả đầu mục đã gỡ, cùng luật `AddChecklistItem`. Mô tả rỗng là null.
+ * cả đầu mục đã gỡ, cùng luật `AddChecklistItem`. Mô tả rỗng là null; dài hơn
+ * {@see MatterChecklistItem::DESCRIPTION_MAX_LENGTH} ký tự thì từ chối trên ô `description` (cột `text`
+ * 65.535 byte — sửa sau rà soát cuối, F3: trước đó MariaDB strict trả 500), kiểm trước khi mở transaction.
  *
  * Không đổi gì thì không ghi gì. Có đổi: dòng `checklist_item_updated` mang `changes` — từng ô đã đổi,
  * cũ → mới (khách đã đọc được cả hai, nên chép vào nhật ký không làm lộ gì thêm). Đổi "bắt buộc" có
@@ -43,6 +45,10 @@ class UpdateChecklistItem
 
         if (mb_strlen($name) > self::MAX_NAME_LENGTH) {
             throw ValidationException::withMessages(['name' => [__('document_corrections.edit_item.name_too_long', ['max' => self::MAX_NAME_LENGTH])]]);
+        }
+
+        if ($description !== null && mb_strlen($description) > MatterChecklistItem::DESCRIPTION_MAX_LENGTH) {
+            throw ValidationException::withMessages(['description' => [__('document_corrections.description_too_long', ['max' => MatterChecklistItem::DESCRIPTION_MAX_LENGTH])]]);
         }
 
         $matterId = $this->checklistItemMatterId($checklistItem);

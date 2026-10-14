@@ -39,6 +39,8 @@ return [
             'organization' => 'Mã số thuế này trùng hồ sơ khách hàng CÁ NHÂN :code — :name, không phải một tổ chức. Hệ thống không gắn công ty vào hồ sơ cá nhân. Kiểm tra lại mã số thuế với người liên hệ; nếu số đúng thì nhờ người quản lý hồ sơ khách hàng sửa số trên hồ sơ :code, rồi chuyển đổi lại.',
             'individual' => 'Số đã tra trùng khách hàng TỔ CHỨC :code — :name. Hệ thống không gắn người liên hệ cá nhân vào hồ sơ của một tổ chức. Nếu vụ này là của tổ chức đó, ghi tên tổ chức (và mã số thuế) ở trang bản ghi rồi chuyển đổi với loại khách "Tổ chức"; nếu là việc riêng của người liên hệ, nhờ người quản lý hồ sơ khách hàng tạo hồ sơ cá nhân cho người đó (kèm số căn cước), rồi nhập số căn cước đó ở ô này.',
         ],
+        // Sửa sau rà soát cuối (F1): gộp không được bỏ tổ chức của bản ghi nào khỏi kiểm tra xung đột.
+        'merge_organization_differs' => 'Hai bản ghi ghi hai tổ chức khác nhau (tên tổ chức hoặc mã số thuế không trùng). Gộp sẽ bỏ tổ chức của một bản ra khỏi kiểm tra xung đột lợi ích, nên hệ thống không gộp. Nếu là cùng một tổ chức, sửa tên tổ chức (và mã số thuế) ở một trong hai bản ghi cho trùng nhau rồi gộp lại; nếu là hai tổ chức khác nhau thì đây không phải cùng một lần liên hệ.',
         'convert_lead_lawyer_ineligible' => 'Người này không phụ trách được vụ việc: tài khoản đã bị vô hiệu hoá hoặc không có quyền chuyển giai đoạn vụ việc. Chọn một luật sư khác.',
     ],
 ];

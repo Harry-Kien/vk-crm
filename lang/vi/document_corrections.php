@@ -82,4 +82,7 @@ return [
         'confirm_resubmission' => 'Tôi vẫn muốn gửi thêm bản mới cho giấy này',
         'confirm_required' => 'Giấy này văn phòng đã nhận. Đánh dấu ô xác nhận nếu anh/chị vẫn muốn gửi thêm bản mới.',
     ],
+
+    // Sửa sau rà soát cuối (F3): mô tả đầu mục — "Thêm đầu mục" và "Sửa đầu mục" (cột `text`).
+    'description_too_long' => 'Mô tả đầu mục không được dài hơn :max ký tự.',
 ];

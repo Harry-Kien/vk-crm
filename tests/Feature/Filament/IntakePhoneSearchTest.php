@@ -50,3 +50,15 @@ it('does not search the phone column with fewer than four digits, which would ma
         ->searchTable('345')
         ->assertCanNotSeeTableRecords([$mine]);
 });
+
+it('still finds a name by its words in any order with words left out, as before the phone search (rà soát cuối, F4)', function (string $typed) {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $an = ipsRecord($assistant, 'Nguyễn Văn An', '0912 345 678');
+    $binh = ipsRecord($assistant, 'Nguyễn Thị Bình', '0988 000 111');
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(ListIntakeRequests::class)
+        ->searchTable($typed)
+        ->assertCanSeeTableRecords([$an])
+        ->assertCanNotSeeTableRecords([$binh]);
+})->with(['words left out' => ['Nguyễn An'], 'other order' => ['An Nguyễn'], 'name and phone' => ['Nguyễn 0912 345 678']]);
