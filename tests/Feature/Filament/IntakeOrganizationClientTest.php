@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Intake\AcknowledgeIntakeConflict;
 use App\Actions\Intake\RecordIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
 use App\Actions\Intake\ResolveIntakeRedConflict;
@@ -25,6 +26,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\TextInput;
+use Livewire\Features\SupportTesting\Testable;
 
 /*
  * Làn fa, mục A1 của đợt kiểm tra nghiệp vụ 2026-10-09 — khách là DOANH NGHIỆP. Người gọi (ông A, giám
@@ -87,6 +89,11 @@ function iorgRecord(User $actor, array $overrides = []): IntakeRequest
     ])->intake;
 
     app(RecordPrivacyNotice::class)->handle($actor, $intake, true);
+
+    // Tổ chức không có mã số thuế là một bên thiếu định danh: câu chuyện chỉ mở sau khi đã xác nhận xem.
+    if (($intake->fresh()->conflict_result['incomplete_parties'] ?? []) !== []) {
+        app(AcknowledgeIntakeConflict::class)->handle($actor, $intake->fresh(), $intake->fresh()->conflict_level);
+    }
     app(UpdateIntakeSummary::class)->handle($actor, $intake->fresh(), 'Công ty bị đối tác chậm thanh toán ba hoá đơn.');
 
     return $intake->fresh();
@@ -327,4 +334,147 @@ it('tells a lawyer before converting that a red overridden by the manager needs 
 
     $this->actingAs($manager, 'web');
     $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])->assertDontSee($notice);
+});
+
+/*
+ * Fix vòng 1, I1 — người gọi cho công ty ĐÃ là khách CÁ NHÂN của văn phòng (cùng số điện thoại, có số
+ * căn cước). Chuyển đổi "Tổ chức" không được tra theo số điện thoại của người gọi: trước bản sửa, mã số
+ * thuế bị đem so với CCCD của ông An (lỗi "số căn cước khác", không chuyển đổi được), và khi không có mã
+ * số thuế thì màn hình đòi xác nhận gắn hồ sơ CÁ NHÂN của ông An làm khách của vụ công ty (lỗi A1 cũ).
+ */
+function iorgEarlierIndividualClient(): Client
+{
+    $client = Client::factory()->create([
+        'type' => ClientType::Individual,
+        'name' => 'Nguyễn Văn An',
+        'phone' => '0901234567',
+        'id_number' => '079088123456',
+    ]);
+    MatterParty::factory()->for(Matter::factory()->create(['client_id' => $client->id]))->ourClient($client)->create();
+
+    return $client;
+}
+
+/** Bấm "Chuyển đổi"; nếu lần kiểm tra lại ra một khớp cần xác nhận đã xem, tích ô đó và bấm lại. */
+function iorgConvert(Testable $page): Testable
+{
+    $page->call('convert');
+
+    if ($page->errors()->has('data.acknowledge_conflict')) {
+        $page->fillForm(['acknowledge_conflict' => true])->call('convert');
+    }
+
+    return $page;
+}
+
+/** Vụ mới duy nhất do lần chuyển đổi mở (các vụ dựng sẵn của test bị loại theo id). */
+function iorgConvertedMatter(Client ...$existing): Matter
+{
+    return Matter::query()->whereNotIn('client_id', array_map(fn (Client $c): int => $c->getKey(), $existing))->sole();
+}
+
+it('converts the company of a caller who is already an individual client, by its tax code, into a new organisation client', function () {
+    $lawyer = iorgStaff();
+    $intake = iorgRecord($lawyer);
+    $an = iorgEarlierIndividualClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(ConvertIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->fillForm(['client_id_number' => '0101234567'])
+        ->tap(fn ($page) => iorgConvert($page))
+        ->assertHasNoFormErrors()
+        ->assertSet('matchedClientId', null);
+
+    $client = Client::query()->findOrFail(iorgConvertedMatter($an)->client_id);
+
+    expect($client->type)->toBe(ClientType::Organization)
+        ->and($client->name)->toBe('Công ty TNHH Thương mại Sao Mai')
+        ->and($client->id_number)->toBe('0101234567')
+        ->and($client->representative_name)->toBe('Nguyễn Văn An')
+        ->and($client->phone)->toBe('0901234567')
+        ->and($an->fresh()->type)->toBe(ClientType::Individual)
+        ->and($an->fresh()->id_number)->toBe('079088123456');
+});
+
+it('never offers the individual record of the caller as the client of the company when no tax code is known', function () {
+    $lawyer = iorgStaff();
+    $intake = iorgRecord($lawyer, ['organization_id_number' => null]);
+    $an = iorgEarlierIndividualClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(ConvertIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->tap(fn ($page) => iorgConvert($page))
+        ->assertHasNoFormErrors()
+        ->assertSet('matchedClientId', null);
+
+    $client = Client::query()->findOrFail(iorgConvertedMatter($an)->client_id);
+
+    expect($client->type)->toBe(ClientType::Organization)
+        ->and($client->name)->toBe('Công ty TNHH Thương mại Sao Mai');
+});
+
+it('does the same for a manager, who would otherwise be warned of a duplicate of the individual record', function () {
+    $manager = iorgStaff(Role::Manager);
+    $intake = iorgRecord($manager, ['organization_id_number' => null]);
+    $an = iorgEarlierIndividualClient();
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(ConvertIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->tap(fn ($page) => iorgConvert($page))
+        ->assertHasNoFormErrors();
+
+    expect(Client::query()->findOrFail(iorgConvertedMatter($an)->client_id)->type)->toBe(ClientType::Organization);
+});
+
+it('offers an existing organisation client found by the tax code for confirmation, then attaches it', function () {
+    $lawyer = iorgStaff();
+    $intake = iorgRecord($lawyer);
+    $company = Client::factory()->create(['type' => ClientType::Organization, 'name' => 'Sao Mai hồ sơ cũ', 'phone' => '0287000111', 'id_number' => '0101234567']);
+    MatterParty::factory()->for(Matter::factory()->create(['client_id' => $company->id]))->ourClient($company)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(ConvertIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->fillForm(['client_id_number' => '0101234567'])
+        ->tap(fn ($page) => iorgConvert($page))
+        ->assertHasFormErrors(['confirm_existing_client'])
+        ->assertSet('matchedClientId', $company->getKey());
+
+    iorgConvert($component->fillForm(['confirm_existing_client' => true]))->assertHasNoFormErrors();
+
+    expect(Matter::query()->where('client_id', $company->getKey())->count())->toBe(2);
+});
+
+it('refuses a tax code that belongs to an individual client record, with a message about organisations', function () {
+    $lawyer = iorgStaff();
+    $intake = iorgRecord($lawyer);
+    $wrong = Client::factory()->create(['type' => ClientType::Individual, 'name' => 'Hồ Sơ Gõ Nhầm', 'phone' => '0287000999', 'id_number' => '0101234567']);
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(ConvertIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->fillForm(['client_id_number' => '0101234567'])
+        ->tap(fn ($page) => iorgConvert($page))
+        ->assertHasFormErrors(['client_id_number'])
+        ->assertSet('matchedClientId', null);
+
+    expect(collect($component->errors()->get('data.client_id_number'))->implode(' '))
+        ->toBe(__('intake_org.errors.convert_existing_client_type_differs.organization', ['code' => $wrong->code, 'name' => $wrong->name]))
+        ->and(Matter::query()->count())->toBe(0);
+});
+
+it('refuses to attach an individual caller to an organisation client found by the phone, instead of asking to confirm it', function () {
+    $lawyer = iorgStaff();
+    $intake = iorgRecord($lawyer, ['organization_name' => null, 'organization_id_number' => null]);
+    $company = Client::factory()->create(['type' => ClientType::Organization, 'name' => 'Công ty Có Số Của Ông An', 'phone' => '0901234567', 'id_number' => null]);
+    MatterParty::factory()->for(Matter::factory()->create(['client_id' => $company->id]))->ourClient($company)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(ConvertIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->assertFormSet(['client_type' => ClientType::Individual->value])
+        ->tap(fn ($page) => iorgConvert($page))
+        ->assertHasFormErrors(['client_id_number'])
+        ->assertSet('matchedClientId', null);
+
+    expect(collect($component->errors()->get('data.client_id_number'))->implode(' '))
+        ->toBe(__('intake_org.errors.convert_existing_client_type_differs.individual', ['code' => $company->code, 'name' => $company->name]))
+        ->and(Matter::query()->count())->toBe(1);
 });

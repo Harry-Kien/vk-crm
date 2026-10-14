@@ -58,18 +58,22 @@ use Illuminate\Validation\ValidationException;
  *     `FindClientByIdentifier` với số căn cước vừa gõ (định danh mạnh hơn: một số máy có thể dùng
  *     chung), rồi với SĐT người liên hệ (dạng đã gõ lúc tiếp nhận). Không khớp thì
  *     `CreateClient::resolve()` dựng một hồ sơ MỚI CHƯA LƯU (hoặc trả hồ sơ trùng thấy được — luật
- *     của Action đó). Mỗi lần tra trừ một suất của `ClientLookupThrottle` (20/giờ, dùng chung — giá
+ *     của Action đó). **Khách tổ chức (fix vòng 1, I1):** chỉ tra theo mã số thuế vừa gõ — không tra
+ *     theo SĐT, và lần dò trùng của `CreateClient` không mang SĐT: số đó là của NGƯỜI GỌI, tra theo nó
+ *     ra hồ sơ cá nhân của chính người gọi. SĐT vẫn được ghi lên hồ sơ tổ chức MỚI làm số liên hệ.
+ *     Mỗi lần tra trừ một suất của `ClientLookupThrottle` (20/giờ, dùng chung — giá
  *     đã chấp nhận ở M6.5); một lần chuyển đổi tốn tới ba suất mỗi lượt gửi. `ClientLookupThrottled`,
  *     `DuplicateClientNotVisible` (khách chỉ biết qua vụ `restricted` — câu trung lập, không tên) và
  *     `DuplicateClientDetected` đi ra nguyên vẹn cho màn hình dịch.
  *     **Một hồ sơ ĐÃ CÓ chỉ được gắn khi** ({@see self::guardExistingClient()}, fix vòng 1, I1/I2):
- *     (a) số căn cước của nó không mâu thuẫn với số đã biết của người liên hệ (số vừa gõ, không thì
+ *     (0) nó CÙNG LOẠI với loại khách đang chuyển đổi (làn fa, fix vòng 1, I1 — không gắn công ty vào
+ *     hồ sơ cá nhân, hay người liên hệ cá nhân vào hồ sơ tổ chức); (a) số căn cước của nó không mâu thuẫn với số đã biết của người liên hệ (số vừa gõ, không thì
  *     dấu băm lúc tiếp nhận) — mâu thuẫn là hai người dùng chung một số máy, không gắn; (b) người bấm
  *     không gõ một số căn cước mà hồ sơ đó không có — chuyển đổi không sửa hồ sơ của khách đã có (không
  *     có Action sửa khách nào để đi qua; lần sửa còn đồng bộ lại các bên `is_our_client`, việc của màn
  *     hình Khách hàng), nên số gõ sẽ mất âm thầm; và (c) người bấm đã XÁC NHẬN đúng hồ sơ đó
  *     (`$confirmedClientId` bằng id của nó) sau khi màn hình hiện mã + tên — không thì
- *     `ExistingClientConfirmationRequired` mang hồ sơ ra ngoài. (a) và (b) là `ValidationException`
+ *     `ExistingClientConfirmationRequired` mang hồ sơ ra ngoài. (0), (a) và (b) là `ValidationException`
  *     khoá `client_id_number`. Ngoài dòng nhật ký `client_lookup` và suất tra của chính các lần tra,
  *     không gì được ghi trước bước này.
  *  5. **Mở vụ bằng ĐÚNG `OpenMatter`**: nó tự lấy khoá `conflict-check`, tự chạy lại kiểm tra xung
@@ -323,10 +327,16 @@ class ConvertIntakeToMatter
     {
         $finder = app(FindClientByIdentifier::class);
         $idNumber = filled($data['client_id_number'] ?? null) ? (string) $data['client_id_number'] : null;
+        $asOrganization = self::convertsToOrganization($data);
         $client = null;
 
+        // Fix vòng 1, I1: khách tổ chức chỉ được tra theo MÃ SỐ THUẾ. Số điện thoại là của NGƯỜI GỌI — tra
+        // theo nó ra hồ sơ cá nhân của chính người gọi (một giám đốc từng là khách riêng), rồi hoặc so mã số
+        // thuế với CCCD của ông ta, hoặc hỏi xác nhận gắn hồ sơ cá nhân làm khách của vụ công ty (lỗi A1).
+        $identifiers = $asOrganization ? [$idNumber] : [$idNumber, $intake->contact_phone];
+
         // Định danh trống: `FindClientByIdentifier` trả null ngay, không tra, không trừ suất.
-        foreach ([$idNumber, $intake->contact_phone] as $identifier) {
+        foreach ($identifiers as $identifier) {
             $client = $finder->handle($actor, $identifier);
 
             if ($client !== null) {
@@ -336,36 +346,51 @@ class ConvertIntakeToMatter
 
         // Làn fa (A1): khách tổ chức mang TÊN TỔ CHỨC (đã qua kiểm tra lúc tiếp nhận); người gọi là người
         // đại diện — cắt về trần cột `clients.representative_name` (120) theo ký tự; tên đầy đủ vẫn ở bản ghi.
-        $asOrganization = self::convertsToOrganization($data);
+        // Fix vòng 1, I1: cùng lý do, lần dò trùng của `CreateClient` cho khách tổ chức KHÔNG mang số điện
+        // thoại của người gọi (nó dò cả theo số máy); số đó vẫn được ghi lên hồ sơ MỚI làm số liên hệ.
+        if ($client === null) {
+            $client = app(CreateClient::class)->resolve($actor, [
+                'type' => $data['client_type'],
+                'name' => $asOrganization ? $intake->organization_name : $intake->contact_name,
+                'representative_name' => $asOrganization ? mb_substr((string) $intake->contact_name, 0, self::REPRESENTATIVE_MAX_CHARS) : null,
+                'id_number' => $idNumber,
+                'phone' => $asOrganization ? null : $intake->contact_phone,
+                'email' => $intake->contact_email,
+            ]);
 
-        $client ??= app(CreateClient::class)->resolve($actor, [
-            'type' => $data['client_type'],
-            'name' => $asOrganization ? $intake->organization_name : $intake->contact_name,
-            'representative_name' => $asOrganization ? mb_substr((string) $intake->contact_name, 0, self::REPRESENTATIVE_MAX_CHARS) : null,
-            'id_number' => $idNumber,
-            'phone' => $intake->contact_phone,
-            'email' => $intake->contact_email,
-        ]);
+            if (! $client->exists) {
+                $client->phone = $intake->contact_phone;
+            }
+        }
 
         if ($client->exists) {
-            $this->guardExistingClient($client, self::recordedClientIdHash($intake, $asOrganization), $idNumber, $confirmedClientId);
+            $this->guardExistingClient($client, ClientType::from((string) $data['client_type']), self::recordedClientIdHash($intake, $asOrganization), $idNumber, $confirmedClientId);
         }
 
         return $client;
     }
 
     /**
-     * Ba điều kiện để GẮN người liên hệ vào một hồ sơ khách ĐÃ CÓ — (a), (b), (c) ở bước 4 của docblock
-     * lớp. Số căn cước "đã biết" của người liên hệ là số vừa gõ (bước 3 đã buộc nó khớp dấu băm lúc
+     * Các điều kiện để GẮN người liên hệ vào một hồ sơ khách ĐÃ CÓ — (0), (a), (b), (c) ở bước 4 của
+     * docblock lớp; (0) xét trước hết: hồ sơ phải cùng loại `$type` với loại khách đang chuyển đổi. Số căn cước "đã biết" của người liên hệ là số vừa gõ (bước 3 đã buộc nó khớp dấu băm lúc
      * tiếp nhận, nếu có), không thì dấu băm lúc tiếp nhận (`$recordedHash` — làn fa, A1: với khách tổ
      * chức là dấu băm mã số thuế của tổ chức). Hồ sơ không có số căn cước thì không có gì để mâu thuẫn
      * (a), nhưng cũng không nhận được số vừa gõ (b).
      */
-    private function guardExistingClient(Client $client, ?string $recordedHash, ?string $idNumber, ?int $confirmedClientId): void
+    private function guardExistingClient(Client $client, ClientType $type, ?string $recordedHash, ?string $idNumber, ?int $confirmedClientId): void
     {
         $knownHash = Normalizer::idNumberHash($idNumber) ?? $recordedHash;
         $clientHash = Normalizer::idNumberHash($client->id_number);
         $names = ['code' => $client->code, 'name' => $client->name];
+
+        // Fix vòng 1, I1: không bao giờ gắn một khách khác loại — công ty vào hồ sơ cá nhân, hay người liên
+        // hệ cá nhân vào hồ sơ của một tổ chức. Từ chối ở ô định danh, không hỏi xác nhận. Loại đọc lại từ
+        // bảng: `FindClientByIdentifier` trả một model chỉ có vài cột (không có `type`).
+        $clientType = Client::query()->withoutGlobalScope(ClientPortalScope::class)->whereKey($client->getKey())->value('type');
+
+        if (ClientType::tryFrom((string) ($clientType instanceof ClientType ? $clientType->value : $clientType)) !== $type) {
+            throw ValidationException::withMessages(['client_id_number' => [__('intake_org.errors.convert_existing_client_type_differs.'.$type->value, $names)]]);
+        }
 
         if ($knownHash !== null && $clientHash !== null && $clientHash !== $knownHash) {
             throw ValidationException::withMessages(['client_id_number' => [__('intake.errors.convert_client_id_differs', $names)]]);

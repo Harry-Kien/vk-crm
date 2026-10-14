@@ -12,6 +12,7 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Action;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Storage;
@@ -168,6 +169,23 @@ it('deletes a draft uploaded to the wrong matter, with a reason, out of the tab 
         ->and($row->properties['matter_id'])->toBe($this->matter->id);
 
     dcxScreen($this->matter)->assertCanNotSeeTableRecords([$document]);
+});
+
+it('tells the truth in the delete modal: no screen restores a deleted document, only a technical administrator on the database', function () {
+    // Fix vòng 1, I2: câu cũ hứa "xoá mềm, quản trị khôi phục được" nhưng không màn hình nào khôi phục tài liệu.
+    $document = dcxDocument($this->matter);
+    $this->actingAs($this->lawyer, 'web');
+
+    $description = __('document_corrections.delete.description');
+
+    dcxScreen($this->matter)->assertActionExists(
+        TestAction::make('deleteDocument')->table($document),
+        fn (Action $action): bool => $action->getModalDescription() === $description,
+    );
+
+    expect($description)->not->toContain('quản trị khôi phục được')
+        ->and($description)->toContain('chưa có màn hình nào khôi phục')
+        ->and($description)->toContain('quản trị kỹ thuật');
 });
 
 it('requires a reason of at least ten characters to delete', function () {

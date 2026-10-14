@@ -26,8 +26,10 @@ use Illuminate\Validation\ValidationException;
  * {@see self::REASON_MIN}–{@see self::REASON_MAX} ký tự sau khi gỡ khoảng trắng Unicode hai đầu (cùng
  * cách `RegroupDocument`), lỗi gắn vào ô `delete_reason`.
  *
- * **Xoá MỀM.** Dòng `documents`, tệp và mọi `document_downloads` ở lại (quản trị khôi phục được; hook
- * `Document::deleting` chặn cùng điều kiện tiền trên mọi đường). Dòng nhật ký `document_deleted` mang hồ
+ * **Xoá MỀM.** Dòng `documents`, tệp và mọi `document_downloads` ở lại (hook `Document::deleting` chặn
+ * cùng điều kiện tiền trên mọi đường). KHÔNG màn hình nào khôi phục một tài liệu đã xoá (không
+ * `RestoreAction`, không Action khôi phục): lấy lại chỉ được bằng tay trên CSDL (đặt `deleted_at` về
+ * NULL), việc của người quản trị kỹ thuật — modal "Xoá" nói đúng như vậy (fix vòng 1, I2). Dòng nhật ký `document_deleted` mang hồ
  * sơ, nhóm, trạng thái, version và LÝ DO — không tiêu đề (dòng tài liệu vẫn còn, đọc được ở đó).
  */
 class DeleteDocument

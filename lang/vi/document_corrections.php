@@ -29,7 +29,7 @@ return [
     'delete' => [
         'action' => 'Xoá',
         'heading' => 'Xoá tài liệu tải lên nhầm',
-        'description' => 'Chỉ xoá được tài liệu khách chưa từng thấy. Tài liệu bị ẩn khỏi hồ sơ (xoá mềm, quản trị khôi phục được); lý do được ghi vào nhật ký.',
+        'description' => 'Chỉ xoá được tài liệu khách chưa từng thấy. Tài liệu biến khỏi hồ sơ và khỏi mọi màn hình; tệp và dữ liệu vẫn được giữ lại, nhưng chưa có màn hình nào khôi phục — muốn lấy lại phải nhờ người quản trị kỹ thuật khôi phục trực tiếp trên cơ sở dữ liệu. Lý do xoá được ghi vào nhật ký.',
         'reason' => 'Lý do xoá',
         'reason_help' => 'Ví dụ: tải nhầm vào hồ sơ của khách khác. Tối thiểu :min ký tự.',
         'success' => 'Đã xoá tài liệu.',
