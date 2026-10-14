@@ -8,6 +8,7 @@ use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Instalment;
@@ -16,6 +17,8 @@ use App\Models\MatterChecklistItem;
 use App\Models\Payment;
 use App\Models\StageLog;
 use App\Support\Billing\ClientBillingStatement;
+use App\Support\Billing\ClientPaymentPlan;
+use App\Support\Billing\ClientPaymentSettings;
 use App\Support\ClientRequestActivity;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
@@ -45,6 +48,12 @@ use Livewire\Attributes\Locked;
  * liệu lên cổng", không phải một mặc định: `communication_logs` **vẫn không** lên cổng (phán quyết
  * của người điều phối M5, 19/09/2026 — SPEC §5 không liệt kê nó, và thêm một model vào danh sách
  * đó là một việc cần chữ ký của văn phòng, đúng thứ P1 là cho tiền).
+ *
+ * **Làn nt (chủ văn phòng 2026-10-10): phần "Lộ trình thanh toán" bên trong khối tiền, sau công tắc
+ * "Nhắc lịch thanh toán cho khách" (mặc định TẮT).** Tắt: khối tiền đúng như M9 để lại. Bật: thêm đã
+ * thanh toán / đã miễn / còn lại của cả hợp đồng, thông tin chuyển khoản của văn phòng, và cho mỗi đợt
+ * đã tới hạn còn phải trả: nội dung chuyển khoản gợi ý cùng mã QR VietQR — xem {@see self::paymentPlan()}.
+ * Không thêm model nào lên cổng: phần này đọc đúng các bản ghi khối tiền đã gác.
  *
  * Dưới các khối là **lối quay lại danh sách hồ sơ**, và nó gọi {@see MyMatters::getAllUrl()} chứ
  * không `MyMatters::getUrl()`: với một khách có đúng MỘT hồ sơ thì `/portal` trần chuyển hướng
@@ -246,6 +255,21 @@ class MatterProgress extends Page
     private ?array $resolvedBilling = null;
 
     private bool $billingResolved = false;
+
+    /**
+     * Bản ghi tiền đã gác của khối tiền, dùng chung cho `billing()` và `paymentPlan()` (làn nt) — bộ nhớ
+     * đệm TRONG MỘT REQUEST, `private` như mọi bộ nhớ đệm khác ở đây (xem docblock lớp).
+     *
+     * @var array{contract: Contract, instalments: Collection<int, Instalment>, payments: Collection<int, Payment>}|null
+     */
+    private ?array $resolvedBillingRecords = null;
+
+    private bool $billingRecordsResolved = false;
+
+    /** @var array<string, mixed>|null */
+    private ?array $resolvedPaymentPlan = null;
+
+    private bool $paymentPlanResolved = false;
 
     /**
      * `{record}` nối vào đường dẫn ở đây chứ không ở `$slug`: `getRelativeRouteName()` dựng tên
@@ -986,19 +1010,88 @@ class MatterProgress extends Page
 
         $this->billingResolved = true;
 
+        $records = $this->billingRecords();
+
+        return $this->resolvedBilling = $records === null
+            ? null
+            : ClientBillingStatement::present($this->matter(), $records['contract'], $records['instalments'], $records['payments']);
+    }
+
+    /**
+     * Phần "Lộ trình thanh toán" trong khối tiền (làn nt Task 1) — **chỉ khi công tắc "Nhắc lịch thanh
+     * toán cho khách" bật** ({@see ClientPaymentSettings}, mặc định tắt). Đã chiếu xuống đúng những gì
+     * view vẽ: {@see ClientPaymentPlan::present()}.
+     *
+     * **Công tắc được hỏi TRƯỚC mọi thứ khác.** Tắt thì hàm trả `null` sau đúng MỘT truy vấn (dòng công
+     * tắc trong `settings`) — không đọc hợp đồng, đợt hay khoản thu nào cho phần này, không đọc thông tin
+     * chuyển khoản. Khối "Hợp đồng và thanh toán" của M9 (P1) thì vẫn như trước, bật hay tắt: công tắc
+     * chỉ quyết phần thêm vào của làn nt (đo ở `PaymentPlanOnPortalTest`, "runs no money query for the
+     * payment plan while the switch is OFF").
+     *
+     * Bật thì đọc ĐÚNG những bản ghi khối tiền đã đọc và đã gác ({@see self::billingRecords()} — ba
+     * tầng của cổng, kể cả `Gate` trên từng bản ghi): không có hợp đồng khách được thấy thì không có lộ
+     * trình. Trả MẢNG hẹp (tiền đã định dạng, nội dung chuyển khoản, ảnh mã QR dạng `data:` URI, một cờ
+     * "đã trả đủ"), không model nào — hàm công khai gọi được từ trình duyệt.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function paymentPlan(): ?array
+    {
+        if ($this->paymentPlanResolved) {
+            return $this->resolvedPaymentPlan;
+        }
+
+        $this->paymentPlanResolved = true;
+
+        if (! ClientPaymentSettings::enabled()) {
+            return $this->resolvedPaymentPlan = null;
+        }
+
+        $records = $this->billingRecords();
+
+        if ($records === null) {
+            return $this->resolvedPaymentPlan = null;
+        }
+
+        return $this->resolvedPaymentPlan = ClientPaymentPlan::present(
+            $this->matter(),
+            $records['contract'],
+            $records['instalments'],
+            $records['payments'],
+            ClientPaymentSettings::current()->transferAccount(),
+        );
+    }
+
+    /**
+     * Hợp đồng, đợt và khoản thu mà khối tiền vẽ — đọc MỘT lần mỗi request, dùng chung cho
+     * {@see self::billing()} và {@see self::paymentPlan()}. Ba tầng như mô tả ở docblock của
+     * `billing()`: truy vấn neo vào hồ sơ đã gác (scope cổng cắt bản nháp, bản huỷ, đợt huỷ, khoản thu
+     * huỷ), rồi `Gate` trên hợp đồng, từng đợt, từng khoản thu. `null` khi không có hợp đồng khách được
+     * thấy. Private: trả về model, nên trình duyệt không bao giờ gọi được nó.
+     *
+     * @return array{contract: Contract, instalments: Collection<int, Instalment>, payments: Collection<int, Payment>}|null
+     */
+    private function billingRecords(): ?array
+    {
+        if ($this->billingRecordsResolved) {
+            return $this->resolvedBillingRecords;
+        }
+
+        $this->billingRecordsResolved = true;
+
         $gate = Gate::forUser($this->viewer());
         $matter = $this->matter();
 
         $contract = $matter->contract()->first();
 
         if ($contract === null) {
-            return $this->resolvedBilling = null;
+            return $this->resolvedBillingRecords = null;
         }
 
         $contract->setRelation('matter', $matter);
 
         if (! $gate->allows('view', $contract)) {
-            return $this->resolvedBilling = null;
+            return $this->resolvedBillingRecords = null;
         }
 
         $instalments = $contract->instalments()->get()
@@ -1017,7 +1110,7 @@ class MatterProgress extends Page
             ->filter(fn (Payment $payment): bool => $gate->allows('view', $payment))
             ->values();
 
-        return $this->resolvedBilling = ClientBillingStatement::present($matter, $contract, $instalments, $payments);
+        return $this->resolvedBillingRecords = compact('contract', 'instalments', 'payments');
     }
 
     // -------------------------------------------------------------------------------------

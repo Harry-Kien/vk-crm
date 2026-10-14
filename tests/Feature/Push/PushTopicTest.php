@@ -448,6 +448,9 @@ it('decides for every mail template whether it is pushed', function () {
     $neverPushed = [
         'client.activation',
         'client.missing_documents',
+        // Làn nt Task 1: xác nhận đã nhận tiền (sau công tắc "Nhắc lịch thanh toán cho khách") — thư là
+        // chứng từ để giữ, không cần nhắc trên màn hình khoá; push không được mang số tiền (R11).
+        'client.payment_received',
         'staff.backup_alert.backup_failed',
         'staff.backup_alert.cleanup_failed',
         'staff.backup_alert.unhealthy',

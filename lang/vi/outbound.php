@@ -82,6 +82,8 @@ return [
         'staff.document_store_alert.transfer_dossier_due' => 'Báo nhân sự sắp tới hạn nộp hồ sơ chuyển dữ liệu ra nước ngoài',
         // M14 rà soát cuối vòng sửa 1 (I6).
         'staff.document_store_alert.transfer_blocked' => 'Báo nhân sự kho đã dừng chuyển dữ liệu vì thiếu căn cứ pháp lý',
+        // Làn nt Task 1 (nhắc lịch thanh toán cho khách, sau công tắc): App\Mail\Client\PaymentReceived.
+        'client.payment_received' => 'Xác nhận với khách đã nhận thanh toán',
     ],
 
     'matter_tab' => [
@@ -119,6 +121,8 @@ return [
                 'staff.intake_unanswered' => 'lời nhắc liên hệ chưa ai gọi lại tự được gửi lại ở lượt nhắc kế tiếp (mỗi 15 phút trong giờ làm việc; thư đã hỏng hẳn thì từ ngày làm việc hôm sau) nếu bản ghi vẫn còn "Mới", vì chỉ thư đã gửi thành công mới chặn lời nhắc mới; chuông trong hệ thống và widget "Liên hệ chưa ai gọi lại" không phụ thuộc thư.',
                 // M14 Task 5 (lý do ở docblock `ResendTargets`).
                 'staff.document_store_alert.*' => 'thư cảnh báo kho tài liệu nói về một lần kiểm sức khoẻ đã qua; nếu sự cố còn, lượt kiểm mỗi giờ sẽ tự báo lại (mỗi loại sự cố một thư mỗi ngày, thư lỗi không chặn lần gửi sau). Xem tình trạng hiện tại ở trang "Kho tài liệu".',
+                // Làn nt Task 1 (lý do ở docblock `ResendTargets`).
+                'client.payment_received' => 'thư xác nhận đã nhận tiền gắn với vụ việc chứ không với khoản thu, nên không dựng lại được; hệ thống đã tự thử lại nhiều lần và chuông báo lỗi đã tới luật sư phụ trách. Hãy báo khách bằng kênh khác nếu cần.',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],

@@ -57,5 +57,9 @@ class DemoDataSeeder extends Seeder
         // nhận chưa có hợp đồng, để form "Soạn hợp đồng" của nó hiện phí đã báo làm gợi ý (R3). Gọi riêng
         // để làn khác thêm seeder vào danh sách trên mà không chạm dòng này.
         $this->call(IntakeSeeder::class);
+
+        // Làn nt: thông tin chuyển khoản GIẢ cho "Nhắc lịch thanh toán cho khách"; công tắc vẫn TẮT. Sau
+        // `BillingSeeder` để các khoản thu mẫu ghi qua `RecordPayment` không gặp công tắc nào bật.
+        $this->call(ClientPaymentSettingsSeeder::class);
     }
 }

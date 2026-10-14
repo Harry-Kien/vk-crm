@@ -64,6 +64,12 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *  - `staff.document_store_alert.*` (M14 Task 5; hậu tố là loại sự cố của kho tài liệu): thư nói về
  *    MỘT lần kiểm sức khoẻ đã qua. Sự cố còn thì lượt `storage.health` mỗi giờ tự báo lại — mỗi loại
  *    một thư mỗi ngày, và chỉ dòng `sent` chặn, nên một thư hỏng được gửi lại ở lượt kế tiếp.
+ *  - `client.payment_received` (làn nt Task 1, sau công tắc "Nhắc lịch thanh toán cho khách"): dòng
+ *    sổ thư gắn với VỤ VIỆC (để ai xem được vụ thì xem được dòng — `payment` không có `matter_id` trực
+ *    tiếp nên một dòng gắn khoản thu chỉ admin thấy), và từ vụ việc không dựng lại được khoản thu nào.
+ *    Job `SendPaymentReceivedMail` tự thử lại năm lần; hỏng hẳn thì ghi `payment_received_mail_failed`
+ *    và rung chuông cho luật sư phụ trách để báo khách bằng kênh khác. Khoản thu vẫn hiện ở khối tiền
+ *    trên cổng khách khi vụ còn trên cổng.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -92,6 +98,8 @@ final class ResendTargets
         'staff.handover_ready',
         'staff.intake_unanswered',
         'staff.document_store_alert.*',
+        // Làn nt Task 1 — lý do ở docblock lớp.
+        'client.payment_received',
         'undeclared',
     ];
 

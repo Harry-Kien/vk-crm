@@ -335,6 +335,12 @@
                 @empty
                     <p style="{{ $muted }}">{{ __('portal_progress.billing.payments_empty') }}</p>
                 @endforelse
+
+                {{-- Làn nt: "Lộ trình thanh toán" — chỉ khi công tắc "Nhắc lịch thanh toán cho khách" bật. --}}
+                @php($plan = $this->paymentPlan())
+                @if ($plan !== null)
+                    @include('filament.portal.pages.matter-progress-payment-plan', ['plan' => $plan, 'muted' => $muted])
+                @endif
             </section>
         @endif
 

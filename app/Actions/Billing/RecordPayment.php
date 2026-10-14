@@ -11,6 +11,7 @@ use App\Enums\InstalmentStatus;
 use App\Enums\PaymentMethod;
 use App\Exceptions\InstalmentNotPayable;
 use App\Exceptions\PaymentExceedsInstalment;
+use App\Jobs\SendPaymentReceivedMail;
 use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Instalment;
@@ -18,6 +19,7 @@ use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Billing\ClientPaymentSettings;
 use DateTimeInterface;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -63,6 +65,11 @@ use Illuminate\Validation\ValidationException;
  *  8. Ghi dòng `payments`. Tổng khoản thu chưa huỷ (tổng đọc có khoá ở bước 5 cộng dòng vừa ghi)
  *     ≥ `amount` của đợt thì `status = paid`, TRONG CÙNG transaction, dưới khoá đợt của bước 1.
  *  9. `Audit::record('payment_recorded', …, $actor)` bên trong transaction.
+ * 10. (làn nt Task 1) Công tắc "Nhắc lịch thanh toán cho khách" bật ({@see ClientPaymentSettings},
+ *     mặc định tắt) thì xếp {@see SendPaymentReceivedMail} bằng `->afterCommit()` — thư xác nhận tới
+ *     tài khoản cổng R12 của khách; R2: không thư nào đi từ bên trong transaction này, và transaction bị
+ *     huỷ (hay chạy lại vì deadlock) thì lần xếp của nó bị bỏ cùng. Tắt thì không xếp gì. Job tự hỏi lại
+ *     công tắc và đọc lại khoản thu lúc chạy (docblock của job).
  */
 class RecordPayment
 {
@@ -149,6 +156,11 @@ class RecordPayment
                 'paid_on' => $paidOn->toDateString(),
                 'attributed_lawyer_id' => $lockedMatter->lead_lawyer_id,
             ], $actor);
+
+            // Bước 10 (làn nt): thư xác nhận cho khách — chỉ khi công tắc bật; job chạy SAU commit.
+            if (ClientPaymentSettings::enabled()) {
+                SendPaymentReceivedMail::dispatch((int) $payment->id)->afterCommit();
+            }
 
             return $payment->refresh();
         });
