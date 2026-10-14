@@ -592,7 +592,8 @@ class MatterProgress extends Page
             'public_content' => $log->public_content,
             'next_step' => $log->next_step,
             'client_action' => $log->client_action,
-            'expected_on' => $log->expected_next_update_at?->format('d/m/Y'),
+            // Làn fm B3: vụ đã kết thúc không còn "tin tiếp theo" để hẹn — kể cả dòng cũ đã ghi ngày.
+            'expected_on' => $this->matter()->isClosed() ? null : $log->expected_next_update_at?->format('d/m/Y'),
         ];
     }
 

@@ -45,7 +45,8 @@ function rhpTransition(Matter $matter, User $admin, string $to): void
         actor: $admin,
         toStage: $to,
         occurredAt: now(),
-        internalNote: null,
+        // Làn fm B4: mở lại vụ đã kết thúc đòi lý do trong ghi chú nội bộ.
+        internalNote: 'Mở lại vụ theo chỉ đạo của quản trị viên, ghi lý do đầy đủ.',
         publicContent: null,
         nextStep: null,
         clientAction: null,

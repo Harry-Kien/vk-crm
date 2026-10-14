@@ -158,6 +158,8 @@ it('drops a matter from the widget after it is transitioned into a terminal stag
         'client_action' => null,
         'expected_next_update_at' => null,
         'publish' => false,
+        // Làn fm A1: đóng vụ trên màn hình đòi tích xác nhận đã xem việc còn dở.
+        'confirm_close' => true,
     ]);
 
     expect($matter->fresh()->closed_at)->not->toBeNull();

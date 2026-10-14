@@ -7,6 +7,7 @@ use App\Actions\Mcp\McpMatterScope;
 use App\Actions\Mcp\Write\Concerns\ConfirmsInTwoSteps;
 use App\Enums\CreatedVia;
 use App\Enums\DeadlineSeverity;
+use App\Exceptions\MatterClosedForDeadlines;
 use App\Models\Deadline;
 use App\Models\User;
 use App\Support\Mcp\ConfirmationToken;
@@ -40,6 +41,13 @@ use Illuminate\Validation\ValidationException;
  *
  * Hạn trong quá khứ bị tool từ chối (thu hẹp so với web, nơi luật sư ghi lại mốc đã lỡ khi nhận bàn
  * giao): một mốc đã qua do AI tạo nhiều khả năng là nhầm năm, và người cần ghi mốc đã qua có màn hình.
+ *
+ * **Vụ đã kết thúc (làn fm, Task 1, vòng sửa 1).** Tập R3 vẫn chứa vụ đã kết thúc, còn
+ * `AddMatterDeadline` từ chối nó bằng {@see MatterClosedForDeadlines} — một `DomainException` mà
+ * laravel/mcp (APP_DEBUG tắt) đổi thành câu chung "An internal server error occurred." kèm `report()`
+ * mỗi lần AI thử lại. Ở cả hai bước lỗi đó thành `ValidationException` trên `matter_id` mang đúng câu
+ * của web (`lifecycle.deadlines.closed_refused`): AI đọc được lý do, nhật ký lỗi không đầy. Lần hai bị
+ * từ chối thì transaction của `confirmOnce` rollback: không mốc, mã không bị tiêu.
  */
 final class CreateAiDeadline
 {
@@ -86,16 +94,23 @@ final class CreateAiDeadline
             'responsible_id' => $responsibleId,
         ];
 
-        $write = fn (): Deadline => $this->add->handle(
-            matter: $matter,
-            actor: $actor,
-            name: $name,
-            dueDate: $dueDate,
-            severity: $severity,
-            responsible: $responsible,
-            isPublished: false,
-            createdVia: CreatedVia::Mcp,
-        );
+        $write = function () use ($matter, $actor, $name, $dueDate, $severity, $responsible): Deadline {
+            try {
+                return $this->add->handle(
+                    matter: $matter,
+                    actor: $actor,
+                    name: $name,
+                    dueDate: $dueDate,
+                    severity: $severity,
+                    responsible: $responsible,
+                    isPublished: false,
+                    createdVia: CreatedVia::Mcp,
+                );
+            } catch (MatterClosedForDeadlines $closed) {
+                // Xem docblock lớp, mục "Vụ đã kết thúc".
+                throw ValidationException::withMessages(['matter_id' => [$closed->getMessage()]]);
+            }
+        };
 
         if ($confirmationToken === null) {
             /** @var Deadline $preview */

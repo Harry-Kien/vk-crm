@@ -16,6 +16,7 @@ use App\Support\Mcp\ConfirmationToken;
 use App\Support\Mcp\McpIds;
 use App\Support\Mcp\Presenters\DeadlinePresenter;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\Exceptions;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\McpOAuth;
 use Tests\Support\McpReadWorld;
@@ -367,4 +368,41 @@ it('mốc tạo qua AI rồi bị xoá trên web: gọi lại cùng mã trả "K
     expect(McpToolCall::error($this, $this->token, 'create_deadline', [...$this->arguments, 'confirmation_token' => $token]))
         ->toBe(__('mcp.tool_errors.not_found'))
         ->and(Deadline::query()->withoutGlobalScopes()->withTrashed()->count())->toBe(1);
+});
+
+/*
+ * Làn fm, Task 1, vòng sửa 1 (I2): `AddMatterDeadline` từ chối vụ đã kết thúc bằng
+ * `MatterClosedForDeadlines` (làn fm A1), mà tập R3 của MCP vẫn chứa vụ đã kết thúc. Trước bản sửa
+ * lỗi đó (một `DomainException`) lọt qua tool: với APP_DEBUG tắt (production), laravel/mcp trả câu
+ * chung "An internal server error occurred." và `report()` một lỗi mỗi lần AI thử lại. Nay cả hai bước
+ * trả đúng câu của web, không ghi gì, không báo lỗi hệ thống.
+ */
+it('vụ đã kết thúc: lần một trả đúng câu từ chối của web, không cấp mã, không ghi gì, không báo lỗi hệ thống', function () {
+    Exceptions::fake();
+    // Như production: với APP_DEBUG bật, laravel/mcp trả nguyên câu của mọi lỗi và che mất ca này.
+    config(['app.debug' => false]);
+    $this->world->matter->forceFill(['closed_at' => now()->subDay()->toDateString()])->save();
+    $before = cdRows();
+
+    expect(McpToolCall::error($this, $this->token, 'create_deadline', $this->arguments))
+        ->toBe(__('lifecycle.deadlines.closed_refused'))
+        ->and(cdRows())->toBe($before);
+
+    Exceptions::assertNothingReported();
+});
+
+it('vụ kết thúc giữa hai bước: lần hai với mã còn hạn trả đúng câu từ chối, không ghi mốc, không tiêu mã', function () {
+    Exceptions::fake();
+    // Như production: với APP_DEBUG bật, laravel/mcp trả nguyên câu của mọi lỗi và che mất ca này.
+    config(['app.debug' => false]);
+    $token = cdPreview($this, $this->token, $this->arguments)['confirmation_token'];
+
+    $this->world->matter->forceFill(['closed_at' => now()->toDateString()])->save();
+
+    expect(McpToolCall::error($this, $this->token, 'create_deadline', [...$this->arguments, 'confirmation_token' => $token]))
+        ->toBe(__('lifecycle.deadlines.closed_refused'))
+        ->and(Deadline::query()->withoutGlobalScopes()->count())->toBe(0)
+        ->and(McpConfirmation::query()->withoutGlobalScopes()->count())->toBe(0);
+
+    Exceptions::assertNothingReported();
 });

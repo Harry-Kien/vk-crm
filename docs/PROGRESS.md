@@ -9030,6 +9030,52 @@ Mỗi mục đã chọn phương án an toàn: giữ dữ liệu, có nhật ký
   tiếp nhận không kiểm tài khoản còn hoạt động; ReopenIntake và CheckIntakeConflict khác nhau về thông báo Đỏ chờ; ký lại
   hợp đồng không đặt lại đầu mục hợp đồng đã ký.
 
+
+### Sửa sau kiểm tra nghiệp vụ toàn hệ thống (làn fm) — vòng đời vụ việc
+
+Làn fm (nhánh `audit-fix-fm`, từ `0b26a26`) sửa năm lỗi quan trọng của luồng vụ việc. Người điều phối viết mục này
+(làn không sửa PROGRESS); chi tiết từng lỗi, bằng chứng TDD và phép thử ngược ở `.superpowers/sdd/fm/task-1-report.md`
+trên máy dev.
+
+- **A1 — kết thúc vụ có cảnh báo:** hộp thoại chuyển sang giai đoạn kết thúc liệt kê việc còn dở (mốc hạn mở, yêu cầu khách
+  chưa đóng, giấy tờ chờ duyệt, công nợ cho người có `billing.view`), nói rõ hậu quả và bắt tích xác nhận; vụ đã đóng không
+  nhận mốc hạn mới (kể cả qua MCP `create_deadline`).
+- **A2 — rút lại dòng tiến độ đã công bố** (`RetractStageLog`, lý do bắt buộc, giữ dòng, ghi nhật ký; gói bàn giao chưa
+  công bố được dựng lại).
+- **A3 — ghi chú nội bộ của vụ** xem và sửa được; ngày mở vụ sửa được. Vòng sửa sau rà soát toàn làn: trang sửa chỉ kiểm hai
+  trường đó khi chúng thật sự đổi; tạo vụ và chuyển từ tiếp nhận dùng cùng luật (`UpdateMatterDetails::assertNewMatterDetails`).
+- **A4 — vụ huỷ nhầm khôi phục được** (`RestoreMatter`; chỉ huỷ được vụ chưa từng kết thúc).
+- **A5 — hạn tra cứu của khách** hiện trên trang vụ và gia hạn được (`ExtendClientAccess`, luật sư phụ trách hoặc quản trị,
+  tối đa 365 ngày mỗi lần); hộp thoại công bố nói thật khi khách chưa thấy được và ai gia hạn được.
+- Mục B: B2 (hồ sơ đã tiêu huỷ thì khoá), B3, B4 (lý do ≥ 20 ký tự khi bỏ qua thứ tự giai đoạn hoặc mở lại vụ đã đóng), B5,
+  B8 xong; **B1, B6, B7 hoãn** vì cần chủ văn phòng quyết (xem dưới).
+- Kiểm chứng trong làn: cả bộ (chạy tuần tự) 8894 passed, 36 skipped, 0 failed; MariaDB 106 passed; pint PASS. Lần chạy song
+  song 4 tiến trình đỏ 76 test lưu trữ vì các tiến trình tranh chung ổ private — không phải lỗi mã; từ đó mọi làn chạy cả bộ
+  bằng `--processes=2`.
+
+**Cần chủ văn phòng quyết** (làn fm nêu):
+
+1. Vụ đã đóng không nhận mốc hạn mới (phương án khác: cho phép kèm cờ "vẫn nhắc").
+2. Gia hạn tra cứu tối đa 365 ngày mỗi lần; 90 ngày có nên tính từ lúc công bố gói bàn giao thay vì từ lúc đóng vụ (SPEC §6.12
+   bước 5) — chưa đổi. Gia hạn không tự bật lại tài khoản cổng mà việc chạy đêm đã tắt; nhân sự bật lại (hộp thoại có nói).
+3. Lý do rút dòng tiến độ chỉ nội bộ; cổng không để dấu "đã rút" cho dòng tiến độ (tài liệu thì có); thư đã gửi không thu hồi được.
+4. B1: thêm giai đoạn kết thúc "Chấm dứt trước hạn" và đường "tạm dừng" — cần chủ văn phòng đặt tên, duyệt giai đoạn theo loại vụ.
+5. B6: bàn giao hàng loạt có gồm cả vụ đã đóng không (thư, người giữ hồ sơ đóng).
+6. B7: đổi công thức "hồ sơ đứng im" (SPEC §6.4) — cần chủ văn phòng duyệt.
+
+#### Gộp làn fm vào main (2026-10-15) — kiểm chứng
+
+- Xung đột chữ: docs/QUY-TRINH.md (hai bảng trạng thái — giữ dòng của cả fm và fb/fa) và lang/vi/activity.php (khối fb + khối
+  fm, không khoá trùng). Tự gộp có kiểm: ConvertIntakeToMatter / ConvertIntakeRequest (khách tổ chức của fa + luật chi tiết vụ
+  của fm), DocumentsRelationManager (các nút sửa sai của fa + khoá hồ sơ đã tiêu huỷ và cảnh báo công bố của fm), OpenMatter.
+- Trên cây đã gộp, `--processes=2`: cả bộ **9181 passed, 37 skipped, 0 failed**; 962 test tập trung xanh; pint PASS.
+- Rà soát gộp ba góc nhìn — sửa ngay trong commit gộp phát hiện QUAN TRỌNG đã xác nhận: rút một dòng tiến độ không lùi
+  `matters.last_client_update_at`, mà đồng hồ "hồ sơ đứng im" (cờ đỏ 14 ngày, thư 21 ngày, widget, cổng khách) đọc đúng cột
+  đó → `RetractStageLog` đặt cột về dòng mới nhất còn công bố, không bao giờ đẩy lên, hay NULL; hai test mới (đỏ trước khi sửa,
+  phép thử ngược bỏ chặn "không đẩy lên" → đỏ). Để sau (minor): nút "Gửi lại" vẫn hiện trên thư cập nhật của dòng đã rút; khôi
+  phục vụ đã huỷ giữ nguyên công tắc cổng; công cụ MCP liệt kê cập nhật vẫn trả dòng đã rút; các nút sửa sai tài liệu của fa
+  chưa xét khoá hồ sơ đã tiêu huỷ của fm; bộ lọc "Hồ sơ" trên Nhật ký hệ thống không có vụ đã huỷ.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9465,8 +9511,8 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
-- Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa ĐÃ GỘP** (2026-10-14, các mục "Sửa sau kiểm tra
-  nghiệp vụ toàn hệ thống (làn …)" phía trên); fm đang kiểm chứng lần cuối trước khi gộp.
+- Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
+  tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
 - Giao – nhận – xử lý hồ sơ NỘI BỘ (giao việc, bước "Đã nhận"/"Trả lại"); vai trò nhân viên kinh doanh quản
   lý lead; nhắc lịch thanh toán cho khách sau MỘT công tắc, mặc định tắt (đảo quyết định 2026-10-04).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn

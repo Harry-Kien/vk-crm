@@ -7,6 +7,7 @@ use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Events\DocumentPublished;
 use App\Exceptions\DocumentNotPublishable;
+use App\Exceptions\MatterRecordDestroyed;
 use App\Models\Document;
 use App\Models\User;
 use App\Support\Audit;
@@ -144,6 +145,11 @@ class PublishDocument
 
             if ($matter === null || $matter->trashed()) {
                 throw DocumentNotPublishable::matterUnavailable($fresh);
+            }
+
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không công bố thêm gì.
+            if ($matter->isRecordDestroyed()) {
+                throw MatterRecordDestroyed::make();
             }
 
             // M7 Task 7: tài liệu đã RÚT LẠI không công bố lại được — cổng trạng thái, cùng hạng

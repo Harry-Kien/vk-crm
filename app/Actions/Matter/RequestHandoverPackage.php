@@ -3,9 +3,11 @@
 namespace App\Actions\Matter;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Enums\HandoverIndexImpact;
 use App\Enums\HandoverPackageStatus;
 use App\Exceptions\HandoverPackageBusy;
 use App\Exceptions\HandoverPackageUnavailable;
+use App\Exceptions\MatterRecordDestroyed;
 use App\Jobs\GenerateHandoverPackage;
 use App\Listeners\SyncMatterArchiveOnStageChange;
 use App\Models\Document;
@@ -64,6 +66,18 @@ use Illuminate\Support\Facades\Gate;
  *
  * Job được dispatch `->afterCommit()`: trạng thái `generating` đã commit trước khi worker có thể
  * nhặt nó, và nếu một transaction ngoài rollback thì job không bao giờ được xếp.
+ *
+ * # Đường thứ ba: sinh lại vì một dòng tiến độ bị rút (làn fm, Task 1, vòng sửa 1)
+ *
+ * Mục lục in mọi dòng tiến độ ĐANG công bố lúc gói được dựng, nên một gói dựng trước khi
+ * {@see RetractStageLog} rút một dòng vẫn mang dòng đó — kể cả gói tự sinh lúc đóng vụ đang chờ
+ * luật sư công bố. {@see self::refreshAfterRetraction()} (gọi trong transaction của lần rút) xếp
+ * sinh lại khi {@see self::indexImpact()} nói `Regenerated`: vụ đang kết thúc, hồ sơ chưa tiêu
+ * huỷ, và gói hiện có (hoặc lần sinh đang chờ) chưa ra tới khách. Khác chế độ tự động, đường này
+ * KHÔNG dừng khi `handover_status` đã có giá trị (có gói mới là lý do để sinh lại) và KHÔNG dừng khi
+ * một lần sinh đang chạy: lần đó có thể đã đọc dòng vừa rút, nên dấu yêu cầu mới thay dấu cũ và job
+ * cũ thoát lặng lẽ ở lần kiểm dấu của {@see BuildHandoverPackage}. Gói đang công bố thì không sinh
+ * lại (một đường rút duy nhất, như trên) — hộp thoại rút bảo người dùng rút gói trước.
  */
 class RequestHandoverPackage
 {
@@ -113,6 +127,15 @@ class RequestHandoverPackage
                 throw HandoverPackageUnavailable::noArchive();
             }
 
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ — không sinh (lại) gói, tự động hay bấm tay.
+            if ($archive->destroyed_at !== null) {
+                if ($automatic) {
+                    return null;
+                }
+
+                throw MatterRecordDestroyed::make();
+            }
+
             if ($automatic && $archive->handover_status !== null) {
                 return null;
             }
@@ -134,27 +157,126 @@ class RequestHandoverPackage
                 throw HandoverPackageUnavailable::released();
             }
 
-            // Giây tròn: cột `timestamp` không lưu phần lẻ, và dấu này được job so LẠI với giá trị
-            // đọc từ cột — phải bằng nhau tuyệt đối.
-            $requestedAt = now()->startOfSecond();
-
-            $archive->update([
-                'handover_status' => HandoverPackageStatus::Generating,
-                'handover_requested_at' => $requestedAt,
-                'handover_requested_by' => $actor?->getKey(),
-                'handover_error' => null,
-            ]);
-
-            Audit::record('handover_package_requested', $matter, [
-                'matter_id' => $matter->getKey(),
-                'client_id' => $matter->client_id,
-                'automatic' => $actor === null,
-            ], $actor);
-
-            GenerateHandoverPackage::dispatch($matter->getKey(), $requestedAt->getTimestamp())->afterCommit();
-
-            return $archive;
+            return $this->queue($matter, $archive, $actor, ['automatic' => $actor === null]);
         });
+    }
+
+    /**
+     * Rút một dòng tiến độ làm gì với mục lục của gói bàn giao của vụ — đọc KHÔNG khoá, cho hộp thoại
+     * "Rút khỏi cổng" (cùng phép phân loại mà {@see self::refreshAfterRetraction()} hỏi lại dưới khoá).
+     */
+    public function indexImpact(int $matterId): HandoverIndexImpact
+    {
+        $matter = $this->scopelessly(Matter::query())->find($matterId);
+        $archive = $matter === null ? null : $this->scopelessly(MatterArchive::query())
+            ->where('matter_id', $matter->getKey())
+            ->first();
+
+        return $this->classify($matter, $archive, $this->packageOf($archive, lock: false));
+    }
+
+    /**
+     * Gọi TRONG transaction của {@see RetractStageLog}, sau khi dòng đã rút: khoá `matters` (đã khoá
+     * sẵn bởi người gọi) → `matter_archives` → `documents`, phân loại lại, và với `Regenerated` thì
+     * xếp sinh lại gói — người rút đứng tên lần yêu cầu. Xem docblock lớp, mục "Đường thứ ba".
+     */
+    public function refreshAfterRetraction(int $matterId, User $actor): HandoverIndexImpact
+    {
+        return DB::transaction(function () use ($matterId, $actor): HandoverIndexImpact {
+            $matter = $this->scopelessly(Matter::query())->lockForUpdate()->find($matterId);
+            $archive = $matter === null ? null : $this->scopelessly(MatterArchive::query())
+                ->where('matter_id', $matter->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            $impact = $this->classify($matter, $archive, $this->packageOf($archive, lock: true));
+
+            if ($impact === HandoverIndexImpact::Regenerated) {
+                $this->queue($matter, $archive, $actor, ['automatic' => false, 'trigger' => 'stage_log_retracted']);
+            }
+
+            return $impact;
+        });
+    }
+
+    /**
+     * Một phép phân loại cho cả hộp thoại lẫn Action — xem {@see HandoverIndexImpact}. Gói đang công
+     * bố được hỏi TRƯỚC: kể cả trên vụ đã mở lại hay hồ sơ đã tiêu huỷ, nó vẫn đang ở trên cổng.
+     */
+    private function classify(?Matter $matter, ?MatterArchive $archive, ?Document $package): HandoverIndexImpact
+    {
+        if ($matter === null || $archive === null) {
+            return HandoverIndexImpact::None;
+        }
+
+        if ($package !== null && $package->isReleasedToPortal()) {
+            return HandoverIndexImpact::Released;
+        }
+
+        $hasPackage = $package !== null;
+
+        // Hồ sơ đã tiêu huỷ: gói không công bố, không sinh lại được nữa (làn fm B2) — không còn
+        // đường nào đưa mục lục cũ tới khách.
+        if ($archive->destroyed_at !== null) {
+            return HandoverIndexImpact::None;
+        }
+
+        // Vụ đã mở lại: gói chỉ sinh cho vụ đã kết thúc. Lần sinh đang chờ (nếu có) sẽ tự hỏng với
+        // lỗi có tên, nên chỉ một gói đã dựng mới là gói cũ cần cảnh báo.
+        if (! $matter->isClosed()) {
+            return $hasPackage ? HandoverIndexImpact::Stale : HandoverIndexImpact::None;
+        }
+
+        $pending = $archive->handover_status === HandoverPackageStatus::Generating;
+
+        return $hasPackage || $pending ? HandoverIndexImpact::Regenerated : HandoverIndexImpact::None;
+    }
+
+    /** Version gói mà dòng lưu trữ trỏ tới, gỡ scope portal, kể cả bản đã xoá mềm. */
+    private function packageOf(?MatterArchive $archive, bool $lock): ?Document
+    {
+        if ($archive?->handover_document_id === null) {
+            return null;
+        }
+
+        $query = $this->scopelessly(Document::query())->withTrashed();
+
+        return ($lock ? $query->lockForUpdate() : $query)->find($archive->handover_document_id);
+    }
+
+    /**
+     * Đặt dòng lưu trữ về `generating` với một dấu yêu cầu mới, ghi nhật ký, xếp job sau commit.
+     *
+     * @param  array<string, mixed>  $properties  thêm vào dòng nhật ký `handover_package_requested`
+     */
+    private function queue(Matter $matter, MatterArchive $archive, ?User $actor, array $properties): MatterArchive
+    {
+        // Giây tròn: cột `timestamp` không lưu phần lẻ, và dấu này được job so LẠI với giá trị
+        // đọc từ cột — phải bằng nhau tuyệt đối. Dấu mới luôn SAU dấu cũ (kể cả khi lần yêu cầu cũ
+        // rơi vào cùng giây): một job cũ còn sống phải thấy dấu đã đổi và thoát.
+        $requestedAt = now()->startOfSecond();
+        $previous = $archive->handover_requested_at;
+
+        if ($previous !== null && $requestedAt->lte($previous)) {
+            $requestedAt = $previous->copy()->startOfSecond()->addSecond();
+        }
+
+        $archive->update([
+            'handover_status' => HandoverPackageStatus::Generating,
+            'handover_requested_at' => $requestedAt,
+            'handover_requested_by' => $actor?->getKey(),
+            'handover_error' => null,
+        ]);
+
+        Audit::record('handover_package_requested', $matter, [
+            'matter_id' => $matter->getKey(),
+            'client_id' => $matter->client_id,
+            ...$properties,
+        ], $actor);
+
+        GenerateHandoverPackage::dispatch($matter->getKey(), $requestedAt->getTimestamp())->afterCommit();
+
+        return $archive;
     }
 
     /**

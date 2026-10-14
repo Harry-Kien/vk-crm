@@ -7,6 +7,7 @@ use App\Actions\Document\Concerns\StoresDocumentFile;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Exceptions\MatterChecklistReadOnly;
+use App\Exceptions\MatterRecordDestroyed;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -210,6 +211,11 @@ class UploadStaffDocument
             }
 
             Gate::forUser($actor)->authorize('create', [Document::class, $freshMatter]);
+
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không nhận tài liệu mới.
+            if ($freshMatter->isRecordDestroyed()) {
+                throw MatterRecordDestroyed::make();
+            }
 
             if ($releasedAtCreation) {
                 Gate::forUser($actor)->authorize('publish', (new Document)

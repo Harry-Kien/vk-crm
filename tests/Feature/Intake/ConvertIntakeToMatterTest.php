@@ -512,10 +512,11 @@ it('validates the matter fields itself, for callers that are not the screen', fu
 
     expect($intake->fresh()->matter_id)->toBeNull();
 
-    // Đúng trần thì qua: 60.000 byte ghi chú, 250/200/80 ký tự.
+    // Đúng trần thì qua: 60.000 byte ghi chú, 250/200/80 ký tự. Làn fm, vòng sửa 2 (F2): ghi chú còn
+    // có trần 20.000 ký tự của trang Sửa vụ việc, nên trần byte đo bằng ký tự 4 byte (15.000 × 4).
     $ok = cvtConvert($lawyer, $intake->fresh(), [
         'title' => str_repeat('a', 250),
-        'description_internal' => str_repeat('ă', 30000),
+        'description_internal' => str_repeat('😀', 15000),
         'court_name' => str_repeat('b', 200),
         'case_number' => str_repeat('c', 80),
     ]);

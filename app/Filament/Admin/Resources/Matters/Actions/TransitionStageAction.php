@@ -2,15 +2,22 @@
 
 namespace App\Filament\Admin\Resources\Matters\Actions;
 
+use App\Actions\TransitionMatterStage;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema;
 use App\Models\Matter;
 use App\Models\MatterTypeStage;
 use App\Models\User;
+use App\Support\MatterOpenWork;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Text;
+use Filament\Schemas\Components\UnorderedList;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Filament\Support\Enums\FontWeight;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 
@@ -114,6 +121,57 @@ class TransitionStageAction extends Action
             && (bool) $matter->matterType->stage($toStage)?->is_terminal;
     }
 
+    /**
+     * Làn fm A1 (kiểm tra nghiệp vụ 2026-10-09): khối "Trước khi kết thúc vụ việc" — chỉ khi giai
+     * đoạn đích là giai đoạn kết thúc VÀ vụ đang mở (lần đóng thật; chuyển giữa hai giai đoạn kết
+     * thúc không đóng gì thêm). Liệt kê việc còn dở ({@see MatterOpenWork::closingLines()}), nói hai
+     * hệ quả mà trước đây không ai được báo (mốc thôi nhắc — `CheckDeadlines` và widget chỉ đọc vụ
+     * đang mở; chỉ quản trị viên mở lại được, vì giai đoạn kết thúc không khai báo `allowed_next`),
+     * và bắt tích `confirm_close`. Ô tích nằm trong khối, nên khi khối ẩn thì nó không được kiểm và
+     * không được gửi — chuyển giai đoạn thường không đổi gì. Đây là xác nhận của MÀN HÌNH:
+     * `TransitionMatterStage` không đọc ô này, như mọi ô xác nhận khác của dự án.
+     */
+    private function closingSafeguards(Matter $matter): Section
+    {
+        $isClosing = fn (Get $get): bool => ! $matter->isClosed()
+            && $this->targetKeepsMatterClosed($matter, $get('to_stage'));
+
+        return Section::make(__('lifecycle.close.heading'))
+            ->key('closingSafeguards')
+            ->icon(Heroicon::OutlinedExclamationTriangle)
+            ->iconColor('danger')
+            ->compact()
+            ->columnSpanFull()
+            ->visible($isClosing)
+            ->schema(function () use ($matter): array {
+                $lines = MatterOpenWork::closingLines($matter, Auth::user() instanceof User ? Auth::user() : null);
+
+                return [
+                    Text::make($lines === [] ? __('lifecycle.open_work.none') : __('lifecycle.close.open_work_intro')),
+                    UnorderedList::make(array_map(fn (string $line): Text => Text::make($line), $lines))
+                        ->visible($lines !== []),
+                    Text::make(__('lifecycle.close.consequences'))->weight(FontWeight::SemiBold),
+                    Checkbox::make('confirm_close')
+                        ->label(__('lifecycle.close.confirm'))
+                        ->accepted()
+                        ->validationMessages(['accepted' => __('lifecycle.close.confirm_required')]),
+                ];
+            });
+    }
+
+    /** Làn fm B4: cùng điều kiện `TransitionMatterStage` đòi lý do — đi ngoài `allowed_next`, hoặc mở lại vụ đã kết thúc. */
+    private function needsOverrideReason(Matter $matter, ?string $toStage): bool
+    {
+        $current = $matter->currentStage();
+
+        if ($toStage === null || $current === null || $toStage === $current->key) {
+            return false;
+        }
+
+        return ! $current->allows($toStage)
+            || ($matter->isClosed() && ! $this->targetKeepsMatterClosed($matter, $toStage));
+    }
+
     protected function buildSchema(Matter $matter): array
     {
         return [
@@ -143,12 +201,22 @@ class TransitionStageAction extends Action
                     }
                 }),
             $this->occurredAtField(),
-            $this->internalNoteField(),
+            // Làn fm B4: mở lại vụ đã kết thúc hay đi ngoài `allowed_next` đòi lý do trong ghi chú nội
+            // bộ — cổng thật ở `TransitionMatterStage`, đây là phần "cho người dùng thấy".
+            $this->internalNoteField()
+                ->required(fn (Get $get): bool => $this->needsOverrideReason($matter, $get('to_stage')))
+                ->minLength(fn (Get $get): ?int => $this->needsOverrideReason($matter, $get('to_stage'))
+                    ? TransitionMatterStage::OVERRIDE_REASON_MIN
+                    : null)
+                ->helperText(fn (Get $get): string => $this->needsOverrideReason($matter, $get('to_stage'))
+                    ? __('lifecycle.override.hint', ['min' => TransitionMatterStage::OVERRIDE_REASON_MIN])
+                    : __('matters.transition_form.internal_note_hint')),
             $this->publicContentField(null),
             $this->nextStepField(),
             $this->clientActionField(),
-            $this->expectedNextUpdateAtField(null),
+            $this->expectedNextUpdateAtField(null, fn (Get $get): bool => $this->targetKeepsMatterClosed($matter, $get('to_stage'))),
             $this->publishToggleField($matter),
+            $this->closingSafeguards($matter),
             $this->noActivatedAccountWarning($matter),
             // Rà soát cuối M7, I3: "vụ không còn trên cổng" chỉ đúng khi giai đoạn đích giữ vụ ở
             // trạng thái đóng — xem docblock `matterNotOnPortalWarning()`.
@@ -159,7 +227,10 @@ class TransitionStageAction extends Action
                 'publicContent' => $get('public_content'),
                 'nextStep' => $get('next_step'),
                 'clientAction' => $get('client_action'),
-                'expectedNextUpdateAt' => $this->expectedNextUpdateAtState($get),
+                // Làn fm B3: giai đoạn kết thúc không hẹn tin tiếp theo — bản xem trước cũng không.
+                'expectedNextUpdateAt' => $this->targetKeepsMatterClosed($matter, $get('to_stage'))
+                    ? null
+                    : $this->expectedNextUpdateAtState($get),
                 'willPublish' => (bool) $get('publish'),
             ]),
         ];

@@ -412,10 +412,26 @@ Bảng quan trọng nhất hệ thống. Chỉ thêm, không sửa, không xoá.
 | is_published | boolean default false | |
 | published_at | timestamp nullable | |
 | notified_at | timestamp nullable | Chống gửi trùng thông báo |
+| retracted_at, retracted_by, retraction_reason | timestamp / FK users / text, nullable | Làn fm A2 (2026-10-09): dấu vết "Rút khỏi cổng" — lý do chỉ nội bộ |
 | created_by | FK users | |
 
 Ràng buộc ở tầng Action, có test: **`is_published = true` thì `public_content`
 bắt buộc không rỗng và tối thiểu 30 ký tự.**
+
+**Rút khỏi cổng (đính chính 2026-10-09, làn fm A2).** "Chỉ thêm, không sửa, không xoá" áp cho
+NỘI DUNG của dòng. Một dòng đã công bố nhầm (ví dụ cập nhật của khách khác) được rút qua
+`RetractStageLog`: người có `stageLog.publish` nhập lý do (≥ 20 ký tự, chỉ nội bộ), Action đặt
+`is_published = false` và ba cột dấu vết, ghi `stage_log_retracted`. Dòng biến khỏi cổng, khỏi mục
+lục của mọi gói bàn giao dựng SAU lần rút, và không được gửi thư nữa (cả ba chỗ đọc `is_published`);
+nhân sự vẫn đọc được nội dung cũ, gạch ngang, kèm ai rút và lý do. Không có đường công bố lại một
+dòng đã rút; thư đã gửi không thu hồi được. Một gói ĐÃ DỰNG trước lần rút (thường là gói tự sinh lúc
+đóng vụ, đang chờ công bố) vẫn in dòng đó trong `MUC-LUC.pdf`, nên (vòng sửa 1 của làn fm) hộp thoại
+rút nói rõ điều sẽ xảy ra với gói, và cùng transaction với lần rút: gói chưa ra tới khách của một vụ
+đang kết thúc (hồ sơ chưa tiêu huỷ) được tự xếp sinh lại — người rút đứng tên lần yêu cầu, nhật ký
+`handover_package_requested` mang `trigger = stage_log_retracted`, dấu yêu cầu mới thay dấu của lần
+sinh đang chờ; gói đang công bố cho khách thì KHÔNG tự sinh lại (một đường rút duy nhất, §6.12) — hộp
+thoại bảo rút gói bằng "Rút lại" rồi sinh lại; vụ đã mở lại mà còn gói cũ thì hộp thoại cảnh báo
+đừng công bố gói đó.
 
 ### 4.9 `checklist_templates` và `checklist_template_items`
 
@@ -803,6 +819,14 @@ Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu c
   từ `closed_at`. Vụ được mở lại thì chỉ `client_access_until` về NULL; phần còn lại của dòng giữ
   nguyên. Dòng không bao giờ bị xoá. Vụ bị huỷ vì mở nhầm (`CancelMatter`) không bao giờ có dòng
   này.
+- *Đính chính 2026-10-09 (làn fm A4, A5).* Bất biến trên giờ do `CancelMatter` giữ: nó từ chối vụ
+  đang kết thúc hoặc đã có dòng lưu trữ (huỷ vụ đó sẽ đưa hồ sơ ra khỏi hạn lưu và tiêu huỷ). Hồ sơ
+  đã huỷ được quản trị viên xem (bộ lọc "Hồ sơ đã huỷ") và khôi phục (`RestoreMatter`, lý do bắt
+  buộc, `matter_restored`). Ngoại lệ DUY NHẤT của "không form nào sửa các cột ngày":
+  `ExtendClientAccess` — luật sư phụ trách hoặc quản trị viên gia hạn `client_access_until` của vụ
+  đã kết thúc, chưa tiêu huỷ, tới một ngày sau hôm nay và sau hạn hiện có, tối đa 365 ngày kể từ hôm
+  nay, lý do bắt buộc, ghi `client_access_extended`. Lần đồng bộ lại khi vụ vẫn đóng giữ ngày muộn
+  hơn giữa ngày tính lại và ngày đã gia hạn; mở lại vụ vẫn đưa cột về NULL.
 - *`client_access_until`* là ngày CUỐI khách còn tra cứu được (hết ngày đó, theo giờ ứng dụng);
   xem đính chính M7 Task 5 ở §6.12.
 - *Bốn cột tiêu huỷ* (`destroyed_at`, `destroyed_by`, `destruction_reason`,

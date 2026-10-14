@@ -263,6 +263,14 @@ return [
         // App\Actions\User\SuspendStaffAccess (mục A5).
         'staff_access_suspended' => 'Khoá truy cập nhân sự ngay (chưa bàn giao)',
         // --- Hết khối làn fb ----------------------------------------------------------------
+        // --- Làn fm (sửa sau kiểm tra nghiệp vụ 2026-10-09, vòng đời vụ việc) ---
+        // A2: app/Actions/Matter/RetractStageLog.php — chủ thể là dòng tiến độ.
+        'stage_log_retracted' => 'Rút dòng tiến độ khỏi cổng khách',
+        // A4: app/Actions/Matter/RestoreMatter.php — chủ thể là vụ việc, `properties.reason`.
+        'matter_restored' => 'Khôi phục hồ sơ đã huỷ',
+        // A5: app/Actions/Matter/ExtendClientAccess.php — chủ thể là vụ việc, `from`/`to`/`reason`.
+        'client_access_extended' => 'Gia hạn tra cứu cho khách',
+        // --- hết khối làn fm ---
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

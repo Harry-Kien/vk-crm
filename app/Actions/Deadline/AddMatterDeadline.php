@@ -8,6 +8,7 @@ use App\Actions\Portal\TriageClientRequest;
 use App\Actions\TransitionMatterStage;
 use App\Enums\CreatedVia;
 use App\Enums\DeadlineSeverity;
+use App\Exceptions\MatterClosedForDeadlines;
 use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Deadline;
@@ -89,6 +90,7 @@ class AddMatterDeadline
      * @throws AuthorizationException
      * @throws ValidationException
      * @throws MatterNotPublishedToPortal
+     * @throws MatterClosedForDeadlines
      */
     public function handle(
         Matter $matter,
@@ -102,6 +104,11 @@ class AddMatterDeadline
     ): Deadline {
         return DB::transaction(function () use ($matter, $actor, $name, $dueDate, $severity, $responsible, $isPublished, $createdVia): Deadline {
             $fresh = $this->openMatterForDeadline($matter, $actor);
+
+            // Làn fm A1: vụ đã kết thúc không còn được nhắc hạn — xem MatterClosedForDeadlines.
+            if ($fresh->isClosed()) {
+                throw MatterClosedForDeadlines::make();
+            }
 
             $name = $this->cleanName($name);
             $due = $this->readDueDate($dueDate);
