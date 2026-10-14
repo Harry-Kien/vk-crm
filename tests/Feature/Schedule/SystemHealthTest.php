@@ -12,6 +12,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
+use Livewire\Livewire;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -180,6 +181,46 @@ it('says nothing at all while the schedule is running normally', function () {
     expect($data['stale'])->toBeFalse()
         ->and($data['neverRan'])->toBeFalse();
 });
+
+// Trang chủ tải trễ widget này qua Livewire, và Livewire ném RootTagMissingFromViewException khi không
+// tìm thấy phần tử gốc. Test ở trên chỉ đọc hai cờ dữ liệu nên không thấy điều đó: view từng rỗng hẳn
+// đúng lúc hệ thống KHOẺ, tức mọi nhân sự nhận lỗi 500 trên trang chủ của một máy chủ có cron chạy
+// đúng. Máy dev không lộ ra vì ở đó lịch chưa từng chạy, dải "chưa từng chạy" luôn hiện.
+it('renders through Livewire while the schedule is running normally: one hidden root and no banner', function () {
+    $this->actingAs(User::factory()->withRole(Role::Admin)->create(), 'web');
+
+    SystemHealth::current()->forceFill(['last_schedule_run_at' => now()->subMinute()])->save();
+
+    Livewire::test(SystemHealthWidget::class)
+        ->assertOk()
+        ->assertSeeHtml('data-state="idle"')
+        ->assertDontSeeHtml('data-widget="system-health"')
+        ->assertDontSeeHtml('data-widget="document-store-health"');
+
+    $markup = trim(view('filament.admin.widgets.system-health', systemHealthWidgetData())->render());
+
+    // Gốc lúc im lặng không được chiếm ô nào trên lưới trang chủ, và không mang chữ nào.
+    expect($markup)->toStartWith('<div')
+        ->and($markup)->toContain('display: none;')
+        ->and(trim(strip_tags($markup)))->toBe('')
+        ->and($markup)->not->toContain('class=');
+});
+
+// Gốc phải đứng NGOÀI mọi `@if`: trong một component, Livewire chèn dấu `<!--[if BLOCK]>` trước mỗi `@if`,
+// nên một gốc nằm trong `@if` không còn đứng đầu dòng. Bản trước chạy được lúc có dải chỉ vì Livewire
+// vớ nhầm một thẻ CON đứng đầu dòng và gắn `wire:id` vào đó. Test này đo đúng điều ấy ở cả hai trạng
+// thái: thẻ mang `wire:id` chính là gốc `system-health-root`.
+it('puts the Livewire attributes on the one real root in both states', function (bool $healthy) {
+    $this->actingAs(User::factory()->withRole(Role::Admin)->create(), 'web');
+
+    SystemHealth::current()->forceFill(['last_schedule_run_at' => $healthy ? now()->subMinute() : null])->save();
+
+    $html = trim(Livewire::test(SystemHealthWidget::class)->assertOk()->html());
+
+    expect($html)->toMatch('/^<div\s+wire:[^>]*data-widget="system-health-root"[^>]*data-state="'.($healthy ? 'idle' : 'alert').'"/s')
+        ->and(substr_count($html, 'wire:id='))->toBe(1)
+        ->and(str_contains($html, 'data-widget="system-health"'))->toBe(! $healthy);
+})->with(['lịch chạy bình thường' => true, 'lịch chưa từng chạy' => false]);
 
 it('paints the warning with a registered Filament colour and emits no css class', function () {
     $this->actingAs(User::factory()->withRole(Role::Admin)->create(), 'web');

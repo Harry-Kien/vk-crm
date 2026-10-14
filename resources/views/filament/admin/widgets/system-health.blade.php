@@ -1,6 +1,7 @@
 {{--
-    Dải cảnh báo lịch chạy tự động (SPEC §2, §7.1 mục 7), và từ M14 Task 5 dòng kho tài liệu
-    (`$documentStore`, chỉ cho người có settings.manage — xem docblock `SystemHealthWidget`).
+    Dải cảnh báo lịch chạy tự động (SPEC §2, §7.1 mục 7), từ M14 Task 5 dòng kho tài liệu
+    (`$documentStore`), và từ làn fc dòng sao lưu (`$backup`) — hai dòng sau chỉ cho người có
+    settings.manage, xem docblock `SystemHealthWidget`.
 
     KHÔNG có class Tailwind viết tay ở đây, và đó không phải sở thích: dự án KHÔNG có bước build
     CSS, Filament phục vụ một tệp theme biên dịch sẵn, nên một class viết tay render ra KHÔNG CÓ
@@ -9,13 +10,29 @@
 
     Im lặng khi mọi thứ bình thường: một dải luôn hiện là một dải không ai đọc. Khi có dải, mọi dải
     nằm trong MỘT phần tử gốc: component Livewire chỉ có một gốc.
+
+    Và component Livewire PHẢI có một gốc, đứng NGOÀI mọi `@if`. Hai lý do, cả hai đều đã cắn:
+    (1) view không phát ra phần tử nào làm Livewire ném RootTagMissingFromViewException, tức lỗi 500
+    trên trang chủ đúng lúc hệ thống khoẻ (cron chạy đúng, kho bình thường); (2) khi dựng một
+    component, Livewire chèn dấu `<!--[if BLOCK]><![endif]-->` ngay TRƯỚC mỗi `@if`, nên một gốc nằm
+    trong `@if` không còn đứng đầu dòng và Livewire không nhận ra nó là gốc — nó hoặc ném cùng ngoại
+    lệ trên, hoặc gắn `wire:id` nhầm vào một thẻ con. Vì vậy gốc dưới đây luôn được phát ra; lúc im
+    lặng nó RỖNG và ẨN (`display: none`: một phần tử ẩn không chiếm ô nào trên lưới trang chủ).
+    Test: `tests/Feature/Schedule/SystemHealthTest.php`, hai test "renders through Livewire…"; gốc hiện
+    khi chỉ có dòng sao lưu: `tests/Feature/Backup/BackupAlertChannelsTest.php`, "gốc của widget HIỆN…".
 --}}
 @php
     $band = 'border: 1px solid var(--danger-600); border-left-width: 4px; background-color: var(--danger-50); color: var(--danger-700); border-radius: 3px; padding: 12px 16px;';
+    // Mọi dải bên trong gốc PHẢI có mặt ở đây: một dải thiếu khỏi `$hasBand` render bên trong một gốc
+    // `display: none` (làn fc: dòng sao lưu, lúc cron khoẻ mà bản trên Drive cũ — đúng lúc cần đọc nó).
+    $hasBand = $neverRan || $stale || $documentStore !== null || $backup !== null;
 @endphp
 
-@if ($neverRan || $stale || $documentStore !== null || $backup !== null)
-    <div style="display: flex; flex-direction: column; gap: 8px;">
+<div
+    data-widget="system-health-root"
+    data-state="{{ $hasBand ? 'alert' : 'idle' }}"
+    style="{{ $hasBand ? 'display: flex; flex-direction: column; gap: 8px;' : 'display: none;' }}"
+>
         @if ($neverRan || $stale)
             <div data-widget="system-health" style="{{ $band }}">
                 <div style="font-weight: 600;">
@@ -72,5 +89,4 @@
                 </div>
             </div>
         @endif
-    </div>
-@endif
+</div>

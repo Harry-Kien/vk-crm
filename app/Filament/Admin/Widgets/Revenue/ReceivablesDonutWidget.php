@@ -2,8 +2,10 @@
 
 namespace App\Filament\Admin\Widgets\Revenue;
 
+use App\Enums\ChartKind;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
+use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\Contract;
@@ -76,6 +78,7 @@ use Illuminate\Support\Facades\Auth;
 class ReceivablesDonutWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use RequiresBillingView;
 
@@ -103,7 +106,14 @@ class ReceivablesDonutWidget extends ChartWidget
         return $description;
     }
 
-    protected function getType(): string
+    /** Dạng gốc là "tròn" (vẽ bằng doughnut, xem pieChartType()); cột và đường là hai dạng thay thế. */
+    protected function chartKinds(): array
+    {
+        return [ChartKind::Pie, ChartKind::Bar, ChartKind::Line];
+    }
+
+    /** "Tròn" của widget này là vòng doughnut như từ đầu (M9), không phải pie đặc. */
+    protected function pieChartType(): string
     {
         return 'doughnut';
     }

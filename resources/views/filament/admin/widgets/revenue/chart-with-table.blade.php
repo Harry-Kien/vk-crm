@@ -15,6 +15,19 @@
     `getOptions()` chỉ là mảng PHP thuần, `@js()` serialize nó y hệt cách vendor làm. Toàn bộ số
     tiền đã là chuỗi Money::format() PHP, nằm trong nhãn (`labels`) và trong bảng số dưới đây —
     không có số tiền thô nào cần một bộ định dạng JS.
+
+    Thêm so với vendor, lần hai (2026-10-10, người xem CHỌN dạng biểu đồ — trait
+    `HasSwitchableChartKind`), ba chỗ, mỗi chỗ đều tự tắt khi widget không dùng trait:
+      1. ô <select> "Dạng biểu đồ" (`wire:model.live="chartKind"`) trong `afterHeader`, chỉ khi widget
+         mời từ hai dạng trở lên;
+      2. tuỳ chọn Chart.js lấy qua `chartOptionsForKind()` thay cho `getOptions()`;
+      3. `wire:key` mang KIỂU biểu đồ trên khung `wire:ignore`. Đừng bỏ dòng này: khung là
+         `wire:ignore` nên Livewire không bao giờ cập nhật nó, và Alpine chỉ đọc `type` một lần lúc
+         khởi tạo — không có khoá thì đổi dạng trên ô chọn mà biểu đồ trên màn hình vẫn là dạng cũ.
+         Khoá đổi thì Livewire bỏ phần tử cũ, dựng phần tử mới (morph: hai khoá khác nhau không bao
+         giờ được vá lên nhau), Alpine vẽ lại từ đầu. Test: `tests/Feature/Filament/ChartKindSwitchTest.php`.
+    Bảng số ở cuối cũng thôi đòi widget phải có `numberTableRows()` (widget "Vụ việc theo giai đoạn"
+    trên trang chủ dùng chung view này mà không có bảng số).
 --}}
 @php
     use Filament\Support\Facades\FilamentAsset;
@@ -31,7 +44,11 @@
     $maxHeight = $this->getMaxHeight();
     $hasMaxHeight = filled($maxHeight) && $maxHeight !== '100%';
     $isEmpty = $this->isEmpty();
-    $rows = $this->numberTableRows();
+    $rows = method_exists($this, 'numberTableRows') ? $this->numberTableRows() : [];
+    $switchesKind = method_exists($this, 'chartKindOptions');
+    $kindOptions = $switchesKind ? $this->chartKindOptions() : [];
+    $showsKindSelect = count($kindOptions) > 1;
+    $chartOptions = $switchesKind ? $this->chartOptionsForKind() : $this->getOptions();
 
     $chartAccessibleLabel = trim(implode('. ', array_filter([
         $heading instanceof Htmlable ? strip_tags($heading->toHtml()) : $heading,
@@ -45,8 +62,28 @@
         :heading="$heading"
         :collapsible="$isCollapsible"
     >
-        @if ($filters || method_exists($this, 'getFiltersSchema'))
+        @if ($showsKindSelect || $filters || method_exists($this, 'getFiltersSchema'))
             <x-slot name="afterHeader">
+                @if ($showsKindSelect)
+                    <x-filament::input.wrapper
+                        inline-prefix
+                        wire:target="chartKind"
+                        class="fi-wi-chart-filter"
+                    >
+                        <x-filament::input.select
+                            :aria-label="__('widgets.chart_kind.label')"
+                            inline-prefix
+                            wire:model.live="chartKind"
+                        >
+                            @foreach ($kindOptions as $value => $label)
+                                <option value="{{ $value }}">
+                                    {{ $label }}
+                                </option>
+                            @endforeach
+                        </x-filament::input.select>
+                    </x-filament::input.wrapper>
+                @endif
+
                 @if ($filters)
                     <x-filament::input.wrapper
                         inline-prefix
@@ -108,10 +145,11 @@
                 x-load
                 x-load-src="{{ FilamentAsset::getAlpineComponentSrc('chart', 'filament/widgets') }}"
                 wire:ignore
+                wire:key="{{ $switchesKind ? $this->chartFrameKey() : $this->getId().'.chart.'.$type }}"
                 data-chart-type="{{ $type }}"
                 x-data="chart({
                             cachedData: @js($this->getCachedData()),
-                            options: @js($this->getOptions()),
+                            options: @js($chartOptions),
                             type: @js($type),
                         })"
                 {{

@@ -128,9 +128,12 @@ it('lượt đẩy hỏng xác minh (remote không có tệp) không ghi thời 
 function bacWidgetAs(Role $role): Testable
 {
     Filament::setCurrentPanel('admin');
-    // Dải lịch "chưa từng chạy" luôn hiện: widget có một phần tử gốc để Livewire render (một widget
-    // im lặng không có gốc nào), và dòng sao lưu là phần tử RIÊNG (`data-widget="backup-health"`).
-    SystemHealth::current()->forceFill(['last_schedule_run_at' => null])->save();
+    // Lịch chạy tự động KHOẺ (chạy một phút trước): đúng trạng thái production mà dòng sao lưu tồn tại
+    // để báo — cron chạy đúng mà bản trên Google Drive cũ hay thư báo lỗi không đi. Widget luôn có MỘT
+    // gốc `data-widget="system-health-root"` (main 90685d4), ẩn (`display: none`) khi không có dải nào;
+    // dòng sao lưu là phần tử RIÊNG (`data-widget="backup-health"`) bên trong gốc đó, nên "có
+    // backup-health trong markup" chưa nói nó HIỆN — test "gốc hiện khi chỉ có dòng sao lưu" đo điều ấy.
+    SystemHealth::current()->forceFill(['last_schedule_run_at' => now()->subMinute()])->save();
     test()->actingAs(User::factory()->withRole($role)->create(), 'web');
 
     return Livewire::test(SystemHealthWidget::class);
@@ -299,6 +302,42 @@ it('thư báo lỗi sao lưu hỏng cả 5 lần thử: dòng sao lưu nói 1 th
     $this->travel(1)->minutes();
 
     bacWidgetAs(Role::Admin)->assertDontSeeHtml('data-widget="backup-health"');
+});
+
+/**
+ * Vòng sửa cuối 1 (C1): gộp main 90685d4 đưa vào gốc luôn có mặt, ẩn khi `$hasBand` sai; `$hasBand` của
+ * main không biết dòng sao lưu. Lịch chạy khoẻ + chỉ dòng sao lưu thì gốc phải HIỆN (`data-state="alert"`,
+ * không `display: none`), nếu không dòng đỏ nằm trong một khối ẩn đúng lúc nó cần được đọc.
+ */
+it('gốc của widget HIỆN khi lịch chạy khoẻ và chỉ có dòng sao lưu', function (string $cause) {
+    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+    SystemHealth::current()->forceFill([
+        'last_offsite_backup_at' => $cause === 'offsite' ? now()->subHours(37) : now()->subHours(35),
+    ])->save();
+    if ($cause === 'mail') {
+        bacFailedJob(BackupHasFailedNotification::class, now()->subDay());
+    }
+
+    $html = trim(bacWidgetAs(Role::Admin)->assertOk()->html());
+
+    expect($html)->toContain('data-widget="backup-health"')
+        ->and($html)->toMatch('/^<div\s+wire:[^>]*data-widget="system-health-root"[^>]*data-state="alert"/s')
+        ->and($html)->not->toContain('data-widget="system-health"')
+        ->and($html)->not->toContain('display: none');
+})->with([
+    'bản trên Google Drive cũ hơn 36 giờ' => 'offsite',
+    'thư báo lỗi sao lưu hỏng hẳn' => 'mail',
+]);
+
+it('lịch chạy khoẻ, không dòng sao lưu: gốc vẫn ẩn', function () {
+    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+    SystemHealth::current()->forceFill(['last_offsite_backup_at' => now()->subHours(35)])->save();
+
+    $html = bacWidgetAs(Role::Admin)->assertOk()->html();
+
+    expect($html)->toContain('data-state="idle"')
+        ->and($html)->toContain('display: none')
+        ->and($html)->not->toContain('data-widget="backup-health"');
 });
 
 it('người không có settings.manage không thấy dòng sao lưu', function (Role $role) {
