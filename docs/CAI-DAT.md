@@ -1308,14 +1308,14 @@ nếu bản mới hỏng giữa chừng (mục "Nâng cấp hỏng: quay lại b
 ```bash
 cd /var/www/vk-crm
 sudo -u www-data php artisan down
-sudo -u www-data php artisan backup:run --only-db
-echo "$(date '+%F %T') $(git rev-parse HEAD)" >> ~/vk-crm-nang-cap.log
+sudo -u www-data php artisan backup:run --only-db &&
+  echo "$(TZ=Asia/Ho_Chi_Minh date '+%F %T') $(git rev-parse HEAD) $(sudo sh -c 'ls -t storage/app/backups/*/*.zip | head -1')" >> ~/vk-crm-nang-cap.log
 ```
 
 **Dòng `backup:run` phải kết thúc bằng `Backup completed!`.** Không thấy dòng đó (lỗi sao lưu, mật
 khẩu sao lưu trống…) thì DỪNG ở đây: `sudo -u www-data php artisan up` mở lại đúng bản cũ (chưa có gì
-đổi), sửa sao lưu theo `docs/SAO-LUU-KHOI-PHUC.md` Bước 5, rồi làm lại từ khối thứ nhất. Thấy rồi
-thì chép khối thứ hai:
+đổi; dòng ghi sổ không chạy vì `backup:run` thoát mã khác 0), sửa sao lưu theo
+`docs/SAO-LUU-KHOI-PHUC.md` Bước 5, rồi làm lại từ khối thứ nhất. Thấy rồi thì chép khối thứ hai:
 
 ```bash
 cd /var/www/vk-crm
@@ -1341,9 +1341,15 @@ sudo -u www-data php artisan up
   `local_backups` của chính máy chủ (`storage/app/backups/`), và được đẩy lên Google Drive như mọi bản.
   Từ lúc đó tới khi quay lại (nếu phải quay lại) không ai ghi được gì, nên quay lại không mất dữ liệu
   nào — thay vì mất cả ngày làm việc nếu chỉ còn bản 02:00. Chỉ cơ sở dữ liệu: nâng cấp không đụng tới
-  tệp hồ sơ. Dòng `echo …` ghi giờ và commit đang chạy (`git rev-parse HEAD`) vào
-  `~/vk-crm-nang-cap.log` của người quản trị, mỗi lần nâng cấp một dòng: đó là sổ các bản đã chạy trên
-  máy này (`git log --oneline -1 <commit>` cho biết bản đó là gì), và dòng cuối là bản để quay lại.
+  tệp hồ sơ. Dòng `echo …` (chỉ chạy khi `backup:run` thoát 0 — `&&` ở cuối dòng trên, bash đọc tiếp
+  dòng dưới) ghi vào `~/vk-crm-nang-cap.log` của người quản trị, mỗi lần chạy khối thứ nhất một dòng,
+  bốn trường cách nhau một dấu cách: ngày và giờ theo **giờ Việt Nam** (`TZ=Asia/Ho_Chi_Minh` — VPS
+  mặc định để đồng hồ hệ thống ở giờ UTC, chậm 7 tiếng, còn tên tệp sao lưu theo `APP_TIMEZONE`, mặc
+  định `Asia/Ho_Chi_Minh`), commit đang chạy (`git rev-parse HEAD`; `git log --oneline -1 <commit>` cho
+  biết bản đó là gì), và đường dẫn tệp sao lưu vừa tạo (tệp mới nhất trên `local_backups` ngay sau
+  `backup:run`; tên tệp mang giờ tạo, vài giây trước giờ của dòng; là trường CUỐI, đọc bằng
+  `cut -d' ' -f4-`, nên một dấu cách trong `BACKUP_NAME` hay `APP_NAME` không cắt mất nó). Đó là sổ các bản đã chạy trên máy
+  này; mục "Nâng cấp hỏng: quay lại bản trước" nói chọn dòng nào để quay lại.
 - `composer install … --no-scripts` rồi ba dòng sau nó: sau lần cài đầu, `bootstrap/cache/` và
   `storage/` thuộc về `www-data`, nên hai lệnh composer tự gọi sau khi cài (`package:discover`,
   `filament:upgrade`) không chạy được bằng người quản trị — lượt đi thử ngày 2026-10-08 dừng ở `Script
@@ -1416,7 +1422,9 @@ sudo -u www-data php artisan up
 - **Một dòng của khối thứ hai hỏng** (một migration dừng giữa chừng trên dữ liệu thật, `composer
   install` từ chối, preflight ĐỎ mà không sửa được ngay, trang lỗi sau `up`): đừng thử sửa tay trên
   cơ sở dữ liệu. Điểm quay lại là bản sao lưu và commit của khối thứ nhất — mục "Nâng cấp hỏng: quay
-  lại bản trước" ngay dưới các mục bản cập nhật. `APP_KEY` không đổi qua các bản nâng cấp.
+  lại bản trước" ngay dưới các mục bản cập nhật. `APP_KEY` không đổi qua các bản nâng cấp. Có chạy lại
+  khối thứ nhất để thử lại thì điểm quay lại VẪN là dòng sổ của lần chạy trước lần khối thứ hai hỏng đầu
+  tiên: bản sao lưu của lần chạy lại chụp cơ sở dữ liệu đã migrate dở.
 
 ### Bản cập nhật M12 (app trên điện thoại và thông báo đẩy)
 
@@ -1483,27 +1491,50 @@ luật sư) trên trang "Kho tài liệu"; `vkcrm:storage:migrate --dry-run`; đ
 ### Nâng cấp hỏng: quay lại bản trước
 
 Dùng khi một dòng của khối thứ hai trong "Nâng cấp lên bản mới" hỏng và không sửa được ngay. Đưa máy
-chủ về ĐÚNG bản đã chạy trước lần nâng cấp này (commit ở dòng cuối `~/vk-crm-nang-cap.log`, ghi ở khối
-thứ nhất) và ĐÚNG cơ sở dữ liệu lúc đó (bản `backup:run --only-db` vừa tạo). Không mất dữ liệu nào:
-cổng đã đóng từ trước bản sao lưu đó. Tệp hồ sơ không cần chép lại: nâng cấp không đụng tới chúng. Cổng
-vẫn đóng suốt mục này (chuỗi đã hỏng trước `up`; nếu đã `up` rồi mới thấy hỏng thì chạy
-`sudo -u www-data php artisan down` trước).
+chủ về ĐÚNG bản đã chạy trước lần nâng cấp này và ĐÚNG cơ sở dữ liệu lúc đó — commit và tệp sao lưu
+`backup:run --only-db` ghi trên CÙNG MỘT dòng của `~/vk-crm-nang-cap.log` (khối thứ nhất). Không mất
+dữ liệu nào: cổng đã đóng từ trước bản sao lưu đó. Tệp hồ sơ không cần chép lại: nâng cấp không đụng
+tới chúng. Cổng vẫn đóng suốt mục này (chuỗi đã hỏng trước `up`; nếu đã `up` rồi mới thấy hỏng thì
+chạy `sudo -u www-data php artisan down` trước).
 
 Cần sẵn: `BACKUP_ARCHIVE_PASSWORD` (chỗ cất ở `docs/SAO-LUU-KHOI-PHUC.md` Bước 6) và mật khẩu cơ sở dữ
-liệu `DB_PASSWORD`. Đã chạy lại chuỗi nâng cấp nhiều lần thì dòng cuối của `~/vk-crm-nang-cap.log`
-có thể đã là bản MỚI: lấy dòng cuối cùng mà commit khác `git rev-parse HEAD`, và sửa lệnh
-`git reset --hard` dưới cho đúng commit đó.
+liệu `DB_PASSWORD`.
 
-**1. Chép ra và giải nén bản sao lưu vừa tạo** (bằng người quản trị, vào một thư mục chỉ người đó
-đọc được). Thư mục sao lưu chỉ `www-data` mở được, nên hai dòng đầu dùng `sudo`. Tệp mới nhất trên đĩa
-`local_backups` là bản của khối thứ nhất — tên tệp mang giờ tạo, phải trùng giờ ở dòng cuối
-`~/vk-crm-nang-cap.log`:
+**1. Chọn dòng sổ để quay lại** (bằng người quản trị). In sổ kèm số thứ tự:
+
+```bash
+cat -n ~/vk-crm-nang-cap.log
+```
+
+Mỗi dòng là: số thứ tự, ngày, giờ (giờ Việt Nam), commit đang chạy lúc đó, tệp sao lưu vừa tạo. Dòng
+đúng là dòng của lần chạy khối thứ nhất **TRƯỚC lần khối thứ hai hỏng ĐẦU TIÊN** của lần nâng cấp này:
+
+- chỉ chạy khối thứ nhất MỘT lần cho lần nâng cấp này: dòng cuối;
+- đã chạy lại khối thứ nhất sau khi khối thứ hai hỏng (để thử lại): dòng ĐẦU TIÊN của lần nâng cấp này
+  (giờ bắt đầu nâng cấp), **KHÔNG phải dòng cuối**. Mỗi lần chạy lại đã sao lưu một cơ sở dữ liệu mà
+  khối thứ hai đã migrate dở, và ghi commit MỚI (`git pull` đã chạy). Nạp bản đó lên mã cũ thì
+  `migrate:status` ở bước 3 vẫn toàn `Ran` — dòng thừa của bản mới trong bảng `migrations` không hiện
+  thành `Pending` — nên không gì bắt được, và hệ thống mở lại trên dữ liệu không khớp mã.
+
+Kiểm dòng đã chọn: `git log --oneline -1 <commit của dòng>` phải là bản ĐANG CHẠY TRƯỚC lần nâng cấp
+này, không phải bản vừa kéo về. Không chắc dòng nào: dừng lại và hỏi người phụ trách kỹ thuật, đừng
+đoán. Chọn xong thì cất đúng dòng đó vào `~/quay-lai/diem` — hai bước sau đọc commit và tệp sao lưu từ
+tệp này, nên chúng không thể lệch nhau, và một phiên SSH bị ngắt giữa chừng không làm mất lựa chọn. Thay
+`<SỐ DÒNG>` bằng số thứ tự của dòng đó (ví dụ `'7p'`); dòng cuối in lại đúng dòng đã chọn:
+
+```bash
+install -d -m 700 ~/quay-lai
+sed -n '<SỐ DÒNG>p' ~/vk-crm-nang-cap.log > ~/quay-lai/diem
+cat ~/quay-lai/diem
+```
+
+**2. Chép ra và giải nén tệp sao lưu của dòng đó** (vào thư mục chỉ người quản trị đọc được). Thư mục
+sao lưu chỉ `www-data` mở được, nên hai dòng đầu dùng `sudo`. Tên tệp mang giờ tạo theo `APP_TIMEZONE`
+(mặc định giờ Việt Nam), cùng múi với giờ của dòng sổ và sớm hơn nó vài giây:
 
 ```bash
 cd /var/www/vk-crm
-sudo sh -c 'ls -t storage/app/backups/*/*.zip | head -1'
-install -d -m 700 ~/quay-lai
-sudo cp "$(sudo sh -c 'ls -t storage/app/backups/*/*.zip | head -1')" ~/quay-lai/truoc-nang-cap.zip
+sudo cp "$(cut -d' ' -f4- ~/quay-lai/diem)" ~/quay-lai/truoc-nang-cap.zip
 sudo chown "$USER": ~/quay-lai/truoc-nang-cap.zip
  php -r '$z=new ZipArchive; $z->open($argv[1]); $z->setPassword($argv[2]); var_dump($z->extractTo($argv[3]));' ~/quay-lai/truoc-nang-cap.zip '<BACKUP_ARCHIVE_PASSWORD>' ~/quay-lai
 ls ~/quay-lai/db-dumps/
@@ -1511,13 +1542,15 @@ ls ~/quay-lai/db-dumps/
 
 Dòng `php -r` phải in `bool(true)`; `bool(false)` là sai mật khẩu (hay chép thiếu ký tự). Dấu cách ở
 đầu dòng đó giữ mật khẩu khỏi lịch sử lệnh của shell (bash của Ubuntu mặc định `HISTCONTROL=ignoreboth`). `unzip` không mở được kiểu mã hoá AES-256 của
-bản sao lưu — dùng đúng dòng `php -r` này. Dòng cuối in đúng một tệp `.sql`.
+bản sao lưu — dùng đúng dòng `php -r` này. Dòng cuối in đúng một tệp `.sql`. Dòng `sudo cp` báo không
+có tệp (lượt dọn bản cũ đã xoá nó khỏi máy chủ): dừng lại và hỏi người phụ trách kỹ thuật — bản cùng tên
+nằm trên Google Drive.
 
-**2. Quay mã nguồn và cơ sở dữ liệu về bản trước** — chép nguyên khối:
+**3. Quay mã nguồn và cơ sở dữ liệu về bản trước** — chép nguyên khối:
 
 ```bash
 cd /var/www/vk-crm
-git reset --hard "$(tail -1 ~/vk-crm-nang-cap.log | cut -d' ' -f3)"
+git reset --hard "$(cut -d' ' -f3 ~/quay-lai/diem)"
 composer install --no-dev --optimize-autoloader --no-scripts
 sudo -u www-data rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php
 sudo -u www-data php artisan package:discover
@@ -1533,15 +1566,17 @@ sudo -u www-data chmod 600 bootstrap/cache/config.php
 sudo -u www-data php artisan up
 ```
 
-- `git reset --hard <commit>` đưa nhánh đang dùng về đúng commit cũ (không phải `git checkout`, để
-  lần nâng cấp sau `git pull` chạy như thường). Máy chủ không có sửa đổi tay nào trong thư mục mã
-  nguồn; cấu hình máy chủ web và `.env` nằm ngoài kho nên không bị đụng.
+- `git reset --hard <commit>` (commit của dòng đã chọn ở bước 1) đưa nhánh đang dùng về đúng commit
+  cũ (không phải `git checkout`, để lần nâng cấp sau `git pull` chạy như thường). Máy chủ không có sửa
+  đổi tay nào trong thư mục mã nguồn; cấu hình máy chủ web và `.env` nằm ngoài kho nên không bị đụng.
 - Sáu dòng sau nó là đúng các dòng của chuỗi nâng cấp, chạy cho mã CŨ: cài lại đúng phụ thuộc của bản
   cũ và dọn cache của bản mới.
 - `db:wipe --force` xoá MỌI bảng (cả bảng mà migration của bản mới vừa tạo), rồi dòng `mariadb` (hỏi
-  mật khẩu `DB_PASSWORD`; tên người dùng và cơ sở dữ liệu theo Bước 1) nạp lại bản sao lưu vừa giải nén.
+  mật khẩu `DB_PASSWORD`; tên người dùng và cơ sở dữ liệu theo "Bước 1 — Máy chủ cần có" của phần cài đặt) nạp lại bản sao lưu vừa giải nén.
 - `migrate:status`: mọi dòng phải là `Ran`. Còn dòng `Pending` là commit không khớp bản sao lưu —
-  dừng lại, đừng `migrate`, kiểm lại dòng của `~/vk-crm-nang-cap.log` đã dùng.
+  dừng lại, đừng `migrate`, kiểm lại dòng của `~/vk-crm-nang-cap.log` đã dùng. Toàn `Ran` KHÔNG chứng
+  minh bản sao lưu đúng: một bản chụp sau khi migration của bản mới đã chạy cũng toàn `Ran` trên mã
+  cũ — vì vậy bước 1 chọn dòng cẩn thận.
 - Preflight XANH (trừ ngoại lệ "bất biến tiền" như ở chuỗi nâng cấp) rồi mới `up`. Mở thử một hồ sơ
   khách hàng và một tài liệu.
 

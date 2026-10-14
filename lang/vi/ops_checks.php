@@ -35,7 +35,7 @@ return [
         'heading' => 'Sao lưu cần xem ngay',
         'offsite_never' => 'Chưa có bản sao lưu nào lên Google Drive kể từ khi bật đích đó.',
         'offsite_stale' => 'Bản sao lưu gần nhất lên Google Drive lúc :at — đã quá :hours giờ.',
-        'alert_mail_failed' => ':count thư báo lỗi sao lưu không gửi được trong 7 ngày qua (xem màn hình Thư đã gửi).',
+        'alert_mail_failed' => ':count thư báo lỗi sao lưu không gửi được sau đủ 5 lần thử trong 7 ngày qua (xem màn hình Thư đã gửi).',
         'hint' => 'Chạy vkcrm:backup-check trên máy chủ và đọc docs/SAO-LUU-KHOI-PHUC.md, Bước 5.',
     ],
 ];

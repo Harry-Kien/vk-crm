@@ -113,8 +113,10 @@ it('A1: the upgrade chain backs up the database and records the running commit b
     $after = ogaBlockLines($upgrade, 'git pull');
 
     $down = array_search('sudo -u www-data php artisan down', $before, true);
-    $backup = array_search('sudo -u www-data php artisan backup:run --only-db', $before, true);
-    $record = ogaIndexOf($before, 'echo "$(date');
+    // Vòng sửa 1 (I2): dòng ghi sổ chỉ chạy khi `backup:run` thoát 0 (`&&` cuối dòng — bash đọc tiếp
+    // dòng sau), để một lần sao lưu hỏng không để lại dòng trỏ vào tệp sao lưu CŨ.
+    $backup = array_search('sudo -u www-data php artisan backup:run --only-db &&', $before, true);
+    $record = ogaIndexOf($before, 'echo "$(TZ=Asia/Ho_Chi_Minh date');
 
     expect($down)->toBe(1)
         ->and($backup)->toBe($down + 1)
@@ -147,7 +149,7 @@ it('A1: a failed upgrade has a copy-paste way back to the recorded commit and th
     $preflight = array_search('sudo -u www-data php artisan vkcrm:preflight', $lines, true);
     $optimize = array_search('sudo -u www-data php artisan optimize', $lines, true);
 
-    expect($lines[$reset])->toContain('vk-crm-nang-cap.log')
+    expect($lines[$reset])->toBe('git reset --hard "$(cut -d\' \' -f3 ~/quay-lai/diem)"')
         ->and($composer)->toBeGreaterThan($reset)
         ->and($clear)->toBeGreaterThan($composer)
         ->and($wipe)->toBeGreaterThan($clear)
@@ -171,12 +173,71 @@ it('A1: a failed upgrade has a copy-paste way back to the recorded commit and th
     }
 });
 
+/*
+ * Vòng sửa 1 (I2). Khối thứ hai hỏng giữa migration, người vận hành chạy lại khối thứ nhất để thử lại:
+ * bản `--only-db` của lần chạy lại chụp cơ sở dữ liệu ĐÃ migrate dở, và dòng sổ của nó mang commit MỚI.
+ * Mục quay lại cũ luôn lấy tệp zip MỚI NHẤT (`ls -t … | head -1`) — chính bản dump hỏng đó — rồi nạp lên
+ * mã cũ; `migrate:status` vẫn toàn `Ran` (dòng thừa của bảng `migrations` không hiện `Pending`), không
+ * gì bắt được. Và câu "tên tệp phải trùng giờ ở dòng cuối" sai 7 tiếng khi máy chủ để giờ UTC (`date`
+ * của hệ thống) còn tên archive theo APP_TIMEZONE (Asia/Ho_Chi_Minh).
+ */
+it('A1: block 1 logs Vietnam time, the commit and the archive it just made', function () {
+    $upgrade = ogaSection(ogaFile('docs/CAI-DAT.md'), '## Nâng cấp lên bản mới', '### Bản cập nhật M12');
+    $before = ogaBlockLines($upgrade, 'php artisan down');
+    $record = $before[ogaIndexOf($before, 'echo "')];
+
+    // Bốn trường cách nhau một dấu cách: ngày, giờ (giờ Việt Nam), commit, tệp sao lưu vừa tạo.
+    expect($record)->toBe('echo "$(TZ=Asia/Ho_Chi_Minh date \'+%F %T\') $(git rev-parse HEAD) $(sudo sh -c \'ls -t storage/app/backups/*/*.zip | head -1\')" >> ~/vk-crm-nang-cap.log');
+
+    // Tiền đề của trường giờ: tên archive của gói theo múi giờ của app, và múi đó mặc định là giờ Việt Nam.
+    expect(config('app.timezone'))->toBe('Asia/Ho_Chi_Minh')
+        ->and(ogaFile('vendor/spatie/laravel-backup/src/Tasks/Backup/BackupJob.php'))
+        ->toContain('$this->filename = Carbon::now()->format(static::FILENAME_FORMAT);');
+
+    expect(ogaFlat($upgrade))->toContain('UTC');
+});
+
+it('A1: the rollback takes the archive of the chosen log line, the one before the FIRST failed block 2', function () {
+    $rollback = ogaSection(ogaFile('docs/CAI-DAT.md'), '### Nâng cấp hỏng: quay lại bản trước', '## Thao tác tiền');
+    $flat = ogaFlat($rollback);
+
+    // Không còn đường nào lấy tệp mới nhất.
+    expect($rollback)->not->toContain('ls -t')
+        ->not->toContain('head -1')
+        ->not->toContain('tail -1');
+
+    // Chọn MỘT dòng sổ, cất vào ~/quay-lai/diem; tệp zip và commit đều đọc từ đúng dòng đó.
+    // Hai khối: in sổ để chọn, rồi cất dòng đã chọn (dán chung một khối thì `sed` chạy với `<SỐ DÒNG>`).
+    expect(ogaBlockLines($rollback, 'cat -n ~/vk-crm-nang-cap.log'))->toBe(['cat -n ~/vk-crm-nang-cap.log']);
+
+    $choose = ogaBlockLines($rollback, '~/quay-lai/diem');
+    $copy = ogaBlockLines($rollback, 'truoc-nang-cap.zip');
+
+    expect($choose)->toBe([
+        'install -d -m 700 ~/quay-lai',
+        "sed -n '<SỐ DÒNG>p' ~/vk-crm-nang-cap.log > ~/quay-lai/diem",
+        'cat ~/quay-lai/diem',
+    ])
+        ->and($copy)->toContain('sudo cp "$(cut -d\' \' -f4- ~/quay-lai/diem)" ~/quay-lai/truoc-nang-cap.zip');
+
+    // Nói thẳng: dòng của lần chạy khối thứ nhất trước lần khối thứ hai hỏng ĐẦU TIÊN, không phải dòng cuối
+    // khi đã chạy lại; vì sao migrate:status không bắt được; và hai giờ cùng là giờ Việt Nam.
+    expect($flat)->toContain('TRƯỚC lần khối thứ hai hỏng ĐẦU TIÊN')
+        ->toContain('KHÔNG phải dòng cuối')
+        ->toContain('migrate dở')
+        ->toContain('không hiện thành `Pending`')
+        ->toContain('giờ Việt Nam')
+        ->not->toContain('lấy dòng cuối cùng mà commit khác');
+});
+
 it('A1: the restore guide says when to migrate a restored dump forward and when to check out the old code', function () {
     $restore = ogaFlat(ogaSection(ogaFile('docs/SAO-LUU-KHOI-PHUC.md'), '### Quy trình cho máy chủ thật', '### Bảng số đo thật'));
 
     expect($restore)->toContain('`sudo -u www-data php artisan migrate --force`')
         ->toContain('`~/vk-crm-nang-cap.log`')
         ->toContain('"Nâng cấp hỏng: quay lại bản trước"')
+        // Vòng sửa 1 (I2): dòng cuối có thể là lần chạy lại khối thứ nhất trên cơ sở dữ liệu đã migrate dở.
+        ->not->toContain('dòng cuối của `~/vk-crm-nang-cap.log`')
         ->not->toContain('dừng lại, đối chiếu lại phiên bản mã nguồn với thời điểm bản sao lưu trước khi đi tiếp');
 });
 

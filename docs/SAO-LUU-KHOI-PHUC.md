@@ -99,7 +99,8 @@ lưu vào đúng ngày máy chủ hỏng là vụ việc không lấy lại đư
 tới 5 lần (cách nhau 1, 5, 15 phút rồi 1 giờ) trước khi bị coi là hỏng. Và trang chủ `/admin` của
 quản trị viên có một dòng đỏ **"Sao lưu cần xem ngay"** khi bản gần nhất ĐÃ XÁC MINH trên Google Drive
 cũ hơn 36 giờ (hay chưa có bản nào từ khi bật Google Drive), hoặc khi có thư báo lỗi sao lưu không gửi
-được trong 7 ngày qua — nên một lỗi sao lưu vẫn hiện ra cả khi chính hộp thư cũng hỏng.
+được sau đủ 5 lần thử trong 7 ngày qua (một lần thử hỏng rồi lần sau gửi được thì không tính) — nên
+một lỗi sao lưu vẫn hiện ra cả khi chính hộp thư cũng hỏng.
 
 ---
 
@@ -565,8 +566,9 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`). Mọi lệnh `php ar
      `sudo -u www-data php artisan migrate --force` — đúng việc chuỗi nâng cấp làm — rồi
      `migrate:status` lại, mọi dòng phải là `Ran`;
    - đang khôi phục VÌ một lần nâng cấp hỏng (migration của bản mới hỏng trên dữ liệu thật): KHÔNG
-     `migrate`. Đưa mã nguồn về commit đã chạy trước lần nâng cấp đó — dòng cuối của
-     `~/vk-crm-nang-cap.log` mà người quản trị ghi lúc nâng cấp — theo mục "Nâng cấp hỏng: quay lại bản trước"
+     `migrate`. Đưa mã nguồn về commit đã chạy trước lần nâng cấp đó — ghi trong
+     `~/vk-crm-nang-cap.log` lúc nâng cấp, ở dòng mà mục đó chỉ cách chọn (dòng trước lần hỏng ĐẦU TIÊN,
+     không nhất thiết dòng cuối) — theo mục "Nâng cấp hỏng: quay lại bản trước"
      của `docs/CAI-DAT.md` (máy chủ cũ còn chạy thì làm thẳng mục đó, không cần dựng máy mới), rồi
      `migrate:status` lại.
 

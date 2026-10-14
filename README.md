@@ -253,8 +253,8 @@ Tóm tắt những điều không được bỏ qua:
   `storage.purge-staged`, `storage.health`, `storage.office-receipts`) chạy trong chính dòng cron.
   Chi tiết: `docs/CAI-DAT.md` ("Bản cập nhật M14") và `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
 - **Nâng cấp:** `php artisan down` → `php artisan backup:run --only-db` (phải in `Backup
-  completed!`, không thì `up` và dừng) → ghi commit đang chạy (`git rev-parse HEAD`) vào
-  `~/vk-crm-nang-cap.log` → `git pull` → `composer install --no-dev --optimize-autoloader
+  completed!`, không thì `up` và dừng) → ghi giờ Việt Nam, commit đang chạy (`git rev-parse HEAD`)
+  và tệp sao lưu vừa tạo vào `~/vk-crm-nang-cap.log` → `git pull` → `composer install --no-dev --optimize-autoloader
   --no-scripts` → xoá `bootstrap/cache/config.php`, `packages.php` và `services.php` → `php artisan
   package:discover` → `php artisan filament:assets` (bằng người quản trị) →
   `chown -R www-data:www-data storage bootstrap/cache` → `php artisan optimize:clear` (TRƯỚC
@@ -263,7 +263,8 @@ Tóm tắt những điều không được bỏ qua:
   `php artisan billing:check-invariants` → `php artisan vkcrm:preflight` → `php artisan optimize` →
   `chmod 600 bootstrap/cache/config.php` → `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu. Chuỗi đủ người chạy từng
   dòng, để chép nguyên khối: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới"; hỏng giữa chừng thì quay về
-  commit và bản sao lưu vừa ghi theo mục "Nâng cấp hỏng: quay lại bản trước" của cùng tài liệu.
+  commit và bản sao lưu của một dòng sổ — dòng ghi trước lần hỏng ĐẦU TIÊN, không nhất thiết dòng cuối —
+  theo mục "Nâng cấp hỏng: quay lại bản trước" của cùng tài liệu.
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
     (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) và
