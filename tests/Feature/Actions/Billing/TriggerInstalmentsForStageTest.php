@@ -208,6 +208,58 @@ it('does not release an instalment of a contract that is not active', function (
 ]);
 
 /**
+ * Sửa sau kiểm tra nghiệp vụ (làn fb, A1), vòng sửa 1: một vụ giờ giữ được một hợp đồng ĐÃ HUỶ bên
+ * cạnh hợp đồng đang hiệu lực, và `CancelContract` để nguyên các đợt chờ giai đoạn của bản huỷ. Bản
+ * huỷ (C1) luôn được soạn TRƯỚC bản mới (C2) — unique `open_matter_id` cấm soạn C2 khi C1 còn mở. Khi
+ * cả hai cùng có một đợt chờ `filed`, lần thăm dò của `handle()` phải chọn C2: chọn nhầm C1 thì lõi
+ * trả 0 (C1 không `active`) và đợt của C2 không bao giờ có hạn — cả qua listener lẫn đối chiếu 07:00.
+ *
+ * @return array{0: Instalment, 1: Instalment} đợt chờ `filed` của bản huỷ, rồi của bản đang hiệu lực
+ */
+function cancelledThenActiveContracts(Matter $matter): array
+{
+    $cancelled = stageTriggerContract($matter, [awaitingStageRow('filed', 30_000_000, 5)], ContractStatus::Cancelled);
+    $active = stageTriggerContract($matter, [awaitingStageRow('filed', 40_000_000, 10)], ContractStatus::Active, '2026-09-20');
+
+    return [$cancelled->instalments->first(), $active->instalments->first()];
+}
+
+it('releases the stage instalment of the active contract when the matter also holds a cancelled contract waiting on the same stage', function () {
+    [$onCancelled, $onActive] = cancelledThenActiveContracts($this->matter);
+
+    $this->actingAs($this->lead, 'web');
+    $log = moveMatterTo($this->matter, $this->lead, 'filed', '2026-10-01');
+
+    expect($onActive->refresh()->due_date?->toDateString())->toBe('2026-10-11')
+        ->and($onActive->triggered_by_stage_log_id)->toBe($log->id)
+        ->and($onCancelled->refresh()->due_date)->toBeNull()
+        ->and($onCancelled->triggered_at)->toBeNull();
+});
+
+it('lets the daily reconcile release a missed stage instalment of the active contract beside a cancelled one', function () {
+    [$onCancelled, $onActive] = cancelledThenActiveContracts($this->matter);
+    // Dòng ghi thẳng, không phát sự kiện: chỉ còn đối chiếu hằng ngày là lối vào.
+    StageLog::factory()->for($this->matter)->transition('drafting', 'filed')->create(['occurred_at' => '2026-10-01 09:00:00']);
+
+    expect(app(ReconcileStageTriggeredInstalments::class)->handle())->toBe(['triggered' => 1, 'failed' => 0])
+        ->and($onActive->refresh()->due_date?->toDateString())->toBe('2026-10-11')
+        ->and($onCancelled->refresh()->triggered_at)->toBeNull();
+});
+
+it('opens no money transaction when only a cancelled contract waits on the stage', function () {
+    stageTriggerContract($this->matter, [awaitingStageRow('filed')], ContractStatus::Cancelled);
+
+    $log = StageLog::factory()->for($this->matter)->transition('drafting', 'filed')->create();
+    $transactions = 0;
+    Event::listen(TransactionBeginning::class, function () use (&$transactions): void {
+        $transactions++;
+    });
+
+    expect(app(TriggerInstalmentsForStage::class)->handle($this->matter, 'filed', $log))->toBe(0)
+        ->and($transactions)->toBe(0);
+});
+
+/**
  * Kế hoạch điểm 2: ngày đến hạn tính từ ngày giai đoạn THẬT SỰ xảy ra (`occurred_at`), không từ
  * hôm nay — một lần chuyển ghi lùi ngày sinh ra một đợt đã quá hạn ngay khi ra đời, và đó là sự
  * thật. Hợp đồng ký trước ngày đó, nên phán quyết kẹp (3) không đổi gì ở đây.

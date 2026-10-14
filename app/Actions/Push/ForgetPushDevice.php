@@ -52,6 +52,9 @@ class ForgetPushDevice
     /** Khách gọi văn phòng báo mất máy; nhân sự bấm nút trên trang tài khoản cổng. */
     public const REASON_OFFICE = 'office';
 
+    /** "Khoá truy cập ngay" (`SuspendStaffAccess`, làn fb mục A5): nhân sự nghỉ đột xuất hay bị nghi lộ dữ liệu. */
+    public const REASON_STAFF_SUSPENDED = 'staff_suspended';
+
     /**
      * R9 — `$owner` vừa đăng xuất khỏi `$guard` trên trình duyệt mang phiên `$session`: gỡ máy của
      * trình duyệt này, nếu phiên còn nhớ endpoint của nó VÀ dòng đó thuộc đúng `$owner`.

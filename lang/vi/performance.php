@@ -84,7 +84,7 @@ return [
         'p4' => 'Chuyển giai đoạn',
         'p5' => 'Vụ kết thúc trong kỳ',
         'p6' => 'Giấy tờ đã duyệt',
-        'p7' => 'Doanh thu đã thu',
+        'p7' => 'Tiền đã thu (đã gồm thuế GTGT nếu có)',
         'p9' => 'Hoàn thành việc đến hạn',
         // Task 7 — xu hướng từ ảnh chụp hằng ngày (R10).
         'p8' => 'Xu hướng (đầu kỳ → cuối kỳ)',
@@ -110,7 +110,7 @@ return [
         'p4' => 'Số lần người này đưa một vụ sang giai đoạn mới trong kỳ, theo ngày ghi trên dòng tiến độ, và số vụ khác nhau đã được đưa đi. Dòng cập nhật không đổi giai đoạn và dòng bàn giao nội bộ không tính. Không chia "tiến" hay "lùi". Dòng ghi lùi ngày làm đổi số của kỳ đã qua.',
         'p5' => 'Vụ người này phụ trách lúc vụ kết thúc đã vào giai đoạn kết thúc trong kỳ. Bàn giao một vụ đã kết thúc không chuyển con số này. Ngày kết thúc không mang giờ, nên vụ tính cho người phụ trách vào cuối ngày kết thúc.',
         'p6' => 'Số lần người này bấm duyệt hoặc từ chối một đầu mục giấy tờ trong kỳ, theo nhật ký hệ thống. Một đầu mục khách nộp lại rồi được duyệt lại tính hai lần: đó là hai lần duyệt. Văn phòng tải giấy tờ lên thay khách không phải một lần duyệt.',
-        'p7' => 'Tiền khách đã trả trong kỳ, tính cho luật sư phụ trách vụ tại lúc ghi khoản thu. Khoản thu đã huỷ không tính. Cùng con số trên trang Doanh thu.',
+        'p7' => 'Tiền khách đã trả trong kỳ, tính cho luật sư phụ trách vụ tại lúc ghi khoản thu — đã gồm thuế GTGT nếu hợp đồng có thuế, nên so sánh giữa hợp đồng có thuế và không thuế cần trừ phần thuế. Khoản thu đã huỷ không tính. Cùng con số trên trang Doanh thu.',
         'p9' => 'Mốc đến hạn đã xong tới hết kỳ (đúng hạn hoặc trễ) cộng yêu cầu khách đã trả lời tới hết kỳ, chia cho tổng mốc đến hạn và yêu cầu nhận trong kỳ (trừ yêu cầu đóng không trả lời). Mỗi việc một đơn vị, không trọng số. Giấy tờ khách nộp không tính vào đây, vì phần lớn không nằm trong tay nhân sự. Dưới 5 việc thì không tính tỉ lệ.',
         // Task 7 — P8, xu hướng từ ảnh chụp hằng ngày (R10).
         'p8' => 'Số mốc quá hạn và số vụ quá hạn cập nhật cho khách của người này vào cuối ngày đầu kỳ và cuối ngày cuối kỳ (không muộn hơn hôm qua), theo ảnh chụp hệ thống ghi lúc 23:50 mỗi ngày bằng đúng luật của trang "Theo dõi đội ngũ". Ảnh chụp chỉ có từ ngày triển khai tính năng này; ngày không có ảnh chụp để trống ("—"), không phải 0. Khác các cột khác của trang, cột này đọc số đã chụp: số của một ngày đã qua giữ nguyên như lúc chụp, nên một vụ được bàn giao hay bị huỷ sau ngày đó vẫn nằm trong số của ngày đó. Số của hôm nay luôn tính trực tiếp, trên trang của từng người (và trang "Theo dõi đội ngũ" với người được xem cả đội). Dòng "Chung" không có cột này.',

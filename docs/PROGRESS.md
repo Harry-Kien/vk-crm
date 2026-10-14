@@ -8726,6 +8726,100 @@ Lần rà soát lại vòng sửa 1 tìm một lỗi chặn gộp cùng loại v
   - Lượt đi chuỗi nâng cấp trên máy Ubuntu trống: lượt của vòng 1 đi tới cây đã gộp M11. "Bản cập nhật M14" là
     tài liệu của làn M14 và không được đi lại ở vòng này.
 
+### Sửa sau kiểm tra nghiệp vụ toàn hệ thống (làn fb)
+
+Nhánh `audit-fix-fb`, gốc `0b26a26`. Nguồn: đợt kiểm tra nghiệp vụ 2026-10-09 trên `main` (10 luồng + đọc
+lạnh) — sáu mục A (hợp đồng/tiền, bảo mật, AI) và một danh sách việc nhỏ B. Mọi mục có test đỏ trước, phép
+thử ngược cho từng điều kiện mới; câu chữ qua `lang/vi` (tệp mới `billing_corrections.php`,
+`staff_access.php`, `audit_trail.php`).
+
+#### Đã sửa
+
+- **A1 — hợp đồng đã huỷ không còn khoá vĩnh viễn vụ việc** (`7635a3f`): "một hợp đồng CHƯA HUỶ cho một vụ"
+  (migration `2026_10_09_300001`: unique trên cột sinh `open_matter_id` thay unique `matter_id`);
+  `Matter::contract()` = bản mới nhất, thêm `Matter::contracts()`; nút "Soạn hợp đồng mới", dòng "Hợp đồng
+  trước của vụ", modal Huỷ hợp đồng nói hậu quả, nhật ký `contract_cancelled` có lý do và số còn phải thu.
+  Vòng sửa 1 (`5d5aa5d`): đợt theo giai đoạn của hợp đồng mới không nhận hạn khi vụ còn giữ bản huỷ chờ cùng
+  giai đoạn — thăm dò của `TriggerInstalmentsForStage` nay chỉ xét hợp đồng `active`. Vòng sửa cuối: thư nhắc
+  khách thiếu giấy tờ đọc HỢP ĐỒNG HIỆN HÀNH (`ChecklistProgress::itemsToRemindClientOf()`, cùng điều kiện
+  với dòng nhắc của tab tiền) — kích hoạt nhầm → huỷ → soạn bản mới thì thư không đòi bản ký trong lúc bản
+  mới còn nháp; câu chữ ký lại nói luật tiền đã thu (dưới đây).
+- **A2 — "Bỏ miễn"** (`9f0126f`): `UnwaiveInstalment` (waived → pending, cùng quyền và chuỗi khoá với Miễn);
+  modal Miễn nêu đợt, giá trị, đã thu, phần thôi đòi, và (vòng sửa cuối) chỉ hứa "Bỏ miễn" trước khi hoàn tất
+  hợp đồng — `UnwaiveInstalment` từ chối trên hợp đồng không còn `active`.
+- **A3 — huỷ đúng khoản thu** (`9f0126f`): ô chọn khoản (ngày, số tiền, cách nhận, mã, lúc ghi), mặc định
+  khoản GHI gần nhất; id của đợt khác bị từ chối.
+- **A4 — bỏ "Ghi nhớ đăng nhập" phía nhân sự** (`f753a43`): form đăng nhập chỉ email + mật khẩu; migration
+  `2026_10_09_300002` xoá `remember_token` của mọi nhân sự (cookie 400 ngày đã phát hết hiệu lực).
+- **A5 — "Khoá truy cập ngay"** (`c5ed3c5`): `SuspendStaffAccess` khoá nhân sự còn giữ việc mà không cần bàn
+  giao trước (cắt phiên, đổi `remember_token`, thu hồi AI, gỡ máy nhận thông báo, nhật ký có lý do); việc dở
+  dang giữ nguyên để bàn giao sau.
+- **A6 — nhật ký của người đã nghỉ việc giữ đúng tên** (`7e4aa64`): kèm nhãn "(đã nghỉ việc)" trên khối
+  Nhật ký MCP, trang Nhật ký hệ thống, tab Nhật ký của vụ; bộ lọc "Nhân sự" gồm cả người đã nghỉ.
+- **B đã làm** (`7635a3f`, `7ff7502`, `b27ee3d`): "Dời hạn" đợt (`RescheduleInstalment`); nhãn doanh thu ghi
+  rõ đã gồm thuế GTGT (Doanh thu theo thời gian/theo giai đoạn, P7); câu lỗi huỷ khoản thu trên hợp đồng đã
+  hoàn tất chỉ đường có thật; modal Huỷ hợp đồng nói hậu quả; nhật ký miễn ghi `collected`/`written_off`, nhật
+  ký huỷ hợp đồng có lý do; trang Nhật ký hệ thống lọc theo người, sự kiện, khoảng ngày, hồ sơ (vẫn qua
+  `scopeVisibleTo`), cột Đối tượng/Nhóm tiếng Việt; tự đổi mật khẩu, tự cài 2FA, tạo lại mã khôi phục đều ghi
+  nhật ký; khối Nhật ký MCP gồm cờ AI của vụ, dùng/bỏ nháp AI, xác nhận mốc AI. QUY-TRINH: Giai đoạn 3 (khoá
+  khẩn) và Giai đoạn 5 (sửa sai trên hợp đồng đã ký, gồm luật tiền khi ký lại).
+
+#### Cần chủ văn phòng quyết (đang áp phương án an toàn, đảo được)
+
+1. **Ghi nhớ đăng nhập của nhân sự**: đã BỎ HẲN. Muốn tiện hơn thì phương án thay là cho lại ô đó với thời hạn
+   ngắn (ví dụ 7 ngày, `rememberDuration`) — chủ văn phòng chọn.
+2. **Mọi nhân sự phải đăng nhập lại một lần** (mật khẩu + 2FA) sau khi chạy migration `2026_10_09_300002` lúc
+   cập nhật máy chủ — báo trước cho văn phòng.
+3. **Hoàn tác kích hoạt / sửa ngày ký `signed_at`**: chưa có. Phương án đề xuất: admin sửa `signed_at` hoặc
+   "Đưa về nháp" khi chưa có khoản thu và phụ lục nào, có lý do và nhật ký. Hôm nay đường sửa là huỷ hợp đồng
+   rồi soạn hợp đồng mới. Mở lại hợp đồng đã hoàn tất vẫn chờ quyết như ở Ghi chú M9.
+4. **Chính sách mật khẩu nhân sự**: `Password::defaults(min 12)->uncompromised()` — `uncompromised` gọi ra dịch
+   vụ ngoài (Have I Been Pwned, chỉ gửi tiền tố băm) — và bắt đổi mật khẩu admin đặt ở lần đăng nhập đầu
+   (cần cột `must_change_password` + middleware). Chưa làm, chờ đồng ý.
+5. **Khoản thu ghi trùng và cận dưới của ngày tiền về**: luật nhận diện trùng (cùng mã giao dịch? cùng số tiền
+   và cùng ngày trên cùng đợt?) và ngưỡng cảnh báo `paid_on` (sớm hơn ngày ký bao nhiêu ngày, cũ hơn 1 năm?)
+   là quyết định nghiệp vụ; cần thêm bước "vẫn ghi?" ở mọi màn ghi tiền (tab, Công nợ, nhập số dư đầu kỳ).
+6. **Cảnh báo AI đọc quá nhiều**: hôm nay chỉ vào chuông thông báo. Cần chọn kênh (thư, thông báo đẩy cho người
+   có `settings.manage`) và có tự thu hồi kết nối khi vượt ngưỡng nhiều lần (ví dụ 5×) hay không.
+7. **Chính sách dùng AI hiện trong ứng dụng**: cần văn bản chính sách đã duyệt và cách đánh phiên bản (băm nội
+   dung lưu vào `ai_acknowledgements`, `MCP_POLICY_VERSION` qua `.env`) trước khi làm.
+
+#### Việc B chưa làm, và lý do
+
+- **Cảnh báo khoản thu trùng, cận dưới ngày tiền về**: chờ quyết định ở mục 5; cần luồng xác nhận rồi gửi lại
+  trên mọi màn ghi tiền và đổi hành vi mà test hiện có dựa vào (hai khoản giống nhau ghi có chủ đích).
+- **Khoá/ẩn nút hợp đồng và nút trên dòng theo trạng thái**: `isDisabled()` cũng đọc lại lúc bấm, nên mắc đúng
+  lỗi "bấm mà im lặng không làm gì" đã đo cho `visible()` (chú thích ở `activateContractAction()`).
+- **Hoàn tác kích hoạt / sửa `signed_at`**: chờ quyết định ở mục 3.
+- **Kiểm tra bất biến tiền hằng ngày kèm báo admin**: cần quyết kênh báo; `routes/console.php` và danh sách lịch
+  dùng chung với làn khác.
+- **Bắt đổi mật khẩu lần đầu, `Password::defaults`**: chờ quyết định ở mục 4.
+- **Toàn văn chính sách AI trong ứng dụng, băm nội dung**: chờ quyết định ở mục 7.
+- **Cảnh báo AI qua thư/đẩy, tự thu hồi**: chờ quyết định ở mục 6.
+- **Gợi ý vai nào ghi được tool AI nào**: chưa làm — chỉ là hiển thị, ưu tiên thấp nhất.
+- **Cột "Vụ" trong khối Nhật ký MCP**: chưa thêm — mã vụ đã có trong chi tiết dòng (`matter_id`).
+
+#### Việc nhỏ còn để lại (rà soát cuối, không chặn gộp)
+
+- Bộ lọc hồ sơ của trang Nhật ký hệ thống chỉ liệt kê 200 vụ mới nhất (tìm theo mã chưa đi qua toàn bộ).
+- Sau khi soạn hợp đồng mới, khoản thu trên hợp đồng đã huỷ rời tab; trên vụ hạn chế luật sư phụ trách không
+  còn đường huỷ khoản thu nhầm của bản đã huỷ.
+- Modal Huỷ hợp đồng hiện cùng một câu ở mọi trạng thái nút hiện (nháp, đã huỷ, đã hoàn tất).
+- Lát "Đã thu" của vành khuyên công nợ (`lang/vi/widgets.php`) chưa có chú thích thuế GTGT; khoá `billing.tab.actions.void_payment_heading`
+  không còn dùng.
+- "Dời hạn" nhận ngày trong quá khứ hoặc trước ngày ký (sửa được bằng cách dời lại).
+- Huỷ hợp đồng xong, cùng lần vẽ đó tab chưa hiện nút "Soạn hợp đồng mới" tới request sau (thiếu
+  `unsetRelation('contract')`, chưa chạy thử).
+- Admin thứ hai đang mở form sửa nhân sự (trạng thái cũ `is_active`) bấm lưu có thể mở lại tài khoản vừa bị
+  "Khoá truy cập ngay".
+- Câu "theo đúng hạn đã có" của "Bỏ miễn": đợt theo giai đoạn được miễn trước khi tới giai đoạn thì sau khi bỏ
+  miễn nhận hạn theo ngày vào giai đoạn, có thể quá hạn ngay.
+
+#### Kiểm chứng
+
+Số đo từng vòng ở báo cáo của làn; vòng sửa 1 (`5d5aa5d`): cả bộ 8860 passed, 37 skipped, 0 failed; MariaDB 71
+passed; `pint --test` PASS. Vòng sửa cuối: xem commit "vòng sửa cuối" của làn.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9161,8 +9255,8 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
-- Bốn làn sửa 24 lỗi quan trọng của đợt kiểm tra nghiệp vụ 2026-10-09 (`audit-fix-fa/fm/fb/fc`), dừng giữa
-  chừng vì hết hạn mức tuần.
+- Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb ĐÃ GỘP** (2026-10-14, mục "Sửa sau kiểm tra nghiệp vụ
+  toàn hệ thống (làn fb)" phía trên); fa, fm, fc chạy tiếp từ 2026-10-14, gộp lần lượt.
 - Giao – nhận – xử lý hồ sơ NỘI BỘ (giao việc, bước "Đã nhận"/"Trả lại"); vai trò nhân viên kinh doanh quản
   lý lead; nhắc lịch thanh toán cho khách sau MỘT công tắc, mặc định tắt (đảo quyết định 2026-10-04).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn

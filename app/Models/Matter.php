@@ -590,10 +590,25 @@ class Matter extends Model
         return $this->hasOne(MatterArchive::class);
     }
 
-    /** Một hợp đồng cho một vụ việc — `contracts.matter_id` unique thật (M9 quyết định 1). */
+    /**
+     * Hợp đồng HIỆN HÀNH của vụ: bản mới nhất (`id` lớn nhất). Từ làn fb (mục A1) một vụ có thể có
+     * nhiều hợp đồng ĐÃ HUỶ nhưng không bao giờ quá MỘT hợp đồng chưa huỷ (unique trên cột sinh
+     * `contracts.open_matter_id`), và hợp đồng mới chỉ soạn được khi mọi bản trước đã huỷ — nên bản
+     * mới nhất là bản chưa huỷ nếu có, ngược lại là bản huỷ gần nhất. Mọi chỗ đọc "hợp đồng của vụ"
+     * (tab tiền, cổng khách) vì vậy đọc đúng một bản như trước.
+     *
+     * Truy vấn tồn tại (`whereHas('contract', …)`) cũng chỉ xét bản mới nhất; muốn hỏi qua MỌI hợp
+     * đồng của vụ (kể cả bản đã huỷ) thì dùng {@see self::contracts()}.
+     */
     public function contract(): HasOne
     {
-        return $this->hasOne(Contract::class);
+        return $this->hasOne(Contract::class)->latestOfMany();
+    }
+
+    /** Mọi hợp đồng của vụ, kể cả bản đã huỷ (làn fb, mục A1) — xem {@see self::contract()}. */
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(Contract::class);
     }
 
     /**

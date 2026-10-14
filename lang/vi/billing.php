@@ -15,7 +15,7 @@ return [
         'percent_out_of_range' => 'Mỗi phần trăm phải lớn hơn 0, tối đa 100, và có nhiều nhất hai chữ số thập phân.',
         'vat_rate_out_of_range' => 'Thuế suất phải là một số nguyên từ 0 đến 100, hoặc để trống nếu hợp đồng không có dòng thuế.',
         'billing_model_invalid' => 'Cách tính phí không hợp lệ.',
-        'contract_exists' => 'Vụ việc này đã có hợp đồng. Mỗi vụ việc chỉ có một hợp đồng; thay đổi giá trị hoặc lịch thu bằng phụ lục.',
+        'contract_exists' => 'Vụ việc này đang có một hợp đồng chưa huỷ (bản nháp, đang hiệu lực hoặc đã hoàn tất). Bản nháp thì sửa trực tiếp; hợp đồng đang hiệu lực thì thay đổi giá trị hoặc lịch thu bằng phụ lục. Chỉ soạn được hợp đồng mới khi hợp đồng cũ đã huỷ.',
         'instalment_name_required' => 'Mỗi đợt phải có tên — khách hàng sẽ thấy tên này trên cổng.',
         'instalment_name_too_long' => 'Tên đợt không được dài quá :max ký tự.',
         'trigger_type_invalid' => 'Hãy chọn đợt này đến hạn khi nào: khi ký hợp đồng, vào một ngày cụ thể, hoặc khi vụ việc tới một giai đoạn.',
@@ -59,7 +59,7 @@ return [
         'payment_exceeds_instalment' => 'Số tiền :amount vượt quá số còn phải thu (:remaining) của đợt ":name". Đây là thu vượt: không tự rải sang đợt sau — ghi đúng số còn lại, hoặc sửa lại nếu đã ghi nhầm khoản trước.',
         'payment_already_voided' => 'Khoản thu này đã được huỷ từ trước, không huỷ lần hai.',
         // Lượt rà soát cuối M9, C1 — câu do controller chốt, giữ nguyên văn.
-        'payment_void_on_completed_contract' => 'Hợp đồng đã hoàn tất — không huỷ khoản thu được; nếu khách thực sự chưa trả, ghi nhận bằng phụ lục/xử lý ngoài hệ thống và báo quản trị.',
+        'payment_void_on_completed_contract' => 'Hợp đồng đã hoàn tất — không huỷ khoản thu được trong hệ thống. Nếu khách thực sự chưa trả, hãy báo quản trị viên: việc mở lại một hợp đồng đã hoàn tất chưa có trong hệ thống.',
     ],
 
     'check_invariants' => [

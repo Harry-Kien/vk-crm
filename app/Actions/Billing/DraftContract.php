@@ -30,9 +30,12 @@ use Illuminate\Validation\ValidationException;
  *     `Gate::forUser($actor)` — không phải đối tượng người gọi cầm: một vụ vừa chuyển sang
  *     `restricted` sau khi màn hình nạp nó thì quản lý không còn thấy tiền của nó nữa. Định nghĩa
  *     "ai thấy tiền của vụ nào" nằm ở `ChecksBillingAccess`, không viết lại ở đây.
- *  3. **Một hợp đồng cho một vụ** (M9 quyết định 1): hỏi "đã có hợp đồng chưa" sau khi đã khoá vụ,
- *     để hai lần soạn đồng thời xếp hàng thay vì cùng thấy "chưa". Unique index thật trên
- *     `contracts.matter_id` là chốt chặn cuối.
+ *  3. **Một hợp đồng CHƯA HUỶ cho một vụ** (M9 quyết định 1, đọc lại ở làn fb mục A1): hỏi "vụ đã
+ *     có hợp đồng nháp/đang hiệu lực/đã hoàn tất chưa" sau khi đã khoá vụ, để hai lần soạn đồng
+ *     thời xếp hàng thay vì cùng thấy "chưa". Hợp đồng ĐÃ HUỶ không chặn: nó ở lại làm lịch sử, và
+ *     vụ soạn được hợp đồng mới (ký lại với điều khoản mới, hay kích hoạt nhầm khi khách chưa ký).
+ *     Chốt chặn cuối là unique thật trên cột sinh `contracts.open_matter_id` (`matter_id` khi chưa
+ *     huỷ, `NULL` khi đã huỷ — migration `2026_10_09_300001`).
  *  4. **Chỉ `fixed_fee`** — hình thức khác bị từ chối bằng `BillingModelNotSupported`.
  *  5. **Giá trị** là số nguyên đồng từ 1 tới `Money::MAX`; thuế suất rỗng hoặc 0–100
  *     (`App\Support\Billing\Vat` tách phần thuế nằm TRONG tổng khi hiển thị).
@@ -69,7 +72,10 @@ class DraftContract
 
             Gate::forUser($actor)->authorize('create', [Contract::class, $lockedMatter]);
 
-            if ($this->scopelessly(Contract::query())->where('matter_id', $lockedMatter->id)->exists()) {
+            if ($this->scopelessly(Contract::query())
+                ->where('matter_id', $lockedMatter->id)
+                ->where('status', '!=', ContractStatus::Cancelled->value)
+                ->exists()) {
                 throw ValidationException::withMessages(['matter_id' => [__('billing.validation.contract_exists')]]);
             }
 

@@ -11,6 +11,7 @@ use App\Exceptions\InstalmentNotPayable;
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Billing\BillingSummary;
@@ -37,7 +38,10 @@ use Illuminate\Support\Facades\Gate;
  *     `pending` ({@see InstalmentNotPayable::toWaive()}) — cùng lý do tách hai điều kiện với
  *     `RecordPayment`: dữ liệu CÓ THỂ mang một đợt `pending` trên một hợp đồng đã đóng.
  *  4. Ghi `status = waived`, `waived_reason`, `waived_by`, `waived_at`.
- *  5. `Audit::record('instalment_waived', …, $actor)` bên trong transaction.
+ *  5. `Audit::record('instalment_waived', …, $actor)` bên trong transaction — kèm `collected` (đã
+ *     thu chưa huỷ) và `written_off` (phần thật sự bị xoá nợ), không chỉ nguyên giá trị đợt.
+ *
+ * Miễn nhầm thì sửa bằng {@see UnwaiveInstalment} ("Bỏ miễn", làn fb mục A2).
  */
 class WaiveInstalment
 {
@@ -60,6 +64,14 @@ class WaiveInstalment
 
             $reason = $this->validatedReason($reason);
 
+            // Làn fb (mục B "nhật ký miễn đợt"): phần THẬT SỰ bị xoá nợ là `amount` trừ số đã thu
+            // chưa huỷ — đọc SAU khi đã khoá đợt (mọi lần ghi khoản thu cũng khoá đợt này trước),
+            // nên không lệch với một lần ghi đang chạy song song.
+            $collected = (int) $this->scopelessly(Payment::query())
+                ->where('instalment_id', $lockedInstalment->getKey())
+                ->whereNull('voided_at')
+                ->sum('amount');
+
             $lockedInstalment->fill([
                 'status' => InstalmentStatus::Waived,
                 'waived_reason' => $reason,
@@ -71,6 +83,8 @@ class WaiveInstalment
             Audit::record('instalment_waived', $lockedInstalment, [
                 'contract_code' => $lockedContract->code,
                 'amount' => $lockedInstalment->amount,
+                'collected' => $collected,
+                'written_off' => max(0, $lockedInstalment->amount - $collected),
                 'reason' => $reason,
             ], $actor);
 

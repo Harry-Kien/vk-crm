@@ -69,8 +69,9 @@ class UserForm
                     // R7: luật THẬT ở EditUser::handleRecordUpdate(). $record là null lúc TẠO —
                     // chưa ai đứng tên việc gì trên một tài khoản chưa tồn tại, nên câu này chỉ có
                     // nghĩa lúc SỬA.
+                    // Làn fb, mục A5: chỉ đường khoá khẩn ngay dưới công tắc bị chặn.
                     ->helperText(fn (?User $record): ?string => $record !== null
-                        ? __('users.offboarding.is_active_hint')
+                        ? __('users.offboarding.is_active_hint').' '.__('staff_access.suspend.form_hint')
                         : null),
             ]);
     }

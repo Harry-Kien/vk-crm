@@ -99,8 +99,9 @@ class DocumentPolicy
      * - **Vụ có hợp đồng đã từng ký** — trạng thái khác `draft`. Không dùng
      *   `Contract::shownToClient()` (`active`/`completed`): `cancelled` chỉ đến từ `active`
      *   (`CancelContract`), nên một gói dựng TRƯỚC lần huỷ vẫn in bảng kê, và mọi version cũ của
-     *   gói vẫn tải được. Hợp đồng `draft` chưa bao giờ vào bảng kê. Mỗi vụ một hợp đồng
-     *   (`contracts.matter_id` unique, không xoá mềm), nên `first()` là hợp đồng của vụ. Cái giá
+     *   gói vẫn tải được. Hợp đồng `draft` chưa bao giờ vào bảng kê. Từ làn fb (mục A1) một vụ có
+     *   thể có thêm những hợp đồng đã huỷ trước bản hiện hành; `ContractPolicy::view` hỏi theo VỤ nên
+     *   bản nào cũng cho cùng câu trả lời — lấy bản mới nhất (`latest('id')`) cho chắc. Cái giá
      *   phía đóng: gói dựng khi hợp đồng còn là bản nháp rồi hợp đồng được ký sau đó cũng bị giữ
      *   lại với người không thấy tiền, dù tệp đó không có bảng kê.
      * - **`$user` không được xem hợp đồng đó** (`ContractPolicy::view`, nhánh nhân sự = P3). Hỏi
@@ -125,6 +126,7 @@ class DocumentPolicy
             ->withoutGlobalScope(ClientPortalScope::class)
             ->where('matter_id', $document->matter_id)
             ->where('status', '!=', ContractStatus::Draft->value)
+            ->latest('id')
             ->first();
 
         if ($contract === null) {

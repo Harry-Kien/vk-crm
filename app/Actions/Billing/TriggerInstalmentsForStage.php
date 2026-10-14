@@ -38,8 +38,9 @@ use LogicException;
  *    ngày khách đồng ý khoản đó.
  *
  * **Điều kiện để một đợt được kích hoạt** — tất cả đọc dưới khoá:
- *  1. Hợp đồng của vụ đang `active` (không `draft` — chưa ai phải trả gì; không `completed`/
- *     `cancelled` — không còn gì để đòi), và vụ chưa xoá mềm.
+ *  1. Hợp đồng đang xét là `active` (không `draft` — chưa ai phải trả gì; không `completed`/
+ *     `cancelled` — không còn gì để đòi), và vụ chưa xoá mềm. Một vụ có thể giữ thêm các hợp đồng
+ *     đã huỷ bên cạnh hợp đồng đang hiệu lực; đợt chờ của chúng không bao giờ được kích hoạt.
  *  2. Đợt đang chờ đúng giai đoạn đó: `Instalment::awaitingStage()` — `trigger_type = stage`,
  *     `status = pending`, **`triggered_at IS NULL`** (cổng chạy MỘT lần, không phải "giai đoạn hiện
  *     tại bằng giai đoạn kích hoạt": `allowed_next` có chu trình và `on_hold` ra vào được).
@@ -82,10 +83,14 @@ class TriggerInstalmentsForStage
      * của vụ vào giai đoạn đó, đọc lại dưới khoá — trên đường thường ngày, đó chính là `$stageLog`.
      *
      * MỘT lần thăm dò NGOÀI transaction (luật "không đọc thường trước khoá đầu tiên" của
-     * {@see LocksBillingRows}): hợp đồng của vụ có đợt nào đang chờ ĐÚNG giai đoạn này không. Không có
-     * (vụ không có hợp đồng, hay không đợt nào chờ giai đoạn đó) thì trả `0` mà không mở transaction
-     * tiền và không khoá hàng `matters` nào — mỗi lần chuyển giai đoạn của văn phòng không phải xếp
-     * hàng sau một khoá tiền vô ích. Mọi điều kiện quyết định được hỏi LẠI dưới khoá ở
+     * {@see LocksBillingRows}): hợp đồng `active` của vụ có đợt nào đang chờ ĐÚNG giai đoạn này không.
+     * Chỉ hợp đồng `active` (sửa sau kiểm tra nghiệp vụ, làn fb, A1): một vụ giữ được NHIỀU hợp đồng —
+     * các bản đã huỷ cùng tối đa một bản chưa huỷ (unique `open_matter_id`) — và `CancelContract` để
+     * nguyên các đợt chờ giai đoạn của bản huỷ; thăm dò mà chọn nhầm bản huỷ thì lõi trả `0` và đợt
+     * của hợp đồng đang hiệu lực không bao giờ có hạn. Không có (vụ không có hợp đồng `active`, hay
+     * không đợt nào của nó chờ giai đoạn đó) thì trả `0` mà không mở transaction tiền và không khoá
+     * hàng `matters` nào — mỗi lần chuyển giai đoạn của văn phòng không phải xếp hàng sau một khoá
+     * tiền vô ích. Mọi điều kiện quyết định (kể cả `active`) được hỏi LẠI dưới khoá ở
      * {@see self::releaseLocked()}. Chỉ giai đoạn `$stageKey`: đợt chờ một giai đoạn KHÁC mà vụ cũng
      * đã chạm (chưa được kích hoạt vì một lần hỏng trước đó) để lại cho lối vào của chính giai đoạn
      * đó — đối chiếu hằng ngày.
@@ -98,7 +103,10 @@ class TriggerInstalmentsForStage
 
         $contractId = $this->scopelessly(Instalment::query())
             ->awaitingStage($stageKey)
-            ->whereIn('contract_id', $this->scopelessly(Contract::query())->where('matter_id', $matter->getKey())->select('id'))
+            ->whereIn('contract_id', $this->scopelessly(Contract::query())
+                ->where('matter_id', $matter->getKey())
+                ->where('status', ContractStatus::Active->value)
+                ->select('id'))
             ->value('contract_id');
 
         if ($contractId === null) {

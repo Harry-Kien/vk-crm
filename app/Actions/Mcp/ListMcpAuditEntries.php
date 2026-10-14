@@ -5,10 +5,10 @@ namespace App\Actions\Mcp;
 use App\Enums\McpPlatform;
 use App\Enums\McpToolOutcome;
 use App\Models\User;
+use App\Support\ActivityPeople;
 use App\Support\SensitivePropertyFilter;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 use Spatie\Activitylog\Models\Activity;
 
@@ -21,7 +21,8 @@ use Spatie\Activitylog\Models\Activity;
  *
  * Đúng các sự kiện của {@see self::EVENTS}: mỗi lần gọi tool (`mcp_tool_called`, Task 8), đồng ý / từ
  * chối một kết nối (Task 4), làm mới một kết nối (`mcp_token_refreshed`, Task 17), thu hồi kết nối, đổi chế độ, cam kết chính sách (Task 6), đổi cấu hình
- * toàn hệ thống ({@see UpdateAiSettings}). Không dòng nhật ký nào khác của hệ thống.
+ * toàn hệ thống ({@see UpdateAiSettings}), và (làn fb, SPEC §16.7) cờ AI của vụ, dùng hay bỏ nháp AI,
+ * xác nhận mốc hạn do AI tạo. Không dòng nhật ký nào khác của hệ thống.
  *
  *  - Lọc theo người (`$userId`): dòng mà người đó là causer (người sở hữu token, người bấm) HOẶC chủ
  *    thể (người bị đổi chế độ, bị thu hồi kết nối).
@@ -52,6 +53,13 @@ final class ListMcpAuditEntries
         'ai_access_changed',
         'ai_policy_acknowledged',
         'ai_settings_updated',
+        // Làn fb (mục B, SPEC §16.7 "cũng ghi"): cờ AI của vụ (ai xác nhận khách đồng ý), dùng hay bỏ
+        // nháp AI, xác nhận mốc hạn AI tạo — văn phòng cần thấy chúng ngay trên trang này khi lập
+        // hồ sơ đánh giá tác động.
+        'matter_ai_access_changed',
+        'mcp_draft_used',
+        'mcp_draft_discarded',
+        'deadline_ai_confirmed',
     ];
 
     /** Khoá `properties` đã có cột riêng trên màn hình, không lặp lại trong "chi tiết". */
@@ -65,7 +73,8 @@ final class ListMcpAuditEntries
         $userMorph = (new User)->getMorphClass();
 
         return Activity::query()
-            ->with(['causer', 'subject'])
+            // Làn fb, mục A6: nạp cả nhân sự đã nghỉ việc (xoá mềm) — xem {@see ActivityPeople}.
+            ->with(['causer' => ActivityPeople::withTrashed(), 'subject' => ActivityPeople::withTrashed()])
             ->whereIn('event', self::EVENTS)
             ->when($userId !== null, fn (Builder $query) => $query->where(fn (Builder $person) => $person
                 ->where(fn (Builder $causer) => $causer->where('causer_type', $userMorph)->where('causer_id', $userId))
@@ -118,19 +127,12 @@ final class ListMcpAuditEntries
             id: (int) $activity->getKey(),
             at: CarbonImmutable::parse($activity->created_at),
             event: (string) $activity->event,
-            person: $this->personName($activity->causer) ?? $this->personName($activity->subject),
+            person: ActivityPeople::name($activity->causer) ?? ActivityPeople::name($activity->subject),
             tool: is_string($tool) ? $tool : null,
             outcome: is_string($outcome) ? McpToolOutcome::tryFrom($outcome) : null,
             platform: is_string($platform) ? McpPlatform::tryFrom($platform) : null,
             ip: is_string($ip) ? $ip : null,
             details: SensitivePropertyFilter::filter(array_diff_key($properties, array_flip(self::COLUMN_KEYS))),
         );
-    }
-
-    private function personName(?Model $model): ?string
-    {
-        $name = $model?->getAttribute('name');
-
-        return is_string($name) && $name !== '' ? $name : null;
     }
 }

@@ -14,6 +14,7 @@ use App\Enums\AiAccessMode;
 use App\Enums\Permission;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\User;
+use App\Support\ActivityPeople;
 use App\Support\Mcp\McpAccess;
 use App\Support\Mcp\McpSwitches;
 use BackedEnum;
@@ -437,7 +438,8 @@ class AiConnections extends Page implements HasTable
                     Select::make('user')
                         ->label(__('ai_connections.admin.audit.filter_user'))
                         ->placeholder(__('ai_connections.admin.audit.filter_all'))
-                        ->options(fn (): array => User::query()->orderBy('name')->pluck('name', 'id')->all())
+                        // Làn fb, mục A6: kể cả nhân sự đã nghỉ việc — nhật ký của họ vẫn phải lọc được.
+                        ->options(fn (): array => ActivityPeople::staffOptions())
                         ->searchable()
                         ->live(),
                     Select::make('tool')

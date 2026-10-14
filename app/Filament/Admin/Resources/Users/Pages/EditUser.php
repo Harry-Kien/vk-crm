@@ -7,6 +7,7 @@ use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
 use App\Actions\User\RecordStaffPermissionChange;
 use App\Actions\User\ResetStaffTwoFactor;
+use App\Actions\User\SuspendStaffAccess;
 use App\Actions\User\UnlockStaffLogin;
 use App\Enums\AiRevocationReason;
 use App\Enums\Role;
@@ -16,8 +17,10 @@ use App\Filament\Admin\Pages\BulkReassign;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\OpenWork;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Icons\Heroicon;
@@ -156,6 +159,54 @@ class EditUser extends EditRecord
                             ]),
                             default => __('users.actions.unlock_login.success', ['name' => $target->name]),
                         })
+                        ->success()
+                        ->send();
+                }),
+            /*
+             * Làn fb, mục A5: "Khoá truy cập ngay" — tách khoá truy cập khỏi nghỉ việc
+             * ({@see SuspendStaffAccess}). Cùng khuôn `resetTwoFactor`: `visible()` hỏi Gate cho hình
+             * dạng nút (cộng "tài khoản còn hoạt động" — khoá rồi thì không còn gì để khoá; một
+             * cuộc đua làm nút tự ẩn lúc bấm chỉ xảy ra khi người đó đã bị khoá, đúng trạng thái
+             * muốn có), `Gate::authorize()` hỏi lại trong `action()`, Action hỏi lần ba bên trong.
+             */
+            Action::make('suspendAccess')
+                ->label(__('staff_access.suspend.label'))
+                ->icon(Heroicon::OutlinedNoSymbol)
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading(fn (): string => __('staff_access.suspend.modal_heading', ['name' => $this->getRecord()->name]))
+                ->modalDescription(function (): string {
+                    /** @var User $target */
+                    $target = $this->getRecord();
+                    $openWork = OpenWork::forUser($target);
+
+                    return __('staff_access.suspend.modal_description', [
+                        'name' => $target->name,
+                        'matters' => $openWork->leadMatters->count(),
+                        'deadlines' => $openWork->deadlines->count(),
+                        'requests' => $openWork->clientRequests->count(),
+                    ]);
+                })
+                ->visible(fn (): bool => $this->getRecord()->is_active && Gate::allows('suspendAccess', $this->getRecord()))
+                ->schema([
+                    Textarea::make('reason')
+                        ->label(__('staff_access.suspend.reason'))
+                        ->helperText(__('staff_access.suspend.reason_help'))
+                        ->required(),
+                ])
+                ->action(function (Action $action, array $data): void {
+                    /** @var User $target */
+                    $target = $this->getRecord();
+
+                    Gate::authorize('suspendAccess', $target);
+
+                    $this->runAction($action, fn () => app(SuspendStaffAccess::class)->handle(Auth::user(), $target, $data['reason'] ?? ''));
+
+                    $this->getRecord()->refresh();
+                    $this->refreshFormData(['is_active']);
+
+                    Notification::make()
+                        ->title(__('staff_access.suspend.success', ['name' => $target->name]))
                         ->success()
                         ->send();
                 }),

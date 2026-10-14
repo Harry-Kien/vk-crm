@@ -91,10 +91,11 @@ use Illuminate\Validation\ValidationException;
  *
  * # Huỷ ĐÚNG một khoản thu, không giới hạn "gần nhất" (phán quyết controller 2)
  *
- * Khác `BillingRelationManager::voidPaymentAction()` (tab của Task 7, huỷ khoản GẦN NHẤT chưa
- * huỷ), nút "Huỷ khoản thu" ở đây cho kế toán CHỌN đúng khoản cần huỷ trong số các khoản chưa huỷ
- * của đợt — vì kế toán mới là người ghi hằng ngày trên chính trang này, và một đợt thu nhiều lần
- * cần huỷ ĐÚNG dòng ghi nhầm, không phải luôn luôn dòng mới nhất.
+ * Nút "Huỷ khoản thu" ở đây cho kế toán CHỌN đúng khoản cần huỷ trong số các khoản chưa huỷ của
+ * đợt — vì kế toán mới là người ghi hằng ngày trên chính trang này, và một đợt thu nhiều lần cần
+ * huỷ ĐÚNG dòng ghi nhầm, không phải luôn luôn dòng mới nhất. Từ làn fb (mục A3) tab của vụ việc
+ * (`BillingRelationManager::voidPaymentAction()`) cũng có ô chọn như vậy, thay cho nút "huỷ khoản
+ * gần nhất" trước đây.
  *
  * # Biên lai — KHÔNG có ở M9 (phán quyết controller 3)
  *

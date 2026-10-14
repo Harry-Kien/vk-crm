@@ -2,6 +2,8 @@
 
 namespace App\Exceptions;
 
+use App\Actions\Billing\RescheduleInstalment;
+use App\Actions\Billing\UnwaiveInstalment;
 use App\Models\Instalment;
 use DomainException;
 
@@ -31,6 +33,30 @@ class InstalmentNotPayable extends DomainException
     public static function toWaive(Instalment $instalment): self
     {
         return new self(__('billing.errors.instalment_not_payable_to_waive', [
+            'name' => $instalment->name,
+            'status' => $instalment->status->label(),
+        ]));
+    }
+
+    /**
+     * "Bỏ miễn" ({@see UnwaiveInstalment}) trên một đợt không còn `waived`
+     * (làn fb, mục A2) — ví dụ một người khác đã bỏ miễn nó trước.
+     */
+    public static function toUnwaive(Instalment $instalment): self
+    {
+        return new self(__('billing_corrections.errors.instalment_not_waived', [
+            'name' => $instalment->name,
+            'status' => $instalment->status->label(),
+        ]));
+    }
+
+    /**
+     * "Dời hạn đợt" ({@see RescheduleInstalment}) trên một đợt không còn
+     * `pending` (làn fb, mục B) — đã thu đủ, đã miễn hay đã huỷ thì không còn gì để khất.
+     */
+    public static function toReschedule(Instalment $instalment): self
+    {
+        return new self(__('billing_corrections.errors.instalment_not_reschedulable', [
             'name' => $instalment->name,
             'status' => $instalment->status->label(),
         ]));
