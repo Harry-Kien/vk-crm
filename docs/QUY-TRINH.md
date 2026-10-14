@@ -163,13 +163,20 @@ một dòng trong nhật ký hệ thống.
 - **Khách xin khất một đợt:** bấm **Dời hạn** trên dòng của đợt còn chờ thu, chọn ngày đến hạn mới.
   Số tiền và trạng thái giữ nguyên; công nợ, nhắc quá hạn và cổng khách đọc theo ngày mới. Đợt theo
   giai đoạn chưa tới giai đoạn thì chưa có ngày để dời.
-- **Miễn nhầm một đợt:** bấm **Bỏ miễn** trên dòng đó — đợt quay lại chờ thu theo đúng hạn cũ. Modal
+- **Miễn nhầm một đợt:** bấm **Bỏ miễn** trên dòng đó, **trước khi hoàn tất hợp đồng** — đợt quay
+  lại chờ thu theo đúng hạn cũ. Hợp đồng đã hoàn tất (hoặc đã huỷ) thì không bỏ miễn được nữa; miễn
+  đợt chưa thu cuối cùng là hoàn tất được ngay, nên kiểm tra kỹ trước khi bấm **Hoàn tất**. Modal
   **Miễn** nay ghi rõ tên đợt, giá trị, số đã thu và phần sẽ thôi đòi trước khi xác nhận.
 - **Ký lại hợp đồng với điều khoản mới, hoặc kích hoạt nhầm khi khách chưa ký:** **Huỷ hợp đồng**
   (modal ghi rõ số còn phải thu sẽ không còn được theo dõi), rồi bấm **Soạn hợp đồng mới**. Hợp đồng
   đã huỷ và các khoản đã thu của nó ở lại làm lịch sử (một dòng "Hợp đồng trước của vụ" ở đầu tab);
   lịch thu, công nợ, nhắc quá hạn và khối tiền trên cổng khách theo hợp đồng mới. Một vụ không bao
   giờ có hai hợp đồng chưa huỷ cùng lúc.
+  - **Tiền đã thu trên hợp đồng đã huỷ:** hợp đồng mới **chỉ ghi phần còn phải thu**. Tiền đã thu
+    trên hợp đồng đã huỷ vẫn tính doanh thu (trang Doanh thu, P7) — **không ghi lại** khoản đó trên
+    hợp đồng mới, nếu không doanh thu bị tính hai lần. Ngược lại, ghi hợp đồng mới đủ giá trị cũ thì
+    cổng khách và trang Công nợ (chỉ đọc hợp đồng hiện hành) báo khách còn nợ nhiều hơn thực tế.
+    Modal **Soạn hợp đồng mới** hiện sẵn số đã thu trên hợp đồng đã huỷ để trừ ra.
 
 ### Kế toán ghi tiền
 

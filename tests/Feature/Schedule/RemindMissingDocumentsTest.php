@@ -649,3 +649,54 @@ it('asks for the signed contract once the contract has left draft', function (Co
     'đang hiệu lực' => [ContractStatus::Active],
     'đã hoàn tất' => [ContractStatus::Completed],
 ]);
+
+/**
+ * Làn fb, vòng sửa cuối (mục 1): từ A1 một vụ có thể giữ hợp đồng ĐÃ HUỶ bên cạnh hợp đồng hiện
+ * hành. Điều kiện "đã rời `draft`" đọc HỢP ĐỒNG HIỆN HÀNH (`Matter::contract()`, bản mới nhất) —
+ * đúng như `BillingRelationManager::checklistNudge()` — chứ không phải "có bản nào từng rời draft":
+ * kích hoạt nhầm khi khách chưa ký → huỷ → soạn bản mới thì văn phòng lại chưa có bản để khách ký.
+ */
+it('does not ask for the signed contract when an earlier contract was cancelled and the current one is a draft', function () {
+    Mail::fake();
+    [$matter] = awaitingMatter();
+    $matter->checklistItems()->delete();
+    missingContractItem($matter);
+    Contract::factory()->for($matter)->create(['status' => ContractStatus::Cancelled, 'signed_at' => today()->subDays(10)->toDateString()]);
+    Contract::factory()->for($matter)->create(['status' => ContractStatus::Draft]);
+
+    $result = (new RemindMissingDocuments)->handle();
+
+    Mail::assertNothingSent();
+    expect($result['mailed'])->toBe(0);
+});
+
+it('asks for the signed contract again once the new contract after a cancelled one is activated', function () {
+    Mail::fake();
+    [$matter] = awaitingMatter();
+    $matter->checklistItems()->delete();
+    $item = missingContractItem($matter);
+    Contract::factory()->for($matter)->create(['status' => ContractStatus::Cancelled, 'signed_at' => today()->subDays(10)->toDateString()]);
+    Contract::factory()->for($matter)->create(['status' => ContractStatus::Active, 'signed_at' => today()->subDay()->toDateString()]);
+
+    (new RemindMissingDocuments)->handle();
+
+    Mail::assertSent(MissingDocuments::class, fn ($mail) => $mail->items->pluck('id')->all() === [$item->id]);
+});
+
+it('re-reads the current contract when the queued mail is sent: a redraft after cancelling drops the contract item', function () {
+    Mail::fake();
+    [$matter, , , $other] = awaitingMatter();
+    missingContractItem($matter);
+    $earlier = Contract::factory()->for($matter)->create(['status' => ContractStatus::Active, 'signed_at' => today()->subDays(10)->toDateString()]);
+
+    Queue::fake([SendMissingDocumentsMail::class]);
+    (new RemindMissingDocuments)->handle();
+    Queue::assertPushed(SendMissingDocumentsMail::class, 1);
+
+    $earlier->forceFill(['status' => ContractStatus::Cancelled])->saveQuietly();
+    Contract::factory()->for($matter)->create(['status' => ContractStatus::Draft]);
+
+    (new SendMissingDocumentsMail($matter->id))->handle();
+
+    Mail::assertSent(MissingDocuments::class, fn ($mail) => $mail->items->pluck('id')->all() === [$other->id]);
+});

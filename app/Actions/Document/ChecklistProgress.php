@@ -233,10 +233,14 @@ class ChecklistProgress
     /**
      * Những đầu mục mà THƯ nhắc khách (`client.missing_documents`) được đòi: đúng
      * {@see self::outstandingRequiredItems()}, trừ đầu mục hợp đồng đã ký
-     * ({@see Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME}) khi vụ chưa có hợp đồng nào rời `draft`
-     * — văn phòng còn chưa có bản để khách ký (lượt quét §10 trước bản 1.0, việc mang sang từ làn fu).
-     * Cùng điều kiện với dòng nhắc của tab tiền (`BillingRelationManager::checklistNudge()` im lặng ở
-     * `draft`). Rỗng thì không có thư nào: {@see RemindMissingDocuments} không
+     * ({@see Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME}) khi vụ chưa có hợp đồng, hoặc hợp đồng
+     * HIỆN HÀNH còn `draft` — văn phòng còn chưa có bản để khách ký (lượt quét §10 trước bản 1.0, việc
+     * mang sang từ làn fu). "Hiện hành" là bản mới nhất (`id` lớn nhất), đúng như
+     * {@see Matter::contract()}, nên cùng điều kiện với dòng nhắc của tab tiền
+     * (`BillingRelationManager::checklistNudge()` đọc hợp đồng hiện hành, im lặng ở `draft`). Từ làn
+     * fb (A1) một vụ có thể giữ hợp đồng đã huỷ bên cạnh bản hiện hành: kích hoạt nhầm khi khách chưa
+     * ký → huỷ → soạn bản mới thì bản đã huỷ KHÔNG làm thư đòi bản ký trong lúc bản mới còn nháp.
+     * Rỗng thì không có thư nào: {@see RemindMissingDocuments} không
      * xếp job, và `SendMissingDocumentsMail` đọc lại đúng hàm này lúc gửi.
      *
      * CHỈ cho thư khách. "Còn thiếu" của thanh tiến độ, widget và thông báo 14 ngày cho luật sư vẫn là
@@ -249,13 +253,13 @@ class ChecklistProgress
     {
         $items = self::outstandingRequiredItems($matter);
 
-        $contractLeftDraft = Contract::query()
+        $currentStatus = Contract::query()
             ->withoutGlobalScopes()
             ->where('matter_id', $matter->getKey())
-            ->where('status', '!=', ContractStatus::Draft->value)
-            ->exists();
+            ->latest('id')
+            ->value('status');
 
-        if ($contractLeftDraft) {
+        if ($currentStatus !== null && $currentStatus !== ContractStatus::Draft) {
             return $items;
         }
 

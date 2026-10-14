@@ -413,3 +413,67 @@ it('offers the reschedule button only on a pending instalment that already has a
     fbBillingTab($this->matter)
         ->assertActionHidden(TestAction::make('rescheduleInstalment')->table($instalment));
 });
+
+// =================================================================================================
+// Vòng sửa cuối của làn (mục 3, 4) — câu chữ nói đúng điều hệ thống làm
+// =================================================================================================
+
+/**
+ * Ký lại sau khi huỷ: tiền đã thu trên hợp đồng đã huỷ vẫn nằm trong doanh thu (`CollectedRevenue`
+ * cộng mọi khoản chưa huỷ), còn cổng khách và Công nợ chỉ đọc hợp đồng hiện hành. Hợp đồng mới ghi đủ
+ * giá trị cũ thì "còn phải thu" bị thổi phồng; ghi lại khoản đã thu thì doanh thu bị đếm hai lần.
+ * Modal soạn hợp đồng mới nói luật đó kèm SỐ đã thu (chỉ khoản chưa huỷ) trên hợp đồng đã huỷ.
+ */
+it('tells the office in the redraft modal how much was collected on the cancelled contract and that the new contract records only what is still owed', function () {
+    [$old, $oldInstalment] = fbActiveContract($this->matter);
+    Payment::factory()->for($oldInstalment)->create(['amount' => 10_000_000]);
+    Payment::factory()->for($oldInstalment)->voided()->create(['amount' => 5_000_000]);
+    fbCancel($old);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->mountAction(TestAction::make('draftContract')->table())
+        ->assertMountedActionModalSee(__('billing_corrections.redraft.collected_rule', [
+            'collected' => Money::format(10_000_000),
+        ]))
+        ->assertMountedActionModalSee('chỉ ghi phần còn phải thu')
+        ->assertMountedActionModalSee('không ghi lại');
+});
+
+it('says nothing about a cancelled contract in the modal of the first contract of a matter', function () {
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->mountAction(TestAction::make('draftContract')->table())
+        ->assertMountedActionModalDontSee('không ghi lại');
+});
+
+it('states the re-sign money rule on the cancelled contract hint and in the cancel modal', function () {
+    [$contract] = fbActiveContract($this->matter);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->mountAction(TestAction::make('cancelContract')->table())
+        ->assertMountedActionModalSee('chỉ ghi phần còn phải thu')
+        ->assertMountedActionModalSee('không ghi lại');
+
+    fbCancel($contract);
+    $this->matter->refresh();
+
+    fbBillingTab($this->matter)
+        ->assertSee('chỉ ghi phần còn phải thu')
+        ->assertSee('không ghi lại');
+});
+
+/** `UnwaiveInstalment` từ chối khi hợp đồng đã hoàn tất — câu trong modal Miễn không được hứa hơn. */
+it('promises the unwaive button in the waive modal only until the contract is completed', function () {
+    [, $instalment] = fbActiveContract($this->matter);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->mountAction(TestAction::make('waiveInstalment')->table($instalment))
+        ->assertMountedActionModalSee('trước khi hoàn tất hợp đồng');
+});

@@ -22,7 +22,7 @@ return [
     ],
 
     'waive' => [
-        'description' => 'Đợt ":name" — giá trị :amount, đã thu :collected. Nếu miễn, văn phòng thôi đòi :written_off. Miễn nhầm thì bấm "Bỏ miễn" trên đúng dòng này để đưa đợt về chờ thu.',
+        'description' => 'Đợt ":name" — giá trị :amount, đã thu :collected. Nếu miễn, văn phòng thôi đòi :written_off. Miễn nhầm thì bấm "Bỏ miễn" trên đúng dòng này, trước khi hoàn tất hợp đồng, để đưa đợt về chờ thu — hợp đồng đã hoàn tất thì không bỏ miễn được nữa.',
     ],
 
     'unwaive' => [
@@ -43,12 +43,13 @@ return [
 
     'redraft' => [
         'label' => 'Soạn hợp đồng mới',
-        'cancelled_hint' => 'Hợp đồng này đã huỷ. Muốn ký lại với điều khoản mới, bấm "Soạn hợp đồng mới"; hợp đồng đã huỷ và các khoản đã thu của nó ở lại làm lịch sử.',
+        'cancelled_hint' => 'Hợp đồng này đã huỷ. Muốn ký lại với điều khoản mới, bấm "Soạn hợp đồng mới"; hợp đồng đã huỷ và các khoản đã thu của nó ở lại làm lịch sử. Hợp đồng mới chỉ ghi phần còn phải thu: tiền đã thu trên hợp đồng đã huỷ vẫn tính doanh thu — không ghi lại trên hợp đồng mới.',
+        'collected_rule' => 'Đã thu :collected trên hợp đồng đã huỷ của vụ; khoản này vẫn tính doanh thu. Hợp đồng mới chỉ ghi phần còn phải thu — không ghi lại tiền đã thu, nếu không doanh thu bị tính hai lần; ghi hợp đồng mới đủ giá trị cũ thì cổng khách và trang Công nợ báo khách còn nợ nhiều hơn thực tế.',
         'previous_heading' => 'Hợp đồng trước của vụ',
         'previous_line' => ':code — :status ngày :date — đã thu :collected',
     ],
 
     'cancel' => [
-        'description' => 'Sau khi huỷ, :outstanding còn phải thu sẽ không còn được theo dõi công nợ, nhắc quá hạn hay hiện trên cổng khách; các khoản đã thu giữ nguyên. Không hoàn tác được. Muốn ký lại với điều khoản mới, huỷ hợp đồng này rồi bấm "Soạn hợp đồng mới".',
+        'description' => 'Sau khi huỷ, :outstanding còn phải thu sẽ không còn được theo dõi công nợ, nhắc quá hạn hay hiện trên cổng khách; các khoản đã thu giữ nguyên. Không hoàn tác được. Muốn ký lại với điều khoản mới, huỷ hợp đồng này rồi bấm "Soạn hợp đồng mới": hợp đồng mới chỉ ghi phần còn phải thu — tiền đã thu trên hợp đồng này vẫn tính doanh thu, không ghi lại.',
     ],
 ];
