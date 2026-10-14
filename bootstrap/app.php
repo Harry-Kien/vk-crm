@@ -68,6 +68,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // `Authenticate`, rồi mới bị đăng xuất, và nhận 403 thay cho trang đăng nhập mà docblock của
         // middleware hứa. Đặt nó vào danh sách ưu tiên ngay trước `AuthenticatesRequests` (vẫn sau
         // `StartSession`, đứng trước trong cùng danh sách). Test: `SessionCutSpec109Test`.
+        //
+        // Làn fc (kiểm tra nghiệp vụ 2026-10-09, mục C): cùng lỗi, cùng cách sửa cho
+        // `RejectStaffSessionsFromBeforeReset` — phiên có từ trước lần "Đặt lại 2FA" mở `/oauth/authorize`
+        // qua được `Authenticate` rồi mới bị đăng xuất, và nhận trang lỗi thay cho trang đăng nhập. Mỗi
+        // lần gọi chèn NGAY trước `AuthenticatesRequests`, nên thứ tự cuối cùng là
+        // `RejectStaffSessionsFromBeforeReset`, `EndDisabledStaffSessions`, `AuthenticatesRequests` — đúng
+        // thứ tự của hai middleware trong nhóm `web`. Test: `ResetTwoFactorOAuthAuthorizeTest`.
+        $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: RejectStaffSessionsFromBeforeReset::class);
         $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: EndDisabledStaffSessions::class);
 
         // M11 R7 — một request `/mcp` chưa xác thực KHÔNG BAO GIỜ được chuyển hướng: nó nhận 401

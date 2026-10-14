@@ -7,6 +7,7 @@ use App\Support\Backup\RcloneProcess;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Spatie\Backup\Config\Config;
 use Throwable;
 
 /**
@@ -66,7 +67,45 @@ class CheckBackupDestinations
                 : $this->checkDisk($name);
         }
 
+        if ($target === null) {
+            $results += $this->launchConditions();
+        }
+
         return $results;
+    }
+
+    /**
+     * Làn fc (kiểm tra nghiệp vụ 2026-10-09) — hai điều kiện mà lượt sao lưu đêm hỏi, hỏi NGAY ở đây
+     * khi kiểm toàn bộ (không đối số `{target}`), chỉ ở `production` như hai guard:
+     *
+     * - `#encryption`: {@see GuardBackupEncryption::problem()} — mật khẩu `BACKUP_ARCHIVE_PASSWORD` và
+     *   thuật toán mã hoá. Hỏng thì mọi lượt sao lưu đêm bị từ chối, dù mọi đích đều ghi/đọc được;
+     * - `#off_server`: {@see GuardOffServerBackupDestination::localOnlyDisks()} — có ít nhất một đích
+     *   ngoài máy chủ.
+     *
+     * Trước đó lệnh báo "Tất cả đích sao lưu đều ổn" trên đúng hai cấu hình hỏng đó — một trong hai
+     * cổng của Bước 11 (`docs/CAI-DAT.md`) xanh giả. Khoá bắt đầu bằng `#` để không trùng tên một đĩa.
+     * Lệnh in mọi dòng và thoát mã 1 khi có dòng hỏng, như với một đích hỏng.
+     *
+     * @return array<string, array{ok: bool, message: string}>
+     */
+    private function launchConditions(): array
+    {
+        if (! app()->environment('production')) {
+            return [];
+        }
+
+        $problem = GuardBackupEncryption::problem(Config::fromArray(config('backup')));
+        $localOnly = GuardOffServerBackupDestination::localOnlyDisks();
+
+        return [
+            '#encryption' => $problem === null
+                ? ['ok' => true, 'message' => __('ops_checks.backup_check.encryption_ok')]
+                : ['ok' => false, 'message' => __('ops_checks.backup_check.encryption_failed', ['detail' => $problem->getMessage()])],
+            '#off_server' => $localOnly === null
+                ? ['ok' => true, 'message' => __('ops_checks.backup_check.off_server_ok')]
+                : ['ok' => false, 'message' => __('ops_checks.backup_check.off_server_failed', ['disks' => $localOnly])],
+        ];
     }
 
     /**

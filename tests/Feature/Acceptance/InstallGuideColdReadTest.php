@@ -232,8 +232,14 @@ it('§14.8 runs the upgrade chain with the right user on every line', function (
         ->and($index['sudo -u www-data rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php'])
         ->toBeLessThan($index['sudo -u www-data php artisan package:discover'])
         ->and($index['sudo -u www-data php artisan package:discover'])->toBeLessThan($index['php artisan filament:assets'])
-        ->and($index['sudo -u www-data php artisan down'])->toBe(1)
         ->and($index['sudo -u www-data php artisan up'])->toBe(count($lines) - 1);
+
+    // Làn fc (kiểm tra nghiệp vụ 2026-10-09, A1): `down` nay mở KHỐI THỨ NHẤT — đóng cổng, sao lưu CSDL,
+    // ghi commit đang chạy — đứng trước khối có `git pull`; khối đó vẫn kết thúc bằng `up`.
+    $before = igcBashLines($upgrade, 'php artisan down');
+    expect(array_search('sudo -u www-data php artisan down', $before, true))->toBe(1)
+        ->and($before)->not->toContain('git pull')
+        ->and(strpos($upgrade, 'sudo -u www-data php artisan down'))->toBeLessThan(strpos($upgrade, "\ngit pull\n"));
 
     foreach ($lines as $line) {
         if (str_contains($line, 'php artisan') && $line !== 'php artisan filament:assets') {
@@ -503,7 +509,8 @@ it('§14.8 keeps the cached copy of .env as private as .env itself', function ()
     $readme = $flat(igcFile('README.md'));
     $upgrade = substr($readme, (int) strpos($readme, '- **Nâng cấp:**'));
     expect(substr($readme, (int) strpos($readme, '- **Hai người dùng:**'), 1500))->toContain('chmod 600 bootstrap/cache/config.php')
-        ->and(substr($readme, (int) strpos($readme, '- **Thứ tự cài:**'), 1500))->toContain('`php artisan optimize` → `chmod 600 bootstrap/cache/config.php`')
+        // Cả gạch "Thứ tự cài" (làn fc thêm passport:keys, VAPID, chứng chỉ, cron nên gạch dài hơn 1500 byte).
+        ->and(igcSection($readme, '- **Thứ tự cài:**', '- **`php artisan vkcrm:preflight` phải xanh'))->toContain('`php artisan optimize` → `chmod 600 bootstrap/cache/config.php`')
         ->and(strpos($upgrade, '`php artisan optimize` →'))->toBeLessThan(strpos($upgrade, 'chmod 600 bootstrap/cache/config.php'))
         ->and(strpos($upgrade, 'chmod 600 bootstrap/cache/config.php'))->toBeLessThan(strpos($upgrade, '`php artisan up`'));
 });

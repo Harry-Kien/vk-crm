@@ -1,6 +1,7 @@
 {{--
-    Dải cảnh báo lịch chạy tự động (SPEC §2, §7.1 mục 7), và từ M14 Task 5 dòng kho tài liệu
-    (`$documentStore`, chỉ cho người có settings.manage — xem docblock `SystemHealthWidget`).
+    Dải cảnh báo lịch chạy tự động (SPEC §2, §7.1 mục 7), từ M14 Task 5 dòng kho tài liệu
+    (`$documentStore`), và từ làn fc dòng sao lưu (`$backup`) — hai dòng sau chỉ cho người có
+    settings.manage, xem docblock `SystemHealthWidget`.
 
     KHÔNG có class Tailwind viết tay ở đây, và đó không phải sở thích: dự án KHÔNG có bước build
     CSS, Filament phục vụ một tệp theme biên dịch sẵn, nên một class viết tay render ra KHÔNG CÓ
@@ -17,11 +18,14 @@
     trong `@if` không còn đứng đầu dòng và Livewire không nhận ra nó là gốc — nó hoặc ném cùng ngoại
     lệ trên, hoặc gắn `wire:id` nhầm vào một thẻ con. Vì vậy gốc dưới đây luôn được phát ra; lúc im
     lặng nó RỖNG và ẨN (`display: none`: một phần tử ẩn không chiếm ô nào trên lưới trang chủ).
-    Test: `tests/Feature/Schedule/SystemHealthTest.php`, hai test "renders through Livewire…".
+    Test: `tests/Feature/Schedule/SystemHealthTest.php`, hai test "renders through Livewire…"; gốc hiện
+    khi chỉ có dòng sao lưu: `tests/Feature/Backup/BackupAlertChannelsTest.php`, "gốc của widget HIỆN…".
 --}}
 @php
     $band = 'border: 1px solid var(--danger-600); border-left-width: 4px; background-color: var(--danger-50); color: var(--danger-700); border-radius: 3px; padding: 12px 16px;';
-    $hasBand = $neverRan || $stale || $documentStore !== null;
+    // Mọi dải bên trong gốc PHẢI có mặt ở đây: một dải thiếu khỏi `$hasBand` render bên trong một gốc
+    // `display: none` (làn fc: dòng sao lưu, lúc cron khoẻ mà bản trên Drive cũ — đúng lúc cần đọc nó).
+    $hasBand = $neverRan || $stale || $documentStore !== null || $backup !== null;
 @endphp
 
 <div
@@ -62,6 +66,26 @@
                         {{ __('document_store.widget.checked_at', ['at' => $documentStore['checkedAt']->timezone(config('app.timezone'))->format('H:i d/m/Y')]) }}
                     @endif
                     {{ __('document_store.widget.hint') }}
+                </div>
+            </div>
+        @endif
+
+        {{-- Làn fc (kiểm tra nghiệp vụ 2026-10-09): sao lưu ra ngoài máy chủ quá cũ, hay thư báo lỗi sao lưu
+             không gửi được — chỉ cho người có settings.manage (docblock SystemHealthWidget::backupAlert()). --}}
+        @if ($backup !== null)
+            <div data-widget="backup-health" style="{{ $band }}">
+                <div style="font-weight: 600;">
+                    {{ __('ops_checks.widget.heading') }}
+                </div>
+
+                <div style="margin-top: 4px; font-size: 0.875rem;">
+                    @if ($backup['offsite'] !== null)
+                        <div>{{ $backup['offsite'] }}</div>
+                    @endif
+                    @if ($backup['mailFailed'] > 0)
+                        <div>{{ __('ops_checks.widget.alert_mail_failed', ['count' => $backup['mailFailed']]) }}</div>
+                    @endif
+                    <div>{{ __('ops_checks.widget.hint') }}</div>
                 </div>
             </div>
         @endif

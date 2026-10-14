@@ -24,6 +24,10 @@ use Spatie\Backup\Events\BackupHasFailed;
  * sao ngoài máy chủ" chồng lên sẽ chỉ sai hướng người đọc.
  *
  * Chỉ `production`: máy dev và staging không bắt buộc có Google Drive.
+ *
+ * {@see self::localOnlyDisks()} là điều kiện, tách khỏi việc phát sự kiện, để `vkcrm:preflight`
+ * (dòng `backup_off_server`) và `vkcrm:backup-check` hỏi ĐÚNG câu mà guard này hỏi mỗi đêm (làn fc,
+ * kiểm tra nghiệp vụ 2026-10-09).
  */
 class GuardOffServerBackupDestination
 {
@@ -33,24 +37,39 @@ class GuardOffServerBackupDestination
             return;
         }
 
-        if (filled(config('vkcrm.backup.rclone.remote'))) {
+        $diskList = self::localOnlyDisks();
+
+        if ($diskList === null) {
             return;
         }
-
-        $disks = config('backup.backup.destination.disks', []);
-
-        foreach ($disks as $disk) {
-            if (config("filesystems.disks.{$disk}.driver") !== 'local') {
-                return;
-            }
-        }
-
-        $diskList = implode(', ', $disks);
 
         event(new BackupHasFailed(
             new RuntimeException(__('backup.errors.no_off_server_copy', ['disks' => $diskList])),
             $diskList,
             (string) config('backup.backup.name'),
         ));
+    }
+
+    /**
+     * Danh sách đĩa (phân tách dấu phẩy) khi KHÔNG có đích nào ngoài máy chủ — `BACKUP_RCLONE_REMOTE`
+     * trống và mọi đĩa trong `BACKUP_DISKS` có driver `local` — hoặc `null` khi có ít nhất một đích
+     * ngoài máy chủ. Không xét môi trường (người gọi quyết). Một đĩa không có cấu hình không được
+     * coi là local (lý do ở docblock lớp).
+     */
+    public static function localOnlyDisks(): ?string
+    {
+        if (filled(config('vkcrm.backup.rclone.remote'))) {
+            return null;
+        }
+
+        $disks = config('backup.backup.destination.disks', []);
+
+        foreach ($disks as $disk) {
+            if (config("filesystems.disks.{$disk}.driver") !== 'local') {
+                return null;
+            }
+        }
+
+        return implode(', ', $disks);
     }
 }

@@ -194,8 +194,11 @@ Hai người dùng, mỗi người một việc:
 - **`www-data`** (người dùng chạy PHP-FPM) chạy MỌI lệnh `php artisan …`, trong thư mục
   `/var/www/vk-crm`: `sudo -u www-data php artisan …`. Nó là chủ của `storage/`, `bootstrap/cache/`
   và `.env` (Bước 2), nên tệp lệnh tạo ra không thuộc về `root` hay người quản trị, và hai lệnh ghi
-  vào `.env` (`key:generate`, `webpush:vapid`) ghi được. Những khối lệnh bên dưới viết gọn
-  `php artisan …`; chuỗi "Nâng cấp lên bản mới" viết đủ người chạy từng dòng.
+  vào `.env` (`key:generate`, `webpush:vapid`) ghi được. Mọi khối lệnh bên dưới viết đủ
+  `sudo -u www-data php artisan …`. Gõ `php artisan …` trần bằng người quản trị thì sau Bước 7 lệnh
+  chết ngay lúc khởi động, với `require(/var/www/vk-crm/bootstrap/cache/config.php): Failed to open
+  stream: Permission denied` và `Class "config" does not exist`: đó là dấu hiệu đang chạy bằng sai
+  người — gõ lại với tiền tố `sudo -u www-data`.
 
 **Shared hosting (không có `sudo`).** Gói shared hosting chỉ có MỘT người dùng: tài khoản SSH của bạn
 vừa giữ mã nguồn vừa là người chạy PHP, và không có `sudo` (gõ thì nhận `sudo: command not found`).
@@ -243,10 +246,13 @@ SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi
   khác tên extension: `dom`, `xmlreader` nằm trong `php8.3-xml`, `pdo_mysql` trong `php8.3-mysql`;
   phần còn lại, kể cả `sodium` của M11, có sẵn trong `php8.3-common`), `mariadb-client`, Composer 2,
   Git và nginx — đã chạy thử ngày 2026-10-08 trên một máy Ubuntu 24.04 trống, và lại ngày 2026-10-09
-  (`php -m` lẫn `php-fpm8.3 -m` in `sodium`):
+  (`php -m` lẫn `php-fpm8.3 -m` in `sodium`). Cuối dòng là bốn gói các bước sau cần mà một máy tối
+  giản có thể thiếu: `cron` (Bước 8), `curl` và `unzip` (cài `rclone`, `docs/SAO-LUU-KHOI-PHUC.md`
+  Bước 1), `certbot` (chứng chỉ HTTPS, Bước 4) — thêm sau đợt kiểm tra nghiệp vụ 2026-10-09, cùng
+  `apt update` ở đầu (máy mới chưa có danh sách gói thì `apt install` báo `Unable to locate package`):
 
   ```bash
-  sudo apt install php8.3-fpm php8.3-cli php8.3-intl php8.3-mbstring php8.3-xml php8.3-zip php8.3-curl php8.3-mysql php8.3-gd mariadb-client composer git nginx
+  sudo apt update && sudo apt install php8.3-fpm php8.3-cli php8.3-intl php8.3-mbstring php8.3-xml php8.3-zip php8.3-curl php8.3-mysql php8.3-gd mariadb-client composer git nginx cron curl unzip certbot
   ```
 
   `mariadb-client` của Ubuntu 24.04 là bản 10.11; `mariadb-dump` của nó sao lưu được cơ sở dữ liệu
@@ -256,6 +262,17 @@ SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi
   dòng lệnh; trên Ubuntu xem bản của FPM bằng `php-fpm8.3 -i`):
   - `upload_max_filesize` ≥ `UPLOAD_MAX_MB` (mặc định 20 → `20M`) và `post_max_size` lớn hơn nó
     (ví dụ `25M`). Mặc định của PHP là `2M`/`8M`: để nguyên thì mọi lần tải tệp trên 2 MB hỏng.
+    Trên Ubuntu tệp đó là `/etc/php/8.3/fpm/php.ini`; sửa, khởi động lại PHP-FPM (không khởi động
+    lại thì giá trị mới chưa có tác dụng), rồi kiểm lại:
+
+    ```bash
+    sudo sed -i 's/^upload_max_filesize = .*/upload_max_filesize = 20M/; s/^post_max_size = .*/post_max_size = 25M/' /etc/php/8.3/fpm/php.ini
+    sudo systemctl restart php8.3-fpm
+    php-fpm8.3 -i | grep -E 'upload_max|post_max'
+    ```
+
+    Dòng cuối phải in `upload_max_filesize => 20M => 20M` và `post_max_size => 25M => 25M`. Đặt
+    `UPLOAD_MAX_MB` khác 20 thì đổi hai con số theo.
   - `proc_open` KHÔNG nằm trong `disable_functions` (sao lưu cần nó để gọi `mariadb-dump` và
     `rclone`; preflight kiểm bản của dòng lệnh — cron chạy sao lưu bằng PHP dòng lệnh).
 - **PHP dòng lệnh có `pcntl`, và ba hàm `pcntl_async_signals`, `pcntl_signal`, `pcntl_alarm`
@@ -291,7 +308,8 @@ SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi
   lệnh trang đó in ra (phần cài máy chủ cơ sở dữ liệu này chưa đi thử trong lượt 2026-10-08: lượt đó
   dùng máy chủ `mariadb:11` của dự án). Cơ sở dữ liệu nằm trên máy khác thì đổi `'localhost'` ở
   dưới thành địa chỉ của máy chủ web. Một cơ sở dữ liệu `utf8mb4` riêng và một tài khoản chỉ có quyền
-  trên đúng cơ sở dữ liệu đó:
+  trên đúng cơ sở dữ liệu đó (tài khoản `@'localhost'` đi cùng `DB_HOST=localhost` ở Bước 3; mật khẩu
+  chỉ gồm chữ và số, ví dụ `openssl rand -hex 24` — Bước 3 nói vì sao):
 
   ```sql
   CREATE DATABASE vk_crm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -395,7 +413,7 @@ composer install --no-dev --optimize-autoloader
 Thư mục `storage/` và `bootstrap/cache/` phải GHI ĐƯỢC bởi người dùng chạy PHP-FPM; phần còn lại
 của mã nguồn thì không cần. `.env` thuộc về `www-data` và chỉ `www-data` đọc được (nó chứa `APP_KEY`
 và mọi mật khẩu). Bản sao của chính các giá trị đó mà `php artisan optimize` ghi ra
-`bootstrap/cache/config.php` (Bước 7) được tạo với quyền `644` — ai trên máy cũng đọc được — nên ngay sau
+`bootstrap/cache/config.php` (Bước 7) được tạo với quyền `644` (hay `664`, tuỳ `umask`) — ai trên máy cũng đọc được — nên ngay sau
 `optimize`, Bước 7 và chuỗi nâng cấp có thêm dòng `sudo -u www-data chmod 600 bootstrap/cache/config.php`:
 
 ```bash
@@ -422,27 +440,30 @@ lại và mất quyền đọc của `www-data`), mọi lệnh chạy như chưa
 ### Bước 3 — Tệp `.env`
 
 ```bash
-php artisan key:generate
+sudo -u www-data php artisan key:generate
 ```
 
 **`key:generate` CHỈ ở lần cài đầu tiên, trên một cơ sở dữ liệu RỖNG.** Dựng lại máy chủ cho dữ
 liệu đã có (khôi phục từ bản sao lưu, chuyển máy) thì chép `APP_KEY` CŨ vào `.env`, không sinh
 khoá mới — đọc lại mục "CẢNH BÁO về `APP_KEY`" ở trên. Ngay sau lần sinh khoá đầu tiên, cất
 `APP_KEY` (cùng `BACKUP_ARCHIVE_PASSWORD` ở Bước 10) ở hai nơi ngoài máy chủ
-(`docs/SAO-LUU-KHOI-PHUC.md`, Bước 6).
+(`docs/SAO-LUU-KHOI-PHUC.md`, Bước 6). Người quản trị không đọc được `.env` (quyền 600, của
+`www-data`); in các dòng cần cất bằng
+`sudo -u www-data grep -E '^(APP_KEY|BACKUP_ARCHIVE_PASSWORD|VAPID_)' .env`.
 
 Ngay sau đó, sinh **khoá Passport** — cặp khoá RSA ký access token cho kết nối AI của nhân sự (máy
 chủ MCP, M11; đọc mục "Máy chủ MCP (kết nối AI cho nhân sự)" ở cuối phần này):
 
 ```bash
-php artisan passport:keys
+sudo -u www-data php artisan passport:keys
 ```
 
 Lệnh tạo `storage/oauth-private.key` (quyền 600) và `storage/oauth-public.key`, mang chủ là người
 chạy lệnh — vì vậy chạy bằng người dùng của PHP-FPM, như mọi lệnh `php artisan` ở đây. **Cùng luật với
 `APP_KEY`**: chỉ sinh ở lần cài đầu; dựng lại máy cho dữ liệu đã có thì chép hai tệp CŨ về
 `storage/`; cất chúng cùng chỗ và cùng quy trình với `APP_KEY` (hai nơi ngoài máy chủ, không cùng chỗ
-bản sao lưu — bản sao lưu hằng đêm không chứa `storage/oauth-*.key`). Đừng nới quyền tệp khoá riêng:
+bản sao lưu — bản sao lưu hằng đêm không chứa `storage/oauth-*.key`). In khoá riêng để cất bằng
+`sudo -u www-data cat storage/oauth-private.key`. Đừng nới quyền tệp khoá riêng:
 ai đọc được nó là tự ký được access token mang tên bất kỳ nhân sự nào, và `vkcrm:preflight` báo ĐỎ.
 Máy chủ không giữ được tệp (một số shared hosting) thì dán NỘI DUNG hai khoá vào
 `PASSPORT_PRIVATE_KEY`/`PASSPORT_PUBLIC_KEY` của `.env`, xuống dòng viết là `\n`.
@@ -461,6 +482,15 @@ BRAND_BAR_ASSOCIATION="Đoàn Luật sư tỉnh Đồng Nai"
 
 (tên đoàn luật sư thật do chủ văn phòng cung cấp — Bước 0; dòng trên chỉ là dạng viết).
 
+**Mật khẩu và mọi bí mật nằm trong ngoặc ĐƠN.** Ngoặc kép không đủ cho chúng, và không ngoặc thì
+tệ hơn: trong một giá trị không ngoặc, `#` mở đầu một chú thích — `DB_PASSWORD=ab#cd` được đọc là
+`ab`, không lỗi nào, và lỗi hiện ra ở chỗ khác (`Access denied` của cơ sở dữ liệu; với
+`BACKUP_ARCHIVE_PASSWORD` là một bản sao lưu mã hoá bằng nửa đầu mật khẩu, không mở được bằng chuỗi
+đầy đủ đã cất). Trong ngoặc kép, `${…}` bị thay bằng giá trị của một biến khác. Ngoặc đơn giữ nguyên
+từng ký tự: `DB_PASSWORD='…'`, `MAIL_PASSWORD='…'`, `BACKUP_ARCHIVE_PASSWORD='…'` (giá trị không được
+chứa chính dấu `'`). Mật khẩu do mình tự sinh thì chỉ dùng chữ và số, ví dụ `openssl rand -hex 32`
+(64 ký tự 0–9, a–f): không còn ký tự nào phải lo.
+
 Những dòng PHẢI sửa so với bản mẫu — bản mẫu là cho máy dev:
 
 | Biến | Giá trị trên máy chủ thật | Lấy ở đâu |
@@ -469,11 +499,12 @@ Những dòng PHẢI sửa so với bản mẫu — bản mẫu là cho máy dev
 | `APP_DEBUG` | `false` | — (`true` thì trang lỗi in ra cấu hình; preflight ĐỎ) |
 | `APP_URL` | `https://khachhang.luatvukhang.com` | tên miền thật, có `https://` |
 | `LOG_LEVEL` | `warning` | — (`debug` của bản mẫu ghi quá nhiều) |
-| `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `127.0.0.1`, `3306`, `vk_crm`, `vk_crm`, mật khẩu ở Bước 1 | người quản trị cơ sở dữ liệu / bảng điều khiển hosting |
+| `LOG_STACK` | `daily` | — (một tệp mỗi ngày, `storage/logs/laravel-YYYY-MM-DD.log`, giữ 14 ngày rồi tự xoá; `single` của bản mẫu là một tệp lớn dần mãi) |
+| `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | `localhost`, `3306`, `vk_crm`, `vk_crm`, `'<mật khẩu ở Bước 1>'` (ngoặc đơn) | người quản trị cơ sở dữ liệu / bảng điều khiển hosting. `localhost` đi qua socket và khớp tài khoản `'vk_crm'@'localhost'` của Bước 1; `127.0.0.1` đi qua TCP và bị từ chối (`Access denied`) khi MariaDB bật `skip_name_resolve`. Cơ sở dữ liệu ở máy khác: địa chỉ máy đó |
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_SCHEME`, `MAIL_USERNAME`, `MAIL_PASSWORD` | máy chủ SMTP của tên miền văn phòng; `MAIL_SCHEME` chỉ nhận `smtps` (cổng 465) hoặc `smtp`/`null` (cổng 587 hay 25 — STARTTLS tự bật khi máy chủ có) — đọc mục 4 ngay dưới bảng | nhà cung cấp email của tên miền (cần SPF/DKIM cho `MAIL_FROM_ADDRESS`) |
 | `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `no-reply@luatvukhang.com`, `"Luật Vũ Khang"` | `MAIL_FROM_NAME` là tên văn phòng khách nhìn thấy, không phải `${APP_NAME}` |
 | `TRUSTED_PROXIES` | `127.0.0.1` (bỏ dấu `#` đầu dòng) | đọc mục 1 ngay dưới bảng — KHÔNG dùng `*` |
-| `HEARTBEAT_URL` | URL ping của dịch vụ giám sát cron | Bước 8 |
+| `HEARTBEAT_URL` | URL ping của dịch vụ giám sát cron | tạo ngay bây giờ: một kiểm tra chu kỳ 5 phút trên dịch vụ giám sát cron (Bước 8, gạch "Giám sát cron"), chép URL ping của nó — để trống thì `vkcrm:preflight` ở Bước 7 ĐỎ |
 | `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` | bốn thông tin pháp lý (bỏ dấu `#` đầu dòng rồi điền); `BRAND_OFFICE_ADDRESS` đã có mặc định đúng địa chỉ trụ sở, chỉ điền khi đổi | chủ văn phòng (Bước 0) |
 | `BRAND_REPLY_TO_ADDRESS` | hộp thư có người đọc | chủ văn phòng — đọc mục 3 ngay dưới bảng |
 | `BACKUP_*` | | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 4 |
@@ -537,14 +568,13 @@ Thông báo đẩy trên điện thoại (M12) ký mỗi lần gửi bằng mộ
 môi trường** (máy chủ thật một cặp, máy chủ thử một cặp khác), trên chính máy chủ đó:
 
 ```bash
-php artisan config:clear
-php artisan webpush:vapid
+sudo -u www-data php artisan config:clear
+sudo -u www-data php artisan webpush:vapid
 ```
 
 - `config:clear` phải đứng TRƯỚC: lệnh sinh khoá dò dòng cũ trong `.env` theo khoá đang có trong
-  CẤU HÌNH. Cấu hình đã cache (sau lệnh `optimize` và dòng `chmod 600 bootstrap/cache/config.php` của Bước 7) mà không khớp `.env` — ví dụ cache
-  lúc khoá còn trống, rồi `.env` có khoá — thì lệnh ghi đè hỏng dòng: `VAPID_PUBLIC_KEY=cu` thành
-  `VAPID_PUBLIC_KEY=moicu`.
+  CẤU HÌNH. Cấu hình đã cache ở Bước 7 mà không khớp `.env` — ví dụ cache lúc khoá còn trống, rồi
+  `.env` có khoá — thì lệnh ghi đè hỏng dòng: `VAPID_PUBLIC_KEY=cu` thành `VAPID_PUBLIC_KEY=moicu`.
 - Chỉ chạy khi hai dòng `VAPID_PUBLIC_KEY=` và `VAPID_PRIVATE_KEY=` trong `.env` **còn trống** (đúng
   như `.env.example`). Lệnh tự điền hai dòng đó. Ngoài `production` lệnh GHI ĐÈ khoá đang có mà
   không hỏi; ở `production` nó hỏi lại — trả lời **không** nếu đã có người bật thông báo.
@@ -605,7 +635,31 @@ bước 14).
 
 ### Bước 4 — Máy chủ web
 
-Dùng mẫu ĐÃ CHẠY THỬ, sửa tên miền, đường dẫn chứng chỉ và đường dẫn dự án:
+**Chứng chỉ HTTPS lần đầu — làm TRƯỚC khi nối mẫu vào máy chủ web.** Khối 443 của mẫu nginx đọc
+`/etc/letsencrypt/live/<tên miền>/fullchain.pem` và `privkey.pem`; chưa có hai tệp đó thì
+`sudo nginx -t` dừng ở `cannot load certificate "/etc/letsencrypt/live/<tên miền>/fullchain.pem" …
+No such file or directory`, và nginx không khởi động được với mẫu đó — nên cũng không phục vụ được
+`/.well-known/acme-challenge/` cho certbot ở chế độ `nginx` hay `webroot`. Cách thoát vòng lặp đó:
+certbot chế độ `standalone`, tự mở cổng 80 trong vài giây khi nginx tạm dừng. Tên miền phải đã trỏ về
+máy chủ này và cổng 80 mở từ Internet. Trên VPS (gói `certbot` đã cài ở Bước 1):
+
+```bash
+sudo certbot certonly --standalone -d <tên miền> -m <email nhận cảnh báo hết hạn> --agree-tos --no-eff-email --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx"
+sudo certbot renew --dry-run
+```
+
+- Dòng đầu in `Successfully received certificate` cùng đúng hai đường dẫn mà mẫu chờ:
+  `/etc/letsencrypt/live/<tên miền>/fullchain.pem` và `/etc/letsencrypt/live/<tên miền>/privkey.pem`.
+  Sửa hai dòng `ssl_certificate`/`ssl_certificate_key` của mẫu theo đúng tên miền đó.
+- **Gia hạn tự động:** gói `certbot` cài sẵn `certbot.timer` (kiểm bằng
+  `systemctl list-timers | grep certbot`), chạy hai lần mỗi ngày và gia hạn chứng chỉ còn dưới 30 ngày,
+  với đúng hai hook đã lưu ở `/etc/letsencrypt/renewal/<tên miền>.conf`: nginx dừng vài giây, rồi lên
+  lại với chứng chỉ mới. Dòng thứ hai thử trước một lần gia hạn, không đổi gì, và phải in
+  `Congratulations, all simulated renewals succeeded`.
+- **Apache:** cùng lệnh, hai hook là `systemctl stop apache2` / `systemctl start apache2`.
+- **Shared hosting:** chứng chỉ do bảng điều khiển cấp (AutoSSL, "Let's Encrypt"…), không chạy certbot.
+
+Rồi dùng mẫu ĐÃ CHẠY THỬ, sửa tên miền, đường dẫn chứng chỉ và đường dẫn dự án:
 
 - nginx: `tools/deploy/nginx.conf.example` (cùng socket PHP-FPM `/run/php/php8.3-fpm.sock` —
   sửa nếu máy chủ khác). Trên Ubuntu: chép mẫu vào `/etc/nginx/sites-available/vk-crm`, nối nó vào
@@ -618,7 +672,7 @@ Dùng mẫu ĐÃ CHẠY THỬ, sửa tên miền, đường dẫn chứng chỉ 
   không tự nối PHP: dùng mod_php, hoặc PHP-FPM qua `proxy_fcgi` — trên Ubuntu
   `a2enmod proxy_fcgi setenvif` rồi `a2enconf php8.3-fpm`.
 
-Hai mẫu cùng làm sáu việc — đừng bỏ việc nào khi chép sang cấu hình khác:
+Hai mẫu cùng làm bảy việc — đừng bỏ việc nào khi chép sang cấu hình khác:
 
 1. **Document root là `public/`**, không phải gốc dự án.
 2. **Chuyển http → https** trước khi PHP chạy, và gửi **HSTS** (`Strict-Transport-Security`) trên
@@ -679,8 +733,8 @@ vá này, `migrate:fresh --seed` tạo thẳng `admin@luatvukhang.com`/`password
 thật). Trên máy chủ thật:
 
 ```bash
-php artisan migrate --force
-php artisan db:seed --force
+sudo -u www-data php artisan migrate --force
+sudo -u www-data php artisan db:seed --force
 ```
 
 **Chạy lại `db:seed --force` sau mỗi lần cập nhật là an toàn** (rà soát cuối M6.5, X10). Ba
@@ -825,7 +879,7 @@ làm gì với máy chủ:
   không mở ứng dụng quá 180 ngày).
 - **nginx:** hai khối `location = /admin/sw.js` và `location = /portal/sw.js` của
   `tools/deploy/nginx.conf.example` mới phải có trong cấu hình đang chạy — thiếu thì mẫu cũ trả 404
-  cho hai tệp đó và app không cài được (Bước 4, việc 6). Apache không phải sửa gì.
+  cho hai tệp đó và app không cài được (Bước 4, việc 7). Apache không phải sửa gì.
 - **`vkcrm:preflight` có hai dòng của M12** (Bước 7): thiếu extension `curl` là ĐỎ (dòng extension
   bắt buộc — kiểm TRƯỚC `git pull`, vì `composer install` của bản mới từ chối cài khi thiếu nó); thiếu
   hay sai khoá thông báo đẩy là VÀNG, không chặn `php artisan up`.
@@ -919,7 +973,7 @@ sudo -u www-data php artisan migrate:fresh --force && \
 Ngay sau bước seed, khi chưa ai đăng nhập được `/admin`:
 
 ```bash
-php artisan vkcrm:create-admin
+sudo -u www-data php artisan vkcrm:create-admin
 ```
 
 Lệnh hỏi họ tên, email, rồi mật khẩu **nhập ẩn hai lần** (không hiện ký tự nào khi gõ — đó là
@@ -943,10 +997,14 @@ lệnh máy chủ" vào Nhật ký hệ thống.
 ### Bước 7 — `vkcrm:preflight`, rồi mới cache cấu hình
 
 ```bash
-php artisan vkcrm:preflight
-php artisan optimize
+sudo -u www-data php artisan vkcrm:preflight
+sudo -u www-data php artisan optimize
 sudo -u www-data chmod 600 bootstrap/cache/config.php
 ```
+
+Dòng `heartbeat_url` ĐỎ ở đây nghĩa là `HEARTBEAT_URL` còn trống: tạo kiểm tra giám sát cron ngay
+(Bước 8, gạch "Giám sát cron" — chỉ cần URL ping, việc còn lại của Bước 8 làm sau), điền vào `.env`,
+rồi chạy lại cả khối lệnh trên.
 
 **`php artisan vkcrm:preflight` phải xanh hết (R1) — chạy TRƯỚC khi mở cổng, sau MỖI lần nâng
 cấp, và TRƯỚC `php artisan optimize`/`config:cache`** (vài điều kiện đọc `.env` trực tiếp, không
@@ -964,6 +1022,17 @@ khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện má
 - lệnh `mariadb-dump` (gói `mariadb-client`, ví dụ `apt install mariadb-client`) có trong PATH;
 - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md` —
   `vkcrm:preflight` không kiểm riêng `rclone`, dùng `vkcrm:backup-check` cho việc đó).
+
+Và hai điều kiện CẤU HÌNH của sao lưu (thêm sau đợt kiểm tra nghiệp vụ 2026-10-09 — trước đó preflight
+xanh trên đúng hai cấu hình hỏng này, và người ta chỉ biết qua thư lỗi lúc 02:00):
+
+- dòng `backup_encryption` — ĐỎ khi `BACKUP_ARCHIVE_PASSWORD` trống (hay máy chủ không mã hoá được
+  archive): mọi lượt sao lưu đêm sẽ bị từ chối, không có bản sao lưu nào;
+- dòng `backup_off_server` — ĐỎ khi không có đích nào ngoài máy chủ: `BACKUP_RCLONE_REMOTE` trống và
+  mọi đĩa trong `BACKUP_DISKS` nằm trên chính máy chủ này (`docs/SAO-LUU-KHOI-PHUC.md`, Bước 1–5).
+
+`vkcrm:backup-check` (không đối số) hỏi cùng hai điều kiện đó, in thêm hai dòng và thoát mã 1 khi một
+dòng hỏng — Bước 11 đòi cả hai lệnh xanh.
 
 Và bốn điều kiện của máy chủ MCP (kết nối AI cho nhân sự, M11); ba điều kiện đầu kiểm cả khi máy chủ
 MCP đang tắt:
@@ -1041,6 +1110,16 @@ trước dòng duy nhất người quản trị chạy (`filament:assets`).
 * * * * * cd /var/www/vk-crm && php artisan schedule:run >> /dev/null 2>&1
 ```
 
+**`php` của dòng cron là PHP mà cron tìm thấy trong `PATH` của nó** (thường chỉ `/usr/bin:/bin`).
+Trên Ubuntu theo Bước 1 đó đúng là PHP 8.3 đã kiểm. Trên shared hosting (cPanel…) `php` của cron
+thường là một bản PHP KHÁC bản của phiên SSH (bản cũ hơn, thiếu extension): trong phiên SSH đã kiểm ở
+Bước 1, chạy `command -v php` (hoặc hỏi nhà cung cấp — ví dụ `/opt/cpanel/ea-php83/root/usr/bin/php`)
+và thay chữ `php` của dòng cron bằng đúng đường dẫn tuyệt đối đó. Vài phút sau khi đặt dòng cron mà
+trang chủ `/admin` vẫn hiện khối đỏ "Hệ thống nhắc việc chưa từng chạy" (gạch "Giám sát cron" dưới):
+tạm đổi `>> /dev/null 2>&1` thành `>> storage/logs/cron.log 2>&1`, chờ một phút, đọc
+`storage/logs/cron.log` — lỗi thật nằm ở đó (sai PHP, thiếu extension, sai thư mục) — sửa, rồi đổi
+lại `/dev/null`.
+
 Dòng này chạy MỌI việc định kỳ khai báo trong `routes/console.php`, ví dụ: gửi thư trong hàng đợi
 (mỗi phút), nhắc mốc thời hạn (07:00–19:30, mỗi 30 phút), sao lưu (02:00), giám sát sao lưu (08:00),
 ping giám sát cron (mỗi 5 phút). Không cần tiến trình `queue:work` chạy thường trực.
@@ -1092,12 +1171,21 @@ cấu hình PHP:
 ### Bước 10 — Sao lưu, và một lần khôi phục thử
 
 Làm theo `docs/SAO-LUU-KHOI-PHUC.md` từ Bước 1 tới Bước 6: cài `rclone`, nối Google Drive, điền
-`BACKUP_*`, chạy `php artisan vkcrm:backup-check`, và **cất `APP_KEY` + `BACKUP_ARCHIVE_PASSWORD`
-ở hai nơi ngoài máy chủ, KHÔNG cùng chỗ với bản sao lưu**. `APP_KEY` giờ là chìa khoá của BA thứ
-trong bản sao lưu: số định danh khách hàng (`clients.id_number`), secret 2FA của mọi nhân sự, và
-cột so trùng CCCD của kiểm tra xung đột lợi ích (`matter_parties.id_number_hash`). Rồi chạy **một
-lần khôi phục thử thật** (mục "Khôi phục thử" của tài liệu đó) trước khi coi là đã có sao lưu
-(R3): sao lưu chưa khôi phục thử thì chưa phải sao lưu.
+`BACKUP_*`, chạy `sudo -u www-data php artisan vkcrm:backup-check`, và **cất `APP_KEY` +
+`BACKUP_ARCHIVE_PASSWORD` ở hai nơi ngoài máy chủ, KHÔNG cùng chỗ với bản sao lưu**. `APP_KEY` giờ là
+chìa khoá của BA thứ trong bản sao lưu: số định danh khách hàng (`clients.id_number`), secret 2FA của
+mọi nhân sự, và cột so trùng CCCD của kiểm tra xung đột lợi ích (`matter_parties.id_number_hash`).
+
+Lượt sao lưu tự động đầu tiên chạy lúc 02:00 đêm nay; đừng chờ — tạo bản đầu tiên bằng tay:
+
+```bash
+sudo -u www-data php artisan backup:run
+```
+
+Lệnh phải kết thúc bằng `Backup completed!`, không thư báo lỗi sao lưu nào tới, và thư mục của môi
+trường trên Google Drive (`gdrive:VK-CRM-backups/<tên theo BACKUP_NAME>`) có một tệp `.zip` mới. Rồi
+chạy **một lần khôi phục thử thật** từ CHÍNH tệp đó (mục "Khôi phục thử" của tài liệu sao lưu) trước
+khi coi là đã có sao lưu (R3): sao lưu chưa khôi phục thử thì chưa phải sao lưu.
 
 ### Bước 11 — Mở cổng
 
@@ -1196,6 +1284,11 @@ của từng nhân sự (kết nối từng ứng dụng) ở `docs/KET-NOI-AI.m
   hay chép tệp trên giao diện Drive; tài khoản quản trị dự phòng chỉ dùng khi khôi phục thảm hoạ hay
   huỷ tệp theo sổ tay. Mỗi tháng chủ văn phòng xem nhật ký Drive của Shared Drive kho (Phụ lục A bước 13).
 - **Email báo lỗi sao lưu** không phải chuyện để "xem sau" — `docs/SAO-LUU-KHOI-PHUC.md`.
+- **Nhật ký lỗi của ứng dụng** (trang lỗi 500, lệnh chết, việc nền hỏng): với `LOG_STACK=daily`
+  (Bước 3) mỗi ngày một tệp `storage/logs/laravel-YYYY-MM-DD.log`, giữ 14 ngày. Tệp mới nhất:
+  `sudo -u www-data ls -t storage/logs/`; đọc phần cuối:
+  `sudo -u www-data tail -n 100 storage/logs/<tên tệp>`. Gửi đoạn đó cho người phụ trách kỹ thuật,
+  không gửi cả tệp qua thư (nó có thể chứa email và tên khách).
 - **Nhật ký hệ thống** (`/admin`, mục Nhật ký hệ thống): đăng nhập, tải tài liệu, công bố, đổi phân
   quyền, tạo/khoá tài khoản portal, đặt lại 2FA, mở khoá đăng nhập, tạo quản trị viên từ dòng lệnh.
   Không có lịch tự xoá nhật ký: giữ ít nhất `RETENTION_YEARS` năm.
@@ -1206,12 +1299,40 @@ Chạy bằng người quản trị (chủ của mã nguồn và của deploy ke
 bằng `www-data`, viết đủ ở đây để chép nguyên khối.
 
 **Shared hosting:** một tài khoản làm cả hai việc (đoạn "Shared hosting" ở đầu phần "Cài lên máy chủ
-thật") — chép khối dưới, bỏ tiền tố `sudo -u www-data` ở mọi dòng có nó và bỏ hẳn dòng `chown`;
-thứ tự các dòng còn lại giữ nguyên.
+thật") — khối thứ nhất có dạng riêng ngay dưới khối của VPS (dòng ghi sổ của VPS gọi `sudo sh -c`, mà
+shared hosting không có `sudo`); khối thứ hai chép như dưới, bỏ tiền tố `sudo -u www-data` ở mọi dòng
+có nó và bỏ hẳn dòng `chown`; thứ tự các dòng còn lại giữ nguyên.
+
+Khối thứ nhất đóng cổng, sao lưu cơ sở dữ liệu NGAY lúc này và ghi lại bản đang chạy — điểm quay lại
+nếu bản mới hỏng giữa chừng (mục "Nâng cấp hỏng: quay lại bản trước" dưới các mục bản cập nhật):
 
 ```bash
 cd /var/www/vk-crm
 sudo -u www-data php artisan down
+sudo -u www-data php artisan backup:run --only-db &&
+  echo "$(TZ=Asia/Ho_Chi_Minh date '+%F %T') $(git rev-parse HEAD) $(sudo sh -c 'ls -t storage/app/backups/*/*.zip | head -1')" >> ~/vk-crm-nang-cap.log
+```
+
+**Shared hosting** — khối thứ nhất là khối này (từ thư mục mã nguồn của bạn): không `sudo`, và chính
+tài khoản của bạn đọc được thư mục sao lưu nên `ls -t` chạy thẳng. Chép khối của VPS ở đây thì
+`sudo: command not found` ra màn hình mà dòng `echo` vẫn chạy xong — dòng sổ thiếu trường tệp sao lưu,
+và mục quay lại hỏng đúng lúc cần nó:
+
+```bash
+php artisan down
+php artisan backup:run --only-db &&
+  echo "$(TZ=Asia/Ho_Chi_Minh date '+%F %T') $(git rev-parse HEAD) $(ls -t storage/app/backups/*/*.zip | head -1)" >> ~/vk-crm-nang-cap.log
+```
+
+**Dòng `backup:run` phải kết thúc bằng `Backup completed!`.** Không thấy dòng đó (lỗi sao lưu, mật
+khẩu sao lưu trống…) thì DỪNG ở đây: `sudo -u www-data php artisan up` mở lại đúng bản cũ (chưa có gì
+đổi; dòng ghi sổ không chạy vì `backup:run` thoát mã khác 0), sửa sao lưu theo
+`docs/SAO-LUU-KHOI-PHUC.md` Bước 5, rồi làm lại từ khối thứ nhất. Thấy rồi thì đọc dòng sổ vừa ghi,
+`tail -n 1 ~/vk-crm-nang-cap.log`: giờ là giờ vừa rồi và dòng kết thúc bằng `.zip` (thiếu tệp sao lưu ở
+cuối là dòng ghi sổ đã hỏng — dừng, `up`, và sửa trước khi nâng cấp). Đúng rồi thì chép khối thứ hai:
+
+```bash
+cd /var/www/vk-crm
 git pull
 composer install --no-dev --optimize-autoloader --no-scripts
 sudo -u www-data rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php
@@ -1230,6 +1351,19 @@ sudo -u www-data php artisan up
 
 - `php artisan down` trả trang bảo trì (503) cho mọi người trong lúc cập nhật, để không ai ghi dữ
   liệu giữa chừng một migration.
+- `backup:run --only-db` đứng SAU `down`: một bản sao lưu cơ sở dữ liệu mã hoá, đúng lúc này, trên đĩa
+  `local_backups` của chính máy chủ (`storage/app/backups/`), và được đẩy lên Google Drive như mọi bản.
+  Từ lúc đó tới `up` không ai ghi được gì, nên quay lại TRƯỚC `up` không mất dữ liệu nào — thay vì
+  mất cả ngày làm việc nếu chỉ còn bản 02:00. Sau `up` thì khác: mục quay lại nói vì sao và ai quyết. Chỉ cơ sở dữ liệu: nâng cấp không đụng tới
+  tệp hồ sơ. Dòng `echo …` (chỉ chạy khi `backup:run` thoát 0 — `&&` ở cuối dòng trên, bash đọc tiếp
+  dòng dưới) ghi vào `~/vk-crm-nang-cap.log` của người quản trị, mỗi lần chạy khối thứ nhất một dòng,
+  bốn trường cách nhau một dấu cách: ngày và giờ theo **giờ Việt Nam** (`TZ=Asia/Ho_Chi_Minh` — VPS
+  mặc định để đồng hồ hệ thống ở giờ UTC, chậm 7 tiếng, còn tên tệp sao lưu theo `APP_TIMEZONE`, mặc
+  định `Asia/Ho_Chi_Minh`), commit đang chạy (`git rev-parse HEAD`; `git log --oneline -1 <commit>` cho
+  biết bản đó là gì), và đường dẫn tệp sao lưu vừa tạo (tệp mới nhất trên `local_backups` ngay sau
+  `backup:run`; tên tệp mang giờ tạo, vài giây trước giờ của dòng; là trường CUỐI, đọc bằng
+  `cut -d' ' -f4-`, nên một dấu cách trong `BACKUP_NAME` hay `APP_NAME` không cắt mất nó). Đó là sổ các bản đã chạy trên máy
+  này; mục "Nâng cấp hỏng: quay lại bản trước" nói chọn dòng nào để quay lại.
 - `composer install … --no-scripts` rồi ba dòng sau nó: sau lần cài đầu, `bootstrap/cache/` và
   `storage/` thuộc về `www-data`, nên hai lệnh composer tự gọi sau khi cài (`package:discover`,
   `filament:upgrade`) không chạy được bằng người quản trị — lượt đi thử ngày 2026-10-08 dừng ở `Script
@@ -1292,13 +1426,20 @@ sudo -u www-data php artisan up
 - Đọc phần ghi chú nâng cấp của bản mới trong `docs/PROGRESS.md` TRƯỚC khi chạy: một bản có thể
   kèm việc phải làm tay (ví dụ một biến `.env` mới — so `.env.example` mới với `.env` đang chạy).
 - **Đêm đầu sau nâng cấp, theo dõi hộp thư báo lỗi**: lượt sao lưu 02:00 và lượt giám sát 08:00 là
-  lần đầu bản mới chạy những việc đó. Sáng hôm sau chạy `php artisan vkcrm:backup-check`.
+  lần đầu bản mới chạy những việc đó. Sáng hôm sau chạy
+  `sudo -u www-data php artisan vkcrm:backup-check`.
 - **Hàng đợi qua lần nâng cấp:** thư và việc nền đã xếp hàng TRƯỚC `php artisan down` nằm nguyên
   trong bảng `jobs` và được mã MỚI chạy sau `php artisan up` (lịch không chạy trong lúc bảo trì).
   Không cần rút hàng đợi bằng tay: mã của các việc nền được viết để đọc được việc do bản cũ xếp (ví
   dụ thư kích hoạt cổng xếp trước khi có cờ "cấp lại" chạy như lần cấp đầu). Muốn chắc, trước
   `php artisan down` chạy `php artisan queue:work --stop-when-empty` một lần cho hàng đợi trống.
-- Khi nghi ngờ: bản sao lưu đêm trước là điểm quay lại, và `APP_KEY` không đổi qua các bản nâng cấp.
+- **Một dòng của khối thứ hai hỏng** (một migration dừng giữa chừng trên dữ liệu thật, `composer
+  install` từ chối, preflight ĐỎ mà không sửa được ngay, trang lỗi sau `up`): đừng thử sửa tay trên
+  cơ sở dữ liệu. Điểm quay lại là bản sao lưu và commit của khối thứ nhất — mục "Nâng cấp hỏng: quay
+  lại bản trước" ngay dưới các mục bản cập nhật. Chưa `up` thì quay lại không mất gì; đã `up` thì quay
+  lại MẤT dữ liệu mọi người ghi từ lúc đó — mục đó nói cách đếm và ai quyết. `APP_KEY` không đổi qua
+  các bản nâng cấp. Có chạy lại khối thứ nhất để thử lại thì điểm quay lại VẪN là dòng sổ của lần chạy
+  trước lần khối thứ hai hỏng đầu tiên: bản sao lưu của lần chạy lại chụp cơ sở dữ liệu đã migrate dở.
 
 ### Bản cập nhật M12 (app trên điện thoại và thông báo đẩy)
 
@@ -1316,7 +1457,7 @@ Máy chủ đã chạy bản trước M12 thì làm thêm, theo thứ tự:
 3. **nginx (đứng theo mẫu cũ):** chép hai khối `location = /admin/sw.js { … }` và
    `location = /portal/sw.js { … }` của `tools/deploy/nginx.conf.example` mới vào cấu hình đang chạy
    (đặt đâu cũng được trong khối `server` — `location =` thắng mọi khối regex), `nginx -t`, rồi
-   `systemctl reload nginx`. Thiếu hai khối này thì app không cài được (Bước 4, việc 6). Apache:
+   `systemctl reload nginx`. Thiếu hai khối này thì app không cài được (Bước 4, việc 7). Apache:
    không phải sửa gì.
 4. **Khoá thông báo đẩy:** làm đúng mục "Khoá thông báo đẩy (VAPID)" ở Bước 3 — `config:clear`,
    `webpush:vapid`, điền `VAPID_SUBJECT`, `vkcrm:preflight`, `optimize`, `chmod 600
@@ -1361,6 +1502,152 @@ luật sư) trên trang "Kho tài liệu"; `vkcrm:storage:migrate --dry-run`; đ
 --max-minutes=240`, nhiều đêm); `vkcrm:storage:verify --all`. Quay lui: đặt `local`, `optimize` và
 `chmod 600 bootstrap/cache/config.php` TRƯỚC, rồi `vkcrm:storage:rollback` (lệnh từ chối khi công tắc còn `google_drive`). Máy chủ văn phòng
 (bản thứ hai ngoài Google, mã hoá): `docs/SAO-LUU-KHOI-PHUC.md`, Phụ lục D.
+
+### Nâng cấp hỏng: quay lại bản trước
+
+Dùng khi một dòng của khối thứ hai trong "Nâng cấp lên bản mới" hỏng và không sửa được ngay. Đưa máy
+chủ về ĐÚNG bản đã chạy trước lần nâng cấp này và ĐÚNG cơ sở dữ liệu lúc đó — commit và tệp sao lưu
+`backup:run --only-db` ghi trên CÙNG MỘT dòng của `~/vk-crm-nang-cap.log` (khối thứ nhất). Tệp hồ sơ
+không cần chép lại: nâng cấp không đụng tới chúng. Cổng đóng suốt mục này.
+
+- **Chuỗi hỏng TRƯỚC dòng `up`** (cổng chưa mở lại lần nào): không mất dữ liệu nào — cổng đã đóng từ
+  trước bản sao lưu đó, không ai ghi được gì sau nó.
+- **Đã `up` rồi mới thấy hỏng** (trang lỗi sau `up`, một màn hình hỏng phát hiện sau vài giờ): từ lúc
+  `up` mọi người đã có thể ghi — khoản thu, tài liệu, cập nhật vụ việc — và thư, thông báo về chúng đã
+  tới khách. Quay lại theo mục này MẤT mọi dữ liệu ghi từ giờ của dòng sổ: `db:wipe` ở bước 4 xoá chúng
+  và bản sao lưu không có chúng, không lấy lại được (tệp đã tải lên còn trên đĩa nhưng mất dòng của
+  nó, không ai mở được). Vì vậy: chạy `sudo -u www-data php artisan down` ngay, làm bước 1 và bước 2
+  (đếm những gì đã ghi sau giờ của dòng sổ). Bước 2 có số khác 0 thì KHÔNG đi tiếp khi chưa có quyết định
+  của chủ văn phòng hoặc người phụ trách kỹ thuật; cách mặc định là giữ cổng đóng và sửa tiếp (người phụ
+  trách kỹ thuật làm bản sửa cho bản mới), không quay lại.
+
+**Shared hosting** (không `sudo`, một tài khoản làm mọi việc): bước 3 có khối shared hosting riêng
+cho việc chép tệp sao lưu; ở bước 4 bỏ tiền tố `sudo -u www-data` ở mọi dòng có nó (chạy thẳng
+`php artisan …`, `chmod …`) và bỏ hẳn dòng `sudo chown -R www-data:www-data storage bootstrap/cache`;
+thay `cd /var/www/vk-crm` bằng `cd` vào thư mục mã nguồn của bạn; thứ tự các dòng còn lại giữ nguyên.
+Tên người dùng và tên cơ sở dữ liệu ở hai dòng `mariadb` (bước 2 và bước 4) là tên bảng điều khiển đã
+đặt (thường có tiền tố tài khoản), không phải `vk_crm`. Gói hosting không có lệnh `mariadb` thì thử
+`mysql` (cùng tham số). Không có lệnh `mariadb` lẫn `mysql` (chỉ có phpMyAdmin trong bảng điều khiển):
+ở bước 2 chạy dòng đầu của khối, rồi dán câu `SELECT …` (bỏ `mariadb … -e "` ở đầu và dấu `"` ở cuối)
+vào thẻ SQL của phpMyAdmin, chọn đúng cơ sở dữ liệu của CRM, thay `$T` bằng giờ mà dòng `echo "$T"` in
+ra; ở bước 4 tách khối làm hai tại dòng `mariadb … < ~/quay-lai/db-dumps/*.sql`: chạy các dòng trước
+nó (tới dòng `db:wipe`), tải tệp `.sql` trong `~/quay-lai/db-dumps/` về máy tính qua trình quản lý
+tệp hay SFTP và nạp bằng thẻ Import của phpMyAdmin, xoá ngay bản trên máy tính (toàn bộ dữ liệu khách,
+không mã hoá), rồi chạy các dòng còn lại từ `migrate:status`.
+
+Cần sẵn: `BACKUP_ARCHIVE_PASSWORD` (chỗ cất ở `docs/SAO-LUU-KHOI-PHUC.md` Bước 6) và mật khẩu cơ sở dữ
+liệu `DB_PASSWORD`.
+
+**1. Chọn dòng sổ để quay lại** (bằng người quản trị). In sổ kèm số thứ tự:
+
+```bash
+cat -n ~/vk-crm-nang-cap.log
+```
+
+Mỗi dòng là: số thứ tự, ngày, giờ (giờ Việt Nam), commit đang chạy lúc đó, tệp sao lưu vừa tạo. Dòng
+đúng là dòng của lần chạy khối thứ nhất **TRƯỚC lần khối thứ hai hỏng ĐẦU TIÊN** của lần nâng cấp này:
+
+- chỉ chạy khối thứ nhất MỘT lần cho lần nâng cấp này: dòng cuối;
+- đã chạy lại khối thứ nhất sau khi khối thứ hai hỏng (để thử lại): dòng ĐẦU TIÊN của lần nâng cấp này
+  (giờ bắt đầu nâng cấp), **KHÔNG phải dòng cuối**. Mỗi lần chạy lại đã sao lưu một cơ sở dữ liệu mà
+  khối thứ hai đã migrate dở, và ghi commit MỚI (`git pull` đã chạy). Nạp bản đó lên mã cũ thì
+  `migrate:status` ở bước 4 vẫn toàn `Ran` — dòng thừa của bản mới trong bảng `migrations` không hiện
+  thành `Pending` — nên không gì bắt được, và hệ thống mở lại trên dữ liệu không khớp mã.
+
+Kiểm dòng đã chọn: `git log --oneline -1 <commit của dòng>` phải là bản ĐANG CHẠY TRƯỚC lần nâng cấp
+này, không phải bản vừa kéo về. Không chắc dòng nào: dừng lại và hỏi người phụ trách kỹ thuật, đừng
+đoán. Chọn xong thì cất đúng dòng đó vào `~/quay-lai/diem` — hai bước sau đọc commit và tệp sao lưu từ
+tệp này, nên chúng không thể lệch nhau, và một phiên SSH bị ngắt giữa chừng không làm mất lựa chọn. Thay
+`<SỐ DÒNG>` bằng số thứ tự của dòng đó (ví dụ `'7p'`); dòng cuối in lại đúng dòng đã chọn:
+
+```bash
+install -d -m 700 ~/quay-lai
+sed -n '<SỐ DÒNG>p' ~/vk-crm-nang-cap.log > ~/quay-lai/diem
+cat ~/quay-lai/diem
+```
+
+**2. Đếm những gì đã ghi sau giờ của dòng sổ** (bằng người quản trị; hỏi mật khẩu `DB_PASSWORD`). Chuỗi
+hỏng trước `up` thì mọi số là 0 — chạy vẫn nên, vì nó cho biết chắc. Dòng đầu in giờ của dòng sổ đã chọn:
+
+```bash
+T="$(cut -d' ' -f1-2 ~/quay-lai/diem)"; echo "$T"
+mariadb -u vk_crm -p vk_crm -e "SELECT
+  (SELECT COUNT(*) FROM activity_log WHERE causer_id IS NOT NULL AND created_at >= '$T') AS nhat_ky_nguoi_dung,
+  (SELECT COUNT(*) FROM payments WHERE created_at >= '$T' OR updated_at >= '$T') AS khoan_thu,
+  (SELECT COUNT(*) FROM documents WHERE created_at >= '$T' OR updated_at >= '$T') AS tai_lieu,
+  (SELECT COUNT(*) FROM media WHERE created_at >= '$T') AS tep_tai_len,
+  (SELECT COUNT(*) FROM stage_logs WHERE created_at >= '$T') AS cap_nhat_vu_viec,
+  (SELECT COUNT(*) FROM outbound_messages WHERE created_at >= '$T') AS thu_da_xep"
+```
+
+Giờ trong cơ sở dữ liệu theo `APP_TIMEZONE` (giờ Việt Nam), cùng múi với giờ của dòng sổ.
+`nhat_ky_nguoi_dung` chỉ đếm việc do một người đăng nhập làm (lần nâng cấp tự ghi không có người gây ra).
+Mọi số là 0: đi tiếp bước 3. Có số khác 0: dừng ở đây, cổng vẫn đóng, gửi kết quả này cho chủ văn phòng
+hoặc người phụ trách kỹ thuật — quay lại là MẤT đúng những dòng đó, không lấy lại được. Chỉ đi tiếp khi
+một trong hai người đã quyết quay lại, và sau khi đã ghi ra giấy (hay xuất ra tệp) những khoản thu, tài
+liệu và cập nhật đó để nhập lại bằng tay.
+
+**3. Chép ra và giải nén tệp sao lưu của dòng đó** (vào thư mục chỉ người quản trị đọc được). Thư mục
+sao lưu chỉ `www-data` mở được, nên dòng chép và dòng `chown` dùng `sudo`. Tên tệp mang giờ tạo theo `APP_TIMEZONE`
+(mặc định giờ Việt Nam), cùng múi với giờ của dòng sổ và sớm hơn nó vài giây:
+
+```bash
+cd /var/www/vk-crm
+sudo cp "$(cut -d' ' -f4- ~/quay-lai/diem)" ~/quay-lai/truoc-nang-cap.zip
+sudo chown "$USER": ~/quay-lai/truoc-nang-cap.zip
+ php -r '$z=new ZipArchive; $z->open($argv[1]); $z->setPassword($argv[2]); var_dump($z->extractTo($argv[3]));' ~/quay-lai/truoc-nang-cap.zip '<BACKUP_ARCHIVE_PASSWORD>' ~/quay-lai
+ls ~/quay-lai/db-dumps/
+```
+
+**Shared hosting** — thay hai dòng `sudo cp` và `sudo chown` bằng dòng dưới (từ thư mục mã nguồn của
+bạn: đường dẫn trong sổ tính từ đó), rồi chạy hai dòng `php -r` và `ls` như trên:
+
+```bash
+cp "$(cut -d' ' -f4- ~/quay-lai/diem)" ~/quay-lai/truoc-nang-cap.zip
+```
+
+Dòng `php -r` phải in `bool(true)`; `bool(false)` là sai mật khẩu (hay chép thiếu ký tự). Dấu cách ở
+đầu dòng đó giữ mật khẩu khỏi lịch sử lệnh của shell (bash của Ubuntu mặc định `HISTCONTROL=ignoreboth`). `unzip` không mở được kiểu mã hoá AES-256 của
+bản sao lưu — dùng đúng dòng `php -r` này. Dòng cuối in đúng một tệp `.sql`. Dòng `cp` báo không
+có tệp (lượt dọn bản cũ đã xoá nó khỏi máy chủ): dừng lại và hỏi người phụ trách kỹ thuật — bản cùng tên
+nằm trên Google Drive.
+
+**4. Quay mã nguồn và cơ sở dữ liệu về bản trước** — chép nguyên khối:
+
+```bash
+cd /var/www/vk-crm
+git reset --hard "$(cut -d' ' -f3 ~/quay-lai/diem)"
+composer install --no-dev --optimize-autoloader --no-scripts
+sudo -u www-data rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php
+sudo -u www-data php artisan package:discover
+php artisan filament:assets
+sudo chown -R www-data:www-data storage bootstrap/cache
+sudo -u www-data php artisan optimize:clear
+sudo -u www-data php artisan db:wipe --force
+mariadb -u vk_crm -p vk_crm < ~/quay-lai/db-dumps/*.sql
+sudo -u www-data php artisan migrate:status
+sudo -u www-data php artisan vkcrm:preflight
+sudo -u www-data php artisan optimize
+sudo -u www-data chmod 600 bootstrap/cache/config.php
+sudo -u www-data php artisan up
+```
+
+- `git reset --hard <commit>` (commit của dòng đã chọn ở bước 1) đưa nhánh đang dùng về đúng commit
+  cũ (không phải `git checkout`, để lần nâng cấp sau `git pull` chạy như thường). Máy chủ không có sửa
+  đổi tay nào trong thư mục mã nguồn; cấu hình máy chủ web và `.env` nằm ngoài kho nên không bị đụng.
+- Sáu dòng sau nó là đúng các dòng của chuỗi nâng cấp, chạy cho mã CŨ: cài lại đúng phụ thuộc của bản
+  cũ và dọn cache của bản mới.
+- `db:wipe --force` xoá MỌI bảng (cả bảng mà migration của bản mới vừa tạo), rồi dòng `mariadb` (hỏi
+  mật khẩu `DB_PASSWORD`; tên người dùng và cơ sở dữ liệu theo "Bước 1 — Máy chủ cần có" của phần cài đặt) nạp lại bản sao lưu vừa giải nén.
+- `migrate:status`: mọi dòng phải là `Ran`. Còn dòng `Pending` là commit không khớp bản sao lưu —
+  dừng lại, đừng `migrate`, kiểm lại dòng của `~/vk-crm-nang-cap.log` đã dùng. Toàn `Ran` KHÔNG chứng
+  minh bản sao lưu đúng: một bản chụp sau khi migration của bản mới đã chạy cũng toàn `Ran` trên mã
+  cũ — vì vậy bước 1 chọn dòng cẩn thận.
+- Preflight XANH (trừ ngoại lệ "bất biến tiền" như ở chuỗi nâng cấp) rồi mới `up`. Mở thử một hồ sơ
+  khách hàng và một tài liệu.
+
+Xong thì xoá bản giải nén (chứa toàn bộ dữ liệu khách, không mã hoá): `rm -rf ~/quay-lai`. Ghi lại lỗi
+của dòng đã hỏng và gửi người phụ trách kỹ thuật; đừng nâng cấp lại cho tới khi có bản sửa.
 
 ## Thao tác tiền và thời gian chờ khoá của MariaDB (`innodb_lock_wait_timeout`)
 

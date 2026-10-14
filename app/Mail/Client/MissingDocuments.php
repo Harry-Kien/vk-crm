@@ -23,10 +23,11 @@ use Illuminate\Support\Collection;
  * của một hồ sơ. Xếp bởi {@see RemindMissingDocuments}, gửi bởi {@see SendMissingDocumentsMail}
  * tới các tài khoản đã qua {@see ResolveClientRecipients} (R12).
  *
- * **R7 — thư nói phải làm gì:** liệt kê ĐÚNG những đầu mục bắt buộc còn thiếu, bằng tên người
- * thường đọc được, kèm một liên kết vào cổng. Danh sách (`$items`) do JOB tính lại ngay lúc gửi
- * bằng {@see ChecklistProgress::outstandingRequiredItems()} và truyền vào — mailable không tự truy
- * vấn, nên một thư đã dựng luôn nói đúng những gì job đã quyết định gửi.
+ * **R7 — thư nói phải làm gì:** liệt kê ĐÚNG những đầu mục còn thiếu mà khách được đòi, bằng tên
+ * người thường đọc được, kèm một liên kết vào cổng. Danh sách (`$items`) do JOB tính lại ngay lúc
+ * gửi bằng {@see ChecklistProgress::itemsToRemindClientOf()} — mọi đầu mục bắt buộc còn thiếu, trừ
+ * bản hợp đồng đã ký khi hợp đồng còn nháp hay chưa có (SPEC §6.9, đính chính 2026-10-09) — và truyền
+ * vào: mailable không tự truy vấn, nên một thư đã dựng luôn nói đúng những gì job đã quyết định gửi.
  *
  * **Tiêu đề KHÔNG BAO GIỜ nêu tên giấy tờ** (cùng lý lẽ `DocumentPublished`: dòng
  * `outbound_messages` hiện cho mọi người xem được vụ việc, kể cả trợ lý). Chỉ mã hồ sơ — và mã

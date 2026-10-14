@@ -20,10 +20,12 @@ use Throwable;
 
 /**
  * SPEC §6.9 — nhắc khách nộp giấy tờ còn thiếu, thứ Hai/Tư/Sáu 08:00. Mỗi hồ sơ đang mở, đã công
- * bố portal, còn đầu mục BẮT BUỘC ở `missing`/`rejected`: một thư `client.missing_documents` cho
- * mỗi tài khoản khách đủ điều kiện (R12), và nếu tình trạng thiếu kéo dài quá
+ * bố portal, còn đầu mục BẮT BUỘC ở `missing`/`rejected`: nếu còn đầu mục mà thư được đòi khách
+ * ({@see ChecklistProgress::itemsToRemindClientOf()} — trừ bản hợp đồng đã ký khi hợp đồng còn
+ * nháp, SPEC §6.9 đính chính 2026-10-09), một thư `client.missing_documents` cho mỗi tài
+ * khoản khách đủ điều kiện (R12); và nếu tình trạng thiếu kéo dài quá
  * {@see ChecklistProgress::STUCK_AFTER_DAYS} ngày thì luật sư phụ trách được báo TRONG HỆ THỐNG để
- * gọi điện cho khách.
+ * gọi điện cho khách, tính trên MỌI đầu mục bắt buộc còn thiếu.
  *
  * # MỘT nguồn sự thật về "còn thiếu" — {@see ChecklistProgress}
  *
