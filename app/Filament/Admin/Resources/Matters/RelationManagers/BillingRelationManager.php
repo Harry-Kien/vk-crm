@@ -776,7 +776,13 @@ class BillingRelationManager extends RelationManager
             ->successNotificationTitle(__('billing.tab.actions.cancel_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
-                fn () => app(CancelContract::class)->handle(Auth::user(), $matter->contract, $data['reason'] ?? ''),
+                function () use ($matter, $data): void {
+                    app(CancelContract::class)->handle(Auth::user(), $matter->contract, $data['reason'] ?? '');
+
+                    // Như hai action soạn/xoá nháp: quan hệ `contract` đã nạp còn là hợp đồng ĐANG HIỆU LỰC,
+                    // nên cùng lượt vẽ lại sẽ giấu nút "Soạn hợp đồng mới" — bước kế tiếp sau khi huỷ.
+                    $matter->unsetRelation('contract');
+                },
             ));
     }
 

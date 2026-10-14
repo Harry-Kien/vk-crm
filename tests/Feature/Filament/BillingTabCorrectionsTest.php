@@ -308,6 +308,22 @@ it('offers "draft a new contract" once the contract is cancelled, drafts it, and
     expect($old->fresh()->status)->toBe(ContractStatus::Cancelled);
 });
 
+// Rà soát toàn làn fb, minor 1 (2026-10-14): test trên huỷ hợp đồng TRƯỚC khi mở thẻ, nên không thấy rằng
+// huỷ ngay TRÊN thẻ thì cùng lượt vẽ lại vẫn đọc quan hệ `contract` cũ (đang hiệu lực): nút "Soạn hợp đồng
+// mới" — bước kế tiếp mà QUY-TRINH bảo bấm — chưa hiện cho tới request sau.
+it('offers "draft a new contract" right away after cancelling on the tab, in the same render', function () {
+    fbActiveContract($this->matter);
+
+    $this->actingAs($this->lead, 'web');
+
+    fbBillingTab($this->matter)
+        ->assertActionHidden(TestAction::make('draftContract')->table())
+        ->callAction(TestAction::make('cancelContract')->table(), data: ['reason' => 'Khách chưa ký, kích hoạt nhầm.'])
+        ->assertHasNoActionErrors()
+        ->assertActionVisible(TestAction::make('draftContract')->table())
+        ->assertActionHasLabel(TestAction::make('draftContract')->table(), __('billing_corrections.redraft.label'));
+});
+
 it('keeps the draft button hidden while the matter has an active contract', function () {
     fbActiveContract($this->matter);
 
