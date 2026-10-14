@@ -111,6 +111,17 @@ final class ActivityOwningMatter
     /** Rà soát cuối M10, FI1 — xem docblock lớp, mục "Dòng của một bản ghi tiếp nhận". */
     private const INTAKE_REQUEST = 'intake_request';
 
+    /**
+     * Sự kiện CHỈ quản trị viên đọc được, dù dòng không thuộc vụ nào (rà soát gộp làn fb, 2026-10-14):
+     * `staff_access_suspended` mang lý do quản trị viên gõ tự do khi khoá khẩn cấp một nhân sự — có thể
+     * nêu mã vụ hạn chế, tên khách, hay nghi vấn về một đồng nghiệp — nên không được đi theo luật "dòng
+     * không thuộc vụ nào thì ai có `auditLog.view` cũng thấy". Áp ở cả hai đường: SQL
+     * ({@see self::scopeVisibleTo()}) và bộ nhớ ({@see self::canViewMany()}).
+     *
+     * @var list<string>
+     */
+    private const ADMIN_ONLY_EVENTS = ['staff_access_suspended'];
+
     public static function canView(?User $viewer, Activity $activity): bool
     {
         return self::canViewMany($viewer, [$activity])[$activity->getKey()] ?? false;
@@ -178,6 +189,11 @@ final class ActivityOwningMatter
 
             // Dòng của một bản ghi tiếp nhận (FI1): phải xem được chính bản ghi đó.
             if ($activity->subject_type === self::INTAKE_REQUEST && ! isset($visibleIntakeIds[(int) $activity->subject_id])) {
+                $allowed = false;
+            }
+
+            // Sự kiện chỉ dành cho quản trị viên (lý do khoá khẩn cấp) — nhánh này không bao giờ là admin.
+            if (in_array($activity->event, self::ADMIN_ONLY_EVENTS, true)) {
                 $allowed = false;
             }
 
@@ -299,6 +315,13 @@ final class ActivityOwningMatter
         // Dòng của một bản ghi tiếp nhận (FI1, docblock lớp): chồng lên MỌI nhánh ở trên — phải xem được
         // chính bản ghi đó.
         self::whereIntakeRowVisibleTo($query, $viewer);
+
+        // Sự kiện chỉ dành cho quản trị viên (ADMIN_ONLY_EVENTS), chồng lên mọi nhánh.
+        $event = $query->qualifyColumn('event');
+
+        $query->where(fn (Builder $rows) => $rows
+            ->whereNull($event)
+            ->orWhereNotIn($event, self::ADMIN_ONLY_EVENTS));
     }
 
     /**
