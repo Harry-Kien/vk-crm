@@ -8,7 +8,12 @@
  *  - `portal`: phần "Lộ trình thanh toán" trong khối "Hợp đồng và thanh toán" của trang hồ sơ trên cổng
  *    (`App\Filament\Portal\Pages\MatterProgress::paymentPlan()`);
  *  - `mail`: thư `client.payment_received` (`App\Mail\Client\PaymentReceived`);
- *  - `failed_notification`: chuông cho luật sư khi thư đó hỏng hẳn (`App\Jobs\SendPaymentReceivedMail`).
+ *  - `failed_notification`: chuông cho luật sư khi thư đó hỏng hẳn (`App\Jobs\SendPaymentReceivedMail`);
+ *  - (Task 2) `reminder_mail`: thư báo trước hạn `client.payment_reminder.due_soon` và thư nhắc đợt quá
+ *    hạn `client.payment_reminder.overdue` (`App\Mail\Client\PaymentReminder`);
+ *  - (Task 2) `remind_action`: nút "Gửi thư nhắc" trên dòng đợt quá hạn của tab "Hợp đồng và thanh toán"
+ *    (`BillingRelationManager::remindClientAction()`, Action `App\Actions\Billing\RemindClientOfOverdueInstalment`),
+ *    dòng sổ liên lạc nó ghi, và chuông khi thư nhắc hỏng hẳn (`App\Jobs\SendPaymentOverdueReminderMail`).
  */
 return [
     'settings' => [
@@ -16,7 +21,7 @@ return [
         'page_title' => 'Nhắc thanh toán cho khách',
 
         'intro_off' => 'Khi TẮT (mặc định): hệ thống chạy như trước — chỉ nhắc nội bộ cho nhân sự; khách không nhận thư nào về tiền và trang hồ sơ trên cổng khách không có phần "Lộ trình thanh toán".',
-        'intro_on' => 'Khi BẬT: trang hồ sơ trên cổng khách có thêm phần "Lộ trình thanh toán" (đã thanh toán, còn lại, thông tin chuyển khoản, nội dung chuyển khoản và mã QR cho từng đợt đã có ngày hạn mà còn phải trả), và khách nhận thư xác nhận mỗi khi văn phòng ghi một khoản thu. Đợt quá hạn KHÔNG tự gửi thư đòi cho khách.',
+        'intro_on' => 'Khi BẬT: trang hồ sơ trên cổng khách có thêm phần "Lộ trình thanh toán" (đã thanh toán, còn lại, thông tin chuyển khoản, nội dung chuyển khoản và mã QR cho từng đợt đã có ngày hạn mà còn phải trả), khách nhận thư xác nhận mỗi khi văn phòng ghi một khoản thu, và thư báo trước hạn mỗi sáng (08:15) cho đợt sắp đến hạn. Đợt quá hạn KHÔNG tự gửi thư đòi cho khách: luật sư hoặc quản lý bấm "Gửi thư nhắc" trên dòng đợt đó ở tab "Hợp đồng và thanh toán" của vụ, xem trước nội dung rồi mới gửi.',
         'audit_hint' => 'Mỗi lần bật hay tắt được ghi vào Nhật ký hệ thống (ai, lúc nào).',
 
         'sections' => [
@@ -31,7 +36,7 @@ return [
             ],
             'days_before_due' => [
                 'label' => 'Báo trước hạn (số ngày)',
-                'hint' => 'Thư báo trước hạn cho khách gửi trước ngày hạn của một đợt bấy nhiêu ngày (từ 1 đến 30, mặc định 3).',
+                'hint' => 'Mỗi sáng, khách nhận thư báo trước hạn cho đợt còn phải trả có ngày hạn trong bấy nhiêu ngày tới (từ 1 đến 30, mặc định 3) — mỗi đợt một thư, không gửi lại.',
             ],
             'bank_bin' => [
                 'label' => 'Ngân hàng',
@@ -109,5 +114,61 @@ return [
     'failed_notification' => [
         'title' => 'Thư xác nhận đã nhận tiền chưa tới được khách',
         'body' => 'Hệ thống đã thử nhiều lần mà không gửi được thư xác nhận khoản thu của hồ sơ :code cho khách. Hãy báo khách bằng kênh khác nếu cần.',
+    ],
+
+    // =============================================================================================
+    // Task 2 — thư báo trước hạn, thư nhắc đợt quá hạn, nút "Gửi thư nhắc".
+    // =============================================================================================
+
+    'reminder_mail' => [
+        'due_soon' => [
+            'subject' => 'Đợt thanh toán sắp đến hạn — hồ sơ :code',
+            'line' => 'Văn phòng xin thông báo đợt thanh toán sau đây của hồ sơ :code sắp đến hạn:',
+            'restricted_line' => 'Văn phòng có thông báo về lịch thanh toán của hồ sơ :code. Anh/chị vui lòng đăng nhập cổng khách hàng để xem chi tiết.',
+        ],
+        'overdue' => [
+            'subject' => 'Nhắc thanh toán đợt đã quá hạn — hồ sơ :code',
+            'line' => 'Văn phòng xin nhắc anh/chị đợt thanh toán sau đây của hồ sơ :code đã quá hạn:',
+            'restricted_line' => 'Văn phòng có lời nhắc về lịch thanh toán của hồ sơ :code. Anh/chị vui lòng đăng nhập cổng khách hàng để xem chi tiết.',
+        ],
+        'greeting' => 'Kính gửi anh/chị :name,',
+        'instalment' => 'Đợt: :name',
+        'amount' => 'Số tiền cần thanh toán: :amount',
+        'due' => 'Hạn thanh toán: :date',
+        'transfer_heading' => 'Thông tin chuyển khoản',
+        'bank' => 'Ngân hàng: :name',
+        'account_number' => 'Số tài khoản: :number',
+        'account_holder' => 'Chủ tài khoản: :holder',
+        'bank_branch' => 'Chi nhánh: :branch',
+        'transfer_note' => 'Nội dung chuyển khoản: :note',
+        'note_hint' => 'Anh/chị vui lòng ghi đúng nội dung chuyển khoản để văn phòng nhận ra khoản tiền của hồ sơ này.',
+        'qr_alt' => 'Mã QR chuyển khoản :amount',
+        'qr_hint' => 'Mở ứng dụng ngân hàng, chọn quét mã QR: số tiền và nội dung được điền sẵn.',
+        'already_paid' => 'Nếu anh/chị đã thanh toán khoản này, xin bỏ qua thư này. Xin cảm ơn.',
+        'open' => 'Mở cổng khách hàng',
+        'help' => 'Nếu thông tin trên chưa đúng, xin gọi giúp văn phòng theo số :phone.',
+        'salutation' => 'Trân trọng, :office',
+    ],
+
+    'remind_action' => [
+        'label' => 'Gửi thư nhắc',
+        'heading' => 'Gửi thư nhắc đợt quá hạn cho khách',
+        'submit' => 'Gửi thư',
+        'success' => 'Đã xếp hàng gửi thư nhắc cho khách. Kết quả từng thư xem ở tab "Thư đã gửi".',
+        'intro' => 'Thư dưới đây sẽ được gửi tới các tài khoản cổng khách hàng đang hoạt động của khách. Mỗi đợt chỉ gửi được một lần mỗi ngày.',
+        'instalment' => 'Đợt: :name — còn phải trả :amount — hạn :date',
+        'recipients' => 'Người nhận',
+        'subject' => 'Tiêu đề',
+        'body' => 'Nội dung thư',
+        'with_qr' => 'Bản thư HTML kèm mã QR chuyển khoản của đúng số tiền và nội dung trên.',
+        'already_sent_today' => 'Thư nhắc đợt này đã được gửi hôm nay lúc :time (:name bấm gửi). Mỗi đợt chỉ gửi một lần mỗi ngày — hãy thử lại vào ngày mai.',
+        'no_recipients' => 'Không có tài khoản cổng khách hàng nào nhận được thư này: khách chưa có tài khoản đã kích hoạt, hoặc vụ việc không còn trên cổng khách. Hãy liên hệ khách bằng kênh khác.',
+        'not_overdue' => 'Đợt này không còn quá hạn (đã thu đủ, đã miễn, đã dời hạn hoặc hợp đồng không còn hiệu lực), nên không gửi thư nhắc.',
+        'switch_off' => 'Nhắc lịch thanh toán cho khách đang tắt, nên không gửi thư nào cho khách.',
+        'communication_summary' => 'Gửi thư nhắc thanh toán đợt quá hạn qua hệ thống: :instalment, còn phải trả :amount, hạn :date. Người nhận: :recipients. Kết quả từng thư xem ở tab "Thư đã gửi".',
+        'failed_notification' => [
+            'title' => 'Thư nhắc thanh toán chưa tới được khách',
+            'body' => 'Hệ thống đã thử nhiều lần mà không gửi được thư nhắc đợt quá hạn của hồ sơ :code cho khách. Hãy báo khách bằng kênh khác nếu cần.',
+        ],
     ],
 ];

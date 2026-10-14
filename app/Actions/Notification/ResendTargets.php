@@ -71,6 +71,13 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *    và rung chuông cho luật sư phụ trách để báo khách bằng kênh khác. Thư chỉ từng đi tới tài khoản mà
  *    cổng cho xem vụ (job lọc bằng `ResolveClientRecipients::onPortal()`), và khoản thu vẫn hiện ở khối
  *    tiền trên cổng khách khi vụ còn trên cổng.
+ *  - `client.payment_reminder.*` (làn nt Task 2, sau cùng công tắc): hai mẫu `due_soon` (lịch
+ *    `client-payments.due-soon` 08:15) và `overdue` (nút "Gửi thư nhắc" trên dòng đợt quá hạn). Dòng sổ
+ *    thư gắn với VỤ VIỆC — cùng lý do `client.payment_received` — nên không dựng lại được đợt nào. Thư báo
+ *    trước hạn tự được gửi lại ở lượt 08:15 kế tiếp khi đợt còn trong cửa sổ báo trước, vì chỉ dòng `sent`
+ *    chặn (`App\Support\Billing\ClientPaymentReminders::alreadyDelivered()`); thư nhắc quá hạn là một
+ *    quyết định của người quản lý hợp đồng, có xem trước và ghi sổ liên lạc — gửi lại thì bấm lại nút đó
+ *    (mỗi đợt một lần mỗi ngày), không gửi tay từ sổ thư.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -101,6 +108,8 @@ final class ResendTargets
         'staff.document_store_alert.*',
         // Làn nt Task 1 — lý do ở docblock lớp.
         'client.payment_received',
+        // Làn nt Task 2 — lý do ở docblock lớp.
+        'client.payment_reminder.*',
         'undeclared',
     ];
 

@@ -18,7 +18,11 @@ use App\Models\Setting;
  * `null`, `'0'`, `'true'`, `' 1'` — mọi thứ khác — là tắt (cùng luật với `McpSwitches`: giá trị
  * hỏng phải đóng, không mở). Khi tắt, hệ thống chạy đúng như trước làn nt: cổng khách không có khối
  * "Lộ trình thanh toán", không thư nào về tiền gửi khách. Khi bật (Task 1): khối đó trên trang hồ sơ
- * của cổng, và thư xác nhận đã nhận tiền (`App\Jobs\SendPaymentReceivedMail`).
+ * của cổng, và thư xác nhận đã nhận tiền (`App\Jobs\SendPaymentReceivedMail`); (Task 2) thư báo trước
+ * hạn mỗi sáng (`App\Actions\Schedule\RemindClientsOfUpcomingInstalments`, cửa sổ
+ * {@see self::daysBeforeDue()} ngày) và nút "Gửi thư nhắc" trên đợt quá hạn
+ * (`App\Actions\Billing\RemindClientOfOverdueInstalment`). Job thư hỏi lại công tắc LÚC GỬI: tắt giữa
+ * chừng thì thư đã xếp hàng không đi.
  *
  * # Đọc
  *

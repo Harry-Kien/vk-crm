@@ -61,5 +61,8 @@ class DemoDataSeeder extends Seeder
         // Làn nt: thông tin chuyển khoản GIẢ cho "Nhắc lịch thanh toán cho khách"; công tắc vẫn TẮT. Sau
         // `BillingSeeder` để các khoản thu mẫu ghi qua `RecordPayment` không gặp công tắc nào bật.
         $this->call(ClientPaymentSettingsSeeder::class);
+
+        // Làn nt Task 2: một đợt sắp đến hạn cho khách demo (dời hạn qua RescheduleInstalment) — công tắc vẫn TẮT.
+        $this->call(ClientPaymentReminderDemoSeeder::class);
     }
 }

@@ -119,6 +119,32 @@ final class VietQr
         return (string) (new QRCode($options))->render($payload);
     }
 
+    /**
+     * Ảnh QR PNG (nhị phân) của chuỗi — cho THƯ (làn nt Task 2), không cho trang: Gmail, Outlook và
+     * phần lớn ứng dụng thư không hiện ảnh `data:` hay ảnh SVG, nên thư đính ảnh PNG vào chính thư
+     * (`cid:`, `Illuminate\Mail\Message::embedData()`) — không ảnh nào tải từ máy chủ hay dịch vụ ngoài.
+     *
+     * Vẽ PNG cần extension `gd` của PHP: `docs/CAI-DAT.md` ghi nó là "nên có, chưa bắt buộc" (preflight
+     * báo VÀNG khi thiếu). Thiếu `gd` thì trả `null` và thư bỏ ảnh QR — thông tin chuyển khoản và nội
+     * dung chuyển khoản vẫn in đủ bằng chữ, không thư nào hỏng vì thiếu một extension.
+     */
+    public static function pngBinary(string $payload): ?string
+    {
+        if (! extension_loaded('gd')) {
+            return null;
+        }
+
+        $options = new QROptions([
+            'outputType' => QROutputInterface::GDIMAGE_PNG,
+            'outputBase64' => false,
+            'eccLevel' => EccLevel::M,
+            'addQuietzone' => true,
+            'scale' => 6,
+        ]);
+
+        return (string) (new QRCode($options))->render($payload);
+    }
+
     /** CRC-16/CCITT-FALSE, bốn chữ số hex viết hoa. */
     public static function crc16(string $data): string
     {

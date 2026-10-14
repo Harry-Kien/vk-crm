@@ -9,6 +9,7 @@ use App\Actions\Billing\CompleteContract;
 use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
+use App\Actions\Billing\RemindClientOfOverdueInstalment;
 use App\Actions\Billing\RescheduleInstalment;
 use App\Actions\Billing\UnwaiveInstalment;
 use App\Actions\Billing\UpdateDraftContract;
@@ -23,6 +24,7 @@ use App\Enums\PaymentMethod;
 use App\Exceptions\PaymentAlreadyVoided;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
+use App\Mail\Client\PaymentReminder;
 use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Instalment;
@@ -31,6 +33,8 @@ use App\Models\Matter;
 use App\Models\Payment;
 use App\Policies\Concerns\ChecksBillingAccess;
 use App\Support\Billing\BillingSummary;
+use App\Support\Billing\ClientPaymentReminders;
+use App\Support\Billing\ClientPaymentSettings;
 use App\Support\Billing\CollectedRevenue;
 use App\Support\Billing\Money;
 use App\Support\Billing\SplitByPercent;
@@ -49,6 +53,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -115,7 +120,8 @@ use Illuminate\Validation\ValidationException;
  * `->authorize()` của {@see TeamRelationManager}/{@see DeadlinesRelationManager}.
  *
  * Mỗi dòng (một đợt thanh toán): ghi khoản thu, miễn, bỏ miễn (chỉ trên đợt đã miễn), huỷ một
- * khoản thu do người dùng chọn (làn fb, mục A2/A3). **Nút ghi khoản thu
+ * khoản thu do người dùng chọn (làn fb, mục A2/A3), và — chỉ khi công tắc "Nhắc lịch thanh toán cho
+ * khách" bật — gửi thư nhắc khách trên đợt quá hạn ({@see self::remindClientAction()}, làn nt Task 2). **Nút ghi khoản thu
  * hỏi quyền kèm NGỮ CẢNH VỤ VIỆC**, đúng thành ngữ tab Tài liệu (M4): `->authorize(fn () =>
  * Gate::allows('create', [Payment::class, $this->getOwnerRecord()]))` — không phải
  * `Gate::allows('update', $this->getOwnerRecord())` như tab Các bên, vì câu hỏi ở đây là
@@ -190,6 +196,9 @@ class BillingRelationManager extends RelationManager
 
     /** SPEC §4.9 — nhận diện CHỈ bằng tên, xem docblock lớp. */
     public const REQUIRED_CHECKLIST_ITEM_NAME = Contract::SIGNED_CONTRACT_CHECKLIST_ITEM_NAME;
+
+    /** Làn nt Task 2 — công tắc đọc MỘT lần mỗi request cho cả bảng ({@see self::clientRemindersOn()}). */
+    private ?bool $clientRemindersOn = null;
 
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {
@@ -295,6 +304,7 @@ class BillingRelationManager extends RelationManager
                 $this->waiveInstalmentAction(),
                 $this->unwaiveInstalmentAction(),
                 $this->rescheduleInstalmentAction(),
+                $this->remindClientAction(),
                 $this->voidPaymentAction(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query, 'contract.matter')
@@ -1051,6 +1061,84 @@ class BillingRelationManager extends RelationManager
                 $action,
                 fn () => app(RescheduleInstalment::class)->handle(Auth::user(), $record, $data['due_date'] ?? null, $data['reason'] ?? ''),
             ));
+    }
+
+    /**
+     * "Gửi thư nhắc" (làn nt Task 2) qua {@see RemindClientOfOverdueInstalment}: nhắc KHÁCH về một đợt quá
+     * hạn bằng thư, sau khi xem trước đúng nội dung thư trong hộp thoại ({@see self::remindClientPreview()}).
+     *
+     * Hiện khi: công tắc "Nhắc lịch thanh toán cho khách" BẬT (tắt thì tab đúng như trước làn nt — đọc
+     * một lần mỗi request, {@see self::clientRemindersOn()}), hợp đồng `active` và đợt đang QUÁ HẠN theo
+     * `Instalment::state()`. Lọc theo TRẠNG THÁI có chủ đích, cùng lý lẽ "Dời hạn": cuộc đua duy nhất làm
+     * nút tự ẩn lúc bấm là đợt vừa hết quá hạn (đã thu đủ, đã miễn, đã dời hạn) hay công tắc vừa tắt — lúc
+     * đó không còn gì để nhắc, bỏ ngang không để lại điều gì sai. Quyền: `InstalmentPolicy::remindClient`
+     * (người quản lý hợp đồng của vụ; kế toán không). Action hỏi lại tất cả dưới khoá, và giữ giới hạn một
+     * lần mỗi đợt mỗi ngày — hộp thoại báo trước khi đã gửi hôm nay, Action từ chối bằng câu rõ ràng.
+     */
+    private function remindClientAction(): Action
+    {
+        return Action::make('remindClient')
+            ->label(__('client_payments.remind_action.label'))
+            ->icon(Heroicon::OutlinedEnvelope)
+            ->color('warning')
+            ->modalHeading(__('client_payments.remind_action.heading'))
+            ->modalContent(fn (Instalment $record): View => view(
+                'filament.admin.billing.client-reminder-preview',
+                static::remindClientPreview($this->getOwnerRecord(), $record),
+            ))
+            ->modalSubmitActionLabel(__('client_payments.remind_action.submit'))
+            ->visible(fn (Instalment $record): bool => $this->clientRemindersOn()
+                && $record->contract?->status === ContractStatus::Active
+                && $record->state() === InstalmentState::Overdue)
+            ->authorize(fn (Instalment $record): bool => Gate::allows('remindClient', $record))
+            ->successNotificationTitle(__('client_payments.remind_action.success'))
+            ->action(fn (Action $action, Instalment $record) => $this->runAction(
+                $action,
+                fn () => app(RemindClientOfOverdueInstalment::class)->handle(Auth::user(), $record),
+            ));
+    }
+
+    private function clientRemindersOn(): bool
+    {
+        return $this->clientRemindersOn ??= ClientPaymentSettings::enabled();
+    }
+
+    /**
+     * Dữ liệu hộp thoại xem trước của "Gửi thư nhắc": người nhận (đúng
+     * {@see ClientPaymentReminders::recipients()} mà Action và job dùng), dòng đợt (tên, còn phải trả, hạn),
+     * tiêu đề và bản chữ của ĐÚNG thư sẽ gửi ({@see ClientPaymentReminders::mailFor()} →
+     * {@see PaymentReminder::previewText()}, lời chào mang tên người nhận đầu tiên), và câu "đã gửi hôm nay"
+     * khi giới hạn một lần mỗi ngày đã dùng. Không ai nhận thì không dựng thư.
+     *
+     * @return array{alreadySent: ?string, instalmentLine: string, recipients: list<string>, subject: ?string, body: ?string, withQr: bool}
+     */
+    public static function remindClientPreview(Matter $matter, Instalment $instalment): array
+    {
+        $recipients = ClientPaymentReminders::recipients($matter);
+        $already = ClientPaymentReminders::sentToday($instalment);
+        $mail = $recipients->isEmpty() ? null : ClientPaymentReminders::mailFor(
+            PaymentReminder::KIND_OVERDUE,
+            $instalment,
+            $matter,
+            $recipients->first(),
+            ClientPaymentReminders::overdueKey($instalment, today()->toDateString()),
+        );
+
+        return [
+            'alreadySent' => $already === null ? null : __('client_payments.remind_action.already_sent_today', [
+                'time' => $already->created_at->format('H:i'),
+                'name' => ClientPaymentReminders::senderName($already),
+            ]),
+            'instalmentLine' => __('client_payments.remind_action.instalment', [
+                'name' => $instalment->name,
+                'amount' => Money::format($instalment->outstanding()),
+                'date' => $instalment->due_date?->format('d/m/Y') ?? '—',
+            ]),
+            'recipients' => $recipients->map(fn ($recipient): string => $recipient->name.' <'.$recipient->email.'>')->values()->all(),
+            'subject' => $mail?->subjectLine(),
+            'body' => $mail?->previewText(),
+            'withQr' => $mail?->hasQr() ?? false,
+        ];
     }
 
     /** Câu mô tả của modal "Miễn": tên đợt, giá trị, đã thu, phần sẽ thôi đòi (làn fb, mục A2). */
