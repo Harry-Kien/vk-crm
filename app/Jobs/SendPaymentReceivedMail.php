@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Actions\Billing\CompleteContract;
 use App\Actions\Billing\RecordPayment;
 use App\Actions\Notification\ResolveClientRecipients;
 use App\Actions\Notification\ResolveStaffRecipients;
@@ -52,9 +53,17 @@ use Throwable;
  *     hay đã hết hạn tra cứu thì cổng không cho xem, nên không ai nhận thư — kể cả mã hồ sơ của một vụ
  *     hạn chế cũng không tới người cổng từ chối cho xem vụ đó.
  *
- * "Còn lại bao nhiêu" cũng tính lúc gửi: tổng {@see Instalment::outstanding()} của các đợt chưa huỷ của
- * hợp đồng (hợp đồng không còn `active` thì 0) — nên hai khoản thu ghi liền nhau cho hai thư nói đúng
- * số còn lại lúc mỗi thư đi.
+ * "Còn lại bao nhiêu" cũng tính lúc gửi, theo trạng thái hợp đồng LÚC GỬI ({@see self::balance()}):
+ *
+ *  - `active` → tổng {@see Instalment::outstanding()} của các đợt chưa huỷ — nên hai khoản thu ghi liền
+ *    nhau cho hai thư nói đúng số còn lại lúc mỗi thư đi; 0 thì thư nói "đã thanh toán đủ";
+ *  - `completed` → 0, "đã thanh toán đủ" ({@see CompleteContract} chỉ hoàn tất khi mọi đợt đã thu đủ,
+ *    miễn hay huỷ);
+ *  - `cancelled` (hay bất kỳ trạng thái nào khác) → `null`: thư chỉ xác nhận khoản đã nhận, KHÔNG câu
+ *    "còn lại" và KHÔNG câu "đã đủ". `CancelContract` giữ nguyên khoản thu và số chưa thu; hợp đồng huỷ
+ *    giữa lúc xếp và lúc gửi (cửa sổ thử lại ~1 giờ 20) trước đây cho thư khẳng định "Anh/chị đã thanh
+ *    toán đủ theo hợp đồng" — một xác nhận sai về tiền, bằng văn bản, của văn phòng luật (vòng sửa 1 của
+ *    rà soát cuối làn nt). Khoản thu vẫn có thật, nên xác nhận đã nhận nó vẫn đi.
  *
  * # Không gửi trùng khi thử lại
  *
@@ -93,7 +102,7 @@ class SendPaymentReceivedMail implements ShouldQueue
             return;
         }
 
-        [$payment, $matter, $outstanding, $recipients] = $context;
+        [$payment, $matter, $balance, $recipients] = $context;
 
         $failure = null;
 
@@ -103,7 +112,7 @@ class SendPaymentReceivedMail implements ShouldQueue
             }
 
             try {
-                Mail::to($recipient->email)->send(new PaymentReceived($payment, $matter, $recipient, $outstanding));
+                Mail::to($recipient->email)->send(new PaymentReceived($payment, $matter, $recipient, $balance));
             } catch (Throwable $exception) {
                 $failure ??= $exception;
             }
@@ -135,7 +144,7 @@ class SendPaymentReceivedMail implements ShouldQueue
     /**
      * Bốn bước tính lại của `handle()` (xem docblock lớp). `null` = không gửi gì.
      *
-     * @return array{0: Payment, 1: Matter, 2: int, 3: Collection<int, ClientUser>}|null
+     * @return array{0: Payment, 1: Matter, 2: ?int, 3: Collection<int, ClientUser>}|null
      */
     private function context(): ?array
     {
@@ -168,14 +177,22 @@ class SendPaymentReceivedMail implements ShouldQueue
             return null;
         }
 
-        return [$payment, $matter, $this->outstanding($contract), $recipients];
+        return [$payment, $matter, $this->balance($contract), $recipients];
     }
 
-    /** Còn phải thu của cả hợp đồng — tổng `outstanding()` của các đợt chưa huỷ; 0 khi hợp đồng không `active`. */
-    private function outstanding(Contract $contract): int
+    /**
+     * Câu "còn lại" của thư (xem docblock lớp): hợp đồng `active` → tổng `outstanding()` của các đợt
+     * (0 = đã đủ); `completed` → 0 (đã đủ); mọi trạng thái khác (`cancelled`) → `null`, thư không nói gì
+     * về số còn lại.
+     */
+    private function balance(Contract $contract): ?int
     {
-        if ($contract->status !== ContractStatus::Active) {
+        if ($contract->status === ContractStatus::Completed) {
             return 0;
+        }
+
+        if ($contract->status !== ContractStatus::Active) {
+            return null;
         }
 
         return (int) Instalment::query()

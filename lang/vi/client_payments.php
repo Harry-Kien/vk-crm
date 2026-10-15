@@ -66,6 +66,7 @@ return [
             'bank_bin' => 'Hãy chọn một ngân hàng trong danh sách.',
             'account_number' => 'Số tài khoản gồm :min đến :max chữ số (hoặc chữ cái không dấu).',
             'required_when_enabled' => 'Cần điền ô này trước khi bật nhắc lịch thanh toán cho khách.',
+            'demo_account' => 'Đây là tài khoản giả của dữ liệu mẫu, không phải tài khoản của văn phòng. Nhập tài khoản thật của văn phòng trước khi bật nhắc lịch thanh toán cho khách.',
         ],
 
         'notifications' => [

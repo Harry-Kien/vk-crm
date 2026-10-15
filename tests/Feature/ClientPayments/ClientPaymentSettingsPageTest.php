@@ -5,6 +5,7 @@ use App\Filament\Admin\Pages\ClientPaymentSettingsPage;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\Billing\ClientPaymentSettings;
+use Database\Seeders\ClientPaymentSettingsSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Field;
@@ -222,4 +223,93 @@ it('writes no audit row when saved without any change', function () {
     cpsPage()->call('save')->assertHasNoFormErrors()->assertNotified(__('client_payments.settings.notifications.unchanged'));
 
     expect(Activity::query()->where('event', 'client_payment_settings_updated')->count())->toBe(0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Tài khoản giả của dữ liệu mẫu không bao giờ được bật (vòng sửa 1 của rà soát cuối làn, phát hiện 1)
+// ---------------------------------------------------------------------------------------------
+
+/*
+| `ClientPaymentSettingsSeeder` ghi một tài khoản rõ là giả (số {@see ClientPaymentSettings::DEMO_ACCOUNT_NUMBER},
+| chủ tài khoản {@see ClientPaymentSettings::DEMO_ACCOUNT_HOLDER}). Tài khoản đó đúng dạng, nên trước
+| vòng sửa này nó qua được luật "bật thì phải đủ thông tin chuyển khoản": bật công tắc trên một bản cài
+| có dữ liệu mẫu (kể cả máy chủ thật chạy `db:seed --class=DemoDataSeeder` để demo) là khách thật nhận
+| mã QR và số tài khoản không phải của văn phòng. Nay trang từ chối bật khi số tài khoản hoặc chủ tài
+| khoản là của dữ liệu mẫu — trừ trên máy dev (`APP_ENV=local`), nơi bản xem thử cần bật ngay để thấy
+| thư trong Mailpit (brief Task 2 §6).
+|
+| Mutation probe: bỏ vế số tài khoản → hàng "demo account number", test "seeded demo details" và test
+| "production" ĐỎ; bỏ vế chủ tài khoản → hàng "demo account holder" và test "seeded demo details" ĐỎ; bỏ
+| ngoại lệ máy dev → test "local preview" ĐỎ.
+*/
+it('refuses to turn the switch ON with the demo bank account of the sample data', function (array $demo, string $field) {
+    $this->actingAs($this->admin, 'web');
+
+    cpsPage()
+        ->fillForm(['enabled' => true, ...cpsBankValues(), ...$demo])
+        ->call('save')
+        ->assertHasFormErrors([$field]);
+
+    expect(ClientPaymentSettings::enabled())->toBeFalse()
+        ->and(Setting::query()->whereNotNull('value')->count())->toBe(0);
+})->with([
+    'demo account number' => [['account_number' => '0000 1234 56789'], 'account_number'],
+    'demo account holder' => [['account_holder' => ' tai khoan thu nghiem '], 'account_holder'],
+]);
+
+it('refuses to turn the switch ON over the demo bank details the sample data seeder left, saying why', function () {
+    $this->seed(ClientPaymentSettingsSeeder::class);
+    $this->actingAs($this->admin, 'web');
+
+    cpsPage()
+        ->assertFormSet(['account_number' => ClientPaymentSettings::DEMO_ACCOUNT_NUMBER])
+        ->set('data.enabled', true)
+        ->call('save')
+        ->assertHasFormErrors([
+            'account_number' => __('client_payments.settings.validation.demo_account'),
+            'account_holder' => __('client_payments.settings.validation.demo_account'),
+        ]);
+
+    expect(ClientPaymentSettings::enabled())->toBeFalse()
+        ->and(Activity::query()->where('event', 'client_payment_settings_updated')->count())->toBe(0);
+});
+
+it('turns the switch ON once the demo details are replaced by the office account', function () {
+    $this->seed(ClientPaymentSettingsSeeder::class);
+    $this->actingAs($this->admin, 'web');
+
+    cpsPage()
+        ->fillForm(['enabled' => true, ...cpsBankValues()])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect(ClientPaymentSettings::enabled())->toBeTrue()
+        ->and(ClientPaymentSettings::current()->stored('account_number'))->toBe('0071000123456');
+});
+
+it('lets a developer turn the switch ON over the demo details on a local preview', function () {
+    app()->detectEnvironment(fn () => 'local');
+
+    $this->seed(ClientPaymentSettingsSeeder::class);
+    $this->actingAs($this->admin, 'web');
+
+    cpsPage()
+        ->set('data.enabled', true)
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect(ClientPaymentSettings::enabled())->toBeTrue();
+});
+
+it('refuses the demo account on a production server too', function () {
+    $this->seed(ClientPaymentSettingsSeeder::class);
+    app()->detectEnvironment(fn () => 'production');
+    $this->actingAs($this->admin, 'web');
+
+    cpsPage()
+        ->set('data.enabled', true)
+        ->call('save')
+        ->assertHasFormErrors(['account_number']);
+
+    expect(ClientPaymentSettings::enabled())->toBeFalse();
 });

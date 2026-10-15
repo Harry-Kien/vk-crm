@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Notification\ResendTargets;
+use App\Enums\ContractStatus;
 use App\Enums\InstalmentTrigger;
 use App\Enums\OutboundStatus;
 use App\Enums\PaymentMethod;
@@ -28,6 +29,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\Mime\Email;
 
@@ -197,6 +199,64 @@ it('says the contract is settled when the payment clears the last amount', funct
 
     expect(prmBody(prmSentMails()[0]))->toContain(e(__('client_payments.mail.settled')))
         ->not->toContain(e(__('client_payments.mail.outstanding', ['amount' => '0 ₫'])));
+});
+
+/*
+| Vòng sửa 1 của rà soát cuối làn (phát hiện 2): `CancelContract` giữ nguyên khoản thu và số còn phải
+| thu, nên một hợp đồng bị huỷ giữa lúc xếp và lúc gửi (cửa sổ thử lại ~1 giờ 20) trước đây cho thư nói
+| "Anh/chị đã thanh toán đủ theo hợp đồng" — một xác nhận sai về tiền, bằng văn bản, của văn phòng luật.
+| Nay hợp đồng đã huỷ thì thư chỉ xác nhận khoản đã nhận: không câu "còn lại", không câu "đã đủ". Câu
+| "đã đủ" chỉ khi hợp đồng đã hoàn tất, hoặc đang hiệu lực mà không còn gì phải trả.
+|
+| Mutation probe: bỏ nhánh "hợp đồng đã huỷ" (đi lại đường cũ: không `active` = 0 = đã đủ) → test đầu
+| ĐỎ; coi mọi hợp đồng không `active` là "không nói gì về số còn lại" → test hoàn tất ĐỎ.
+*/
+it('only confirms the amount received when the contract was cancelled before the mail went out', function () {
+    prmSwitch(true);
+    Queue::fake();
+
+    prmRecordThroughTab($this->matter, $this->instalment, '4.000.000');
+    $job = Queue::pushed(SendPaymentReceivedMail::class)->sole();
+
+    $this->actingAs($this->lead, 'web');
+    $this->livewire(BillingRelationManager::class, ['ownerRecord' => $this->matter, 'pageClass' => ViewMatter::class])
+        ->callAction(TestAction::make('cancelContract')->table(), data: [
+            'reason' => 'Hai bên thanh lý hợp đồng, phần còn lại không thu.',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($this->contract->fresh()->status)->toBe(ContractStatus::Cancelled);
+
+    $job->handle();
+
+    $mails = prmSentMails();
+    $body = prmBody($mails[0]);
+
+    expect($mails)->toHaveCount(2)
+        ->and($body)->toContain(e(__('client_payments.mail.amount', ['amount' => '4.000.000 ₫'])))
+        ->toContain(e(__('client_payments.mail.paid_on', ['date' => '19/10/2026'])))
+        ->not->toContain(e(__('client_payments.mail.settled')))
+        ->not->toContain('6.000.000')
+        ->not->toContain(e(Str::before(__('client_payments.mail.outstanding'), ':amount')));
+});
+
+it('says the contract is settled when it was completed before the mail went out', function () {
+    prmSwitch(true);
+    Queue::fake();
+
+    prmRecordThroughTab($this->matter, $this->instalment, '10.000.000');
+    $job = Queue::pushed(SendPaymentReceivedMail::class)->sole();
+
+    $this->actingAs($this->lead, 'web');
+    $this->livewire(BillingRelationManager::class, ['ownerRecord' => $this->matter, 'pageClass' => ViewMatter::class])
+        ->callAction(TestAction::make('completeContract')->table())
+        ->assertHasNoActionErrors();
+
+    expect($this->contract->fresh()->status)->toBe(ContractStatus::Completed);
+
+    $job->handle();
+
+    expect(prmBody(prmSentMails()[0]))->toContain(e(__('client_payments.mail.settled')));
 });
 
 it('logs one sent row per recipient in the outbound log, tied to the matter and to that payment', function () {

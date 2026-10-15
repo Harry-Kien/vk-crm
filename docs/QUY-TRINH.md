@@ -215,16 +215,18 @@ trước: chỉ nhắc nội bộ cho nhân sự, khách không nhận thư nào
 
 **Bật, tắt ở đâu.** Quản trị viên mở **Nhắc thanh toán cho khách** (menu trái): công tắc,
 số ngày báo trước hạn (1–30, mặc định 3) và thông tin chuyển khoản của văn phòng (ngân hàng, số tài
-khoản, chủ tài khoản, chi nhánh). Phải điền đủ thông tin chuyển khoản mới bật được; quét mã QR xem thử
-trên trang bằng ứng dụng ngân hàng trước khi bật. Mỗi lần đổi có một dòng trong Nhật ký hệ thống (ai,
-lúc nào). Tắt là có hiệu lực ngay, kể cả với thư đã xếp hàng mà chưa đi: thư đó **không** được gửi.
+khoản, chủ tài khoản, chi nhánh). Phải điền đủ thông tin chuyển khoản mới bật được, và không bật được
+trên tài khoản giả của dữ liệu mẫu ("TAI KHOAN THU NGHIEM"); quét mã QR xem thử trên trang bằng ứng
+dụng ngân hàng trước khi bật. Mỗi lần đổi có một dòng trong Nhật ký hệ thống (ai, lúc nào). Tắt là có hiệu lực ngay, kể cả với thư đã xếp hàng mà chưa đi: thư đó **không** được gửi.
 
 **Khách nhận gì khi công tắc bật.**
 
 - Trên cổng khách, trang hồ sơ có thêm phần **Lộ trình thanh toán**: giá trị hợp đồng, đã thanh toán,
   còn lại, thông tin chuyển khoản, và với mỗi đợt đã có ngày hạn mà còn phải trả — số tiền, **nội dung
   chuyển khoản** (`MÃ-HỒ-SƠ DOT n`, để kế toán nhận ra tiền của hồ sơ nào) và mã QR điền sẵn số tiền.
-- **Thư xác nhận đã nhận tiền** mỗi khi văn phòng ghi một khoản thu (huỷ khoản thu thì không gửi gì).
+- **Thư xác nhận đã nhận tiền** mỗi khi văn phòng ghi một khoản thu (huỷ khoản thu thì không gửi gì):
+  số tiền, ngày nhận và số còn phải trả theo hợp đồng (hay "đã thanh toán đủ"). Hợp đồng bị huỷ trước
+  khi thư kịp đi thì thư chỉ xác nhận khoản đã nhận, không nói gì về số còn lại.
 - **Thư báo trước hạn**, mỗi sáng 08:15: đợt còn phải trả có ngày hạn từ hôm nay tới hết số ngày báo
   trước. Mỗi đợt một thư cho mỗi tài khoản — chạy lại hay đổi số ngày không gửi lại; văn phòng **Dời
   hạn** đợt sang ngày khác thì khách được báo một lần nữa cho ngày mới. Thư có tên đợt, số tiền còn phải
@@ -245,11 +247,12 @@ gửi**; thư lỗi hẳn thì người đã bấm nhận chuông báo để li�
 hay đợt vừa được dời hạn trước khi thư kịp đi thì thư không đi.
 
 **Thử trên bản xem thử.** Dữ liệu mẫu có sẵn tài khoản chuyển khoản rõ là giả ("TAI KHOAN THU NGHIEM"),
-một đợt sắp đến hạn của khách `khach1@example.com` và nhiều đợt quá hạn. Bật công tắc, rồi bấm **Gửi thư
-nhắc** trên một đợt quá hạn — thư hiện trong hộp thư thử Mailpit sau khoảng một phút (lượt xử lý hàng
+một đợt sắp đến hạn của khách `khach1@example.com` và nhiều đợt quá hạn. Trên máy dev bật công tắc ngay
+được, rồi bấm **Gửi thư nhắc** trên một đợt quá hạn — thư hiện trong hộp thư thử Mailpit sau khoảng một phút (lượt xử lý hàng
 đợi). Muốn thấy ngay thư báo trước hạn thay vì đợi 08:15:
 `bin/dev artisan schedule:test --name=client-payments.due-soon`. Trước khi dùng thật, thay tài khoản giả
-bằng tài khoản thật của văn phòng.
+bằng tài khoản thật của văn phòng: ngoài máy dev (`APP_ENV=local`) hệ thống không cho bật công tắc trên tài
+khoản giả, và chạy lại dữ liệu mẫu không bao giờ ghi đè thông tin chuyển khoản đã cấu hình.
 
 ### Nhập hợp đồng đang chạy khi bắt đầu dùng hệ thống
 

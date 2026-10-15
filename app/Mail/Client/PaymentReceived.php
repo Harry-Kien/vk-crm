@@ -23,8 +23,10 @@ use Illuminate\Mail\Mailables\Envelope;
  * `ResolveClientRecipients::onPortal()`) — nên lúc thư đi, lời mời đăng nhập cổng để xem chi tiết là thật.
  *
  * **Nội dung — chỉ những gì khách đã biết về tiền của mình:** mã hồ sơ, số tiền đã nhận, ngày nhận
- * (`paid_on`), và còn phải thanh toán bao nhiêu theo hợp đồng (job tính lúc gửi và truyền vào — mailable
- * không tự truy vấn). Không tên đợt (tên đợt có thể nói giai đoạn của vụ), không tiêu đề vụ, không cách
+ * (`paid_on`), và một câu về số còn lại theo `$balance` mà job tính lúc gửi và truyền vào (mailable không
+ * tự truy vấn): số > 0 → "còn phải thanh toán …"; 0 → "đã thanh toán đủ" (hợp đồng hoàn tất, hay đang hiệu
+ * lực mà không còn gì phải trả); `null` (hợp đồng đã huỷ) → KHÔNG câu nào, thư chỉ xác nhận khoản đã nhận.
+ * Không tên đợt (tên đợt có thể nói giai đoạn của vụ), không tiêu đề vụ, không cách
  * trả, mã giao dịch, ghi chú hay người ghi.
  *
  * **Vụ hạn chế** (`confidentiality = restricted`): thân thư chỉ nêu mã hồ sơ và mời đăng nhập cổng
@@ -41,7 +43,7 @@ class PaymentReceived extends BrandedMailable
         public Payment $payment,
         public Matter $matter,
         public ClientUser $recipient,
-        public int $outstandingAmount,
+        public ?int $balance,
     ) {}
 
     protected function template(): string
@@ -82,7 +84,8 @@ class PaymentReceived extends BrandedMailable
                 'restricted' => $restricted,
                 'amount' => $restricted ? null : Money::format($this->payment->amount),
                 'paidOn' => $restricted ? null : $this->payment->paid_on->format('d/m/Y'),
-                'outstanding' => $restricted || $this->outstandingAmount === 0 ? null : Money::format($this->outstandingAmount),
+                'outstanding' => $restricted || $this->balance === null || $this->balance <= 0 ? null : Money::format($this->balance),
+                'settled' => ! $restricted && $this->balance === 0,
                 'portalUrl' => PortalUrl::base(),
                 'office' => $office->legalName(),
                 'hotline' => $office->hotline(),

@@ -72,6 +72,16 @@ final class ClientPaymentSettings
 
     public const MAX_DAYS_BEFORE_DUE = 30;
 
+    /**
+     * Số tài khoản RÕ LÀ GIẢ mà dữ liệu mẫu (`Database\Seeders\ClientPaymentSettingsSeeder`) ghi. Nó đúng
+     * dạng (qua được luật "bật thì phải đủ thông tin chuyển khoản"), nên {@see UpdateClientPaymentSettings}
+     * từ chối riêng nó — mục "Không bật trên tài khoản của dữ liệu mẫu" của docblock Action đó.
+     */
+    public const DEMO_ACCOUNT_NUMBER = '0000123456789';
+
+    /** Chủ tài khoản giả của dữ liệu mẫu (cùng lý do với {@see self::DEMO_ACCOUNT_NUMBER}). */
+    public const DEMO_ACCOUNT_HOLDER = 'TAI KHOAN THU NGHIEM';
+
     /** @param  array<string, ?string>  $stored  khoá đầy đủ → giá trị đã lưu */
     private function __construct(private readonly array $stored) {}
 
@@ -113,6 +123,22 @@ final class ClientPaymentSettings
         $value = $this->stored[self::KEYS[$field]] ?? null;
 
         return filled($value) ? $value : null;
+    }
+
+    /**
+     * Đã có BẤT KỲ giá trị nào được lưu cho một trong sáu trường chưa (kể cả công tắc lưu `'0'`, hay
+     * chỉ số ngày báo trước). Dữ liệu mẫu chỉ ghi khi câu trả lời là "chưa" — không bao giờ đè lên cấu
+     * hình mà văn phòng đã đặt.
+     */
+    public function hasAnyStoredValue(): bool
+    {
+        foreach (array_keys(self::KEYS) as $field) {
+            if ($this->stored($field) !== null) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

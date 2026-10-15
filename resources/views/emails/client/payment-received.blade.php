@@ -19,13 +19,12 @@
             <li style="margin:0 0 6px;">{{ __('client_payments.mail.paid_on', ['date' => $paidOn]) }}</li>
         </ul>
 
-        <p style="margin:0 0 16px;">
-            @if ($outstanding !== null)
-                {{ __('client_payments.mail.outstanding', ['amount' => $outstanding]) }}
-            @else
-                {{ __('client_payments.mail.settled') }}
-            @endif
-        </p>
+        {{-- Hợp đồng đã huỷ: không câu nào về số còn lại (docblock mailable). --}}
+        @if ($outstanding !== null)
+            <p style="margin:0 0 16px;">{{ __('client_payments.mail.outstanding', ['amount' => $outstanding]) }}</p>
+        @elseif ($settled)
+            <p style="margin:0 0 16px;">{{ __('client_payments.mail.settled') }}</p>
+        @endif
     @endif
 
     <p style="margin:0 0 16px;">

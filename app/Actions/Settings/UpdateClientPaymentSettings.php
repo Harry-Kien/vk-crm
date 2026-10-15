@@ -36,6 +36,18 @@ use Illuminate\Validation\ValidationException;
  * không ghi gì. Lý do: khi bật, cổng khách in thông tin chuyển khoản và mã QR; một công tắc bật trên
  * một tài khoản trống là một khối thanh toán không trả tiền vào đâu được.
  *
+ * # Không bật trên tài khoản của dữ liệu mẫu
+ *
+ * Cùng lúc ấy (công tắc SAU lần lưu này là bật), số tài khoản SAU lần lưu không được là
+ * {@see ClientPaymentSettings::DEMO_ACCOUNT_NUMBER} và chủ tài khoản không được là
+ * {@see ClientPaymentSettings::DEMO_ACCOUNT_HOLDER} (không phân biệt hoa thường) — vi phạm thì
+ * `ValidationException` trên đúng ô đó, câu `client_payments.settings.validation.demo_account`, cả lô
+ * không ghi gì. Lý do (vòng sửa 1 của rà soát cuối làn nt): `DemoDataSeeder` chạy được trên máy chủ
+ * thật bằng `--class`; tài khoản giả đúng dạng nên qua luật "đủ thông tin", và bật công tắc trên nó là
+ * khách thật nhận mã QR, số tài khoản không phải của văn phòng. **Ngoại lệ duy nhất: `APP_ENV=local`**
+ * (máy dev) — bản xem thử ở đó phải bật được ngay trên dữ liệu mẫu để thấy thư trong Mailpit (brief
+ * Task 2 §6), và máy dev không có khách thật.
+ *
  * # Chỉ ghi điều THẬT SỰ đổi
  *
  * So GIÁ TRỊ ĐANG DÙNG (không phải dòng thô) với giá trị mới: công tắc chưa lưu = tắt, số ngày chưa
@@ -199,6 +211,9 @@ final class UpdateClientPaymentSettings
     }
 
     /**
+     * Hai luật của docblock lớp khi công tắc sau lần lưu là bật: đủ ba ô chuyển khoản, rồi (trừ
+     * `APP_ENV=local`) không phải tài khoản của dữ liệu mẫu.
+     *
      * @param  array<string, ?string>  $after  giá trị sau lần lưu này (đang dùng, đè bởi giá trị gửi lên)
      *
      * @throws ValidationException
@@ -216,6 +231,20 @@ final class UpdateClientPaymentSettings
 
         if ($missing !== []) {
             throw ValidationException::withMessages(array_fill_keys($missing, [__('client_payments.settings.validation.required_when_enabled')]));
+        }
+
+        if (app()->environment('local')) {
+            return;
+        }
+
+        // `account_number` đã chuẩn hoá (viết hoa, bỏ khoảng trắng/chấm/gạch); chủ tài khoản chỉ cắt hai đầu.
+        $demo = array_keys(array_filter([
+            'account_number' => $after['account_number'] === ClientPaymentSettings::DEMO_ACCOUNT_NUMBER,
+            'account_holder' => mb_strtoupper((string) $after['account_holder']) === ClientPaymentSettings::DEMO_ACCOUNT_HOLDER,
+        ]));
+
+        if ($demo !== []) {
+            throw ValidationException::withMessages(array_fill_keys($demo, [__('client_payments.settings.validation.demo_account')]));
         }
     }
 }
