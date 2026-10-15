@@ -304,14 +304,21 @@ khi ai đó bận, nghỉ hay rời vụ. Hai thứ được giao: **một hồ 
 trang **Công việc** (việc chung — trưởng phòng, quản trị viên): ghi việc cần làm, chọn người trong đội ngũ
 của vụ, đặt hạn và mức ưu tiên. Người nhận bấm **"Đã nhận"** hoặc **"Trả lại"** kèm lý do, rồi
 **"Hoàn thành"** (ghi chú kết quả tuỳ chọn). Người giao theo dõi ở tab **"Tôi đã giao"**: việc bị trả lại
-cần **"Giao lại"** hoặc **"Huỷ việc"**. Người nhận đã nghỉ hay rời đội ngũ vụ thì việc hiện "Cần giao lại".
-Việc của một vụ đã kết thúc chỉ còn huỷ được.
+cần **"Giao lại"** hoặc **"Huỷ việc"**. Người nhận đã nghỉ hay rời đội ngũ vụ thì việc hiện "Cần giao lại";
+việc bị trả lại mà người giao đã nghỉ cũng vậy (cột "Người giao" ghi "Người giao đã nghỉ — cần giao lại hoặc
+huỷ"; bật bộ lọc "Cần giao lại" ở tab "Tất cả"). Việc của một vụ đã kết thúc chỉ còn huỷ được.
 
 **Khi bàn giao vụ.** Việc đang mở của luật sư phụ trách cũ trên vụ đó chuyển sang luật sư phụ trách mới ở
-trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao liệt kê chúng. Lead cũ ở lại làm luật sư cộng
-sự thì việc ở lại với họ. Việc chung của người nghỉ việc ở lại "Cần giao lại" cho trưởng phòng giao lại.
-Người giao việc đã rời vụ thì lời báo "bị trả lại" và các lời nhắc cho người giao đi tới luật sư phụ trách
-hiện tại của vụ.
+trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao liệt kê chúng. Những việc luật sư phụ trách cũ
+**đã giao cho người khác** trên vụ mà còn mở (chờ nhận, đang làm, bị trả lại) đổi **người giao** sang luật sư
+phụ trách mới — người nhận, trạng thái, hạn và lý do trả lại giữ nguyên, nhật ký ghi người giao cũ — nên
+chúng hiện ở tab "Tôi đã giao" và ô "Việc tôi giao bị trả lại" của luật sư phụ trách mới, và thư tổng hợp
+bàn giao có một mục riêng cho chúng. Lead cũ ở lại làm luật sư cộng sự thì mọi việc ở lại với họ. Việc chung
+của người nghỉ việc ở lại "Cần giao lại" cho trưởng phòng giao lại.
+
+Người giao việc đã rời vụ hay nghỉ việc mà không qua bàn giao (ví dụ một luật sư cộng sự nghỉ) thì lời báo
+"bị trả lại" và hai lời nhắc cho người giao (chưa được nhận, quá hạn) đi tới luật sư phụ trách hiện tại của
+vụ, ghi rõ việc "do … giao" và mở thẳng tab "Công việc" của hồ sơ — nơi luật sư phụ trách giao lại hay huỷ.
 
 **Nhắc tự động** (lịch `tasks.remind`, mỗi 30 phút, chỉ trong giờ làm việc Thứ Hai–Thứ Sáu 08:00–17:30):
 

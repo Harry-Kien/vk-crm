@@ -162,6 +162,7 @@ class ReassignMatters
                         'deadline_ids' => $result->movedDeadlineIds,
                         'client_request_ids' => $result->movedRequestIds,
                         'task_ids' => $result->movedTaskIds,
+                        'followed_task_ids' => $result->followedTaskIds,
                         'reason' => $reason,
                     ];
 

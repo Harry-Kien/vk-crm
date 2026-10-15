@@ -174,6 +174,8 @@ it('finds the four reason constants of today, each on its event', function () {
         'Matter/ReassignMatter.php::REQUEST_HANDOVER_REASON => client_request_assigned.matter_reassigned',
         // Làn tk, Task 2.
         'Task/MoveTasksOnHandover.php::HANDOVER_REASON => task_reassigned.matter_reassigned',
+        // Làn tk, Task 2, vòng sửa 1 (I1): cùng hằng số, người giao đổi sang lead mới.
+        'Task/MoveTasksOnHandover.php::HANDOVER_REASON => task_assigner_changed.matter_reassigned',
     ]);
 });
 

@@ -274,6 +274,8 @@ return [
         // Làn tk, Task 2: App\Actions\Matter\AcceptMatterAssignment / DeclineMatterAssignment.
         'matter_assignment_accepted' => 'Nhận hồ sơ được giao',
         'matter_assignment_declined' => 'Trả lại hồ sơ được giao',
+        // Làn tk, Task 2, vòng sửa 1: App\Actions\Task\MoveTasksOnHandover::transferAssigner().
+        'task_assigner_changed' => 'Đổi người giao việc khi bàn giao vụ',
         // --- Hết khối làn tk ----------------------------------------------------------------
     ],
 
@@ -336,6 +338,10 @@ return [
         // Làn tk, Task 2: MoveTasksOnHandover::HANDOVER_REASON — việc nội bộ của lead cũ chuyển khi bàn giao vụ.
         'task_reassigned' => [
             'matter_reassigned' => 'Bàn giao vụ việc: việc đang mở của luật sư cũ chuyển sang luật sư phụ trách mới (chờ nhận)',
+        ],
+        // Làn tk, Task 2, vòng sửa 1: cùng hằng số, sự kiện task_assigner_changed.
+        'task_assigner_changed' => [
+            'matter_reassigned' => 'Bàn giao vụ việc: việc luật sư cũ đã giao trên vụ nay do luật sư phụ trách mới theo dõi',
         ],
     ],
 ];

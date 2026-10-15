@@ -42,7 +42,8 @@ use Throwable;
  *
  *  - việc: người nhận qua `ResolveStaffRecipients::forTask()` (đang hoạt động, chưa xoá, còn XEM ĐƯỢC
  *    việc — tức xem được vụ); lời báo cho người giao qua `ResolveStaffRecipients::forTaskAssigner()` (người
- *    giao đã nghỉ, rời vụ thì luật sư phụ trách hiện tại của vụ);
+ *    giao đã nghỉ, rời vụ thì luật sư phụ trách hiện tại của vụ, với câu chữ và đường dẫn của người nhận
+ *    thay — {@see self::isAssignerKind()}; bàn giao vụ thì lead mới đã là người giao, `MoveTasksOnHandover`);
  *  - hồ sơ: người nhận qua `ResolveStaffRecipients::qualifies()`; lời báo người giao qua
  *    {@see self::seatAssignerAudience()} — người giao, hay chuỗi dự phòng của `ResolveStaffRecipients`,
  *    không bao giờ chính người được giao.
@@ -162,6 +163,16 @@ class RemindPendingWork
     public static function overdueKey(?CarbonInterface $now = null): string
     {
         return 'overdue@'.CarbonImmutable::instance($now ?? now())->toDateString();
+    }
+
+    /**
+     * Loại nhắc báo NGƯỜI GIAO (chưa được nhận, quá hạn) — người nhận qua {@see self::taskAssignerAudience()},
+     * có thể là luật sư phụ trách nhận thay (vòng sửa 1, I1: câu chữ, đường dẫn của người nhận thay —
+     * `TaskReminderAlert::onBehalf()`).
+     */
+    public static function isAssignerKind(string $kind): bool
+    {
+        return in_array($kind, [self::UNACCEPTED, self::OVERDUE_ASSIGNER], true);
     }
 
     /** Ngưỡng giờ làm việc của một loại nhắc chờ nhận. */

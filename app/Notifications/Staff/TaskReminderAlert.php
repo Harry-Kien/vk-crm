@@ -17,14 +17,24 @@ use Illuminate\Notifications\Notification;
  *
  * Cùng khuôn {@see TaskAlert}: kênh `database`, `e()` mọi giá trị nội suy (tiêu đề việc là chữ người dùng
  * gõ), mang tiêu đề việc và mã vụ, không tên khách. `viewData.reminder_key` là khoá chống trùng của job.
+ *
+ * Người nhận thay người giao (vòng sửa 1, I1): hai loại báo người giao ({@see RemindPendingWork::
+ * isAssignerKind()}) tới luật sư phụ trách hiện tại khi người giao đã rời vụ hay nghỉ việc mang
+ * `$onBehalfOf` = tên người giao — câu `*_on_behalf` ("do :assigner giao") và nút về tab "Công việc" của vụ
+ * (`TaskAlert::onBehalfUrl()`), không "việc anh/chị giao" và tab "Tôi đã giao" nơi việc đó không có.
  */
 class TaskReminderAlert extends Notification
 {
+    /**
+     * @param  string|null  $onBehalfOf  tên người giao khi người nhận nhận THAY họ (docblock lớp); `null`:
+     *                                   người nhận là người nhận việc hay chính người giao
+     */
     public function __construct(
         private readonly Task $task,
         private readonly string $kind,
         private readonly string $key,
         private readonly string $detail,
+        private readonly ?string $onBehalfOf = null,
     ) {}
 
     /** @return array<int, string> */
@@ -37,14 +47,15 @@ class TaskReminderAlert extends Notification
     public function toDatabase(object $notifiable): array
     {
         $code = $this->task->matter?->code;
-        $lang = 'tasks.reminder.alert.'.str_replace('reminder.', '', $this->kind);
+        $onBehalf = self::onBehalf($this->kind, $this->task, $this->onBehalfOf);
+        $lang = 'tasks.reminder.alert.'.str_replace('reminder.', '', $this->kind).($onBehalf ? '_on_behalf' : '');
         $danger = in_array($this->kind, [RemindPendingWork::OVERDUE, RemindPendingWork::OVERDUE_ASSIGNER], true);
 
         return [
             'actions' => [
                 Action::make('open')
                     ->label(__('tasks.alert.open'))
-                    ->url(TaskResource::getUrl('index', ['tab' => self::tabFor($this->kind)], panel: 'admin'))
+                    ->url(self::urlFor($this->kind, $this->task, $this->onBehalfOf))
                     ->markAsRead()
                     ->toArray(),
             ],
@@ -52,6 +63,7 @@ class TaskReminderAlert extends Notification
                 'title' => e($this->task->title),
                 'who' => e((string) $this->task->assignee?->name),
                 'detail' => e($this->detail),
+                'assigner' => e((string) $this->onBehalfOf),
             ]).($code === null ? '' : ' '.__('tasks.alert.on_matter', ['code' => e($code)])),
             'color' => $danger ? 'danger' : 'warning',
             'duration' => 'persistent',
@@ -73,5 +85,22 @@ class TaskReminderAlert extends Notification
             RemindPendingWork::DUE_SOON, RemindPendingWork::OVERDUE => 'active',
             default => 'assigned',
         };
+    }
+
+    /**
+     * Lời nhắc này tới người nhận THAY người giao (docblock lớp) — một loại báo người giao, việc của một vụ,
+     * có tên người giao. Một định nghĩa cho chuông và thư (`TaskReminder`).
+     */
+    public static function onBehalf(string $kind, Task $task, ?string $onBehalfOf): bool
+    {
+        return $onBehalfOf !== null && RemindPendingWork::isAssignerKind($kind) && $task->matter_id !== null;
+    }
+
+    /** Đường dẫn của lời nhắc: tab "Công việc" của vụ cho người nhận thay, không thì tab của {@see self::tabFor()}. */
+    public static function urlFor(string $kind, Task $task, ?string $onBehalfOf): string
+    {
+        return self::onBehalf($kind, $task, $onBehalfOf)
+            ? TaskAlert::onBehalfUrl($task)
+            : TaskResource::getUrl('index', ['tab' => self::tabFor($kind)], panel: 'admin');
     }
 }

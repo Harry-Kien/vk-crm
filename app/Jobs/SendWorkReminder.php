@@ -39,6 +39,11 @@ use Illuminate\Support\Facades\Mail;
  *     lại; thư đã có dòng sổ thư `sent` cùng mẫu, cùng người, cùng bản ghi, cùng `payload.tier` thì không
  *     gửi lại ({@see self::alreadyMailed()} — lịch cũng hỏi câu này trước khi xếp).
  *
+ * Hai loại báo người giao ({@see RemindPendingWork::isAssignerKind()}) tới người không phải `assigned_by`
+ * LÚC GỬI — luật sư phụ trách nhận thay người giao đã rời vụ hay nghỉ việc (`ResolveStaffRecipients::
+ * forTaskAssigner()`) — mang tên người giao (vòng sửa 1, I1): chuông và thư dùng câu chữ, đường dẫn của
+ * người nhận thay ({@see TaskReminderAlert::onBehalf()}).
+ *
  * `ShouldBeUnique` theo (đối tượng, loại, người, khoá): hai lượt lịch liền nhau không xếp hai job cho cùng
  * một lời nhắc khi job đầu còn chờ hàng.
  */
@@ -125,6 +130,10 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
 
         $detail = $this->taskDetail($task);
         $fullKey = self::fullKey($this->subject, $this->subjectId, $this->kind, $this->key);
+        // Xem docblock lớp: người nhận thay người giao.
+        $onBehalfOf = RemindPendingWork::isAssignerKind($this->kind) && $user->getKey() !== $task->assigned_by
+            ? $recipients->assignerName($task)
+            : null;
 
         $alerted = $user->notifications()
             ->where('type', TaskReminderAlert::class)
@@ -132,14 +141,14 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
             ->exists();
 
         if (! $alerted) {
-            $user->notify(new TaskReminderAlert($task, $this->kind, $fullKey, $detail));
+            $user->notify(new TaskReminderAlert($task, $this->kind, $fullKey, $detail, $onBehalfOf));
         }
 
         if (self::alreadyMailed($task, $user, $this->subject, $this->kind, $this->key)) {
             return;
         }
 
-        Mail::to($user->email)->send(new TaskReminder($task, $this->kind, $user, $detail, $this->key));
+        Mail::to($user->email)->send(new TaskReminder($task, $this->kind, $user, $detail, $this->key, $onBehalfOf));
     }
 
     private function remindSeat(User $recipient, ResolveStaffRecipients $recipients): void

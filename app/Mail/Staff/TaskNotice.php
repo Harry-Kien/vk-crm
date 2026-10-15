@@ -27,6 +27,11 @@ use Illuminate\Mail\Mailables\Envelope;
  * scopeVisibleTo()` không mở loại này cho ai khác). Header `LEDGER_TIER` mang khoá của LẦN báo
  * ({@see self::ledgerKey()}) — một việc có thể được giao lại, trả lại nhiều lần, mỗi lần một thư; job
  * so khoá này để một lần thử lại không gửi lần hai (cùng thiết bị `DocumentRejected::ledgerKeyFor()`).
+ *
+ * Người nhận thay người giao (làn tk, Task 2, vòng sửa 1 — I1): thư "bị trả lại" tới luật sư phụ trách hiện
+ * tại khi người giao đã rời vụ hay nghỉ việc mang `$onBehalfOf` = tên người giao — tiêu đề, câu mở đầu và
+ * nút theo bộ chữ `*.declined_on_behalf`, thêm dòng "Người giao", và đường dẫn về tab "Công việc" của vụ
+ * (`TaskAlert::onBehalfUrl()`) thay vì "Tôi đã giao". Cùng mẫu `staff.task.declined`, cùng khoá sổ thư.
  */
 class TaskNotice extends BrandedMailable
 {
@@ -46,6 +51,7 @@ class TaskNotice extends BrandedMailable
         public User $recipient,
         public string $actorName,
         public int $eventId,
+        public ?string $onBehalfOf = null,
     ) {}
 
     public static function ledgerKey(int $eventId): string
@@ -72,7 +78,7 @@ class TaskNotice extends BrandedMailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: __('tasks.email.subject.'.$this->kind, ['name' => $this->actorName]),
+            subject: __('tasks.email.subject.'.$this->langKind(), ['name' => $this->actorName]),
         );
     }
 
@@ -85,13 +91,27 @@ class TaskNotice extends BrandedMailable
             text: 'emails.staff.task-notice-text',
             with: [
                 'recipientName' => $this->recipient->name,
-                'headline' => __('tasks.email.headline.'.$this->kind, ['name' => $this->actorName]),
+                'headline' => __('tasks.email.headline.'.$this->langKind(), ['name' => $this->actorName, 'assigner' => (string) $this->onBehalfOf]),
                 'details' => $this->details(),
-                'url' => TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor($this->kind)], panel: 'admin'),
-                'action' => __('tasks.email.action.'.$this->kind),
+                'url' => $this->onBehalf()
+                    ? TaskAlert::onBehalfUrl($this->task)
+                    : TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor($this->kind)], panel: 'admin'),
+                'action' => __('tasks.email.action.'.$this->langKind()),
                 'office' => $office->legalName(),
             ],
         );
+    }
+
+    /** Thư này tới người nhận THAY người giao (docblock lớp) — chỉ loại "bị trả lại", chỉ việc của một vụ. */
+    private function onBehalf(): bool
+    {
+        return $this->onBehalfOf !== null && $this->kind === self::KIND_DECLINED && $this->task->matter_id !== null;
+    }
+
+    /** Hậu tố khoá câu chữ: loại thư, cộng `_on_behalf` khi người nhận nhận thay người giao. */
+    private function langKind(): string
+    {
+        return $this->kind.($this->onBehalf() ? '_on_behalf' : '');
     }
 
     /**
@@ -107,6 +127,7 @@ class TaskNotice extends BrandedMailable
         return array_values(array_filter([
             $line('title', $task->title),
             $task->matter?->code === null ? null : $line('matter', $task->matter->code),
+            $this->onBehalf() ? $line('assigner', (string) $this->onBehalfOf) : null,
             $line('due_date', $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date')),
             $line('priority', $task->priority->label()),
             $this->kind === self::KIND_DECLINED ? $line('reason', (string) $task->decline_reason) : null,

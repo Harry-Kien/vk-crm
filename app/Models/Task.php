@@ -248,13 +248,22 @@ class Task extends Model
      * chủ văn phòng 2026-10-10): người đó đã bị vô hiệu hoá hay xoá mềm, hoặc — việc của một vụ — không
      * còn ngồi ghế giữ việc nào trong đội ngũ của vụ ({@see self::workingSeats()}: đã rời đội,
      * hay chuyển sang "người theo dõi"). Cùng luật, đọc trong bộ nhớ: {@see self::reassignmentReason()}.
+     *
+     * Vế thứ ba (làn tk, Task 2, vòng sửa 1 — I1): việc "Bị trả lại" mà NGƯỜI GIAO đã bị vô hiệu hoá hay
+     * xoá mềm. Việc bị trả lại chờ người giao giao lại hay huỷ; người đó đã nghỉ thì việc không nằm ở
+     * "Tôi đã giao" của ai — nó cần luật sư phụ trách hay quản lý nhận lấy. Việc người nhận còn giữ (chờ
+     * nhận, đang làm) thì không: người nhận vẫn làm được, và lời báo/nhắc cho người giao có người nhận thay
+     * (`ResolveStaffRecipients::forTaskAssigner()`). Bàn giao vụ không để lại việc nào ở đây: lead mới
+     * thành người giao (`MoveTasksOnHandover::transferAssigner()`).
      */
     public function scopeNeedsReassignment(Builder $query): Builder
     {
+        $gone = fn (Builder $user): Builder => $user->withTrashed()->where(fn (Builder $left): Builder => $left
+            ->where('users.is_active', false)
+            ->orWhereNotNull('users.deleted_at'));
+
         return $query->open()->where(fn (Builder $stuck): Builder => $stuck
-            ->whereHas('assignee', fn (Builder $assignee): Builder => $assignee->withTrashed()->where(fn (Builder $gone): Builder => $gone
-                ->where('users.is_active', false)
-                ->orWhereNotNull('users.deleted_at')))
+            ->whereHas('assignee', $gone)
             ->orWhere(fn (Builder $offTeam): Builder => $offTeam
                 ->whereNotNull($this->qualifyColumn('matter_id'))
                 ->whereNotExists(fn (QueryBuilder $seat): QueryBuilder => $seat
@@ -262,14 +271,18 @@ class Task extends Model
                     ->from('matter_user')
                     ->whereColumn('matter_user.matter_id', $this->qualifyColumn('matter_id'))
                     ->whereColumn('matter_user.user_id', $this->qualifyColumn('assignee_id'))
-                    ->whereIn('matter_user.role_in_matter', self::workingSeats()))));
+                    ->whereIn('matter_user.role_in_matter', self::workingSeats())))
+            ->orWhere(fn (Builder $orphaned): Builder => $orphaned
+                ->where($this->qualifyColumn('status'), TaskStatus::Declined->value)
+                ->whereHas('assigner', $gone)));
     }
 
     /**
      * Vì sao việc này cần giao lại — `inactive` (người nhận đã nghỉ), `off_team` (không còn trong đội ngũ
-     * giữ việc của vụ), hay `null` (không cần). Cùng luật {@see self::scopeNeedsReassignment()}, đọc trên
-     * quan hệ đã nạp (`assignee` kể cả đã xoá mềm, `matter.team` — `TaskColumns::eagerLoad()`). Chỉ để
-     * hiển thị; không Action nào đọc nó (Action hỏi lại dưới khoá).
+     * giữ việc của vụ), `assigner_gone` (việc bị trả lại mà người giao đã nghỉ), hay `null` (không cần).
+     * Cùng luật {@see self::scopeNeedsReassignment()}, đọc trên quan hệ đã nạp (`assignee` và `assigner` kể
+     * cả đã xoá mềm, `matter.team` — `TaskColumns::eagerLoad()`). Chỉ để hiển thị; không Action nào đọc nó
+     * (Action hỏi lại dưới khoá).
      */
     public function reassignmentReason(): ?string
     {
@@ -283,14 +296,24 @@ class Task extends Model
             return 'inactive';
         }
 
-        if ($this->matter_id === null || $this->matter === null) {
-            return null;
+        if ($this->matter_id !== null) {
+            if ($this->matter === null) {
+                return null;
+            }
+
+            $seat = $this->matter->team->first(fn (User $member): bool => $member->is($assignee))?->pivot?->role_in_matter;
+            $seat = $seat instanceof MatterRole ? $seat->value : $seat;
+
+            if (! in_array($seat, self::workingSeats(), true)) {
+                return 'off_team';
+            }
         }
 
-        $seat = $this->matter->team->first(fn (User $member): bool => $member->is($assignee))?->pivot?->role_in_matter;
-        $seat = $seat instanceof MatterRole ? $seat->value : $seat;
+        $assigner = $this->assigner;
 
-        return in_array($seat, self::workingSeats(), true) ? null : 'off_team';
+        return $this->status === TaskStatus::Declined && $assigner instanceof User && (! $assigner->is_active || $assigner->trashed())
+            ? 'assigner_gone'
+            : null;
     }
 
     public function isOpen(): bool

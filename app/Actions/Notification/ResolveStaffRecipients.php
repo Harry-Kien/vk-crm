@@ -451,7 +451,13 @@ class ResolveStaffRecipients
      *
      * Khác {@see self::forTask()} có chủ ý: lời báo "đã nhận", "đã hoàn thành" chỉ là tin cho chính người
      * giao — chúng không qua đây. Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì
-     * rỗng (việc hiện ở danh sách "Công việc" của quản lý).
+     * rỗng (việc hiện ở danh sách "Công việc" của quản lý, và "Cần giao lại" khi việc đã bị trả lại —
+     * `Task::scopeNeedsReassignment()`).
+     *
+     * Người nhận thay KHÔNG phải người giao (vòng sửa 1 của Task 2, I1): người gửi so người nhận với
+     * `assigned_by` và dùng câu chữ "do :assigner giao" ({@see self::assignerName()}), đường dẫn về tab
+     * "Công việc" của vụ — không "việc anh/chị giao", không tab "Tôi đã giao". Bàn giao vụ không đi đường này:
+     * `MoveTasksOnHandover` đổi người giao sang lead mới, nên lead mới LÀ người giao.
      *
      * @return Collection<int, User>
      */
@@ -470,5 +476,14 @@ class ResolveStaffRecipients
         }
 
         return $this->forTask($task, [$lead]);
+    }
+
+    /**
+     * Tên người giao của `$task` cho lời báo của người nhận thay ({@see self::forTaskAssigner()}) — kể cả
+     * người đã xoá mềm (quan hệ `assigner` bỏ họ). Chỉ tên một đồng nghiệp: không dữ liệu hồ sơ.
+     */
+    public function assignerName(Task $task): string
+    {
+        return (string) User::query()->withTrashed()->whereKey($task->assigned_by)->value('name');
     }
 }

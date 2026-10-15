@@ -35,6 +35,17 @@
 ]) !!}
 @endforeach
 @endif
+@if (count($block['followed_tasks'] ?? []) > 0)
+{!! __('tasks.handover.email.followed_heading') !!}
+@foreach ($block['followed_tasks'] as $task)
+- {!! __('tasks.handover.email.followed_line', [
+    'title' => $task->title,
+    'assignee' => (string) $task->assignee?->name,
+    'status' => $task->status->label(),
+    'due' => $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date'),
+]) !!}
+@endforeach
+@endif
 @endforeach
 
 {!! __('reassign.email.action') !!}

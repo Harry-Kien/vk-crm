@@ -96,9 +96,12 @@ class SendReassignmentDigest implements ShouldQueue
      * lý do bàn giao của CHÍNH lần này (một chuỗi cố định, không cần dựng lại — khác hẳn mốc/yêu cầu
      * khách, không có khái niệm "còn hợp lệ hay không" cho một chuỗi lịch sử). Làn tk, Task 2: mỗi phần tử
      * có thể mang thêm `task_ids` — việc nội bộ vừa chuyển sang lead mới, cùng luật "dựng lại lúc gửi" (chỉ
-     * việc còn của vụ đó, còn do lead mới giữ, còn chờ nhận hay đang làm).
+     * việc còn của vụ đó, còn do lead mới giữ, còn chờ nhận hay đang làm). Vòng sửa 1 (I1): và
+     * `followed_task_ids` — việc lead cũ đã giao trên vụ, nay lead mới là người giao
+     * (`MoveTasksOnHandover::transferAssigner()`), cùng luật: chỉ việc còn của vụ đó, người giao còn là lead
+     * mới, còn mở (chờ nhận, đang làm, bị trả lại).
      *
-     * @param  array<int, array{deadline_ids: array<int, int>, client_request_ids: array<int, int>, task_ids?: array<int, int>, reason: string}>  $matters
+     * @param  array<int, array{deadline_ids: array<int, int>, client_request_ids: array<int, int>, task_ids?: array<int, int>, followed_task_ids?: array<int, int>, reason: string}>  $matters
      */
     public function __construct(
         public readonly int $newLeadId,
@@ -157,11 +160,24 @@ class SendReassignmentDigest implements ShouldQueue
                 ->orderBy('id')
                 ->get();
 
+            // Vòng sửa 1 (I1): việc lead cũ đã giao trên vụ, nay lead mới là người giao — cùng luật dựng lại.
+            $followed = Task::query()
+                ->whereKey($ids['followed_task_ids'] ?? [])
+                ->where('matter_id', $matter->getKey())
+                ->where('assigned_by', $newLead->getKey())
+                ->open()
+                ->with(['assignee' => fn ($assignee) => $assignee->withTrashed()])
+                ->orderByRaw('CASE WHEN due_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('due_date')
+                ->orderBy('id')
+                ->get();
+
             $blocks[] = [
                 'matter' => $matter,
                 'deadlines' => $deadlines,
                 'client_requests_moved' => $clientRequestsMoved,
                 'tasks' => $tasks,
+                'followed_tasks' => $followed,
                 'reason' => $ids['reason'] ?? '',
             ];
         }

@@ -44,6 +44,8 @@ return [
         'assigned_at' => 'Giao lúc',
         'assignee_inactive' => 'Người nhận đã nghỉ — cần giao lại',
         'assignee_off_team' => 'Người nhận không còn trong đội ngũ vụ — cần giao lại',
+        // Vòng sửa 1 (I1): việc bị trả lại mà người giao đã nghỉ — `Task::reassignmentReason()` = assigner_gone.
+        'assigner_gone' => 'Người giao đã nghỉ — cần giao lại hoặc huỷ',
     ],
 
     'due' => [
@@ -199,6 +201,13 @@ return [
             'title' => 'Việc anh/chị giao bị trả lại',
             'body' => ':who trả lại việc ":title". Lý do: :reason',
         ],
+        // Vòng sửa 1 (I1): người giao đã rời vụ hay nghỉ việc, luật sư phụ trách hiện tại nhận thay
+        // (`ResolveStaffRecipients::forTaskAssigner()`). :assigner đã escape.
+        'declined_on_behalf' => [
+            'title' => 'Một việc trên hồ sơ anh/chị phụ trách bị trả lại',
+            'body' => ':who trả lại việc ":title" do :assigner giao. Lý do: :reason. :assigner không còn theo dõi '
+                .'việc này nên anh/chị nhận thay: hãy giao lại hoặc huỷ ở tab "Công việc" của hồ sơ.',
+        ],
         'completed' => [
             'title' => 'Việc anh/chị giao đã hoàn thành',
             'body' => ':who đã hoàn thành việc ":title".',
@@ -223,12 +232,15 @@ return [
             'accepted' => ':name đã nhận việc anh/chị giao',
             'declined' => ':name đã trả lại việc anh/chị giao',
             'completed' => ':name đã hoàn thành việc anh/chị giao',
+            'declined_on_behalf' => ':name đã trả lại một việc trên hồ sơ anh/chị phụ trách',
         ],
         'headline' => [
             'assigned' => ':name vừa giao cho anh/chị một việc.',
             'accepted' => ':name đã nhận việc anh/chị giao.',
             'declined' => ':name đã trả lại việc anh/chị giao.',
             'completed' => ':name đã hoàn thành việc anh/chị giao.',
+            'declined_on_behalf' => ':name đã trả lại việc do :assigner giao trên hồ sơ anh/chị phụ trách. :assigner '
+                .'không còn theo dõi việc này nên anh/chị nhận thay.',
         ],
         'fields' => [
             'title' => 'Việc',
@@ -237,6 +249,7 @@ return [
             'priority' => 'Mức ưu tiên',
             'reason' => 'Lý do trả lại',
             'note' => 'Ghi chú',
+            'assigner' => 'Người giao',
         ],
         'no_due_date' => 'Không đặt hạn',
         'action' => [
@@ -244,6 +257,7 @@ return [
             'accepted' => 'Mở mục Công việc — tab "Tôi đã giao"',
             'declined' => 'Mở mục Công việc để giao lại hoặc huỷ việc',
             'completed' => 'Mở mục Công việc — tab "Tôi đã giao"',
+            'declined_on_behalf' => 'Mở tab Công việc của hồ sơ để giao lại hoặc huỷ việc',
         ],
         'salutation' => 'Thư tự động từ hệ thống quản lý hồ sơ của :office.',
     ],
@@ -351,6 +365,9 @@ return [
         'email' => [
             'tasks_heading' => 'Việc nội bộ chuyển sang anh/chị (chờ anh/chị bấm "Đã nhận"):',
             'task_line' => ':title — hạn :due',
+            // Vòng sửa 1 (I1): việc lead cũ đã giao trên vụ — lead mới thành người giao (MoveTasksOnHandover).
+            'followed_heading' => 'Việc luật sư phụ trách cũ đã giao trên hồ sơ, nay anh/chị là người giao (theo dõi ở tab "Tôi đã giao"):',
+            'followed_line' => ':title — :assignee, :status, hạn :due',
             'accept_hint' => 'Hồ sơ vừa bàn giao hiện ở khối "Hồ sơ chờ tôi nhận" trong mục Việc của tôi: hãy bấm "Đã nhận hồ sơ", hoặc "Trả lại" kèm lý do nếu không nhận được.',
         ],
     ],
@@ -379,6 +396,17 @@ return [
                 'title' => 'Việc anh/chị giao đã quá hạn',
                 'body' => 'Việc ":title" giao cho :who đã quá hạn :detail ngày.',
             ],
+            // Vòng sửa 1 (I1): luật sư phụ trách hiện tại nhận thay người giao đã rời vụ hay nghỉ việc.
+            'unaccepted_on_behalf' => [
+                'title' => 'Một việc trên hồ sơ anh/chị phụ trách chưa được nhận',
+                'body' => ':who chưa nhận việc ":title" do :assigner giao, sau :detail (tính theo giờ làm việc). :assigner '
+                    .'không còn theo dõi việc này nên anh/chị nhận thay: hãy trao đổi với :who hoặc giao lại.',
+            ],
+            'overdue_assigner_on_behalf' => [
+                'title' => 'Một việc trên hồ sơ anh/chị phụ trách đã quá hạn',
+                'body' => 'Việc ":title" do :assigner giao cho :who đã quá hạn :detail ngày. :assigner không còn theo dõi '
+                    .'việc này nên anh/chị nhận thay.',
+            ],
         ],
         'email' => [
             'assignee' => 'Người nhận việc',
@@ -388,6 +416,8 @@ return [
                 'due_soon' => 'Một việc của anh/chị sắp đến hạn',
                 'overdue' => 'Một việc của anh/chị đã quá hạn',
                 'overdue_assigner' => 'Một việc anh/chị giao đã quá hạn',
+                'unaccepted_on_behalf' => 'Một việc trên hồ sơ anh/chị phụ trách chưa được nhận',
+                'overdue_assigner_on_behalf' => 'Một việc trên hồ sơ anh/chị phụ trách đã quá hạn',
             ],
             'headline' => [
                 'awaiting' => 'Việc dưới đây đã chờ anh/chị nhận :detail (tính theo giờ làm việc).',
@@ -395,6 +425,10 @@ return [
                 'due_soon' => 'Việc dưới đây đến hạn ngày :detail.',
                 'overdue' => 'Việc dưới đây đã quá hạn :detail ngày.',
                 'overdue_assigner' => 'Việc anh/chị giao cho :name đã quá hạn :detail ngày.',
+                'unaccepted_on_behalf' => ':name chưa nhận việc do :assigner giao trên hồ sơ anh/chị phụ trách, sau :detail '
+                    .'(tính theo giờ làm việc). :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
+                'overdue_assigner_on_behalf' => 'Việc do :assigner giao cho :name trên hồ sơ anh/chị phụ trách đã quá hạn '
+                    .':detail ngày. :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
             ],
             'action' => [
                 'awaiting' => 'Mở mục Công việc để bấm "Đã nhận" hoặc "Trả lại"',
@@ -402,6 +436,8 @@ return [
                 'due_soon' => 'Mở mục Công việc — tab "Đang làm"',
                 'overdue' => 'Mở mục Công việc — tab "Đang làm"',
                 'overdue_assigner' => 'Mở mục Công việc — tab "Tôi đã giao"',
+                'unaccepted_on_behalf' => 'Mở tab Công việc của hồ sơ',
+                'overdue_assigner_on_behalf' => 'Mở tab Công việc của hồ sơ',
             ],
         ],
     ],

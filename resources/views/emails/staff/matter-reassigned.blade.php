@@ -52,6 +52,21 @@
                             @endforeach
                         </ul>
                     @endif
+
+                    {{-- Làn tk, Task 2, vòng sửa 1 (I1): việc lead cũ đã giao trên vụ, nay lead mới là người giao. --}}
+                    @if (count($block['followed_tasks'] ?? []) > 0)
+                        <p style="margin:8px 0 4px; font-weight:700;">{{ __('tasks.handover.email.followed_heading') }}</p>
+                        <ul style="margin:0; padding-left:18px;">
+                            @foreach ($block['followed_tasks'] as $task)
+                                <li>{{ __('tasks.handover.email.followed_line', [
+                                    'title' => $task->title,
+                                    'assignee' => (string) $task->assignee?->name,
+                                    'status' => $task->status->label(),
+                                    'due' => $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date'),
+                                ]) }}</li>
+                            @endforeach
+                        </ul>
+                    @endif
                 </td>
             </tr>
         </table>

@@ -41,7 +41,9 @@ use Illuminate\Validation\ValidationException;
  *  - Lead cũ rời đội ngũ thì việc nội bộ đang mở của họ trên vụ này chuyển sang lead mới
  *    ({@see MoveTasksOnHandover}, trong CÙNG transaction, sau khoá dòng vụ); id các việc đó vào
  *    {@see ReassignMatterResult::$movedTaskIds} và vào thư tổng hợp (`task_ids`), cùng luật ảnh chụp
- *    của mốc và luồng.
+ *    của mốc và luồng. Việc còn mở lead cũ ĐÃ GIAO cho người khác trên vụ đổi người giao sang lead mới
+ *    (`MoveTasksOnHandover::transferAssigner()`, vòng sửa 1 của Task 2 — I1); id vào
+ *    {@see ReassignMatterResult::$followedTaskIds} và thư tổng hợp (`followed_task_ids`).
  *
  * # Lịch sử người giữ việc: một dòng cho mỗi mốc, mỗi luồng (M13 Task 3, R9 và R18)
  *
@@ -434,6 +436,9 @@ class ReassignMatter
             $movedTaskIds = $oldLeadKeptAsAssociate
                 ? []
                 : app(MoveTasksOnHandover::class)->handle($locked, $oldLead, $lockedNewLead, $actor);
+            $followedTaskIds = $oldLeadKeptAsAssociate
+                ? []
+                : app(MoveTasksOnHandover::class)->transferAssigner($locked, $oldLead, $lockedNewLead, $actor);
 
             // Bước 5.
             $reassigned = Audit::record('matter_reassigned', $locked, [
@@ -462,12 +467,13 @@ class ReassignMatter
                         'deadline_ids' => $movedDeadlineIds->all(),
                         'client_request_ids' => $movedRequestIds->all(),
                         'task_ids' => $movedTaskIds,
+                        'followed_task_ids' => $followedTaskIds,
                         'reason' => $reason,
                     ],
                 ])->afterCommit();
             }
 
-            return new ReassignMatterResult($stageLog, $movedDeadlineIds->all(), $movedRequestIds->all(), $movedTaskIds);
+            return new ReassignMatterResult($stageLog, $movedDeadlineIds->all(), $movedRequestIds->all(), $movedTaskIds, $followedTaskIds);
         });
     }
 }

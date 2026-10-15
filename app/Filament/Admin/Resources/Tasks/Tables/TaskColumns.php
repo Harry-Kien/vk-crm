@@ -63,9 +63,12 @@ final class TaskColumns
                     'off_team' => __('tasks.columns.assignee_off_team'),
                     default => null,
                 })
-                ->color(fn (Task $record): ?string => $record->reassignmentReason() === null ? null : 'danger'),
+                ->color(fn (Task $record): ?string => in_array($record->reassignmentReason(), ['inactive', 'off_team'], true) ? 'danger' : null),
+            // Vòng sửa 1 (I1): việc bị trả lại mà người giao đã nghỉ — "Cần giao lại" ghi ở cột người giao.
             TextColumn::make('assigner.name')
                 ->label(__('tasks.columns.assigner'))
+                ->description(fn (Task $record): ?string => $record->reassignmentReason() === 'assigner_gone' ? __('tasks.columns.assigner_gone') : null)
+                ->color(fn (Task $record): ?string => $record->reassignmentReason() === 'assigner_gone' ? 'danger' : null)
                 ->toggleable(),
             TextColumn::make('due_date')
                 ->label(__('tasks.columns.due_date'))

@@ -32,14 +32,23 @@ use Spatie\Activitylog\Models\Activity;
  *     giao rồi giao lại ngay cho người khác không báo người đầu); lời "đã giao cho người khác" chỉ tới
  *     người KHÔNG còn giữ việc (việc đã quay về họ trước khi job chạy thì họ đã có lời "được giao" mới).
  *     Bốn loại còn lại không cần lần lọc này: chúng báo một sự kiện đã xảy ra, cho người giao
- *     (`assigned_by` không bao giờ đổi, kể cả khi giao lại) hay cho người giữ một việc đã huỷ (trạng
- *     thái cuối, không giao lại được);
+ *     (`assigned_by` không đổi khi giao lại; chỉ đổi khi bàn giao vụ — `MoveTasksOnHandover::
+ *     transferAssigner()` — và lời "bị trả lại" vì vậy đọc người giao HIỆN TẠI ở bước 3) hay cho người
+ *     giữ một việc đã huỷ (trạng thái cuối, không giao lại được);
  *  3. người nhận qua `ResolveStaffRecipients::forTask()` — đang hoạt động, chưa xoá, còn xem được việc;
  *     riêng lời "đã giao cho người khác" qua `ResolveStaffRecipients::forFormerTaskHolder()` — đang hoạt
  *     động, chưa xoá (người cũ không còn xem được việc, và chuông của họ không mang gì của việc); và lời
- *     "bị trả lại" qua `ResolveStaffRecipients::forTaskAssigner()` (làn tk, Task 2): người giao đã rời vụ,
- *     nghỉ việc hay bị vô hiệu thì luật sư phụ trách hiện tại của vụ nhận thay — một việc bị trả lại cần
- *     một người giao lại, không được rơi vào khoảng trống.
+ *     "bị trả lại" qua `ResolveStaffRecipients::forTaskAssigner()` (làn tk, Task 2) trên người giao LÚC
+ *     CHẠY, không phải `$recipientId` lúc xếp: bàn giao vụ giữa lúc xếp và lúc chạy đã chuyển việc sang
+ *     lead mới; người giao đã rời vụ, nghỉ việc hay bị vô hiệu thì luật sư phụ trách hiện tại của vụ nhận
+ *     thay — một việc bị trả lại cần một người giao lại, không được rơi vào khoảng trống.
+ *
+ * # Người nhận thay người giao (vòng sửa 1 của Task 2 — I1)
+ *
+ * Người nhận lời "bị trả lại" không phải người giao (luật sư phụ trách nhận thay): chuông và thư mang tên
+ * người giao (`ResolveStaffRecipients::assignerName()`) và dùng câu chữ, đường dẫn của người nhận thay
+ * (`TaskAlert`/`TaskNotice`, `*_on_behalf`, tab "Công việc" của vụ) — họ không giao việc đó, và nó không
+ * nằm ở "Tôi đã giao" của họ.
  *
  * # Chống trùng khi thử lại
  *
@@ -86,9 +95,9 @@ class SendTaskNotice implements ShouldQueue
             return;
         }
 
-        $user = (match (true) {
-            $this->kind === TaskAlert::REASSIGNED_AWAY => $recipients->forFormerTaskHolder([$recipient]),
-            $this->kind === TaskAlert::DECLINED && $recipient->getKey() === $task->assigned_by => $recipients->forTaskAssigner($task),
+        $user = (match ($this->kind) {
+            TaskAlert::REASSIGNED_AWAY => $recipients->forFormerTaskHolder([$recipient]),
+            TaskAlert::DECLINED => $recipients->forTaskAssigner($task),
             default => $recipients->forTask($task, [$recipient]),
         })->first();
 
@@ -97,16 +106,20 @@ class SendTaskNotice implements ShouldQueue
         }
 
         $actorName = ActivityPeople::name($event->causer) ?? '';
+        // Xem docblock lớp, mục "Người nhận thay người giao".
+        $onBehalfOf = $this->kind === TaskAlert::DECLINED && $user->getKey() !== $task->assigned_by
+            ? $recipients->assignerName($task)
+            : null;
 
         if (! $this->alreadyAlerted($user)) {
-            $user->notify(new TaskAlert($task, $this->kind, $actorName, $this->eventId));
+            $user->notify(new TaskAlert($task, $this->kind, $actorName, $this->eventId, $onBehalfOf));
         }
 
         if (in_array($this->kind, [TaskAlert::CANCELLED, TaskAlert::REASSIGNED_AWAY], true) || $this->alreadyDelivered($task, $user)) {
             return;
         }
 
-        Mail::to($user->email)->send(new TaskNotice($task, $this->kind, $user, $actorName, $this->eventId));
+        Mail::to($user->email)->send(new TaskNotice($task, $this->kind, $user, $actorName, $this->eventId, $onBehalfOf));
 
         // Xem docblock lớp, mục "Thông báo đẩy".
         if ($this->kind === TaskAlert::ASSIGNED) {
