@@ -82,6 +82,11 @@ return [
         'staff.document_store_alert.transfer_dossier_due' => 'Báo nhân sự sắp tới hạn nộp hồ sơ chuyển dữ liệu ra nước ngoài',
         // M14 rà soát cuối vòng sửa 1 (I6).
         'staff.document_store_alert.transfer_blocked' => 'Báo nhân sự kho đã dừng chuyển dữ liệu vì thiếu căn cứ pháp lý',
+        // Làn nt Task 1 (nhắc lịch thanh toán cho khách, sau công tắc): App\Mail\Client\PaymentReceived.
+        'client.payment_received' => 'Xác nhận với khách đã nhận thanh toán',
+        // Làn nt Task 2: App\Mail\Client\PaymentReminder — báo trước hạn (lịch 08:15) và nhắc đợt quá hạn (nút "Gửi thư nhắc").
+        'client.payment_reminder.due_soon' => 'Báo khách đợt thanh toán sắp đến hạn',
+        'client.payment_reminder.overdue' => 'Nhắc khách đợt thanh toán đã quá hạn',
         // Làn tk, Task 1: App\Mail\Staff\TaskNotice — hậu tố là loại lời báo của việc giao nội bộ.
         'staff.task.assigned' => 'Báo nhân sự được giao một việc',
         'staff.task.accepted' => 'Báo người giao việc đã được nhận',
@@ -133,6 +138,10 @@ return [
                 'staff.intake_unanswered' => 'lời nhắc liên hệ chưa ai gọi lại tự được gửi lại ở lượt nhắc kế tiếp (mỗi 15 phút trong giờ làm việc; thư đã hỏng hẳn thì từ ngày làm việc hôm sau) nếu bản ghi vẫn còn "Mới", vì chỉ thư đã gửi thành công mới chặn lời nhắc mới; chuông trong hệ thống và widget "Liên hệ chưa ai gọi lại" không phụ thuộc thư.',
                 // M14 Task 5 (lý do ở docblock `ResendTargets`).
                 'staff.document_store_alert.*' => 'thư cảnh báo kho tài liệu nói về một lần kiểm sức khoẻ đã qua; nếu sự cố còn, lượt kiểm mỗi giờ sẽ tự báo lại (mỗi loại sự cố một thư mỗi ngày, thư lỗi không chặn lần gửi sau). Xem tình trạng hiện tại ở trang "Kho tài liệu".',
+                // Làn nt Task 1 (lý do ở docblock `ResendTargets`).
+                'client.payment_received' => 'thư xác nhận đã nhận tiền gắn với vụ việc chứ không với khoản thu, nên không dựng lại được; hệ thống tự thử lại nhiều lần, thử hết mà vẫn lỗi thì luật sư phụ trách nhận chuông báo. Thư chỉ đi tới tài khoản mà cổng khách còn cho xem vụ. Hãy báo khách bằng kênh khác nếu cần.',
+                // Làn nt Task 2 (lý do ở docblock `ResendTargets`).
+                'client.payment_reminder.*' => 'thư báo trước hạn tự được gửi lại ở lượt 08:15 kế tiếp khi đợt vẫn sắp đến hạn, vì chỉ thư đã gửi thành công mới chặn thư mới; thư nhắc đợt quá hạn thì người quản lý hợp đồng bấm lại "Gửi thư nhắc" trên dòng đợt đó ở tab "Hợp đồng và thanh toán" (mỗi đợt một lần mỗi ngày), có xem trước nội dung và ghi vào sổ liên lạc của vụ.',
                 // Làn tk, Task 1 (lý do ở docblock `ResendTargets`).
                 'staff.task.*' => 'thư này báo một lần giao, nhận, trả lại hay hoàn thành việc đã qua — gửi lại là báo một sự kiện cũ. Chuông trong hệ thống đã báo cùng lúc, và trạng thái hiện tại của việc luôn ở trang "Công việc".',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',

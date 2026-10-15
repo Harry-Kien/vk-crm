@@ -86,6 +86,35 @@ người" (chỉ là gợi ý).
    khi bị dọn — 30 bản đêm gần nhất, cộng khoảng 30 ngày trong Thùng rác của Google Drive: thường
    khoảng hai tháng, lâu hơn nếu có đêm sao lưu bị lỡ (`docs/SAO-LUU-KHOI-PHUC.md`).
 
+**Nhân viên kinh doanh chăm sóc lead — từng bước** (bổ sung 2026-10-14, vai "Nhân viên kinh doanh"; SPEC
+§5, bổ sung cùng ngày). Tài khoản có chức danh **Nhân viên kinh doanh** làm việc ở mục **Tiếp nhận**, với
+những lead mình ghi hoặc được giao (ngoài ra chỉ có bảng tin, hồ sơ cá nhân, thiết bị nhận thông báo và
+danh mục loại vụ việc để đọc); không thấy vụ việc, hồ sơ khách, tài liệu, tiền, không trang Tìm kiếm,
+không báo cáo toàn văn phòng.
+
+1. **Ghi lead** như người trực điện thoại (bước 1–3 ở trên). Kết quả kiểm tra xung đột hiện cho anh/chị
+   **chỉ mức** Xanh/Vàng/Đỏ — không mã hồ sơ, không tên ai. Vàng hoặc Đỏ: **chưa nghe nội dung vụ việc**,
+   bấm **"Chuyển cho luật sư"** và hẹn khách sẽ có luật sư gọi lại. Vàng thì luật sư xem các khớp và quyết.
+   **Đỏ thì chỉ trưởng phòng/quản trị xử lý được** (từ chối, hoặc ghi đè kèm lý do) — luật sư cũng không,
+   và cũng chỉ thấy mã hồ sơ và vai của khớp Đỏ — nên chuyển thẳng cho trưởng phòng, hoặc báo trưởng phòng.
+   Xanh mà chỉ thiếu SĐT/CCCD của bên kia thì tự bấm "Xác nhận đã xem các khớp" được.
+2. **Mỗi lần liên hệ lại khách** (gọi, Zalo, email, gặp) bấm **"Ghi lần chăm sóc"** trên trang lead: kênh,
+   thời gian, một câu ngắn về việc đã làm ("đã gửi báo phí qua Zalo"), và **hẹn liên hệ lại** nếu có. Không
+   ghi nội dung vụ việc ở đây. Đổi trạng thái (Đã liên hệ → Đang tư vấn → Đã báo phí) bằng nút "Đổi trạng
+   thái" như trước — ghi lần chăm sóc không tự đổi trạng thái.
+3. **Trang chủ** của anh/chị có ba khối: **"Lead của tôi"** (số lead theo trạng thái), **"Lead đến hẹn liên
+   hệ lại"** (hẹn hôm nay hoặc đã qua), **"Liên hệ chưa ai gọi lại"**. Trên cả ba là dải **"Tình trạng hệ
+   thống"** khi lịch chạy tự động hay sao lưu có chuyện — dải đó mọi nhân sự đều thấy.
+4. **Khi khách cần tư vấn chuyên môn hay sắp ký:** "Chuyển cho luật sư" — chọn một luật sư (hoặc trưởng
+   phòng). Luật sư nhận thông báo, thấy lead, kiểm tra lại xung đột và **mở vụ** ("Chuyển thành vụ việc" —
+   nhân viên kinh doanh không có nút này). Anh/chị vẫn thấy và chăm sóc lead; khi lead thành vụ việc, trang
+   lead chỉ ghi "Đã chuyển thành vụ việc". Riêng khi vụ mở ra có mức bảo mật **"Hạn chế"**, anh/chị
+   **không còn thấy lead** nữa: nó rời danh sách và khối "Lead của tôi", mở đường dẫn cũ thì ra "không tìm
+   thấy" — vụ hạn chế chỉ người được xem vụ đó mới biết là có. Đó không phải lỗi.
+5. **Trưởng phòng/quản trị** thấy mọi lead, và trên trang **"Bức tranh đầu vào"** có khối **"Lead theo người
+   phụ trách"**: mỗi người (nhân viên kinh doanh, trợ lý, luật sư) nhận bao nhiêu lead trong kỳ và bao nhiêu
+   đã thành vụ việc. Lead tính cho người được giao; chưa giao ai thì cho người đã ghi.
+
 **Luật nghề nghiệp đứng sau giai đoạn này.** Nếu nghe hết câu chuyện rồi mới phát
 hiện bên kia là khách hàng hiện hữu thì thông tin bí mật đã nghe rồi và không rút lại
 được. Vì vậy kiểm tra xung đột đứng **trước** phần nội dung, không phải sau. Và khi
@@ -118,10 +147,10 @@ một khách hàng khác.
 | Lưu tài liệu theo bốn nhóm, nhóm nội bộ không bao giờ hiện cho khách | Tab **Tài liệu**, nhóm D nền khác màu và không có nút công bố; văn bản nhóm B đi trình duyệt → đã ký, đã nộp → công bố | **[Xong]** sau M6.5 — trước đó văn bản nhóm B **không bao giờ công bố được** vì không có đường tới `signed_filed` (`docs/docs-1`, critical), và đổi nhóm B → C vượt được vòng đời (`docs-2`); sửa ở Task 16 (R9). Rút lại một tài liệu đã công bố: nút **Rút lại** kèm lý do khách đọc được (M7 Task 7); rút bản hiện tại của một đầu mục nhóm A thì đầu mục về "Còn thiếu" (hoặc về bản đã nhận trước đó). Sửa tiêu đề, ngày ban hành, đầu mục; **Xoá** tài liệu tải nhầm mà khách chưa từng thấy, bắt nhập lý do (sửa sau kiểm tra nghiệp vụ 2026-10-09) |
 | **Đặt mốc thời hạn tố tụng** | Tab **Mốc thời hạn**: thêm nhanh, đổi người phụ trách, quá hạn và hết hạn hôm nay tô đỏ, còn dưới bảy ngày tô vàng, đã xong thì xám | **[Xong]** 2026-09-23 — **sửa và xoá một mốc** (phiên toà hoãn) chưa có lúc rà soát (`deadlines/F7`), đang hoàn tất ở M6.5 Task 14; widget "Mốc thời hạn 7 ngày tới" trên trang chủ (`F5`, `spec-gap-05`) cũng ở Task 14 |
 | Được nhắc trước khi tới hạn, theo bậc | Tác vụ `CheckDeadlines` 07:00 hằng ngày, bậc 14/7/3/1 ngày và quá hạn; thư qua hàng đợi, người nhận là người được xem vụ | **[Xong]** (M6 Task 6, trên `main` từ 2026-09-23) và sửa ở M6.5 — một hộp thư lỗi dừng cả lượt nhắc và mất nhật ký (`deadlines/F1`, `notify-2`, critical; Task 11), thư vụ hạn chế gửi tới người không được xem (`F2`; Task 12), người phụ trách bị khoá thì mốc im lặng (`F4`; Task 4, 12). Thông báo cảnh báo quá hạn trong hệ thống (`F6`) đang hoàn tất ở Task 14 |
-| **Ghi lại cuộc gọi, buổi làm việc với khách** | Tab **Liên lạc**, ghi một cuộc gọi trong dưới 15 giây | **[Có kế hoạch]** M7, mới bổ sung 2026-09-22 |
-| Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Có kế hoạch]** M6 |
-| Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Có kế hoạch]** M7: màn hình bàn giao hàng loạt, và thư tổng hợp mốc hạn cho người nhận |
-| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau qua Bàn giao hàng loạt; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
+| **Ghi lại cuộc gọi, buổi làm việc với khách** | Tab **Liên lạc**, ghi một cuộc gọi trong dưới 15 giây | **[Xong]** M7 Task 8 (`CommunicationLogsRelationManager`) |
+| Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Xong]** M6 (`StaleMattersWidget`, `CheckStaleMatters` + thư `StaleMatterReminder`) |
+| Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Xong]** M7: màn hình bàn giao hàng loạt (`BulkReassign`, chỉ vụ đang mở) và thư tổng hợp cho người nhận (`MatterReassigned`) |
+| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
 
 ---
 
@@ -135,9 +164,9 @@ một khách hàng khác.
 | Biết còn thiếu giấy tờ gì và nộp bằng ảnh chụp | Màn hình nộp giấy tờ, chụp thẳng từ điện thoại, một lần nộp nhiều trang | **[Xong]** sau M6.5 — trước đó 3/6 loại vụ việc không có đầu mục nào để nộp (`checklist-02`; Task 15) và giấy nhiều trang bị ghi đè từng trang (`checklist-03`; Task 17) |
 | Đọc lý do khi giấy tờ bị từ chối và nộp lại | Lý do hiện nguyên văn, bản nộp lại nối vào bản cũ | **[Xong]** — khách nhận thư báo khi giấy tờ bị từ chối (M6) và đọc lý do trên cổng. Gửi thêm vào một giấy văn phòng ĐÃ NHẬN thì cổng nói rõ và hỏi xác nhận trước (sửa sau kiểm tra nghiệp vụ 2026-10-09) |
 | Hỏi lại văn phòng và nhận trả lời | Yêu cầu từ khách, trả lời theo luồng; hộp thư văn phòng sắp theo hoạt động gần nhất | **[Xong]** phần hỏi và trả lời trên màn hình. **Còn thiếu:** văn phòng **không được báo** khi khách gửi yêu cầu mới hay hỏi tiếp, nhân sự phải tự mở tab Yêu cầu của từng vụ (`requests/REQ-1`, `REQ-2`); khách không được báo khi văn phòng trả lời (`REQ-4`). Cả ba chuyển sang M6 Task 4 |
-| Nhận thư báo khi có cập nhật mới | Bốn mẫu thư cho khách, chỉ chứa nội dung đã công bố | **[Có kế hoạch]** M6 |
+| Nhận thư báo khi có cập nhật mới | Bốn mẫu thư cho khách, chỉ chứa nội dung đã công bố | **[Xong]** M6 (`StageUpdate`, `DocumentPublished`, `DocumentRejected`, `RequestAnswered`; cộng `MissingDocuments`). Dòng tiến độ công bố nhầm rút được khỏi cổng ("Rút khỏi cổng", làn fm 2026-10-09); thư đã gửi thì không thu hồi được |
 | Nhận thông báo trên điện thoại, chạm một lần là mở đúng hồ sơ | Ứng dụng cài từ trình duyệt (không qua chợ ứng dụng), thông báo đẩy đi cùng bốn thư của khách, màn hình khoá chỉ hiện một câu chung | **[Đang làm]** M12 — đã có mã, chờ gộp và chờ chủ văn phòng thử trên iPhone, Android thật; hướng dẫn cài ở mục cuối tài liệu này |
-| **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Khối **Hợp đồng và thanh toán** trên trang tiến độ của cổng: số hợp đồng, tổng giá trị, thuế suất, ngày ký, từng đợt (đến hạn khi nào, đã thanh toán, còn lại, quá hạn) và các khoản văn phòng đã nhận. Không hiện ghi chú nội bộ, lý do miễn/huỷ, người ghi, khoản thu đã huỷ, bản nháp hay hợp đồng đã huỷ. Đợt theo tiến độ chưa tới bước của nó nói "đến hạn khi vụ việc tới bước …" bằng nhãn cho khách; tới bước đó thì đổi thành ngày đến hạn. Gói bàn giao in cùng bảng kê đó | **[Xong]** M9 Task 10 — chủ văn phòng đã quyết: **khách xem được** (phán quyết P1, 2026-09-24). Không có thư nhắc nợ nào gửi khách |
+| **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Khối **Hợp đồng và thanh toán** trên trang tiến độ của cổng: số hợp đồng, tổng giá trị, thuế suất, ngày ký, từng đợt (đến hạn khi nào, đã thanh toán, còn lại, quá hạn) và các khoản văn phòng đã nhận. Không hiện ghi chú nội bộ, lý do miễn/huỷ, người ghi, khoản thu đã huỷ, bản nháp hay hợp đồng đã huỷ. Đợt theo tiến độ chưa tới bước của nó nói "đến hạn khi vụ việc tới bước …" bằng nhãn cho khách; tới bước đó thì đổi thành ngày đến hạn. Gói bàn giao in cùng bảng kê đó | **[Xong]** M9 Task 10 — chủ văn phòng đã quyết: **khách xem được** (phán quyết P1, 2026-09-24). Thư về tiền gửi khách chỉ có khi bật công tắc "Nhắc lịch thanh toán cho khách" (mặc định tắt) — xem mục cùng tên |
 
 Văn phòng nhìn ngược lại: mỗi dòng đã công bố mang nhãn **khách đã xem lúc nào**, và
 dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
@@ -151,7 +180,7 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 | Chốt một giá trị hợp đồng duy nhất | Tab **Hợp đồng và thanh toán** của vụ: một hợp đồng cho một vụ, giá trị là số khách trả (đã gồm thuế nếu có); bản nháp sửa thẳng được; từ lúc kích hoạt, đổi giá trị hay lịch thu chỉ bằng **Ký phụ lục** (lý do, ngày ký, giá trị cũ và mới được giữ lại, không sửa, không xoá); bản nháp chưa có khoản thu thì xoá được | **[Xong]** M9 |
 | Chia thành các đợt thu gắn vào tiến độ | Mỗi đợt đến hạn theo một trong ba cách: khi ký hợp đồng, vào một ngày cụ thể, hoặc **khi vụ việc tới một giai đoạn** ("thu đợt hai 15 ngày sau khi nộp đơn khởi kiện") — luật sư chuyển giai đoạn là đợt đó có ngày đến hạn ngay, tính từ ngày giai đoạn thật sự xảy ra; một lượt đối chiếu 07:00 hằng ngày bắt nốt những đợt lỡ | **[Xong]** M9 (Task 4, 6) |
 | Ghi từng khoản tiền thật sự nhận, ai ghi, nhận bằng cách nào | Trang **Công nợ** của kế toán (xem "Kế toán ghi tiền" bên dưới); người ghi, ngày tiền về, cách nhận, mã giao dịch/số biên lai; ghi nhầm thì **huỷ** kèm lý do, khoản đã huỷ vẫn nằm đó | **[Xong]** M9 (Task 5, 8) |
-| Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Không có thư nhắc nợ nào gửi khách | **[Xong]** M9 Task 11 |
+| Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Hệ thống không TỰ gửi thư đòi nợ quá hạn cho khách — xem "Nhắc lịch thanh toán cho khách" bên dưới | **[Xong]** M9 Task 11 |
 | Nhìn bức tranh tiền: đã thu trên tổng, còn phải thu | Trang **Doanh thu**: vành khuyên đã thu / còn phải thu / quá hạn, doanh thu theo thời gian, theo đợt/giai đoạn, cơ cấu theo 12 lĩnh vực, tải theo luật sư, hồ sơ đã kết thúc còn công nợ; lọc theo kỳ, luật sư, lĩnh vực. Mỗi biểu đồ ghi rõ nó lọc theo ngày ký hay ngày tiền về, theo luật sư lúc thu hay luật sư hiện tại | **[Xong]** M9 Task 9 |
 | Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ | **[Xong]** M9 |
 
@@ -208,6 +237,52 @@ một dòng trong nhật ký hệ thống.
 Không có ô tải bản scan biên lai ở trang này (đã chọn giữ `mã giao dịch / số biên lai`, M9 Task 8);
 bản scan, nếu cần lưu, tải lên tab Tài liệu của vụ ở nhóm "Chỉ nội bộ".
 
+### Nhắc lịch thanh toán cho khách (công tắc, mặc định TẮT — chủ văn phòng 2026-10-10)
+
+Mọi thứ trong mục này chỉ chạy khi **công tắc đang BẬT**. Tắt (mặc định) thì hệ thống chạy đúng như
+trước: chỉ nhắc nội bộ cho nhân sự, khách không nhận thư nào về tiền.
+
+**Bật, tắt ở đâu.** Quản trị viên mở **Nhắc thanh toán cho khách** (menu trái): công tắc,
+số ngày báo trước hạn (1–30, mặc định 3) và thông tin chuyển khoản của văn phòng (ngân hàng, số tài
+khoản, chủ tài khoản, chi nhánh). Phải điền đủ thông tin chuyển khoản mới bật được, và không bật được
+trên tài khoản giả của dữ liệu mẫu ("TAI KHOAN THU NGHIEM"); quét mã QR xem thử trên trang bằng ứng
+dụng ngân hàng trước khi bật. Mỗi lần đổi có một dòng trong Nhật ký hệ thống (ai, lúc nào). Tắt là có hiệu lực ngay, kể cả với thư đã xếp hàng mà chưa đi: thư đó **không** được gửi.
+
+**Khách nhận gì khi công tắc bật.**
+
+- Trên cổng khách, trang hồ sơ có thêm phần **Lộ trình thanh toán**: giá trị hợp đồng, đã thanh toán,
+  còn lại, thông tin chuyển khoản, và với mỗi đợt đã có ngày hạn mà còn phải trả — số tiền, **nội dung
+  chuyển khoản** (`MÃ-HỒ-SƠ DOT n`, để kế toán nhận ra tiền của hồ sơ nào) và mã QR điền sẵn số tiền.
+- **Thư xác nhận đã nhận tiền** mỗi khi văn phòng ghi một khoản thu (huỷ khoản thu thì không gửi gì):
+  số tiền, ngày nhận và số còn phải trả theo hợp đồng (hay "đã thanh toán đủ"). Hợp đồng bị huỷ trước
+  khi thư kịp đi thì thư chỉ xác nhận khoản đã nhận, không nói gì về số còn lại.
+- **Thư báo trước hạn**, mỗi sáng 08:15: đợt còn phải trả có ngày hạn từ hôm nay tới hết số ngày báo
+  trước. Mỗi đợt một thư cho mỗi tài khoản — chạy lại hay đổi số ngày không gửi lại; văn phòng **Dời
+  hạn** đợt sang ngày khác thì khách được báo một lần nữa cho ngày mới. Thư có tên đợt, số tiền còn phải
+  trả, ngày hạn, thông tin chuyển khoản, nội dung chuyển khoản và mã QR (khi máy chủ có extension `gd`).
+  Đợt "theo giai đoạn" chưa tới giai đoạn thì chưa có ngày hạn nên không được báo.
+- Người nhận: tài khoản cổng **đang hoạt động và đã kích hoạt** của khách, và chỉ khi vụ còn hiện trên
+  cổng của họ (vụ chưa công bố hay đã hết hạn tra cứu thì không ai nhận). Vụ **hạn chế**: thư chỉ nêu
+  mã hồ sơ và mời đăng nhập cổng, không nêu số tiền.
+
+**Đợt quá hạn — không tự gửi cho khách; người quản lý hợp đồng quyết.** Thư nhắc nội bộ 08:00 cho kế
+toán và luật sư giữ nguyên. Muốn nhắc khách thì luật sư trong đội của vụ, quản lý hoặc quản trị viên
+(kế toán không) mở tab **Hợp đồng và thanh toán** của vụ, bấm **Gửi thư nhắc** trên dòng của đợt quá hạn:
+hộp thoại cho **xem trước** đúng thư sẽ gửi — người nhận, số tiền còn phải trả, ngày hạn, tiêu đề và nội
+dung — rồi bấm **Gửi thư**. Mỗi đợt **một lần mỗi ngày** (bấm lần thứ hai trong ngày thì hệ thống báo giờ
+và người đã gửi). Mỗi lần gửi để lại một dòng ở tab **Liên lạc** của vụ và một dòng trong Nhật ký hệ
+thống: ai gửi, lúc nào, gửi cho những địa chỉ nào. Kết quả từng thư (đã đi hay lỗi) xem ở tab **Thư đã
+gửi**; thư lỗi hẳn thì người đã bấm nhận chuông báo để liên hệ khách bằng kênh khác. Khách vừa trả đủ
+hay đợt vừa được dời hạn trước khi thư kịp đi thì thư không đi.
+
+**Thử trên bản xem thử.** Dữ liệu mẫu có sẵn tài khoản chuyển khoản rõ là giả ("TAI KHOAN THU NGHIEM"),
+một đợt sắp đến hạn của khách `khach1@example.com` và nhiều đợt quá hạn. Trên máy dev bật công tắc ngay
+được, rồi bấm **Gửi thư nhắc** trên một đợt quá hạn — thư hiện trong hộp thư thử Mailpit sau khoảng một phút (lượt xử lý hàng
+đợi). Muốn thấy ngay thư báo trước hạn thay vì đợi 08:15:
+`bin/dev artisan schedule:test --name=client-payments.due-soon`. Trước khi dùng thật, thay tài khoản giả
+bằng tài khoản thật của văn phòng: ngoài máy dev (`APP_ENV=local`) hệ thống không cho bật công tắc trên tài
+khoản giả, và chạy lại dữ liệu mẫu không bao giờ ghi đè thông tin chuyển khoản đã cấu hình.
+
 ### Nhập hợp đồng đang chạy khi bắt đầu dùng hệ thống
 
 Văn phòng bắt đầu dùng hệ thống khi đã có những hợp đồng ký từ trước, khách đã trả một phần, vụ
@@ -244,10 +319,10 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
 
 | Văn phòng làm gì | Hệ thống đỡ bằng gì | Trạng thái |
 |---|---|---|
-| Sinh gói bàn giao cho khách | Tệp nén nhóm A/B/C kèm mục lục PDF và toàn bộ tường trình tiến độ, không bao giờ lẫn tài liệu nội bộ; nhóm A là đúng bản văn phòng đã nhận của từng đầu mục | **[Xong]** M7 — gói tự sinh khi vụ vào giai đoạn kết thúc (sinh lại bằng nút trên trang vụ), ở trạng thái chưa công bố: luật sư xem rồi công bố cho khách |
-| Cho khách tải về từ cổng, có hạn | Quyền tra cứu hết hạn sau khi vụ kết thúc, dữ liệu vẫn nguyên bên trong | **[Xong]** M7 |
-| Giữ hồ sơ theo chính sách lưu trữ | Hạn lưu trữ mặc định 10 năm, hệ thống **cảnh báo chứ không bao giờ tự xoá**; quyết định tiêu huỷ được ghi lại | **[Xong]** M7 |
-| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm**, kết quả luôn đi qua phân quyền | **[Xong]** M7 |
+| Sinh gói bàn giao cho khách | Tệp nén nhóm A/B/C kèm mục lục PDF và toàn bộ tường trình tiến độ, không bao giờ lẫn tài liệu nội bộ; nhóm A là đúng bản văn phòng đã nhận của từng đầu mục | **[Xong]** M7 Task 4/11 — gói tự sinh khi vụ vào giai đoạn kết thúc (sinh lại bằng nút trên trang vụ), ở trạng thái chưa công bố: luật sư xem rồi công bố cho khách; khoá khi hồ sơ đã ghi quyết định tiêu huỷ (làn fm 2026-10-09) |
+| Cho khách tải về từ cổng, có hạn | Quyền tra cứu hết sau 90 ngày mặc định kể từ khi vụ kết thúc, dữ liệu vẫn nguyên bên trong | **[Xong]** M7 Task 5. Hạn hiện ở khối "Lưu trữ hồ sơ" của trang vụ; luật sư phụ trách hoặc quản trị viên gia hạn được, có lý do và nhật ký (làn fm 2026-10-09) |
+| Giữ hồ sơ theo chính sách lưu trữ | Hạn lưu trữ mặc định 10 năm, hệ thống **cảnh báo chứ không bao giờ tự xoá**; quyết định tiêu huỷ được ghi lại | **[Xong]** M7 Task 6 (`FlagRetentionExpiry`, "Ghi quyết định tiêu huỷ") |
+| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm** (ô tìm kiếm sáu nguồn), kết quả luôn đi qua phân quyền | **[Xong]** M7 (trang `Search`) |
 
 ---
 
@@ -351,7 +426,7 @@ kỳ. Không xếp hạng, như mọi số của M13.
 | Phân quyền theo vai trò, phạm vi nhìn thấy suy từ đội ngũ vụ việc | **[Xong]** sau M6.5 — trước đó luật sư xem và sửa được tài khoản cổng của mọi khách, kể cả ép chuyển sang khách khác (`roles/roles-01`, critical; `roles-02`; Task 2), và quyền "hạn chế" của trợ lý thực tế là toàn quyền (`roles-05`; Task 5, 10, R5) |
 | Ba lớp bảo vệ độc lập cho dữ liệu khách hàng trên cổng | **[Xong]** — khách đã bị xoá mềm nay cũng bị chặn ở cả ba lớp (`portal-3`; M6.5 Task 2) |
 | Không có quyền và không tồn tại đều trả lời giống hệt nhau | **[Xong]** |
-| Nhật ký hoạt động cho mọi thao tác nhạy cảm | **[Xong]** một phần — trước M6.5 Task 20 trang nhật ký hiện khoá dịch thô và không hiện chi tiết (kể cả lý do ghi đè xung đột); nay đọc được, che số điện thoại/email/địa chỉ và chặn số CCCD. Còn thiếu tab nhật ký riêng của từng vụ việc, **[Có kế hoạch]** M7 |
+| Nhật ký hoạt động cho mọi thao tác nhạy cảm | **[Xong]** một phần — trước M6.5 Task 20 trang nhật ký hiện khoá dịch thô và không hiện chi tiết (kể cả lý do ghi đè xung đột); nay đọc được, che số điện thoại/email/địa chỉ và chặn số CCCD. Tab nhật ký riêng của từng vụ việc **[Xong]** M7 Task 8 (`MatterActivityRelationManager`) |
 | Tệp nằm ngoài thư mục web, chỉ tải qua đường ký có hạn năm phút | **[Xong]** |
 | Thương hiệu văn phòng trên mọi màn hình | **[Xong]** |
 | Thư đi ra đều có nhật ký để tra khi khách nói không nhận được | **[Xong]** sau M6.5 — bảng `outbound_messages` có từ M6 Task 1 (2026-09-23) nhưng **không có màn hình nào để tra** (`notify/notify-8`, `spec-gap/spec-gap-07`); M6.5 Task 13 thêm trang nhật ký thư, và nút "Thư đã gửi" trên trang vụ việc mở trang đó đã lọc theo vụ (mỗi người chỉ thấy thư của vụ mình được xem; admin thấy mọi dòng). Nút gửi lại một thư thất bại: M6 Task 10 |

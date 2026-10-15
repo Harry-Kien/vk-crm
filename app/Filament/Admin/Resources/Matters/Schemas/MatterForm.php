@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\Schemas;
 
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\ClientType;
 use App\Enums\Confidentiality;
 use App\Enums\PartyRole;
@@ -146,6 +147,14 @@ class MatterForm
                 ->label(__('matters.transition_form.internal_note'))
                 ->helperText(__('matters.transition_form.internal_note_hint'))
                 ->rows(3)
+                // Làn fm A3, vòng sửa 2 (F2): cùng luật với trang Sửa và trang chuyển đổi — trần ký
+                // tự và trần byte của cột `text` (`OpenMatter` không tự kiểm tra độ dài).
+                ->maxLength(UpdateMatterDetails::DESCRIPTION_INTERNAL_MAX)
+                ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                    if (UpdateMatterDetails::internalNoteOverByteCap($value)) {
+                        $fail(__('lifecycle.details.internal_note_too_many_bytes'));
+                    }
+                })
                 ->columnSpanFull(),
             Textarea::make('summary_for_client')
                 ->label(__('matters.fields.summary_for_client'))
@@ -156,6 +165,9 @@ class MatterForm
                 ->default(today())
                 ->native(false)
                 ->displayFormat('d/m/Y')
+                // Làn fm, vòng sửa 2 (F2): cùng luật với trang Sửa — không sau hôm nay. Hết ngày, không
+                // phải 00:00: xem chú thích cùng chỗ ở `MatterEditForm`.
+                ->maxDate(today()->endOfDay())
                 ->required(),
             Select::make('confidentiality')
                 ->label(__('matters.overview_fields.confidentiality'))

@@ -112,7 +112,7 @@ it('walks a first call from the phone to the client portal: notice, green check,
     $intake = IntakeRequest::query()->where('contact_name', 'Võ Thị Lần Đầu')->sole();
 
     // Kiểm tra chạy ở lần chạm đầu, trước câu chuyện: Xanh đủ định danh, trên văn phòng mẫu có 12 khách,
-    // 23 vụ và 12 lần tiếp nhận khác (nguồn dò thứ hai).
+    // 23 vụ và 17 lần tiếp nhận khác — 12 của M10, 5 của nhân viên kinh doanh mẫu (nguồn dò thứ hai).
     expect($intake->code)->toStartWith('TN-2026-')
         ->and($intake->conflict_level)->toBe(ConflictLevel::Green)
         ->and($intake->conflict_result['incomplete_parties'])->toBe([])

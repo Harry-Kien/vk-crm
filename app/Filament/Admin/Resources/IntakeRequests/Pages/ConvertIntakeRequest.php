@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\IntakeRequests\Pages;
 
 use App\Actions\Intake\ConvertIntakeToMatter;
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\ClientType;
 use App\Enums\Confidentiality;
 use App\Enums\ConflictLevel;
@@ -251,14 +252,18 @@ class ConvertIntakeRequest extends Page
                             ->label(__('matters.transition_form.internal_note'))
                             ->helperText(__('matters.transition_form.internal_note_hint'))
                             ->rows(5)
-                            // Cùng trần với ô câu chuyện của bản ghi (20.000 ký tự × tối đa 3 byte vừa dưới
-                            // trần 60.000 byte của Action; cột `text` 65.535 byte).
-                            ->maxLength(20000)
+                            // Cùng trần với ô câu chuyện của bản ghi và với form mở vụ / trang Sửa vụ việc
+                            // (vòng sửa 2 làn fm, F2): 20.000 ký tự; trần 60.000 byte ở Action.
+                            ->maxLength(UpdateMatterDetails::DESCRIPTION_INTERNAL_MAX)
                             ->columnSpanFull(),
                         DatePicker::make('opened_at')
                             ->label(__('matters.overview_fields.opened_at'))
                             ->native(false)
                             ->displayFormat('d/m/Y')
+                            // F2: cùng luật với trang Sửa — không sau hôm nay (Action hỏi lại). Hết ngày,
+                            // không phải 00:00: ô này điền sẵn bằng chuỗi `Y-m-d`, và state của ô chọn
+                            // ngày giữ GIỜ hiện tại của lần điền đó (nên 00:00 chặn cả hôm nay).
+                            ->maxDate(today()->endOfDay())
                             ->required(),
                         Select::make('confidentiality')
                             ->label(__('matters.overview_fields.confidentiality'))

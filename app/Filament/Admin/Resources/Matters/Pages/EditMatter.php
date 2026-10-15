@@ -8,11 +8,15 @@ use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterEditForm;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\MatterOpenWork;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Schemas\Components\Text;
+use Filament\Schemas\Components\UnorderedList;
 use Filament\Schemas\Schema;
+use Filament\Support\Enums\FontWeight;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -65,8 +69,17 @@ class EditMatter extends EditRecord
             Action::make('cancelMatter')
                 ->label(__('matters.actions.cancel_matter'))
                 ->color('danger')
-                ->visible(fn (): bool => Gate::allows('cancelMatter', $this->record))
-                ->schema([
+                // Làn fm A4: chỉ vụ chưa từng kết thúc — `CancelMatter` tự từ chối vụ đang đóng hay
+                // đã có dòng lưu trữ; nút ẩn trên vụ đang đóng để không dẫn tới một lời từ chối.
+                ->visible(fn (): bool => Gate::allows('cancelMatter', $this->record)
+                    && ! $this->record->isClosed())
+                ->schema(fn (): array => [
+                    // Làn fm A4: việc còn dở trên vụ, hệ quả của việc huỷ, và đường khôi phục.
+                    Text::make(__('lifecycle.cancel.consequences'))->weight(FontWeight::SemiBold),
+                    UnorderedList::make(array_map(
+                        fn (string $line): Text => Text::make($line),
+                        MatterOpenWork::cancellingLines($this->record),
+                    ))->visible(MatterOpenWork::cancellingLines($this->record) !== []),
                     Textarea::make('reason')
                         ->label(__('matters.cancel_form.reason'))
                         ->helperText(__('matters.cancel_form.reason_help'))

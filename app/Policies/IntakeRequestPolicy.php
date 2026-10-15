@@ -14,8 +14,9 @@ use App\Support\ConflictOverride;
  *
  * **Một định nghĩa "thấy được"**: {@see IntakeRequest::isVisibleTo()} / `scopeVisibleTo()` — quyền
  * `intake.viewAny` thấy mọi bản ghi; người chỉ có `intake.create` thấy bản ghi MÌNH ghi hoặc được
- * giao; kế toán không thấy gì. `view`, `update`, `convert`, `viewConflictReason`, `resolveConflict`
- * đều đi qua đó, để resource, widget và báo cáo (Task 3, 5, 6) dùng đúng một luật.
+ * giao (làn kd: hoặc được chuyển tới làm luật sư tư vấn); kế toán không thấy gì. `view`, `update`,
+ * `convert`, `viewConflictReason`, `viewConflictMatches`, `resolveConflict` đều đi qua đó, để resource,
+ * widget và báo cáo (Task 3, 5, 6) dùng đúng một luật.
  *
  * **Bản ghi đã chuyển thành vụ `restricted` chỉ thấy được với người xem được vụ đó** (admin, luật
  * sư phụ trách còn `matter.view`) — bản ghi mang tên khách, câu chuyện và liên kết vụ, nên nếu không
@@ -86,6 +87,22 @@ class IntakeRequestPolicy
     {
         return $user instanceof User
             && $user->can(Permission::IntakeViewAny->value)
+            && $intake->isVisibleTo($user);
+    }
+
+    /**
+     * Làn kd (2026-10-14, phán quyết): thấy CHI TIẾT các khớp của kiểm tra xung đột trên trang tiếp nhận
+     * — mã hồ sơ, lĩnh vực, vai và tên bên trùng, tiêu chí khớp — cùng câu "số này đã là khách của văn
+     * phòng" của gợi ý trùng và mã vụ việc mà bản ghi đã thành. Đòi `matter.view`: đó là những mẩu của HỒ
+     * SƠ hiện hữu (ngoại lệ có chủ đích của SPEC §6.10, dành cho người làm việc trên vụ việc), nên người
+     * không xem được vụ việc nào — nhân viên kinh doanh — chỉ thấy MỨC và lời khuyên chuyển lead cho luật
+     * sư. Không thấy các khớp thì cũng không xác nhận "đã xem các khớp" được (`AcknowledgeIntakeConflict`).
+     * Và chỉ trên bản ghi mình thấy được.
+     */
+    public function viewConflictMatches(User|ClientUser $user, IntakeRequest $intake): bool
+    {
+        return $user instanceof User
+            && $user->can(Permission::MatterView->value)
             && $intake->isVisibleTo($user);
     }
 

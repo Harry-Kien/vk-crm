@@ -19,6 +19,7 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
@@ -29,6 +30,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -437,6 +439,8 @@ class DocumentsRelationManager extends RelationManager
             ->icon(Heroicon::OutlinedArrowUpTray)
             ->modalHeading(__('documents.tab.actions.upload_heading'))
             ->authorize(fn (): bool => Gate::allows('create', [Document::class, $this->getOwnerRecord()]))
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không nhận tài liệu mới.
+            ->visible(fn (): bool => ! $this->ownerIsDestroyed())
             ->schema([
                 FileUpload::make('file')
                     ->label(__('documents.tab.fields.file'))
@@ -595,6 +599,40 @@ class DocumentsRelationManager extends RelationManager
             ));
     }
 
+    /** Làn fm B2: một truy vấn cho cả bảng, không một truy vấn mỗi dòng (nút "Công bố" hỏi theo dòng). */
+    private ?bool $ownerDestroyed = null;
+
+    private function ownerIsDestroyed(): bool
+    {
+        return $this->ownerDestroyed ??= $this->getOwnerRecord()->isRecordDestroyed();
+    }
+
+    /**
+     * Làn fm A5: ngày (d/m/Y) khách hết quyền tra cứu vụ của tab này, nếu vụ đã kết thúc và ĐÃ quá hạn
+     * đó (`MatterArchive::isClientAccessExpired()`); còn hạn hoặc vụ đang mở thì `null`.
+     */
+    private function clientAccessExpiredOn(): ?string
+    {
+        $matter = $this->getOwnerRecord();
+        $archive = $matter->isClosed() ? $matter->archive : null;
+
+        return $archive instanceof MatterArchive && $archive->isClientAccessExpired()
+            ? $archive->client_access_until->format('d/m/Y')
+            : null;
+    }
+
+    /**
+     * Làn fm, vòng sửa 2 (F3): khoá câu chữ về hạn tra cứu hợp với người đang xem — bản thường (nói
+     * thẳng "gia hạn") cho người qua `MatterPolicy::extendClientAccess` (luật sư phụ trách hoặc quản trị
+     * viên), bản `_ask` (nói NHỜ hai người đó) cho mọi người khác công bố được tài liệu.
+     */
+    private function clientAccessCopyKey(string $key): string
+    {
+        return Gate::allows('extendClientAccess', $this->getOwnerRecord())
+            ? "lifecycle.access.{$key}"
+            : "lifecycle.access.{$key}_ask";
+    }
+
     /**
      * SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp. Tài liệu đã rút cũng không (M7
      * Task 7).
@@ -637,7 +675,9 @@ class DocumentsRelationManager extends RelationManager
             // M7 Task 7: tài liệu đã rút không công bố lại được (`PublishDocument` từ chối) — nút
             // ở đó chỉ dẫn tới một lời từ chối.
             ->visible(fn (Document $record): bool => ! $record->group->isInternal()
-                && $record->status !== DocumentStatus::Retracted)
+                && $record->status !== DocumentStatus::Retracted
+                // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không công bố thêm gì.
+                && ! $this->ownerIsDestroyed())
             ->fillForm(fn (Document $record): array => [
                 'client_can_view' => $record->isReleasedToPortal() ? $record->client_can_view : true,
                 'client_can_download' => $record->isReleasedToPortal() ? $record->client_can_download : true,
@@ -660,8 +700,21 @@ class DocumentsRelationManager extends RelationManager
                 Hidden::make('mounted_client_can_view'),
                 Hidden::make('mounted_client_can_download'),
                 Hidden::make('mounted_is_released'),
+                // Làn fm A5: vụ đã kết thúc và quá hạn tra cứu — khách không thấy tài liệu và không
+                // nhận thư (`MatterPolicy::view` nhánh khách, `NotifyClientOfDocumentPublished`). Nói
+                // trước khi bấm, như câu cảnh báo cùng điều kiện trên form tiến độ. Vòng sửa 2 (F3): câu theo
+                // người xem (`clientAccessCopyKey()`).
+                Text::make(fn (): string => __($this->clientAccessCopyKey('publish_warning'), [
+                    'date' => $this->clientAccessExpiredOn() ?? '',
+                ]))
+                    ->icon(Heroicon::OutlinedExclamationTriangle)
+                    ->color('warning')
+                    ->visible(fn (): bool => $this->clientAccessExpiredOn() !== null),
             ])
-            ->successNotificationTitle(__('documents.tab.actions.publish_success'))
+            // Làn fm A5: không báo "đã công bố cho khách" khi khách sẽ không thấy gì.
+            ->successNotificationTitle(fn (): string => $this->clientAccessExpiredOn() !== null
+                ? __($this->clientAccessCopyKey('published_not_visible'))
+                : __('documents.tab.actions.publish_success'))
             ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(PublishDocument::class)->handle(

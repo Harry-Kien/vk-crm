@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Actions\Client\CreateClient;
 use App\Actions\Concerns\BuildsMatterParties;
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\ConflictLevel;
 use App\Enums\MatterRole;
 use App\Enums\PartyRole;
@@ -48,6 +49,9 @@ use Spatie\Activitylog\Models\Activity;
  *     tính mức đỏ; một mặc định âm thầm (từng là `plaintiff`) khiến MỌI vụ việc mà khách hàng
  *     chính thật ra là bị đơn bị tính sai vai, hạ mức đỏ xuống vàng một cách im lặng — đúng lỗ
  *     hổng người xem xét tìm thấy. Thiếu khoá này ném `ValidationException` ngay, không suy đoán.
+ *     Cùng bước này (làn fm, vòng sửa 2, F2): `opened_at` không sau hôm nay và `description_internal`
+ *     trong trần ký tự/byte — CÙNG luật trang Sửa vụ việc áp
+ *     (`UpdateMatterDetails::assertNewMatterDetails()`); sai thì `ValidationException` trên đúng ô.
  *  3. **Giai đoạn kiểm tra, trong transaction RIÊNG (luôn commit, không bao giờ bị rollback bởi
  *     nhánh chặn):** khoá MỌI dòng `clients` mà lần mở vụ việc này sẽ đọc — khách hàng chính
  *     (`$attributes['client_id']`) VÀ mọi bên trong `$parties` được đánh dấu `is_our_client` kèm
@@ -314,6 +318,11 @@ class OpenMatter
                 'client_role' => [__('actions.open_matter.client_role_opposing_counsel')],
             ]);
         }
+
+        // Làn fm, vòng sửa 2 (F2): ngày mở và ghi chú nội bộ theo CÙNG luật với trang Sửa vụ việc,
+        // hỏi ở đây cho mọi đường mở vụ — một vụ mở với ngày tương lai hay ghi chú dài hơn trần thì
+        // sau đó không lưu được gì ở trang Sửa. Trước mọi khoá và kiểm tra xung đột.
+        UpdateMatterDetails::assertNewMatterDetails($attributes);
 
         $overrideReason = $overrideReason !== null ? trim($overrideReason) : null;
 

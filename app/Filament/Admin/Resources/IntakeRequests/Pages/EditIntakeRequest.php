@@ -7,7 +7,9 @@ use App\Actions\Intake\AnonymiseProspect;
 use App\Actions\Intake\ChangeIntakeStatus;
 use App\Actions\Intake\ConvertIntakeToMatter;
 use App\Actions\Intake\DeclineIntake;
+use App\Actions\Intake\HandIntakeToLawyer;
 use App\Actions\Intake\IntakeSummaryGate;
+use App\Actions\Intake\LogIntakeFollowUp;
 use App\Actions\Intake\MergeIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
 use App\Actions\Intake\ReopenIntake;
@@ -17,6 +19,7 @@ use App\Actions\Intake\UpdateIntakeIdentity;
 use App\Actions\Intake\UpdateIntakeSummary;
 use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
+use App\Enums\FollowUpChannel;
 use App\Enums\IntakeStatus;
 use App\Enums\IntakeSummaryBlocker;
 use App\Enums\PartyRole;
@@ -26,6 +29,7 @@ use App\Filament\Admin\Resources\IntakeRequests\Concerns\TranslatesIntakeFailure
 use App\Filament\Admin\Resources\IntakeRequests\IntakeRequestResource;
 use App\Filament\Admin\Resources\IntakeRequests\Schemas\IntakeRequestForm;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Models\IntakeFollowUp;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
@@ -35,6 +39,7 @@ use App\Support\Intake\PrivacyNotice;
 use App\Support\Normalizer;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
@@ -49,6 +54,7 @@ use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Spatie\Activitylog\Models\Activity;
 
@@ -108,6 +114,13 @@ use Spatie\Activitylog\Models\Activity;
  * và phần bên đối lập chỉ đọc, không nút Lưu (nút đó chỉ lưu danh tính) — với mọi người, vì mọi lý do
  * từ chối (R8). `UpdateIntakeIdentity` là cổng thật; ở đây chỉ để không ai gõ rồi mới bị từ chối. Các
  * khối khác và các hành động trên đầu trang (gộp đi, theo luật của `MergeIntake`) giữ nguyên.
+ *
+ * **Làn kd (2026-10-14, vai "Nhân viên kinh doanh"):** nút "Chuyển cho luật sư" trên đầu trang
+ * (`HandIntakeToLawyer`, {@see self::handToLawyerAction()}); khối "Chăm sóc khách tiềm năng" với luật sư
+ * tư vấn, hẹn liên hệ lại, lịch sử các lần chăm sóc và nút "Ghi lần chăm sóc" (`LogIntakeFollowUp`). Người
+ * không được thấy các khớp (`IntakeRequestPolicy::viewConflictMatches` — không `matter.view`) chỉ thấy MỨC
+ * của kiểm tra xung đột ({@see self::checkPanelViewData()}), không câu "đã là khách", không mã vụ việc bản
+ * ghi đã thành, và không có nút xác nhận một Vàng/Đỏ.
  *
  * Không transaction ngoài (`hasDatabaseTransactions()` false): các Action tự quản transaction dưới khoá
  * `conflict-check`.
@@ -219,6 +232,14 @@ class EditIntakeRequest extends EditRecord
                             ->disabled(fn (): bool => ! IntakeSummaryGate::isOpen($this->intake())),
                         Actions::make([$this->saveSummaryAction()])->key('storyActions'),
                     ]),
+                // Làn kd (2026-10-14): luật sư tư vấn, hẹn liên hệ lại và lịch sử các lần chăm sóc lead.
+                Section::make(__('leads.follow_ups.section'))
+                    ->description(__('leads.follow_ups.section_description'))
+                    ->columnSpanFull()
+                    ->schema([
+                        View::make('filament.intake.follow-ups')->viewData(fn (): array => $this->followUpsViewData()),
+                        Actions::make([$this->logFollowUpAction()])->key('followUpActions'),
+                    ]),
             ]);
     }
 
@@ -296,7 +317,7 @@ class EditIntakeRequest extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [$this->convertAction(), $this->changeStatusAction(), $this->declineAction(), $this->reopenAction(), $this->mergeAction(), $this->eraseDataAction()];
+        return [$this->convertAction(), $this->handToLawyerAction(), $this->changeStatusAction(), $this->declineAction(), $this->reopenAction(), $this->mergeAction(), $this->eraseDataAction()];
     }
 
     private function intake(): IntakeRequest
@@ -391,7 +412,10 @@ class EditIntakeRequest extends EditRecord
             ->requiresConfirmation()
             ->modalDescription(__('intake.actions.acknowledge_description'))
             ->visible(fn (): bool => ! $this->intake()->isClosedToChanges()
-                && in_array(IntakeSummaryBlocker::ConflictAcknowledgement, IntakeSummaryGate::blockers($this->intake()), true))
+                && in_array(IntakeSummaryBlocker::ConflictAcknowledgement, IntakeSummaryGate::blockers($this->intake()), true)
+                // Làn kd: người không thấy các khớp (nhân viên kinh doanh) chỉ xác nhận được mức Xanh thiếu
+                // định danh — cùng luật `AcknowledgeIntakeConflict`.
+                && ($this->intake()->conflict_level === ConflictLevel::Green || Gate::allows('viewConflictMatches', $this->intake())))
             ->action(function (Action $action): void {
                 $intake = $this->intake();
 
@@ -443,6 +467,92 @@ class EditIntakeRequest extends EditRecord
             ->visible(fn (): bool => Gate::allows('convert', $this->intake())
                 && ConvertIntakeToMatter::refusal($this->intake()) === null)
             ->url(fn (): string => IntakeRequestResource::getUrl('convert', ['record' => $this->intake()]));
+    }
+
+    /**
+     * Làn kd — "Chuyển cho luật sư" (`HandIntakeToLawyer`): mọi người sửa được bản ghi, trên bản ghi còn mở
+     * (`HandIntakeToLawyer::isClosed()` — một định nghĩa với Action). Ô chọn chỉ liệt kê người nhận được lead
+     * (`candidateOptions()`); Action hỏi lại trên người được chọn và lời từ chối về đúng ô.
+     */
+    private function handToLawyerAction(): Action
+    {
+        return Action::make('handToLawyer')
+            ->label(__('leads.handoff.action'))
+            ->color('primary')
+            ->visible(fn (): bool => ! HandIntakeToLawyer::isClosed($this->intake()) && Gate::allows('update', $this->intake()))
+            ->modalHeading(__('leads.handoff.heading'))
+            ->modalDescription(__('leads.handoff.description'))
+            ->schema([
+                Select::make('consulting_lawyer_id')
+                    ->label(__('leads.handoff.lawyer'))
+                    ->helperText(__('leads.handoff.lawyer_help'))
+                    ->options(fn (): array => HandIntakeToLawyer::candidateOptions())
+                    ->searchable()
+                    ->native(false)
+                    ->required(),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $lawyer = User::query()->find($data['consulting_lawyer_id'] ?? null);
+
+                $this->runAction($action, function () use ($lawyer): void {
+                    if (! $lawyer instanceof User) {
+                        throw ValidationException::withMessages(['consulting_lawyer_id' => [__('leads.handoff.errors.not_a_lawyer')]]);
+                    }
+
+                    app(HandIntakeToLawyer::class)->handle($this->actor(), $this->intake(), $lawyer);
+                });
+
+                $this->afterIntakeAction(__('leads.handoff.done', ['name' => $lawyer?->name]));
+            });
+    }
+
+    /**
+     * Làn kd — "Ghi lần chăm sóc" (`LogIntakeFollowUp`), trong khối "Chăm sóc khách tiềm năng": cùng điều
+     * kiện hiện với "Chuyển cho luật sư". Ô nội dung có trần bằng độ dài cột; mọi luật khác (không ở tương
+     * lai, hẹn ở sau lúc này) là của Action, lời từ chối về đúng ô.
+     */
+    private function logFollowUpAction(): Action
+    {
+        return Action::make('logFollowUp')
+            ->label(__('leads.follow_ups.action'))
+            ->visible(fn (): bool => ! HandIntakeToLawyer::isClosed($this->intake()) && Gate::allows('update', $this->intake()))
+            ->schema([
+                Select::make('channel')
+                    ->label(__('leads.follow_ups.channel'))
+                    ->options(fn (): array => collect(FollowUpChannel::cases())
+                        ->mapWithKeys(fn (FollowUpChannel $channel): array => [$channel->value => $channel->label()])
+                        ->all())
+                    ->default(FollowUpChannel::Call->value)
+                    ->native(false)
+                    ->required(),
+                DateTimePicker::make('occurred_at')
+                    ->label(__('leads.follow_ups.occurred_at'))
+                    ->seconds(false)
+                    ->default(fn () => now())
+                    ->required(),
+                Textarea::make('note')
+                    ->label(__('leads.follow_ups.note'))
+                    ->helperText(__('leads.follow_ups.note_help'))
+                    ->required()
+                    ->maxLength(IntakeFollowUp::NOTE_MAX_LENGTH)
+                    ->rows(3),
+                DateTimePicker::make('next_follow_up_at')
+                    ->label(__('leads.follow_ups.next_follow_up_at'))
+                    ->helperText(__('leads.follow_ups.next_follow_up_help'))
+                    ->seconds(false),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $this->runAction($action, fn () => app(LogIntakeFollowUp::class)->handle(
+                    $this->actor(),
+                    $this->intake(),
+                    FollowUpChannel::from((string) $data['channel']),
+                    (string) $data['occurred_at'],
+                    (string) ($data['note'] ?? ''),
+                    filled($data['next_follow_up_at'] ?? null) ? (string) $data['next_follow_up_at'] : null,
+                ));
+
+                $this->afterIntakeAction(__('leads.follow_ups.saved'));
+            });
     }
 
     private function changeStatusAction(): Action
@@ -644,14 +754,20 @@ class EditIntakeRequest extends EditRecord
     /** @return array<string, mixed> */
     private function gateViewData(): array
     {
-        $blockers = IntakeSummaryGate::blockers($this->intake());
+        $intake = $this->intake();
+        $blockers = IntakeSummaryGate::blockers($intake);
+        // Làn kd: người không thấy các khớp không xác nhận được một Vàng/Đỏ — câu hướng dẫn nói họ làm gì
+        // thay vào đó (cùng điều kiện với nút "Xác nhận đã xem các khớp").
+        $acknowledgeElsewhere = $intake->conflict_level !== ConflictLevel::Green && Gate::denies('viewConflictMatches', $intake);
 
         return [
             'open' => $blockers === [],
             'lockedHeading' => __('intake.gate.locked'),
             'blockers' => array_map(fn (IntakeSummaryBlocker $blocker): array => [
                 'label' => $blocker->label(),
-                'hint' => __('intake.gate.hint_'.$blocker->value),
+                'hint' => $blocker === IntakeSummaryBlocker::ConflictAcknowledgement && $acknowledgeElsewhere
+                    ? __('leads.conflict.gate_hint_acknowledgement')
+                    : __('intake.gate.hint_'.$blocker->value),
             ], $blockers),
         ];
     }
@@ -667,6 +783,14 @@ class EditIntakeRequest extends EditRecord
      *  - **FI2 — các lần gọi bản này đang giữ** ({@see IntakeRequest::repeatCallsHeldByThis()}): chỉ người
      *    xử lý được Đỏ thấy, chỉ những bản họ xem được, kèm liên kết.
      *
+     * **Làn kd (phán quyết) — người không được thấy các khớp** (`IntakeRequestPolicy::viewConflictMatches`:
+     * không có `matter.view` — nhân viên kinh doanh): dữ liệu của khối KHÔNG mang dòng khớp nào (`matches`
+     * rỗng, ở mọi mức — kể cả mã hồ sơ của khớp Đỏ mà người nhập khác vẫn thấy), không câu "đã mang sang"
+     * (nó nói có khớp ở bên đối lập đã khai lần trước), chỉ mức và câu khuyên chuyển lead cho luật sư
+     * (`hiddenNote`, khi mức khác Xanh hay còn chờ trưởng phòng). View vẽ một khung chỉ có tiêu đề mức —
+     * không gọi bảng dùng chung (bảng đó nói "không tìm thấy khớp" khi danh sách rỗng). Bên thiếu định danh
+     * (tên các bên của chính bản ghi) vẫn hiện.
+     *
      * @return array<string, mixed>
      */
     private function checkPanelViewData(): array
@@ -674,13 +798,25 @@ class EditIntakeRequest extends EditRecord
         $intake = $this->intake();
         $result = is_array($intake->conflict_result) ? $intake->conflict_result : null;
         $mayResolve = Gate::allows('resolveConflict', $intake);
+        $hidden = Gate::denies('viewConflictMatches', $intake);
         $awaiting = $intake->awaitsConflictResolution();
         $lastRunRed = ($result['level'] ?? null) === ConflictLevel::Red->value;
         // Đang chờ mà lần chạy gần nhất không ra Đỏ: Đỏ dính, hoặc khoá của một lần gọi khác.
         $pendingBeyondLastRun = $awaiting && ! $lastRunRed;
         $table = $result === null ? null : static::conflictTableData($result, hideRedDetails: ! $mayResolve);
 
+        if ($hidden && $table !== null) {
+            $table['matches'] = [];
+            $table['redDetailsHidden'] = false;
+        }
+
         return [
+            'matchesHidden' => $hidden,
+            // Làn kd, vòng sửa 1 (F5): Đỏ (lần chạy gần nhất ra Đỏ, hay đang chờ trưởng phòng) có câu riêng — chỉ
+            // trưởng phòng/quản trị xử lý, luật sư được chuyển lead cũng không; Vàng thì luật sư xem và quyết.
+            'hiddenNote' => $hidden && $table !== null && ($awaiting || $table['level'] !== ConflictLevel::Green->value)
+                ? __(($awaiting || $lastRunRed) ? 'leads.conflict.hidden_note_red' : 'leads.conflict.hidden_note')
+                : null,
             'checkedAt' => $intake->conflict_checked_at?->format('d/m/Y H:i'),
             'result' => $table === null ? null : [
                 ...$table,
@@ -698,7 +834,7 @@ class EditIntakeRequest extends EditRecord
             ],
             'redPendingNote' => $pendingBeyondLastRun ? __('intake.check.red_pending_note') : null,
             'redHiddenNote' => ($table['redDetailsHidden'] ?? false) ? __('intake.check.red_hidden_note') : null,
-            'carried' => $result !== null && $this->hasCarriedMatches($intake, $result),
+            'carried' => ! $hidden && $result !== null && $this->hasCarriedMatches($intake, $result),
             'heldRepeatCalls' => $mayResolve ? $this->heldRepeatCalls($intake) : [],
         ];
     }
@@ -833,8 +969,50 @@ class EditIntakeRequest extends EditRecord
             'sameIdentity' => $rows($data['same_identity'] ?? []),
             'hasHidden' => (bool) ($data['has_hidden'] ?? false),
             'sameName' => $actor->can(Permission::IntakeViewAny->value) ? $rows($data['same_name'] ?? []) : [],
-            'isClient' => (bool) ($data['is_client'] ?? false),
+            // Làn kd: "số này đã là khách của văn phòng" là một khớp với danh sách khách — cùng ranh giới
+            // `viewConflictMatches` với bảng khớp; nhân viên kinh doanh không thấy. Cổng thật ở
+            // `FindIntakeDuplicates` (không `matter.view` thì không tra, cờ `false` ngay từ phiên), vì
+            // `$duplicates` là trạng thái công khai: cờ ở đó đã nằm trong HTML. Đây chỉ là lớp thứ hai.
+            'isClient' => (bool) ($data['is_client'] ?? false) && Gate::allows('viewConflictMatches', $this->intake()),
             'lookupUnavailable' => (bool) ($data['lookup_unavailable'] ?? false),
+        ];
+    }
+
+    /**
+     * Làn kd — khối "Chăm sóc khách tiềm năng": luật sư tư vấn (nếu đã chuyển), hẹn liên hệ lại, và các lần
+     * chăm sóc mới nhất trước (thời gian, kênh, người ghi, nội dung — dòng đã ẩn danh in "(đã ẩn danh)").
+     * Người ghi đã nghỉ việc (xoá mềm) vẫn hiện tên (quan hệ `author` đọc cả dòng đã xoá).
+     *
+     * @return array<string, mixed>
+     */
+    private function followUpsViewData(): array
+    {
+        $intake = $this->intake();
+        $lawyer = $intake->consultingLawyer()->withTrashed()->first();
+
+        return [
+            'consulting' => $lawyer === null ? null : __('leads.handoff.current', [
+                'name' => $lawyer->name,
+                'at' => $intake->handed_to_lawyer_at?->format('d/m/Y H:i') ?? '—',
+            ]),
+            'next' => $intake->next_follow_up_at === null
+                ? __('leads.follow_ups.no_next')
+                : __('leads.follow_ups.next', ['at' => $intake->next_follow_up_at->format('d/m/Y H:i')]),
+            'empty' => __('leads.follow_ups.empty'),
+            'rows' => $intake->followUps()
+                ->with('author')
+                ->orderByDesc('occurred_at')
+                ->orderByDesc('id')
+                ->get()
+                ->map(fn (IntakeFollowUp $row): array => [
+                    'heading' => __('leads.follow_ups.row', [
+                        'at' => $row->occurred_at->format('d/m/Y H:i'),
+                        'channel' => $row->channel->label(),
+                        'author' => $row->author?->name ?? __('leads.follow_ups.unknown_author'),
+                    ]),
+                    'note' => $row->note ?? __('leads.follow_ups.anonymised_note'),
+                ])
+                ->all(),
         ];
     }
 
@@ -862,8 +1040,10 @@ class EditIntakeRequest extends EditRecord
             ],
             // M10 Task 4: vụ việc bản ghi đã thành. Ai thấy được một bản ghi đã chuyển thành vụ `restricted`
             // thì xem được vụ đó (`IntakeRequest::scopeVisibleTo()`), nên mã vụ không lộ cho ai mới.
+            // Làn kd: người không thấy vụ việc nào (không `matter.view` — nhân viên kinh doanh) chỉ đọc "đã
+            // chuyển thành vụ việc", không mã (`code` null, view in câu không mã).
             'convertedInto' => $matter === null ? null : [
-                'code' => $matter->code,
+                'code' => Gate::allows('viewConflictMatches', $intake) ? $matter->code : null,
                 'url' => Gate::allows('view', $matter) ? MatterResource::getUrl('view', ['record' => $matter], panel: 'admin') : null,
             ],
             // M10 Task 7: dữ liệu đã ẩn danh — ngày, và vì hết hạn lưu (không người làm) hay theo yêu cầu.

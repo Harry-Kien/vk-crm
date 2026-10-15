@@ -64,6 +64,20 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *  - `staff.document_store_alert.*` (M14 Task 5; hậu tố là loại sự cố của kho tài liệu): thư nói về
  *    MỘT lần kiểm sức khoẻ đã qua. Sự cố còn thì lượt `storage.health` mỗi giờ tự báo lại — mỗi loại
  *    một thư mỗi ngày, và chỉ dòng `sent` chặn, nên một thư hỏng được gửi lại ở lượt kế tiếp.
+ *  - `client.payment_received` (làn nt Task 1, sau công tắc "Nhắc lịch thanh toán cho khách"): dòng
+ *    sổ thư gắn với VỤ VIỆC (để ai xem được vụ thì xem được dòng — `payment` không có `matter_id` trực
+ *    tiếp nên một dòng gắn khoản thu chỉ admin thấy), và từ vụ việc không dựng lại được khoản thu nào.
+ *    Job `SendPaymentReceivedMail` tự thử lại năm lần; hỏng hẳn thì ghi `payment_received_mail_failed`
+ *    và rung chuông cho luật sư phụ trách để báo khách bằng kênh khác. Thư chỉ từng đi tới tài khoản mà
+ *    cổng cho xem vụ (job lọc bằng `ResolveClientRecipients::onPortal()`), và khoản thu vẫn hiện ở khối
+ *    tiền trên cổng khách khi vụ còn trên cổng.
+ *  - `client.payment_reminder.*` (làn nt Task 2, sau cùng công tắc): hai mẫu `due_soon` (lịch
+ *    `client-payments.due-soon` 08:15) và `overdue` (nút "Gửi thư nhắc" trên dòng đợt quá hạn). Dòng sổ
+ *    thư gắn với VỤ VIỆC — cùng lý do `client.payment_received` — nên không dựng lại được đợt nào. Thư báo
+ *    trước hạn tự được gửi lại ở lượt 08:15 kế tiếp khi đợt còn trong cửa sổ báo trước, vì chỉ dòng `sent`
+ *    chặn (`App\Support\Billing\ClientPaymentReminders::alreadyDelivered()`); thư nhắc quá hạn là một
+ *    quyết định của người quản lý hợp đồng, có xem trước và ghi sổ liên lạc — gửi lại thì bấm lại nút đó
+ *    (mỗi đợt một lần mỗi ngày), không gửi tay từ sổ thư.
  *  - `staff.task.*` (làn tk, Task 1; hậu tố là loại lời báo — giao, nhận, trả lại, hoàn thành): thư báo
  *    MỘT lần chuyển trạng thái đã qua của một việc nội bộ. Chuông trong hệ thống đi trước thư và không
  *    phụ thuộc thư (`SendTaskNotice`), và trạng thái HIỆN TẠI của việc luôn ở trang "Công việc" — gửi lại
@@ -96,6 +110,10 @@ final class ResendTargets
         'staff.handover_ready',
         'staff.intake_unanswered',
         'staff.document_store_alert.*',
+        // Làn nt Task 1 — lý do ở docblock lớp.
+        'client.payment_received',
+        // Làn nt Task 2 — lý do ở docblock lớp.
+        'client.payment_reminder.*',
         'staff.task.*',
         'undeclared',
     ];

@@ -58,6 +58,13 @@ class DemoDataSeeder extends Seeder
         // để làn khác thêm seeder vào danh sách trên mà không chạm dòng này.
         $this->call(IntakeSeeder::class);
 
+        // Làn nt: thông tin chuyển khoản GIẢ cho "Nhắc lịch thanh toán cho khách"; công tắc vẫn TẮT. Sau
+        // `BillingSeeder` để các khoản thu mẫu ghi qua `RecordPayment` không gặp công tắc nào bật.
+        $this->call(ClientPaymentSettingsSeeder::class);
+
+        // Làn nt Task 2: một đợt sắp đến hạn cho khách demo (dời hạn qua RescheduleInstalment) — công tắc vẫn TẮT.
+        $this->call(ClientPaymentReminderDemoSeeder::class);
+
         // Làn tk, Task 1 — việc giao nội bộ mẫu: SAU mọi seeder trên (đọc đội ngũ vụ của `MatterSeeder`, vụ
         // `restricted` và luật sư đã nghỉ việc của `TeamPerformanceSeeder`). Dòng riêng, như dòng trên.
         $this->call(TaskSeeder::class);

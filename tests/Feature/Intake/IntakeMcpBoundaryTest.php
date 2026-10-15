@@ -10,7 +10,8 @@ use Tests\Support\McpSourceScan;
  *
  * Bảng R4 của kế hoạch M11 dùng presenter theo danh sách cho phép, nên hai model mới mặc định không
  * ra ngoài. Test này biến "mặc định" thành một phép quét mã nguồn: KHÔNG tệp nào của máy chủ MCP
- * tham chiếu `IntakeRequest`, `IntakeParty`, bí danh morph hay tên bảng của chúng.
+ * tham chiếu `IntakeRequest`, `IntakeParty`, `IntakeFollowUp` (ghi chú chăm sóc lead, làn kd), bí danh morph
+ * hay tên bảng của chúng.
  *
  * M11 Task 14 (phán quyết C3 của controller làn m11) nới phạm vi từ ba thư mục kế hoạch M11 đặt tên
  * ra MỌI chỗ làn M11 thật sự đặt mã MCP: thêm middleware, controller, response và view của luồng
@@ -25,7 +26,7 @@ use Tests\Support\McpSourceScan;
  * (`'App\Models\IntakeRequest'`, `'intake_requests'`) thì là. View Blade quét cả phần HTML (sau khi
  * bỏ chú thích `{{-- … --}}`): với bộ tách token của PHP, `{{ $intake_request->story }}` chỉ là HTML.
  */
-const INTAKE_MCP_FORBIDDEN = ['IntakeRequest', 'IntakeParty', 'intake_request', 'intake_party', 'intake_requests', 'intake_parties'];
+const INTAKE_MCP_FORBIDDEN = ['IntakeRequest', 'IntakeParty', 'IntakeFollowUp', 'intake_request', 'intake_party', 'intake_requests', 'intake_parties', 'intake_follow_up'];
 
 /**
  * @return list<string> Thư mục chứa mã MCP của M11 — một danh sách chung với phép quét tiền của vụ

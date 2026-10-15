@@ -9,10 +9,14 @@ use App\Enums\Role;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
+use Carbon\CarbonInterface;
+use DateTimeInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Sửa vụ việc sau khi mở (SPEC §4.6, §5; M6.5 Task 5, findings `intake/intake-06`,
@@ -20,15 +24,16 @@ use Illuminate\Validation\ValidationException;
  * ở tiêu đề, tóm tắt cho khách, hay số thụ lý toà cấp SAU khi mở vụ (thường vài tuần sau) không
  * sửa được ở đâu cả.
  *
- * # Năm trường sửa được, và ba trường KHÔNG BAO GIỜ sửa được qua đây
+ * # Bảy trường sửa được, và ba trường KHÔNG BAO GIỜ sửa được qua đây
  *
  * `title`, `summary_for_client`, `court_name`, `case_number`, `confidentiality` — đúng năm cột
- * SPEC §4.6 liệt kê cho màn hình này. `client_id`, `matter_type_id` và `lead_lawyer_id` CỐ Ý
- * không nằm trong danh sách tham số của `handle()`: vụ gắn nhầm khách/loại vụ việc thì admin
- * "Huỷ hồ sơ mở nhầm" ({@see CancelMatter}), không sửa; luật sư phụ trách chỉ đổi qua bàn giao
- * (`App\Actions\ReassignMatter`, M6.5 Task 4). Nhận tường minh đúng năm khoá thay vì đẩy cả
- * mảng `$data` là cách duy nhất bảo đảm ba cột kia không bao giờ chạm được vào `fill()`, kể cả
- * khi một request bị chỉnh sửa tay gửi kèm chúng.
+ * SPEC §4.6 liệt kê cho màn hình này, cộng `description_internal` và `opened_at` (làn fm A3, xem mục
+ * dưới). `client_id`, `matter_type_id` và `lead_lawyer_id` CỐ Ý không nằm trong danh sách trắng
+ * `$editable` của `handle()`: vụ gắn nhầm khách/loại vụ việc thì admin "Huỷ hồ sơ mở nhầm"
+ * ({@see CancelMatter}), không sửa; luật sư phụ trách chỉ đổi qua bàn giao
+ * (`App\Actions\ReassignMatter`, M6.5 Task 4). Lọc theo đúng bảy khoá thay vì đẩy cả mảng `$data`
+ * là cách duy nhất bảo đảm ba cột kia không bao giờ chạm được vào `fill()`, kể cả khi một request
+ * bị chỉnh sửa tay gửi kèm chúng.
  *
  * # Ba trường chỉ cần `matter.update`, hai trường đòi thêm một cổng riêng
  *
@@ -58,6 +63,29 @@ use Illuminate\Validation\ValidationException;
  * trang đó giờ chỉ cần dịch STATE PATH của một `ValidationException` đã có sẵn tên trường, không
  * còn phải tự suy đoán "mọi AuthorizationException đều là confidentiality").
  *
+ * # Ghi chú nội bộ và ngày mở hồ sơ (làn fm A3, kiểm tra nghiệp vụ 2026-10-09)
+ *
+ * Hai trường thêm vào danh sách sửa được, chỉ cần `matter.update`: `description_internal` ("Ghi chú
+ * nội bộ" nhập lúc mở vụ — trước đây không màn hình nào đọc lại hay sửa được) và `opened_at` (in vào
+ * mục lục gói bàn giao, đếm vào "mở trong tháng"). Ghi chú rỗng là `null`, dài quá
+ * {@see self::DESCRIPTION_INTERNAL_MAX} ký tự hoặc {@see self::DESCRIPTION_INTERNAL_MAX_BYTES} byte
+ * thì từ chối. Ngày mở phải là một ngày thật, không sau hôm nay và không sau ngày kết thúc.
+ * `matter_details_updated` chỉ nêu TÊN trường — nội dung ghi chú không vào nhật ký
+ * (`Matter::getActivitylogOptions()` cũng cố ý bỏ cột này); ngày mở cũ/mới đã có trong dòng
+ * "updated" của activitylog.
+ *
+ * **Hai luật này chỉ được hỏi khi giá trị THẬT SỰ đổi** (làn fm, vòng sửa 2, F2) — cùng lý do
+ * với hai cổng của mục trên: trang Sửa luôn gửi lại cả hai ô. Một vụ có ngày mở trong tương lai
+ * hay ghi chú dài hơn trần (mở trước khi có luật này) vẫn sửa được tiêu đề, số thụ lý hay mức bảo
+ * mật; chỉ khi chính ô đó bị sửa thì giá trị mới phải theo luật. Ghi chú so sánh sau khi bỏ khoảng
+ * trắng hai đầu và quy CRLF về LF; ngày mở so sánh theo chuỗi `Y-m-d`.
+ *
+ * Ba đường ghi dùng CHUNG một luật — ngày mở không sau hôm nay, ghi chú tối đa
+ * {@see self::DESCRIPTION_INTERNAL_MAX} ký tự và {@see self::DESCRIPTION_INTERNAL_MAX_BYTES} byte: trang
+ * Sửa (Action này), và mọi đường mở vụ qua `OpenMatter` (form mở vụ `MatterForm`, trang chuyển đổi
+ * tiếp nhận `ConvertIntakeRequest` qua `ConvertIntakeToMatter`), nơi
+ * {@see self::assertNewMatterDetails()} hỏi lại. Các form dùng cùng hằng số để báo lỗi ngay trên ô.
+ *
  * # Khoá dòng TRƯỚC, không đọc gì trước khi khoá
  *
  * Câu lệnh ĐẦU TIÊN trong transaction là `lockForUpdate()` — dự án đã bị REPEATABLE READ của
@@ -80,7 +108,21 @@ use Illuminate\Validation\ValidationException;
 class UpdateMatterDetails
 {
     /**
-     * @param  array{title?: string, summary_for_client?: ?string, court_name?: ?string, case_number?: ?string, confidentiality?: string}  $data
+     * Trần ký tự của "Ghi chú nội bộ" (`matters.description_internal`): bằng trần ô câu chuyện của
+     * tiếp nhận (`EditIntakeRequest`), vì trang chuyển đổi điền sẵn ghi chú bằng câu chuyện đó. Form
+     * mở vụ, form chuyển đổi và form Sửa dùng cùng hằng số này.
+     */
+    public const DESCRIPTION_INTERNAL_MAX = 20000;
+
+    /**
+     * Trần byte đi kèm (cột `text` = 65.535 byte). 20.000 ký tự tiếng Việt (tối đa 3 byte một ký tự)
+     * nằm dưới trần này, nhưng ký tự 4 byte (biểu tượng cảm xúc) thì không, nên mọi đường ghi hỏi cả
+     * byte để MariaDB strict không nổ lỗi 1406. Cùng số với `UpdateIntakeSummary`.
+     */
+    public const DESCRIPTION_INTERNAL_MAX_BYTES = 60000;
+
+    /**
+     * @param  array{title?: string, summary_for_client?: ?string, court_name?: ?string, case_number?: ?string, confidentiality?: string, description_internal?: ?string, opened_at?: string|CarbonInterface}  $data
      */
     public function handle(Matter $matter, User $actor, array $data): Matter
     {
@@ -108,7 +150,26 @@ class UpdateMatterDetails
 
             $editable = array_intersect_key($data, array_flip([
                 'title', 'summary_for_client', 'court_name', 'case_number', 'confidentiality',
+                'description_internal', 'opened_at',
             ]));
+
+            // Làn fm A3: hai trường mới — xem docblock lớp, mục "Ghi chú nội bộ và ngày mở hồ sơ".
+            // Giá trị gửi lại y nguyên thì bỏ khỏi `$editable`, không hỏi luật (F2).
+            if (array_key_exists('description_internal', $editable)) {
+                if (self::sameInternalNote($editable['description_internal'], $locked->description_internal)) {
+                    unset($editable['description_internal']);
+                } else {
+                    $editable['description_internal'] = $this->validatedInternalNote($editable['description_internal']);
+                }
+            }
+
+            if (array_key_exists('opened_at', $editable)) {
+                if (self::sameOpenedAt($editable['opened_at'], $locked)) {
+                    unset($editable['opened_at']);
+                } else {
+                    $editable['opened_at'] = $this->validatedOpenedAt($locked, $editable['opened_at'])->toDateString();
+                }
+            }
 
             $locked->fill($editable);
 
@@ -124,6 +185,151 @@ class UpdateMatterDetails
 
             return $locked;
         });
+    }
+
+    /** Rỗng (hoặc toàn khoảng trắng) là "không có ghi chú" (`null`); dài quá trần thì từ chối trên đúng ô. */
+    private function validatedInternalNote(?string $note): ?string
+    {
+        $note = self::normalisedInternalNote($note);
+
+        if ($note === null) {
+            return null;
+        }
+
+        if (mb_strlen($note) > self::DESCRIPTION_INTERNAL_MAX) {
+            throw ValidationException::withMessages([
+                'description_internal' => [__('lifecycle.details.internal_note_too_long', ['max' => self::DESCRIPTION_INTERNAL_MAX])],
+            ]);
+        }
+
+        if (self::internalNoteOverByteCap($note)) {
+            throw ValidationException::withMessages([
+                'description_internal' => [__('lifecycle.details.internal_note_too_many_bytes')],
+            ]);
+        }
+
+        return $note;
+    }
+
+    /**
+     * Luật chung cho một vụ MỚI (làn fm, vòng sửa 2, F2) — `OpenMatter` hỏi hàm này trên mọi đường mở
+     * vụ (form mở vụ, chuyển từ tiếp nhận), để không đường nào tạo được vụ mà trang Sửa từ chối: ngày
+     * mở không sau hôm nay ({@see self::openedAfterToday()}), ghi chú nội bộ tối đa
+     * {@see self::DESCRIPTION_INTERNAL_MAX} ký tự và {@see self::DESCRIPTION_INTERNAL_MAX_BYTES} byte.
+     * Khoá vắng mặt (hoặc ghi chú `null`) thì không hỏi; giá trị ngày hỏng để luật của nơi gọi báo.
+     *
+     * @param  array<string, mixed>  $attributes
+     *
+     * @throws ValidationException trên đúng ô (`opened_at`, `description_internal`)
+     */
+    public static function assertNewMatterDetails(array $attributes): void
+    {
+        $errors = [];
+        $note = $attributes['description_internal'] ?? null;
+
+        if (is_string($note) && mb_strlen($note) > self::DESCRIPTION_INTERNAL_MAX) {
+            $errors['description_internal'] = [__('lifecycle.details.internal_note_too_long', ['max' => self::DESCRIPTION_INTERNAL_MAX])];
+        } elseif (self::internalNoteOverByteCap($note)) {
+            $errors['description_internal'] = [__('lifecycle.details.internal_note_too_many_bytes')];
+        }
+
+        if (self::openedAfterToday($attributes['opened_at'] ?? null)) {
+            $errors['opened_at'] = [__('lifecycle.details.opened_at_future')];
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    /**
+     * Ngày mở (chuỗi đọc được hay đối tượng ngày) rơi SAU hôm nay theo múi giờ ứng dụng — so theo ngày,
+     * nên mọi giờ của hôm nay vẫn hợp lệ. Giá trị rỗng, sai kiểu hay không đọc được trả `false`.
+     */
+    public static function openedAfterToday(mixed $value): bool
+    {
+        if ($value instanceof DateTimeInterface) {
+            $date = Carbon::instance($value);
+        } elseif (is_string($value) && trim($value) !== '') {
+            try {
+                $date = Carbon::parse($value);
+            } catch (Throwable) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        return $date->toDateString() > today()->toDateString();
+    }
+
+    /**
+     * Ghi chú vượt trần BYTE của cột ({@see self::DESCRIPTION_INTERNAL_MAX_BYTES}). Form mở vụ
+     * (`MatterForm`) hỏi cùng hàm này để báo lỗi ngay trên ô, trước khi `OpenMatter` hỏi lại
+     * ({@see self::assertNewMatterDetails()}).
+     */
+    public static function internalNoteOverByteCap(mixed $note): bool
+    {
+        return is_string($note) && strlen($note) > self::DESCRIPTION_INTERNAL_MAX_BYTES;
+    }
+
+    /** Bỏ khoảng trắng hai đầu, quy CRLF về LF; rỗng (hoặc toàn khoảng trắng) là `null`. */
+    private static function normalisedInternalNote(?string $note): ?string
+    {
+        if ($note === null) {
+            return null;
+        }
+
+        $note = trim(str_replace("\r\n", "\n", $note));
+
+        return $note === '' ? null : $note;
+    }
+
+    /** Ô ghi chú gửi lại đúng ghi chú đang lưu (chuẩn hoá cả hai vế) — xem docblock lớp, F2. */
+    private static function sameInternalNote(?string $incoming, ?string $current): bool
+    {
+        return self::normalisedInternalNote($incoming) === self::normalisedInternalNote($current);
+    }
+
+    /** Ô ngày mở gửi lại đúng ngày đang lưu (so sánh chuỗi `Y-m-d`) — xem docblock lớp, F2. */
+    private static function sameOpenedAt(mixed $incoming, Matter $matter): bool
+    {
+        $incoming = $incoming instanceof CarbonInterface ? $incoming->toDateString() : $incoming;
+
+        return is_string($incoming) && $incoming === $matter->opened_at?->toDateString();
+    }
+
+    /**
+     * Ngày mở hồ sơ: một ngày thật (`Y-m-d` từ ô chọn ngày, hoặc một đối tượng ngày), không sau hôm
+     * nay theo múi giờ ứng dụng, và không sau ngày vụ kết thúc (`Matter::closedBefore()`).
+     */
+    private function validatedOpenedAt(Matter $matter, mixed $value): CarbonInterface
+    {
+        $invalid = fn (string $key): ValidationException => ValidationException::withMessages([
+            'opened_at' => [__("lifecycle.details.{$key}")],
+        ]);
+
+        if ($value instanceof CarbonInterface) {
+            $date = $value->copy()->startOfDay();
+        } elseif (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+            $date = Carbon::createFromFormat('!Y-m-d', $value);
+
+            if ($date === false || $date->toDateString() !== $value) {
+                throw $invalid('opened_at_invalid');
+            }
+        } else {
+            throw $invalid('opened_at_invalid');
+        }
+
+        if ($date->toDateString() > today()->toDateString()) {
+            throw $invalid('opened_at_future');
+        }
+
+        if ($matter->closedBefore($date)) {
+            throw $invalid('opened_at_after_closed');
+        }
+
+        return $date;
     }
 
     /**

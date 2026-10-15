@@ -73,6 +73,9 @@ return [
         // khi hộp thoại được mở. Nói ra NGUYÊN NHÂN thật (hai tab, hay một người khác vừa công bố
         // lại) chứ không phải một lỗi chung chung, và bảo đúng một việc: tải lại.
         'stale_form' => 'Có người khác (hoặc chính anh/chị ở một tab khác) vừa đổi quyền xem/tải của tài liệu này sau khi hộp thoại này mở ra. Để không lỡ ghi đè thay đổi đó, anh/chị hãy đóng hộp thoại, tải lại trang, rồi công bố lại với đúng lựa chọn hiện tại.',
+        // làn fi (A4): PublishDocument, gói bàn giao đang sinh lại (thường sau khi rút một dòng tiến độ).
+        'handover_regenerating' => 'Gói bàn giao của vụ này đang được sinh lại (ví dụ vì vừa rút một dòng tiến độ): bản này có thể còn nội dung đã rút. Hãy chờ gói mới sinh xong (xem khối "Gói bàn giao hồ sơ" trên trang vụ việc) rồi công bố bản mới.',
+        // hết khối làn fi
     ],
 
     /*

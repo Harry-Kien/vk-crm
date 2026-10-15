@@ -87,7 +87,7 @@ return [
     'offboarding' => [
         'open_work_intro' => 'Không thể vô hiệu hoá hoặc xoá :name: người này còn',
         // Fix round 3, finding 4: đổi chức danh KHÔNG phải vô hiệu hoá/xoá — câu mở đầu riêng, dùng
-        // bởi `demotionBlockedByLeadMattersReason()` (đích Trợ lý) VÀ
+        // bởi `demotionBlockedByLeadingWorkReason()` (đích Trợ lý) VÀ
         // `demotionBlockedByAnyOpenWorkReason()` (đích Kế toán, ruling round 3 mục 5).
         'demotion_intro' => 'Không thể đổi chức danh :name sang chức danh này: người này còn',
         'open_work_lead_matters' => ':count vụ việc đang mở với vai luật sư phụ trách — dùng "Bàn giao" trên từng vụ việc',
@@ -96,8 +96,14 @@ return [
         'open_work_outro' => 'Hãy xử lý xong rồi thử lại.',
         'demotion_from_admin_restricted' => 'Không thể đổi :name khỏi chức danh Quản trị viên: người này còn ở đội ngũ, hoặc còn giữ mốc hạn/yêu cầu khách chưa xong, trong :count vụ việc hạn chế mà người này không phụ trách — sau khi đổi, họ sẽ không mở được các vụ đó nữa. Hãy gỡ họ khỏi đội ngũ và chuyển việc cho người khác trước.',
         'last_admin_blocked' => 'Không thể thực hiện: đây là quản trị viên đang hoạt động cuối cùng của hệ thống. Hãy chỉ định thêm ít nhất một quản trị viên khác trước khi đổi chức danh, vô hiệu hoá hoặc xoá tài khoản này.',
-        'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
-        'position_hint' => 'Đổi chức danh sang Trợ lý hoặc Kế toán sẽ bị chặn nếu người này còn việc dở dang (cùng luật vô hiệu hoá). Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+        'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, còn giữ lead tiếp nhận đang mở (phụ trách hay được chuyển tư vấn), hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+        // Làn fi, vòng sửa 1 (I4): lead người này phụ trách không chặn đích Nhân viên kinh doanh
+        // (EditUser::ASSIGNED_LEADS_BLOCK_DEMOTION chỉ có Kế toán) — câu nói đúng ba đích.
+        'position_hint' => 'Đổi chức danh sang Trợ lý, Kế toán hoặc Nhân viên kinh doanh sẽ bị chặn nếu người này còn việc mà chức danh mới không xử lý được: sang Trợ lý — vụ đang dẫn, lead được chuyển tư vấn; sang Nhân viên kinh doanh — mọi việc dở dang trừ lead người này phụ trách (nhân viên kinh doanh vẫn phụ trách lead được); sang Kế toán — mọi việc dở dang. Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+        // làn fi (A1): lead tiếp nhận còn mở là việc dở như ba loại trên — GuardsStaffOffboarding, App\Support\OpenLeads.
+        'open_work_consulting_leads' => ':count lead đang mở được chuyển cho người này làm luật sư tư vấn — dùng "Chuyển cho luật sư" trên từng lead (mục Tiếp nhận) để chuyển cho luật sư khác',
+        'open_work_assigned_leads' => ':count lead đang mở người này là người phụ trách — đổi ô "Người phụ trách" trên trang sửa từng lead (mục Tiếp nhận)',
+        // hết khối làn fi
         // M7 Task 2: liên kết tới màn hình "Bàn giao hàng loạt" đi kèm lời chặn, khi người bị chặn
         // còn dẫn ít nhất một vụ việc (mảnh 'open_work_lead_matters' ở trên) — App\Filament\Admin\
         // Pages\BulkReassign::offboardingLinkAction(), gọi từ EditUser/DeleteStaffMember.

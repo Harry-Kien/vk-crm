@@ -77,7 +77,7 @@ class IntakeRequestResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return static::visibleOnly(parent::getEloquentQuery())->with(['assignee']);
+        return static::visibleOnly(parent::getEloquentQuery())->with(['assignee', 'consultingLawyer']);
     }
 
     public static function getRecordRouteBindingEloquentQuery(): Builder

@@ -48,6 +48,10 @@ return [
         // M10 Task 7 (`AnonymiseProspect`): mã bản ghi và lý do / ngày hạn — không bao giờ giá trị đã xoá.
         'prospect_data_erased' => 'Xoá dữ liệu cá nhân của người liên hệ theo yêu cầu',
         'prospect_data_anonymised' => 'Ẩn danh dữ liệu người liên hệ hết hạn lưu',
+        // Làn kd (2026-10-14): app/Actions/Intake/{HandIntakeToLawyer,LogIntakeFollowUp}.php — chỉ id luật sư,
+        // kênh liên hệ và cờ có hẹn hay không; không tên, SĐT hay nội dung lần chăm sóc.
+        'intake_handed_to_lawyer' => 'Chuyển một lead cho luật sư tư vấn',
+        'intake_follow_up_logged' => 'Ghi một lần chăm sóc lead',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',
@@ -217,6 +221,15 @@ return [
         // M7 Task 10: app/Actions/Settings/UpdateOfficeProfile.php — `changed_fields` nêu TÊN các
         // trường đã đổi trên trang "Thông tin văn phòng", không nêu giá trị.
         'office_profile_updated' => 'Sửa thông tin văn phòng',
+        // Làn nt (nhắc lịch thanh toán cho khách): App\Actions\Settings\UpdateClientPaymentSettings —
+        // `changed_fields` nêu TÊN trường, `enabled` là giá trị mới của công tắc khi nó đổi; và
+        // App\Jobs\SendPaymentReceivedMail::failed() khi thư xác nhận đã nhận tiền hỏng hẳn.
+        'client_payment_settings_updated' => 'Đổi cấu hình nhắc thanh toán cho khách',
+        'payment_received_mail_failed' => 'Gửi thư xác nhận đã nhận tiền cho khách thất bại hẳn',
+        // Làn nt Task 2: App\Actions\Billing\RemindClientOfOverdueInstalment (nút "Gửi thư nhắc" — `recipients` là
+        // địa chỉ thư của tài khoản cổng nhận) và App\Jobs\SendPaymentOverdueReminderMail::failed().
+        'client_payment_reminder_sent' => 'Gửi thư nhắc khách đợt thanh toán quá hạn',
+        'client_payment_reminder_failed' => 'Gửi thư nhắc khách đợt thanh toán quá hạn thất bại hẳn',
         // M7 Task 8: app/Actions/Communication/{LogCommunication,DeleteCommunicationLog}.php —
         // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
         'communication_logged' => 'Ghi nhật ký liên lạc',
@@ -263,6 +276,14 @@ return [
         // App\Actions\User\SuspendStaffAccess (mục A5).
         'staff_access_suspended' => 'Khoá truy cập nhân sự ngay (chưa bàn giao)',
         // --- Hết khối làn fb ----------------------------------------------------------------
+        // --- Làn fm (sửa sau kiểm tra nghiệp vụ 2026-10-09, vòng đời vụ việc) ---
+        // A2: app/Actions/Matter/RetractStageLog.php — chủ thể là dòng tiến độ.
+        'stage_log_retracted' => 'Rút dòng tiến độ khỏi cổng khách',
+        // A4: app/Actions/Matter/RestoreMatter.php — chủ thể là vụ việc, `properties.reason`.
+        'matter_restored' => 'Khôi phục hồ sơ đã huỷ',
+        // A5: app/Actions/Matter/ExtendClientAccess.php — chủ thể là vụ việc, `from`/`to`/`reason`.
+        'client_access_extended' => 'Gia hạn tra cứu cho khách',
+        // --- hết khối làn fm ---
         // --- Làn tk, Task 1: giao việc nội bộ (app/Actions/Task) ------------------------------
         'task_assigned' => 'Giao việc nội bộ',
         'task_accepted' => 'Nhận việc được giao',

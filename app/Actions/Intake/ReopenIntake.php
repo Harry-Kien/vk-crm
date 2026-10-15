@@ -3,12 +3,15 @@
 namespace App\Actions\Intake;
 
 use App\Actions\Intake\Concerns\HoldsConflictCheckLock;
+use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\IntakeStatus;
 use App\Models\IntakeRequest;
 use App\Models\User;
+use App\Notifications\Staff\IntakeRedPending;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -27,11 +30,21 @@ use Illuminate\Validation\ValidationException;
  *  - **từ chối vì xung đột**: KHÔNG thả khoá. Cờ `decline_reason_is_conflict` đổi thành dấu "Đỏ chờ xử
  *    lý" (`conflict_red_pending_since`, giữ thời điểm cũ nếu có): bản ghi tiếp tục khoá cuộc gọi lại và
  *    ô câu chuyện cho tới khi quản lý/admin ghi đè kèm lý do (`ResolveIntakeRedConflict`) — đúng hai
- *    cách xử lý Đỏ của R1. Chỉ đổi DẠNG khoá để nó gỡ được bằng đúng đường đó.
- *  - `decline_reason` giữ nguyên (lịch sử; chỉ hiện ở khối "Kết quả xử lý" của một bản đang từ chối).
+ *    cách xử lý Đỏ của R1. Chỉ đổi DẠNG khoá để nó gỡ được bằng đúng đường đó. Làn fi (B3): khi dấu đó
+ *    được đặt LẦN ĐẦU ở đây (trước đó null), trưởng phòng/quản trị nhận {@see IntakeRedPending} như
+ *    đường thường của `CheckIntakeConflict` — người nhận
+ *    {@see ResolveStaffRecipients::forIntakeConflictResolution()}, sau commit, chỉ mã bản ghi;
+ *  - `decline_reason` giữ nguyên (lịch sử; chỉ hiện ở khối "Kết quả xử lý" của một bản đang từ chối);
+ *  - làn fi (B1): hẹn liên hệ lại (`next_follow_up_at`) đã qua thì xoá — lead vừa mở lại không hiện
+ *    "quá hạn chăm sóc" vì một hẹn từ trước khi nó đóng; hẹn còn ở tương lai thì giữ;
+ *  - làn fi, vòng sửa 1 (I2): luật sư tư vấn (`consulting_lawyer_id`) không còn nhận được lead
+ *    ({@see HandIntakeToLawyer::canReceive()}: đã nghỉ, bị khoá, đổi sang vai không mở được vụ) thì bỏ,
+ *    cùng `handed_to_lawyer_at` — lead đã đóng không chặn ai nghỉ việc hay đổi vai (`OpenLeads`), nên lúc
+ *    mở lại là lúc duy nhất bắt được; lead về tay người phụ trách, họ "Chuyển cho luật sư" lại nếu cần.
  *
  * Lý do bắt buộc, {@see self::REASON_MIN}–{@see self::REASON_MAX} ký tự; dòng `intake_reopened` mang
- * trạng thái cũ và lý do (của người mở lại, không phải lý do từ chối cũ).
+ * trạng thái cũ và lý do (của người mở lại, không phải lý do từ chối cũ), và `consulting_lawyer_dropped`
+ * (id luật sư vừa bỏ) khi có.
  */
 class ReopenIntake
 {
@@ -56,7 +69,8 @@ class ReopenIntake
             ])]]);
         }
 
-        return $this->underConflictCheckLock(fn (): IntakeRequest => DB::transaction(function () use ($actor, $intake, $reason): IntakeRequest {
+        /** @var array{0: IntakeRequest, 1: bool} $outcome */
+        $outcome = $this->underConflictCheckLock(fn (): array => DB::transaction(function () use ($actor, $intake, $reason): array {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
             $from = $locked->status;
 
@@ -66,9 +80,29 @@ class ReopenIntake
                 ])]]);
             }
 
+            $redJustPending = false;
+
             if ($locked->decline_reason_is_conflict) {
+                $redJustPending = $locked->conflict_red_pending_since === null;
                 $locked->conflict_red_pending_since ??= now();
                 $locked->decline_reason_is_conflict = false;
+            }
+
+            if ($locked->next_follow_up_at !== null && ! $locked->next_follow_up_at->isFuture()) {
+                $locked->next_follow_up_at = null;
+            }
+
+            $properties = ['from' => $from->value, 'reason' => $reason];
+
+            // Làn fi, vòng sửa 1 (I2) — xem docblock lớp.
+            if ($locked->consulting_lawyer_id !== null) {
+                $consulting = User::withTrashed()->find($locked->consulting_lawyer_id);
+
+                if ($consulting === null || ! HandIntakeToLawyer::canReceive($consulting)) {
+                    $properties['consulting_lawyer_dropped'] = $locked->consulting_lawyer_id;
+                    $locked->consulting_lawyer_id = null;
+                    $locked->handed_to_lawyer_at = null;
+                }
             }
 
             $locked->status = IntakeStatus::Contacted;
@@ -77,9 +111,22 @@ class ReopenIntake
             $locked->disableLogging()->save();
             $locked->enableLogging();
 
-            Audit::record('intake_reopened', $locked, ['from' => $from->value, 'reason' => $reason], $actor);
+            Audit::record('intake_reopened', $locked, $properties, $actor);
 
-            return $locked;
+            return [$locked, $redJustPending];
         }));
+
+        [$reopened, $redJustPending] = $outcome;
+
+        // Làn fi (B3): báo SAU khi transaction trên đã commit (ngoài nó; `afterCommit` còn đợi một
+        // transaction bao ngoài nếu người gọi có).
+        if ($redJustPending) {
+            DB::afterCommit(fn () => Notification::send(
+                app(ResolveStaffRecipients::class)->forIntakeConflictResolution($reopened),
+                new IntakeRedPending($reopened),
+            ));
+        }
+
+        return $reopened;
     }
 }

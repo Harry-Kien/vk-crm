@@ -41,6 +41,13 @@ use Illuminate\Validation\ValidationException;
  *
  * Quyền: người nhìn thấy được bản ghi (`IntakeRequestPolicy::update`); người nhập thường ngày (trợ lý
  * đã ghi bản ghi) xác nhận được Vàng — chỉ Đỏ mới đòi quản lý/admin.
+ *
+ * **Làn kd — người không được thấy các khớp** (`IntakeRequestPolicy::viewConflictMatches`, tức không có
+ * `matter.view`: nhân viên kinh doanh) chỉ thấy mức, nên "đã xem các khớp" từ họ là một lời không có thật:
+ * khi lần chạy lại ra mức khác Xanh, Action từ chối bằng câu "hãy chuyển lead cho luật sư" — TRƯỚC mọi lời
+ * từ chối khác, vì lời từ chối Đỏ (`ConflictBlocked`) nêu mã hồ sơ. Lần chạy lại vẫn được ghi như mọi
+ * trường hợp ở đây. Mức Xanh chỉ thiếu định danh (không có khớp nào để xem) thì họ xác nhận được như mọi
+ * người nhập: thứ được xác nhận là "kiểm tra chạy trên tên các bên chưa có SĐT/CCCD", không phải hồ sơ nào.
  */
 class AcknowledgeIntakeConflict
 {
@@ -52,6 +59,10 @@ class AcknowledgeIntakeConflict
 
         return $this->underConflictCheckLock(function () use ($actor, $intake, $acknowledged): IntakeRequest {
             $result = $this->checkAndRecord($actor, $intake);
+
+            if ($result->level !== ConflictLevel::Green && Gate::forUser($actor)->denies('viewConflictMatches', $intake)) {
+                throw ValidationException::withMessages(['acknowledged' => [__('leads.errors.acknowledge_needs_lawyer')]]);
+            }
 
             if ($result->isBlocking()) {
                 throw ConflictBlocked::make($result);

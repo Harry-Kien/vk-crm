@@ -294,7 +294,8 @@ it('mở lại vụ việc (client_access_until về null qua TransitionMatterSt
 
     $transition = fn (string $to) => app(TransitionMatterStage::class)->handle(
         matter: $matter->fresh(), actor: $admin, toStage: $to, occurredAt: now(),
-        internalNote: 'Đổi giai đoạn', publicContent: null, nextStep: null, clientAction: null,
+        // Làn fm B4: mở lại vụ đã kết thúc đòi lý do tối thiểu 20 ký tự.
+        internalNote: 'Đổi giai đoạn theo yêu cầu khách hàng', publicContent: null, nextStep: null, clientAction: null,
         expectedNextUpdateAt: null, publish: false,
     );
 

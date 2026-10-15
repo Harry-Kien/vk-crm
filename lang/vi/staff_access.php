@@ -12,7 +12,9 @@ return [
     'suspend' => [
         'label' => 'Khoá truy cập ngay',
         'modal_heading' => 'Khoá truy cập của :name ngay bây giờ?',
-        'modal_description' => 'Dùng khi nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu. :name bị đăng xuất khỏi mọi phiên, cookie "ghi nhớ đăng nhập" hết hiệu lực, mọi kết nối AI bị thu hồi, mọi máy nhận thông báo bị gỡ. Việc dở dang (:matters vụ phụ trách, :deadlines mốc hạn, :requests yêu cầu khách) giữ nguyên để bàn giao sau qua "Bàn giao hàng loạt". Mở lại bằng công tắc "Đang hoạt động" trên trang này.',
+        // Làn fi, vòng sửa 1 (I3): thêm hai loại việc dở của A1 (App\Support\OpenLeads) và đường chuyển
+        // chúng — "Bàn giao hàng loạt" không chuyển lead.
+        'modal_description' => 'Dùng khi nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu. :name bị đăng xuất khỏi mọi phiên, cookie "ghi nhớ đăng nhập" hết hiệu lực, mọi kết nối AI bị thu hồi, mọi máy nhận thông báo bị gỡ. Việc dở dang giữ nguyên để bàn giao sau: :matters vụ phụ trách, :deadlines mốc hạn, :requests yêu cầu khách qua "Bàn giao hàng loạt"; :consulting_leads lead được chuyển tư vấn và :assigned_leads lead phụ trách qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead (mục Tiếp nhận) — "Bàn giao hàng loạt" không chuyển lead. Mở lại bằng công tắc "Đang hoạt động" trên trang này.',
         'reason' => 'Lý do khoá',
         'reason_help' => 'Ít nhất 20 ký tự. Ghi vào nhật ký hệ thống.',
         'reason_too_short' => 'Lý do khoá cần ít nhất :min ký tự.',

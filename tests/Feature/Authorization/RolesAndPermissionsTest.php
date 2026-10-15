@@ -87,7 +87,14 @@ it('matches the spec permission table for every role', function () {
             'intake.create',
         ],
         Role::Accountant->value => ['matter.viewAny', 'billing.view', 'payment.record', 'revenue.viewAny'],
+        // Làn kd (2026-10-14): nhân viên kinh doanh — đúng MỘT quyền, ghi và cập nhật lead của mình.
+        // Không vụ việc, khách, tài liệu, tiền; không `intake.viewAny`, không `intake.convert`.
+        Role::Sales->value => ['intake.create'],
     ];
+
+    // Ma trận phủ ĐỦ sáu vai: một vai mới mà thiếu dòng ở đây làm test đỏ thay vì lọt qua.
+    expect(array_keys($expected))->toEqualCanonicalizing(array_map(fn (Role $role): string => $role->value, Role::cases()))
+        ->and(Role::cases())->toHaveCount(6);
 
     foreach ($expected as $roleName => $permissions) {
         $granted = Spatie\Permission\Models\Role::findByName($roleName)

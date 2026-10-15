@@ -9,6 +9,7 @@ use App\Enums\Permission;
 use App\Enums\Role as StaffRole;
 use App\Exceptions\MatterHasOutstandingBalance;
 use App\Exceptions\MatterNotDestroyable;
+use App\Exceptions\MatterRecordDestroyed;
 use App\Exceptions\StageNotConfigured;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
@@ -231,6 +232,31 @@ class Matter extends Model
     public function isClosed(): bool
     {
         return $this->closed_at !== null && ! $this->trashed();
+    }
+
+    /**
+     * Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ (`matter_archives.destroyed_at`) — trạng thái khoá
+     * ({@see MatterRecordDestroyed}). Luôn đọc CSDL (không dùng quan hệ đã nạp), để một Action gọi
+     * dưới khoá `matters` thấy đúng dòng lưu trữ hiện tại.
+     */
+    public function isRecordDestroyed(): bool
+    {
+        return MatterArchive::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $this->getKey())
+            ->whereNotNull('destroyed_at')
+            ->exists();
+    }
+
+    /**
+     * Vụ đã kết thúc TRƯỚC ngày `$day` (so theo ngày) — làn fm A3: "ngày mở hồ sơ" sửa lại không được
+     * đứng sau ngày kết thúc. Viết ở đây vì `closed_at` chỉ được dùng làm điều kiện trong model này
+     * (`MatterTest`, "uses closed_at as a condition nowhere in app/…"). Vụ chưa đóng: `false`.
+     */
+    public function closedBefore(CarbonInterface $day): bool
+    {
+        return $this->closed_at !== null
+            && $this->closed_at->toDateString() < $day->toDateString();
     }
 
     /**

@@ -21,9 +21,12 @@
         <p style="color: var(--gray-700); margin: 0;">{{ __('intake.decision.outward_answer') }}</p>
     @endif
 
+    {{-- Làn kd: `code` null với người không thấy vụ việc nào (nhân viên kinh doanh) — câu không mã. --}}
     @if($convertedInto !== null)
         <p style="margin: 0;">
-            @if($convertedInto['url'] !== null)
+            @if($convertedInto['code'] === null)
+                {{ __('leads.decision.converted') }}
+            @elseif($convertedInto['url'] !== null)
                 <a href="{{ $convertedInto['url'] }}" style="color: var(--primary-600); font-weight: 600;">{{ __('intake.decision.converted_into', ['code' => $convertedInto['code']]) }}</a>
             @else
                 {{ __('intake.decision.converted_into', ['code' => $convertedInto['code']]) }}

@@ -223,6 +223,14 @@ class DeadlinesRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('name')
             ->emptyStateHeading(__('deadlines.tab.empty_state'))
+            // Làn fm A1: vụ đã kết thúc không còn được nhắc hạn, nên tab nói thẳng điều đó và ẩn
+            // nút thêm/sửa (`AddMatterDeadline`/`UpdateDeadline` tự từ chối bằng
+            // `MatterClosedForDeadlines`). Làn fi (B4; vòng sửa 1, I5): nút "Mở lại" cũng ẩn —
+            // `SetDeadlineCompletion` từ chối bằng `MatterClosedForDeadlines::reopen()`, cùng luật. Các nút
+            // dọn việc — xong, đổi người giữ, xoá — vẫn còn.
+            ->description(fn (): ?string => $this->getOwnerRecord()->isClosed()
+                ? __('lifecycle.deadlines.closed_notice')
+                : null)
             ->columns([
                 // Cột đầu tiên, và là cột duy nhất mang màu: mắt người đọc bảng này đi tìm đúng
                 // một thứ — cái gì sắp hết giờ.
@@ -421,6 +429,8 @@ class DeadlinesRelationManager extends RelationManager
             ->modalHeading(__('deadlines.tab.actions.add_heading'))
             ->modalSubmitActionLabel(__('deadlines.tab.actions.add_submit'))
             ->authorize(fn (): bool => Gate::allows('update', $this->getOwnerRecord()))
+            // Làn fm A1: không thêm mốc vào vụ đã kết thúc — xem `table()`.
+            ->visible(fn (): bool => ! $this->getOwnerRecord()->isClosed())
             ->using(function (CreateAction $action, array $data): Deadline {
                 $created = null;
 
@@ -480,6 +490,8 @@ class DeadlinesRelationManager extends RelationManager
             ->modalHeading(__('deadlines.tab.actions.edit_heading'))
             ->modalSubmitActionLabel(__('deadlines.tab.actions.edit_submit'))
             ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
+            // Làn fm A1: mốc của vụ đã kết thúc không sửa được — xem `table()`.
+            ->visible(fn (): bool => ! $this->getOwnerRecord()->isClosed())
             ->fillForm(fn (Deadline $record): array => [
                 'name' => $record->name,
                 'due_date' => $record->due_date->toDateString(),
@@ -683,7 +695,9 @@ class DeadlinesRelationManager extends RelationManager
             ->modalHeading(__('deadlines.tab.actions.reopen_heading'))
             ->modalDescription(__('deadlines.tab.actions.reopen_description'))
             ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
-            ->visible(fn (Deadline $record): bool => (bool) $record->is_completed)
+            ->visible(fn (Deadline $record): bool => (bool) $record->is_completed
+                // Làn fi (B4): vụ đã kết thúc không nhắc hạn — SetDeadlineCompletion từ chối mở lại.
+                && ! $this->getOwnerRecord()->isClosed())
             ->successNotificationTitle(__('deadlines.tab.actions.reopen_success'))
             ->action(function (Action $action, Deadline $record): void {
                 $reopened = null;

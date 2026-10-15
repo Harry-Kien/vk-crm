@@ -5,11 +5,16 @@ namespace App\Actions\Document;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\HandoverPackageStatus;
 use App\Events\DocumentPublished;
 use App\Exceptions\DocumentNotPublishable;
+use App\Exceptions\MatterRecordDestroyed;
 use App\Models\Document;
+use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Audit;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -39,6 +44,15 @@ use Illuminate\Support\Facades\Gate;
  * Hệ quả phải để ý ở Task 6: `DocumentNotPublishable` là lỗi trên form của một trang mà người dùng
  * đã mở được, không bao giờ được dịch thành một mã HTTP khác với 404 của các đường khác (SPEC
  * §10.10).
+ *
+ * **Gói bàn giao đang sinh lại (làn fi, A4).** Rút một dòng tiến độ xếp sinh lại gói chưa công bố
+ * (`handover_status = generating`); trong lúc chờ, mọi version của gói cũ bị từ chối
+ * ({@see DocumentNotPublishable::handoverRegenerating()}) — mục lục của chúng còn dòng đã rút. Để đọc
+ * dòng lưu trữ dưới khoá theo đúng thứ tự `matters` → `matter_archives` → `documents`, Action khoá vụ
+ * việc và dòng lưu trữ TRƯỚC dòng tài liệu, và cổng "hồ sơ đã tiêu huỷ" cũng đọc trên dòng lưu trữ đã
+ * khoá đó. Lần đọc không khoá lấy `matter_id` để biết khoá dòng nào chạy TRƯỚC `DB::transaction()`
+ * (vòng sửa 1, C1 — luật rà soát cuối M7, I1, `MatterLockBeforeSnapshotTest`), `matter_id` được đối
+ * chiếu lại trên dòng tài liệu đã khoá, và người thực hiện được đọc lại từ CSDL ngay trước Gate.
  *
  * **Không có đường thu hồi.** Gọi lại Action với `clientCanView = false` bị từ chối chứ không âm
  * thầm ẩn tài liệu đi. Lý do không phải là kỹ thuật: khách có thể đã mở, đã tải, đã in tài liệu
@@ -107,24 +121,51 @@ class PublishDocument
         bool $expectedClientCanDownload,
         bool $expectedIsReleased,
     ): Document {
+        // 0. `matter_id` THẬT của tài liệu, đọc bằng một câu auto-commit riêng TRƯỚC `DB::transaction()` —
+        // không bao giờ bên trong (rà soát cuối M7, I1; làn fi vòng sửa 1, C1 — xem docblock
+        // `MatterLockBeforeSnapshotTest`, cùng bước 0 của `RetractDocument`). Một câu đọc không khoá đứng
+        // trước khoá `matters` bên trong transaction cố định READ VIEW của MariaDB TRƯỚC lúc đợi khoá: Gate
+        // `publish` (đội ngũ) và chuỗi version gói bàn giao bên dưới sẽ đọc dữ liệu từ trước lúc đợi, và
+        // câu đọc có khoá trên một dòng vừa đổi trong lúc đợi gặp lỗi 1020 (`innodb_snapshot_isolation`).
+        // Bước 2 đối chiếu lại giá trị này dưới khoá. `scopelessly()`: các lần đọc này KHÔNG được phụ
+        // thuộc vào guard nào đang mở. Dưới guard `client` — M5 mở portal, và một nhân sự đăng nhập cả
+        // hai panel đã có cả hai guard cùng xác thực — `ClientPortalScope` cắt truy vấn xuống "đã công bố
+        // và khách được xem", nên một tài liệu nhóm C còn nháp sẽ đọc ra `null` và Action trả lời "không
+        // có bản ghi nào như vậy" về một bản ghi đang nằm đó. Xem docblock `ReadsWithoutPortalScope`.
+        $matterId = $this->scopelessly(Document::query())
+            ->withTrashed()
+            ->whereKey($document->getKey())
+            ->value('matter_id');
+
         return DB::transaction(function () use (
             $document, $actor, $clientCanView, $clientCanDownload,
-            $expectedClientCanView, $expectedClientCanDownload, $expectedIsReleased,
+            $expectedClientCanView, $expectedClientCanDownload, $expectedIsReleased, $matterId,
         ): Document {
-            // Đọc lại bản ghi thật. `withTrashed()` để một tài liệu đã xoá mềm nhận được câu trả
-            // lời riêng của nó thay vì lẫn vào "không tồn tại".
-            // `scopelessly()`: lần đọc lại này KHÔNG được phụ thuộc vào guard nào đang mở. Dưới
-            // guard `client` — M5 mở portal, và một nhân sự đăng nhập cả hai panel đã có cả hai
-            // guard cùng xác thực — `ClientPortalScope` cắt truy vấn xuống "đã công bố và khách
-            // được xem", nên một tài liệu nhóm C còn nháp sẽ đọc ra `null` và Action trả lời
-            // "không có bản ghi nào như vậy" về một bản ghi đang nằm đó. Xem docblock
-            // `ReadsWithoutPortalScope`.
+            // 1. Câu ĐẦU TIÊN: khoá dòng `matters`. Làn fi (A4): thứ tự khoá `matters` →
+            // `matter_archives` → `documents`, cùng `RequestHandoverPackage::refreshAfterRetraction()` và
+            // `BuildHandoverPackage` — cổng "gói bàn giao đang sinh lại" bên dưới đọc dòng lưu trữ, nên nó
+            // phải đọc dưới khoá, và khoá theo đúng thứ tự toàn cục. `withTrashed()` vì một vụ việc đã xoá
+            // mềm phải nhận câu trả lời riêng của nó bên dưới.
+            $matter = $matterId === null ? null : $this->scopelessly(Matter::query())
+                ->withTrashed()
+                ->lockForUpdate()
+                ->find($matterId);
+
+            $archive = $matter === null ? null : $this->scopelessly(MatterArchive::query())
+                ->where('matter_id', $matter->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            // 2. Đọc lại bản ghi thật, SAU `matters`. `withTrashed()` để một tài liệu đã xoá mềm nhận
+            // được câu trả lời riêng của nó thay vì lẫn vào "không tồn tại". `matter_id` dưới khoá khác
+            // giá trị của bước 0 (không Action nào chuyển tài liệu sang vụ khác — tức dữ liệu bị sửa
+            // ngoài Action) → coi như không có bản ghi: khoá đang giữ là khoá của vụ khác.
             $fresh = $this->scopelessly(Document::query())
                 ->withTrashed()
                 ->lockForUpdate()
                 ->find($document->getKey());
 
-            if ($fresh === null) {
+            if ($fresh === null || (int) $fresh->matter_id !== (int) $matterId) {
                 throw DocumentNotPublishable::missing();
             }
 
@@ -137,13 +178,16 @@ class PublishDocument
                 throw DocumentNotPublishable::trashed($fresh);
             }
 
-            // `belongsTo` của một model có SoftDeletes trả null khi vụ việc đã bị xoá mềm, nên
-            // `withTrashed()` là cách duy nhất phân biệt "vụ việc đã xoá" với "khoá ngoại hỏng".
-            // Cả hai đều chặn, nhưng chỉ một trong hai có câu để nói với người dùng.
-            $matter = $this->scopelessly($fresh->matter()->withTrashed()->getQuery())->first();
-
+            // Vụ việc đã xoá mềm, hay khoá ngoại hỏng: cả hai đều chặn, nhưng chỉ một trong hai có câu
+            // để nói với người dùng.
             if ($matter === null || $matter->trashed()) {
                 throw DocumentNotPublishable::matterUnavailable($fresh);
+            }
+
+            // Làn fm B2: hồ sơ đã ghi quyết định tiêu huỷ không công bố thêm gì. Làn fi (A4): đọc trên
+            // dòng lưu trữ đã khoá — cùng định nghĩa `Matter::isRecordDestroyed()`.
+            if ($archive?->destroyed_at !== null) {
+                throw MatterRecordDestroyed::make();
             }
 
             // M7 Task 7: tài liệu đã RÚT LẠI không công bố lại được — cổng trạng thái, cùng hạng
@@ -152,6 +196,14 @@ class PublishDocument
             // đưa lại cho khách thì tải lên một bản mới. Xem `RetractDocument`.
             if ($fresh->status === DocumentStatus::Retracted) {
                 throw DocumentNotPublishable::retracted($fresh);
+            }
+
+            // Làn fi (A4): gói bàn giao đang sinh lại — thường vì vừa rút một dòng tiến độ, nên mục
+            // lục của mọi version đã dựng có thể còn dòng đó. Cổng trạng thái như các cổng trên. Kể cả
+            // một lần `generating` đã kẹt: gói cũ vẫn mang mục lục cũ; người dùng bấm sinh lại.
+            if ($archive?->handover_status === HandoverPackageStatus::Generating
+                && $this->isHandoverPackageVersion($fresh, $archive)) {
+                throw DocumentNotPublishable::handoverRegenerating($fresh);
             }
 
             // Cổng trạng thái thứ tư, cùng hạng với ba cổng trên và cùng lý do đứng trước
@@ -168,7 +220,17 @@ class PublishDocument
             // Action tự kiểm tra quyền, không tin caller đã kiểm tra. Hỏi trên `$fresh` chứ không
             // trên `$document`: policy đọc `group` và `matter` của đối tượng được đưa vào, nên một
             // đối tượng bị sửa thuộc tính trong bộ nhớ sẽ trả lời thay cho dòng dữ liệu thật.
-            Gate::forUser($actor)->authorize('publish', $fresh);
+            // Làn fi, vòng sửa 1 (C1): người thực hiện ĐỌC LẠI từ CSDL ngay trước Gate (cùng bước 3 của
+            // `RetractDocument`), sau các cổng trạng thái để chúng vẫn trả lời như nhau cho mọi người hỏi:
+            // tài khoản vừa bị vô hiệu hoá/xoá trong lúc hộp thoại còn mở — hay trong lúc Action đợi khoá
+            // `matters` — không công bố được bằng đối tượng cũ. Gate hỏi trên bản đọc lại này.
+            $freshActor = User::query()->find($actor->getKey());
+
+            if ($freshActor === null || ! $freshActor->is_active) {
+                throw new AuthorizationException;
+            }
+
+            Gate::forUser($freshActor)->authorize('publish', $fresh);
 
             // Bước 3, phần bị từ chối — xem docblock lớp.
             if (! $clientCanView) {
@@ -257,5 +319,28 @@ class PublishDocument
 
             return $fresh;
         });
+    }
+
+    /**
+     * `$document` là một version của gói bàn giao mà dòng lưu trữ đang trỏ tới: chính version đó
+     * (`handover_document_id`) hoặc một version trước nó theo chuỗi `parent_document_id`
+     * (`BuildHandoverPackage` — sinh lại là version MỚI của cùng tài liệu). Chuỗi ngắn (một version mỗi
+     * lần sinh); `$seen` chặn một vòng lặp nếu dữ liệu từng hỏng.
+     */
+    private function isHandoverPackageVersion(Document $document, MatterArchive $archive): bool
+    {
+        $id = $archive->handover_document_id;
+        $seen = [];
+
+        while ($id !== null && ! isset($seen[(int) $id])) {
+            if ((int) $id === (int) $document->getKey()) {
+                return true;
+            }
+
+            $seen[(int) $id] = true;
+            $id = $this->scopelessly(Document::query())->withTrashed()->whereKey($id)->value('parent_document_id');
+        }
+
+        return false;
     }
 }

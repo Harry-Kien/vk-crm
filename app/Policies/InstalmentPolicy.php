@@ -83,4 +83,16 @@ class InstalmentPolicy
     {
         return $this->waive($user, $instalment);
     }
+
+    /**
+     * "Gửi thư nhắc" khách về một đợt quá hạn (làn nt Task 2, `App\Actions\Billing\RemindClientOfOverdueInstalment`):
+     * đòi tiền khách là một quyết định với khách về điều khoản thương mại, cùng trục với
+     * {@see self::waive()} và {@see self::reschedule()} — người "quản lý hợp đồng của vụ" (`contract.manage`
+     * cộng thấy tiền của vụ: luật sư trong đội, quản lý, admin; vụ `restricted` chỉ luật sư phụ trách và
+     * admin). Kế toán (chỉ `payment.record`) không tự gửi thư đòi tiền cho khách. Khách: `waive()` đã từ chối.
+     */
+    public function remindClient(User|ClientUser $user, Instalment $instalment): bool
+    {
+        return $this->waive($user, $instalment);
+    }
 }
