@@ -5,6 +5,7 @@ namespace App\Actions\Deadline;
 use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
 use App\Actions\SetMatterPortalPublication;
+use App\Exceptions\MatterClosedForDeadlines;
 use App\Models\Deadline;
 use App\Models\User;
 use App\Support\Audit;
@@ -40,6 +41,14 @@ use Illuminate\Validation\ValidationException;
  * Một cú bấm đúp, hai tab đang mở, hay một cron gọi lại (Phán quyết R4 của M6) không được dời
  * `completed_at` đã ghi, và không được đẻ thêm một dòng nhật ký nói rằng có người vừa hoàn thành
  * nó lần nữa. Nên khi bản ghi đã ở đúng trạng thái được yêu cầu, Action trả về và không ghi gì.
+ *
+ * # Không mở lại trên vụ đã kết thúc (làn fi, B4)
+ *
+ * Nhắc hạn chỉ chạy cho vụ đang mở, nên một mốc mở lại trên vụ đã đóng là một mốc không bao giờ được
+ * nhắc. Mở lại bị từ chối bằng đúng luật của làn fm A1 ({@see MatterClosedForDeadlines::reopen()},
+ * câu `lifecycle.deadlines.reopen_refused` — vòng sửa 1, I5); nút "Mở lại" ẩn trên vụ đã đóng. Vụ cần
+ * làm tiếp thì nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn" (chỉ quản trị viên mở lại được vụ đã
+ * kết thúc, `TransitionMatterStage`), rồi mở lại mốc. Đánh dấu xong vẫn được.
  *
  * # Mở lại KHÔNG xoá `reminders_sent`
  *
@@ -96,6 +105,14 @@ class SetDeadlineCompletion
             // Mở lại (không áp cho lần ĐÁNH DẤU XONG): người giữ mốc phải còn hợp lệ HÔM NAY,
             // không phải hôm mốc được đánh dấu xong — xem docblock lớp.
             $handedOverFrom = null;
+
+            // Làn fi (B4): vụ đã kết thúc không còn nhắc hạn — mở lại một mốc trên đó là tạo một mốc mở
+            // không bao giờ được nhắc. Đọc trên vụ `openDeadline()` vừa đọc lại. Đánh dấu XONG vẫn được.
+            // Vòng sửa 1 (I5): cùng MỘT luật với làn fm A1 ({@see MatterClosedForDeadlines}), không định
+            // nghĩa thứ hai.
+            if (! $completed && $matter->isClosed()) {
+                throw MatterClosedForDeadlines::reopen();
+            }
 
             if (! $completed) {
                 $holder = User::withTrashed()->find($fresh->responsible_user_id);

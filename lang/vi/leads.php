@@ -57,6 +57,9 @@ return [
             'occurred_in_future' => 'Thời gian liên hệ không được ở tương lai.',
             'next_invalid' => 'Thời gian hẹn liên hệ lại không hợp lệ.',
             'next_in_past' => 'Thời gian hẹn liên hệ lại phải ở sau lúc này.',
+            // làn fi (B2): LogIntakeFollowUp — thời gian liên hệ trước lúc nhận lead.
+            'occurred_before_received' => 'Thời gian liên hệ không được trước lúc văn phòng nhận lead (:at).',
+            // hết khối làn fi
         ],
     ],
 

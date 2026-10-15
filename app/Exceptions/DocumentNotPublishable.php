@@ -117,4 +117,14 @@ class DocumentNotPublishable extends DomainException
     {
         return new self(__('retraction.blocked.republish'), $document);
     }
+
+    /**
+     * Làn fi (A4): tài liệu là một version của gói bàn giao trong lúc dòng lưu trữ đang `generating` —
+     * thường vì vừa rút một dòng tiến độ (`RequestHandoverPackage::refreshAfterRetraction()`), nên mục lục
+     * của bản này có thể còn dòng đã rút. Chờ gói mới.
+     */
+    public static function handoverRegenerating(Document $document): self
+    {
+        return new self(__('documents.publish.handover_regenerating'), $document);
+    }
 }

@@ -11,6 +11,7 @@ use App\Http\Middleware\EndDisabledStaffSessions;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\OpenLeads;
 use App\Support\OpenWork;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -23,14 +24,18 @@ use Illuminate\Validation\ValidationException;
  * nghỉ đột xuất hoặc bị nghi lộ dữ liệu NGAY, khi người đó còn giữ việc.
  *
  * Trước Action này, tắt "Đang hoạt động" trên trang sửa nhân sự bị chặn cho tới khi bàn giao xong
- * mọi vụ, mốc hạn và yêu cầu khách (R7, {@see GuardsStaffOffboarding::offboardingOpenWorkReason()});
- * trong lúc admin bàn giao (có thể hàng giờ), người đó vẫn đăng nhập và tải tài liệu được.
+ * mọi vụ, mốc hạn, yêu cầu khách và lead tiếp nhận đang mở (R7; làn fi A1,
+ * {@see GuardsStaffOffboarding::offboardingOpenWorkReason()}); trong lúc admin bàn giao (có thể hàng
+ * giờ), người đó vẫn đăng nhập và tải tài liệu được.
  *
  * **Tách "khoá truy cập" khỏi "nghỉ việc".** Action này chỉ cắt QUYỀN VÀO, không chạm việc: vụ,
  * mốc hạn, yêu cầu khách vẫn đứng tên người đó và hiện trên "Theo dõi đội ngũ"/"Bàn giao hàng loạt"
- * để bàn giao sau. Luật R7 vẫn nguyên cho bước XOÁ ({@see DeleteStaffMember}) và cho công tắc trên
- * form (đường nghỉ việc thường). Mở lại được: bật "Đang hoạt động" trên form sửa (không có gì chặn
- * chiều bật), rồi bật lại quyền AI nếu cần.
+ * để bàn giao sau; lead tiếp nhận đang mở (`OpenLeads`: được chuyển tư vấn, đang phụ trách) cũng giữ
+ * nguyên, chuyển sau bằng "Chuyển cho luật sư"/ô "Người phụ trách" trên từng lead — "Bàn giao hàng
+ * loạt" không chuyển lead (làn fi, vòng sửa 1, I3). Sau khi khoá (`is_active = false`), công tắc trên
+ * form không còn gì để chặn, nên hộp xác nhận và nhật ký đếm cả lead. Luật R7 vẫn nguyên cho bước XOÁ
+ * ({@see DeleteStaffMember}) và cho công tắc trên form (đường nghỉ việc thường). Mở lại được: bật
+ * "Đang hoạt động" trên form sửa (không có gì chặn chiều bật), rồi bật lại quyền AI nếu cần.
  *
  * Năm việc, một transaction, dưới khoá dòng `users` của người bị khoá (và `Cache::lock` của
  * {@see DeleteStaffMember}/{@see EditUser} để luật "quản trị
@@ -43,7 +48,8 @@ use Illuminate\Validation\ValidationException;
  *  3. Đổi `remember_token` — cookie "ghi nhớ đăng nhập" cũ (nếu còn) hết hiệu lực.
  *  4. Thu hồi mọi kết nối AI và hạ `ai_access` về `off` ({@see RevokeAiConnections}, lý do
  *     `deactivated`).
- *  5. Nhật ký `staff_access_suspended`: lý do (≥ 20 ký tự) và số việc dở dang lúc khoá.
+ *  5. Nhật ký `staff_access_suspended`: lý do (≥ 20 ký tự) và số việc dở dang lúc khoá (vụ dẫn, mốc
+ *     hạn, yêu cầu khách, lead được chuyển tư vấn, lead đang phụ trách).
  *
  * Sau commit: gỡ mọi máy nhận thông báo đẩy ({@see ForgetPushDevice::all()}, lý do
  * {@see ForgetPushDevice::REASON_STAFF_SUSPENDED}) — một máy nằm im không gửi request nào nên bước 1
@@ -85,6 +91,7 @@ final class SuspendStaffAccess
             }
 
             $openWork = OpenWork::forUser($locked);
+            $openLeads = OpenLeads::forUser($locked);
 
             $locked->forceFill([
                 'is_active' => false,
@@ -97,6 +104,8 @@ final class SuspendStaffAccess
                 'open_lead_matters' => $openWork->leadMatters->count(),
                 'open_deadlines' => $openWork->deadlines->count(),
                 'open_client_requests' => $openWork->clientRequests->count(),
+                'open_consulting_leads' => $openLeads->consulting->count(),
+                'open_assigned_leads' => $openLeads->assigned->count(),
             ], $actor);
 
             app(RevokeAiConnections::class)->handle($locked, AiRevocationReason::Deactivated, $actor);

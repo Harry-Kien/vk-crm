@@ -84,6 +84,11 @@ return [
         'reason_max' => 'Lý do khôi phục dài tối đa :max ký tự.',
         'not_cancelled' => 'Hồ sơ này không ở trạng thái đã huỷ.',
         'success' => 'Đã khôi phục hồ sơ.',
+        // làn fi (A3): người phụ trách không còn xử lý được vụ — RestoreMatter::leadCanStillHandle().
+        'new_lead' => 'Người phụ trách mới',
+        'new_lead_help' => ':name không còn xử lý được vụ việc này (đã nghỉ việc, bị khoá truy cập hoặc đổi sang chức danh không phụ trách vụ việc). Chọn luật sư hoặc trưởng phòng phụ trách vụ sau khi khôi phục: vụ được bàn giao cho họ cùng lúc, kèm mốc hạn và yêu cầu khách người cũ còn giữ.',
+        'lead_unavailable' => ':name không còn xử lý được vụ việc này (đã nghỉ việc, bị khoá truy cập hoặc đổi sang chức danh không phụ trách vụ việc). Chọn người phụ trách mới để khôi phục.',
+        // hết khối làn fi
     ],
 
     // A5 — hạn khách tra cứu hồ sơ đã kết thúc (khối "Lưu trữ hồ sơ", nút gia hạn, hộp công bố).
@@ -128,7 +133,10 @@ return [
 
     // Tab "Mốc thời hạn" và hai Action AddMatterDeadline/UpdateDeadline trên vụ đã kết thúc.
     'deadlines' => [
-        'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm hay sửa mốc được nữa; muốn đặt mốc mới, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',
+        'closed_notice' => 'Vụ việc đã kết thúc: mốc thời hạn của vụ không còn được nhắc và không hiện trên trang chủ. Không thêm, sửa hay mở lại mốc được nữa; muốn đặt hay mở lại mốc, nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn".',
         'closed_refused' => 'Vụ việc đã kết thúc nên mốc thời hạn sẽ không được nhắc: không thêm hay sửa mốc được. Nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn" rồi đặt mốc.',
+        // làn fi (B4; vòng sửa 1, I5): SetDeadlineCompletion — cùng luật MatterClosedForDeadlines, cùng lối ra.
+        'reopen_refused' => 'Vụ việc đã kết thúc nên mốc thời hạn sẽ không được nhắc: không mở lại mốc được. Nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn" rồi mở lại mốc.',
+        // hết khối làn fi
     ],
 ];

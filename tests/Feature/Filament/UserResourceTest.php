@@ -55,7 +55,7 @@ function staffOffboardingMessage(string $name, int $matters, int $deadlines, int
 /**
  * Cùng thân câu với `staffOffboardingMessage()` ở trên, khác câu MỞ ĐẦU — đổi chức danh KHÔNG phải
  * vô hiệu hoá/xoá (finding round 3, mục 4: `demotion_intro`, dùng bởi
- * `demotionBlockedByLeadMattersReason()`/`demotionBlockedByAnyOpenWorkReason()`).
+ * `demotionBlockedByLeadingWorkReason()`/`demotionBlockedByAnyOpenWorkReason()`).
  */
 function staffDemotionMessage(string $name, int $matters, int $deadlines, int $requests): string
 {

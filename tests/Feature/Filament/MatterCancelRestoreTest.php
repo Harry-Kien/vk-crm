@@ -93,7 +93,9 @@ it('shows the open deadlines, the portal state and the way back on the cancel di
 
 it('lets an admin list cancelled matters and restore one with a reason', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
-    $cancelled = Matter::factory()->create();
+    // Làn fi (A3): người phụ trách là một luật sư còn xử lý được vụ — người của factory không có vai nào,
+    // nên hộp thoại sẽ đòi người phụ trách mới (MatterRestoreLeadTest).
+    $cancelled = Matter::factory()->create(['lead_lawyer_id' => User::factory()->withRole(Role::Lawyer)->create()->id]);
     $live = Matter::factory()->create();
     app(CancelMatter::class)->handle($cancelled, $admin, FM_CANCEL_REASON);
 

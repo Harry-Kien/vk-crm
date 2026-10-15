@@ -100,7 +100,8 @@ class IntakeRequest extends Model
      * `merge_chain_matter_id` (chỉ `ConvertIntakeToMatter` đặt — rà soát cuối, FC1; gỡ nó là mở bản nguồn
      * của một vụ `restricted`). Làn kd: cũng không có `consulting_lawyer_id`/`handed_to_lawyer_at` (chỉ
      * `HandIntakeToLawyer` đặt — cột đó mở bản ghi cho một người, xem {@see self::scopeVisibleTo()}) và
-     * `next_follow_up_at` (chỉ `LogIntakeFollowUp` đặt).
+     * `next_follow_up_at` (`LogIntakeFollowUp` đặt). Làn fi: `MergeIntake` mang cả ba sang bản đích khi
+     * gộp, `ReopenIntake` xoá một hẹn đã qua — đều gán thẳng thuộc tính, không qua form.
      */
     protected $fillable = [
         'contact_name', 'contact_phone', 'contact_email', 'contact_role',
