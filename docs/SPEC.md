@@ -950,7 +950,7 @@ quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồ
 >
 > **Ghi chú chăm sóc** (`LogIntakeFollowUp`, bảng `intake_follow_ups`: kênh gọi/Zalo/email/gặp, thời gian, nội dung ≤ 1.000 ký tự, người ghi) và **hẹn liên hệ lại** (`intake_requests.next_follow_up_at`). `communication_logs` (§4.17) bắt buộc có vụ việc nên không dùng lại được. Nội dung không vào nhật ký hệ thống, không ra MCP, và ẩn danh (R7) xoá nó.
 >
-> **Trang chủ của nhân viên kinh doanh** chỉ có widget lead: "Lead của tôi" (số lead theo trạng thái), "Lead đến hẹn liên hệ lại", "Liên hệ chưa ai gọi lại" (§7.1). **Báo cáo theo người**: trang "Bức tranh đầu vào" thêm widget "Lead theo người phụ trách" (người được giao, chưa giao thì người ghi: số lead và tỉ lệ thành vụ việc), chỉ `intake.viewAny`. Máy chủ đã có dữ liệu nhận vai mới qua `php artisan migrate --force` rồi `php artisan db:seed --force`.
+> **Trang chủ của nhân viên kinh doanh** chỉ có widget lead (ngoài dải "Tình trạng hệ thống" mọi nhân sự đều có, đứng trên cùng, và ô tài khoản): "Lead của tôi" (số lead theo trạng thái), "Lead đến hẹn liên hệ lại", "Liên hệ chưa ai gọi lại" (§7.1). **Báo cáo theo người**: trang "Bức tranh đầu vào" thêm widget "Lead theo người phụ trách" (người được giao, chưa giao thì người ghi: số lead và tỉ lệ thành vụ việc), chỉ `intake.viewAny`. Máy chủ đã có dữ liệu nhận vai mới qua `php artisan migrate --force` rồi `php artisan db:seed --force`.
 
 **Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
 **chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
@@ -1794,9 +1794,10 @@ thì cũng có trên widget. Đây là bản sửa lỗi, không phải đổi l
 
 **Đính chính 2026-10-14 (làn kd — vai "Nhân viên kinh doanh", §5).** Trang chủ của vai `sales` không có
 widget vụ việc hay tiền nào (họ không có `matter.view`/`matter.viewAny`/`billing.view`). Hai widget mới
-chỉ hiện với vai đó, đứng trên cùng: hàng ô số **"Lead của tôi"** (số lead thấy được theo trạng thái,
-trừ "Đã gộp") và danh sách **"Lead đến hẹn liên hệ lại"** (lead còn mở có hẹn liên hệ lại hôm nay hoặc
-đã qua, hẹn sớm nhất trước). Widget "Liên hệ chưa ai gọi lại" hiện với họ như mọi người có `intake.create`.
+chỉ hiện với vai đó, đứng ngay dưới dải "Tình trạng hệ thống" (mục 7 — dải cảnh báo hiện với mọi nhân
+sự, kể cả họ, và luôn đứng trên cùng), theo thứ tự: hàng ô số **"Lead của tôi"** (số lead thấy được theo
+trạng thái, trừ "Đã gộp") rồi danh sách **"Lead đến hẹn liên hệ lại"** (lead còn mở có hẹn liên hệ lại
+hôm nay hoặc đã qua, hẹn sớm nhất trước); hai widget có số thứ tự riêng, không trùng widget nào họ thấy. Widget "Liên hệ chưa ai gọi lại" hiện với họ như mọi người có `intake.create`.
 Trang chủ các vai khác không đổi.
 
 ### 7.2 Resource `Matter`

@@ -9,6 +9,7 @@ use App\Filament\Admin\Widgets\MattersMissingDocumentsWidget;
 use App\Filament\Admin\Widgets\MyLeadsWidget;
 use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
 use App\Filament\Admin\Widgets\StaleMattersWidget;
+use App\Filament\Admin\Widgets\SystemHealthWidget;
 use App\Filament\Admin\Widgets\UnansweredIntakesWidget;
 use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
 use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
@@ -16,6 +17,7 @@ use App\Models\IntakeRequest;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Widgets\AccountWidget;
 
 /*
  * Làn kd, Task 1 — bảng điều khiển của nhân viên kinh doanh: chỉ widget về lead của mình (số lead theo
@@ -106,4 +108,29 @@ it('lists the own open leads whose next contact is due today or overdue, earlies
     $this->livewire(LeadFollowUpsDueWidget::class)
         ->assertCanSeeTableRecords([$overdue, $today], inOrder: true)
         ->assertCanNotSeeTableRecords([$later, $none, $closed, $theirs]);
+});
+
+it('puts the system-health band first and the two sales widgets in fixed slots right under it', function () {
+    // Làn kd, vòng sửa 1 (F3): "Lead của tôi" từng đứng TRÊN dải "Tình trạng hệ thống" (-7 < -6) và "Lead đến
+    // hẹn" trùng số với dải (-6) — thứ tự của hai cái trùng là thứ tự Filament tình cờ nạp lớp.
+    $this->actingAs($this->sales, 'web');
+
+    $visible = collect(Filament::getWidgets())
+        ->map(fn ($widget): string => is_string($widget) ? $widget : $widget->widget)
+        ->filter(fn (string $widget): bool => $widget::canView());
+    $sorts = $visible->mapWithKeys(fn (string $widget): array => [$widget => $widget::getSort()]);
+
+    // Mọi widget nhân viên kinh doanh thấy có một số riêng: không thứ tự nào do tình cờ.
+    expect($sorts->values()->all())->toBe($sorts->unique()->values()->all())
+        ->and($sorts->keys()->take(4)->all())->toBe([
+            SystemHealthWidget::class, MyLeadsWidget::class, LeadFollowUpsDueWidget::class, AccountWidget::class,
+        ]);
+
+    // Và đúng thứ đó trên trang thật: vị trí của từng widget trong HTML trang chủ.
+    $html = $this->get(route('filament.admin.pages.dashboard'))->assertOk()->getContent();
+    $at = fn (string $widget): int|false => strpos($html, trim(htmlspecialchars(json_encode(['name' => app('livewire.factory')->resolveComponentName($widget)])), '{}'));
+
+    expect($at(SystemHealthWidget::class))->toBeInt()->toBeLessThan($at(MyLeadsWidget::class))
+        ->and($at(MyLeadsWidget::class))->toBeLessThan($at(LeadFollowUpsDueWidget::class))
+        ->and($at(LeadFollowUpsDueWidget::class))->toBeLessThan($at(UnansweredIntakesWidget::class));
 });

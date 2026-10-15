@@ -31,8 +31,10 @@ use Illuminate\Support\Facades\Gate;
  */
 class LeadFollowUpsDueWidget extends TableWidget
 {
-    // Ngay dưới hàng ô "Lead của tôi" (-7), trên ô tài khoản (-3).
-    protected static ?int $sort = -6;
+    // Ngay dưới hàng ô "Lead của tôi" (-5), trên ô tài khoản của Filament (-3). Cùng số -4 với "Hồ sơ đứng
+    // im" ở trang chủ các vai khác: không bao giờ cùng hiện (widget đó cần `matter.view`, widget này chỉ vai
+    // `sales`). Dải "Tình trạng hệ thống" (-6) đứng trên cả hai widget kinh doanh.
+    protected static ?int $sort = -4;
 
     protected int|string|array $columnSpan = 'full';
 
