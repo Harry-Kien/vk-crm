@@ -13,6 +13,8 @@ enum Role: string
     case Lawyer = 'lawyer';
     case Assistant = 'assistant';
     case Accountant = 'accountant';
+    // Làn kd (2026-10-14, chủ văn phòng: "nhân viên kinh doanh cập nhật lead").
+    case Sales = 'sales';
 
     public function label(): string
     {
@@ -90,6 +92,16 @@ enum Role: string
                 Permission::BillingView,
                 Permission::PaymentRecord,
                 Permission::RevenueViewAny,
+            ],
+            // Làn kd (2026-10-14, SPEC §5 bổ sung cùng ngày): nhân viên kinh doanh ghi một lần liên hệ
+            // và cập nhật lead MÌNH ghi, được giao — đúng tầm nhìn `intake.create` của
+            // `IntakeRequest::scopeVisibleTo()`. Không `matter.*` (vụ việc, tìm kiếm, kết quả kiểm tra xung
+            // đột chi tiết — `IntakeRequestPolicy::viewConflictMatches`), không `client.manage`, không
+            // `document.*`, không `billing.*`/`revenue.*`, không `intake.viewAny` (báo cáo toàn văn
+            // phòng), không `intake.convert` (mở vụ từ lead là việc của luật sư: họ "Chuyển cho luật sư").
+            // Không quyền AI: `McpAccess::canHold()` đòi `matter.view`.
+            self::Sales => [
+                Permission::IntakeCreate,
             ],
         };
     }

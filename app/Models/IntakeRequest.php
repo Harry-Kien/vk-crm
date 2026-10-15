@@ -98,7 +98,9 @@ class IntakeRequest extends Model
      * `conflict_red_pending_since` (Đỏ đang chờ quản lý/admin — chỉ `CheckIntakeConflict` đặt, chỉ
      * `ResolveIntakeRedConflict` xoá; một form gán hàng loạt không được xoá khoá đó), và
      * `merge_chain_matter_id` (chỉ `ConvertIntakeToMatter` đặt — rà soát cuối, FC1; gỡ nó là mở bản nguồn
-     * của một vụ `restricted`).
+     * của một vụ `restricted`). Làn kd: cũng không có `consulting_lawyer_id`/`handed_to_lawyer_at` (chỉ
+     * `HandIntakeToLawyer` đặt — cột đó mở bản ghi cho một người, xem {@see self::scopeVisibleTo()}) và
+     * `next_follow_up_at` (chỉ `LogIntakeFollowUp` đặt).
      */
     protected $fillable = [
         'contact_name', 'contact_phone', 'contact_email', 'contact_role',
@@ -132,6 +134,9 @@ class IntakeRequest extends Model
             'retention_until' => 'date',
             'quoted_amount' => 'integer',
             'decline_reason_is_conflict' => 'boolean',
+            // Làn kd (2026-10-14): chuyển cho luật sư tư vấn, hẹn liên hệ lại.
+            'handed_to_lawyer_at' => 'datetime',
+            'next_follow_up_at' => 'datetime',
         ];
     }
 
@@ -385,6 +390,12 @@ class IntakeRequest extends Model
      * vào bản được chuyển đổi (`merge_chain_matter_id`, {@see self::mergedFromTreeIds()}), và vế
      * `restricted` áp cho cột đó y như cho `matter_id`: bản nguồn của một vụ `restricted` biến mất với
      * đúng những người không thấy được bản đã chuyển đổi.
+     *
+     * **Làn kd (2026-10-14): "của mình" có thêm vế LUẬT SƯ TƯ VẤN.** Người chỉ có `intake.create` thấy cả
+     * bản ghi mà người theo lead đã "Chuyển cho luật sư" là chính họ (`consulting_lawyer_id`,
+     * `HandIntakeToLawyer`) — đó là cách một lead của nhân viên kinh doanh tới tay luật sư mà nhân viên
+     * kinh doanh vẫn theo dõi được (`assigned_to` không đổi). Chuyển sang luật sư khác thì người trước mất
+     * vế này. Vế `restricted` ở trên áp như mọi vế khác.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
@@ -397,7 +408,8 @@ class IntakeRequest extends Model
 
             $query->where(fn (Builder $q) => $q
                 ->where($model->qualifyColumn('created_by'), $user->getKey())
-                ->orWhere($model->qualifyColumn('assigned_to'), $user->getKey()));
+                ->orWhere($model->qualifyColumn('assigned_to'), $user->getKey())
+                ->orWhere($model->qualifyColumn('consulting_lawyer_id'), $user->getKey()));
         }
 
         $model = $query->getModel();
@@ -424,7 +436,9 @@ class IntakeRequest extends Model
     {
         if (! $user->can(Permission::IntakeViewAny->value)
             && ! ($user->can(Permission::IntakeCreate->value)
-                && ($this->created_by === $user->getKey() || $this->assigned_to === $user->getKey()))) {
+                && ($this->created_by === $user->getKey()
+                    || $this->assigned_to === $user->getKey()
+                    || $this->consulting_lawyer_id === $user->getKey()))) {
             return false;
         }
 
@@ -984,6 +998,18 @@ class IntakeRequest extends Model
     public function assignee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    /** Làn kd: luật sư tư vấn mà người theo lead đã chuyển lead cho (`HandIntakeToLawyer`). */
+    public function consultingLawyer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'consulting_lawyer_id');
+    }
+
+    /** Làn kd: các lần chăm sóc lead (`LogIntakeFollowUp`). */
+    public function followUps(): HasMany
+    {
+        return $this->hasMany(IntakeFollowUp::class);
     }
 
     /** Bản ghi mà bản này đã được gộp vào (R4), khi `status = merged`. */

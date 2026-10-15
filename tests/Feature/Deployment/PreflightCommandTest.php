@@ -422,7 +422,7 @@ it('§preflight R1 production không tìm thấy mariadb-dump/mysqldump là Đ�
 
 /*
 | Final review I4: `docs/CAI-DAT.md` Bước 5 cho chạy `db:seed --class=DemoDataSeeder --force` trên
-| máy chủ thật. Ngoài local/testing tám tài khoản nhân sự demo ra đời với mật khẩu `password` và
+| máy chủ thật. Ngoài local/testing chín tài khoản nhân sự demo (làn kd thêm `kinhdoanh@`) ra đời với mật khẩu `password` và
 | KHÔNG secret 2FA — ai đăng nhập trước thì tự cài 2FA của mình (trust-on-first-use) và chiếm tài
 | khoản, kể cả `admin@luatvukhang.com`. Trước bản sửa chỉ có câu chữ trong tài liệu chặn việc đó.
 | Danh sách email KHÔNG chép tay ở đây: chạy chính seeder ở `production` rồi đọc lại bảng `users`.
@@ -452,10 +452,10 @@ it('§preflight I4 production còn tài khoản nhân sự demo mật khẩu m�
     $exitCode = Artisan::call('vkcrm:preflight');
     $output = Artisan::output();
 
-    expect($emails)->toHaveCount(8)
+    expect($emails)->toHaveCount(9)
         ->and($exitCode)->not->toBe(0)
         ->and($output)->toContain(__('preflight.demo_accounts_exposed', [
-            'count' => 8,
+            'count' => 9,
             'emails' => implode(', ', $emails),
         ]))
         ->and($output)->toContain(__('preflight.summary_red'));
@@ -474,7 +474,7 @@ it('§preflight I4 tài khoản demo chỉ mở trong ADMIN_IP_ALLOWLIST là VÀ
 
     expect($exitCode)->toBe(0)
         ->and($output)->toContain(__('preflight.demo_accounts_allowlisted', [
-            'count' => 8,
+            'count' => 9,
             'emails' => implode(', ', $emails),
         ]))
         ->and($output)->toContain(__('preflight.summary_yellow'));

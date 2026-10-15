@@ -9,6 +9,7 @@ use App\Filament\Admin\Pages\IntakeReport;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeConversionWidget;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeOutcomesWidget;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeResponseTimeWidget;
+use App\Filament\Admin\Widgets\IntakeReport\IntakesByOwnerWidget;
 use App\Filament\Admin\Widgets\IntakeReport\IntakesBySourceWidget;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
@@ -42,7 +43,7 @@ beforeEach(function () {
     $this->accountant = User::factory()->withRole(Role::Accountant)->create(['name' => 'Kế Toán']);
 });
 
-/** Bốn widget của trang, theo thứ tự trang liệt kê. */
+/** Năm widget của trang (bốn của M10, một của làn kd), theo thứ tự trang liệt kê. */
 function irpWidgets(): array
 {
     return [
@@ -50,6 +51,8 @@ function irpWidgets(): array
         IntakeConversionWidget::class,
         IntakeResponseTimeWidget::class,
         IntakeOutcomesWidget::class,
+        // Làn kd (2026-10-14): số lead và tỉ lệ thành vụ việc theo người phụ trách lead.
+        IntakesByOwnerWidget::class,
     ];
 }
 
@@ -245,7 +248,7 @@ it('never lets an intake report widget onto the home dashboard', function () {
     }
 });
 
-it('lists exactly the four intake report widgets on the report page', function () {
+it('lists exactly the five intake report widgets on the report page', function () {
     $this->actingAs($this->manager, 'web');
 
     expect(Livewire::test(IntakeReport::class)->instance()->getWidgets())->toBe(irpWidgets());

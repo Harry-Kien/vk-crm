@@ -7,6 +7,8 @@ return [
         'accountant' => 'Kế toán',
         'manager' => 'Trưởng phòng',
         'admin' => 'Quản trị',
+        // Làn kd (2026-10-14): nhân viên kinh doanh — cập nhật lead, không vụ việc, khách, tài liệu hay tiền.
+        'sales' => 'Nhân viên kinh doanh',
     ],
     'client_type' => [
         'individual' => 'Cá nhân',

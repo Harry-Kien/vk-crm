@@ -25,6 +25,8 @@ class StaffSeeder extends Seeder
             ['email' => 'troly1@luatvukhang.com', 'name' => 'Ngô Thị Lan', 'position' => UserPosition::Assistant],
             ['email' => 'troly2@luatvukhang.com', 'name' => 'Bùi Văn Tùng', 'position' => UserPosition::Assistant],
             ['email' => 'ketoan@luatvukhang.com', 'name' => 'Hoàng Kim Ngân', 'position' => UserPosition::Accountant],
+            // Làn kd (2026-10-14): nhân viên kinh doanh — lead của người này ở `IntakeSeeder::salesLeads()`.
+            ['email' => 'kinhdoanh@luatvukhang.com', 'name' => 'Trịnh Thu Trang', 'position' => UserPosition::Sales],
         ];
     }
 

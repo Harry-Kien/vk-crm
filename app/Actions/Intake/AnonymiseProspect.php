@@ -4,6 +4,7 @@ namespace App\Actions\Intake;
 
 use App\Actions\Intake\Concerns\HoldsConflictCheckLock;
 use App\Enums\IntakeStatus;
+use App\Models\IntakeFollowUp;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
 use App\Models\User;
@@ -40,7 +41,9 @@ use Spatie\Activitylog\Models\Activity;
  *  2. tên, tên chuẩn hoá, SĐT chuẩn hoá và dấu băm CCCD của MỌI bên đối lập (dòng và vai ở lại). Dấu băm
  *     bị xoá luôn: SHA-256 không khoá của SĐT/CCCD dò ngược được, tức là giả danh chứ không phải ẩn
  *     danh, và việc giữ nó để dò xung đột còn CHỜ chủ văn phòng/luật sư xác nhận (R7b, mục 2) — nên người
- *     đã ẩn danh không còn là nguồn dò thứ hai của `RunConflictCheck` nữa.
+ *     đã ẩn danh không còn là nguồn dò thứ hai của `RunConflictCheck` nữa;
+ *  3. (làn kd) nội dung của MỌI lần chăm sóc lead (`intake_follow_ups.note` — dòng, kênh, thời gian và
+ *     người ghi ở lại), và hẹn liên hệ lại `next_follow_up_at` của bản ghi.
  * Rồi ghi `anonymised_at`, `anonymised_by` (null ở cửa hết hạn), `anonymised_reason`.
  *
  * **Dữ liệu người đó để lại NGOÀI các cột của bản ghi** (rà theo mã thật, xem PROGRESS "Ghi chú M10",
@@ -238,7 +241,14 @@ class AnonymiseProspect
 
         $parties()->update(['name' => null, 'name_normalized' => null, 'phone_normalized' => null, 'id_number_hash' => null]);
 
+        // Làn kd: nội dung các lần chăm sóc lead là chữ tự do về người này (mục 3 của docblock lớp).
+        IntakeFollowUp::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('intake_request_id', $locked->getKey())
+            ->update(['note' => null]);
+
         $locked->forceFill(array_fill_keys(self::PERSONAL_COLUMNS, null));
+        $locked->forceFill(['next_follow_up_at' => null]);
         $locked->identify(null, null);
         $locked->identifyOrganization(null);
         $locked->forceFill([

@@ -236,7 +236,7 @@ Các cột `created_by` / `updated_by` là FK tới `users`.
 | email | string(150) unique | |
 | password | string | |
 | phone | string(20) nullable | |
-| position | enum | `lawyer`, `assistant`, `accountant`, `manager`, `admin` |
+| position | enum | `lawyer`, `assistant`, `accountant`, `manager`, `admin`, `sales` (bổ sung 2026-10-14, §5) |
 | bar_number | string(50) nullable | Số thẻ luật sư |
 | is_active | boolean default true | |
 | two_factor_secret, two_factor_recovery_codes | text nullable, cast `encrypted`/`encrypted:array` | 2FA ứng dụng của Filament |
@@ -934,6 +934,23 @@ quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồ
 > **Xử lý xung đột Đỏ lúc tiếp nhận** (mở ô câu chuyện, từ chối vì xung đột) là **một** định nghĩa cho cả hệ thống: `ConflictOverride::allowedFor()` — vai `manager` hoặc `admin`, cùng cổng ghi đè Đỏ của `OpenMatter` (§6.10) — cộng với việc xem được bản ghi. Hôm nay nó trùng người với `intake.viewAny`, nhưng đọc theo **vai**, không theo quyền, để hai nơi không thể lệch nhau. **Lý do từ chối vì xung đột** chỉ người có `intake.viewAny` thấy; người khác thấy "Đã từ chối". **Xoá dữ liệu theo yêu cầu** của chủ thể chỉ admin.
 >
 > **Không ai xoá một bản ghi tiếp nhận.** Xoá là **ẩn danh** (các trường cá nhân về null, dòng ở lại để thống kê). Cổng khách đóng kín: người liên hệ chưa có tài khoản.
+
+> **Bổ sung 2026-10-14 (làn kd — vai "Nhân viên kinh doanh").** Chủ văn phòng (chat 2026-10-10): "nhân viên kinh doanh cập nhật lead". Thêm **vai thứ sáu** `sales` ("Nhân viên kinh doanh", chức danh `users.position = sales`, §4.1) — **không thêm quyền nào** (vẫn 21 quyền). Bộ quyền đúng một quyền:
+>
+> | Quyền | admin | manager | lawyer | assistant | accountant | sales |
+> |---|---|---|---|---|---|---|
+> | `intake.create` | ✓ | ✓ | ✓ | ✓ | — | ✓ |
+> | mọi quyền khác của các bảng trên | (như trên) | (như trên) | (như trên) | (như trên) | (như trên) | — |
+>
+> "Lead" là bản ghi tiếp nhận. Nhân viên kinh doanh **chỉ thấy lead của mình** — đúng định nghĩa `IntakeRequest::scopeVisibleTo` của người chỉ có `intake.create`: lead mình ghi hoặc được giao — ghi trạng thái, ghi câu chuyện khi cổng mở, gộp bản trùng, và hai việc mới dưới đây. **Không thấy vụ việc, hồ sơ khách, tài liệu, tiền**, không trang Tìm kiếm, không báo cáo "Bức tranh đầu vào" (`intake.viewAny`), không chuyển lead thành vụ việc (`intake.convert` — việc của luật sư), không đứng trong đội ngũ vụ việc ở vai nào (kể cả người theo dõi), không kết nối AI (`McpAccess::canHold()` đòi `matter.view`). Ngoài Tiếp nhận, bảng tin, hồ sơ cá nhân, trang thiết bị nhận thông báo và danh mục loại vụ việc (dữ liệu tham chiếu mọi nhân sự đọc được), mọi trang của panel trả họ đúng trang 404 của một đường dẫn không tồn tại (§10.10, có lượt quét). Đổi chức danh một người còn giữ việc pháp lý sang `sales` bị chặn như sang kế toán.
+>
+> **Phán quyết — kiểm tra xung đột với người không xem được vụ việc** (ability `IntakeRequestPolicy::viewConflictMatches` = thấy được bản ghi **và** có `matter.view`). Bảng khớp của §6.10 là ngoại lệ có chủ đích dành cho người làm việc trên vụ việc; nhân viên kinh doanh chỉ thấy **mức** (Xanh/Vàng/Đỏ) và lời khuyên "chuyển cho luật sư" — không mã hồ sơ, không lĩnh vực, không tên bên trùng, không tiêu chí khớp, ở **mọi** mức (khác người nhập có `matter.view`, vẫn thấy mã hồ sơ và vai của khớp Đỏ, và đủ khớp Vàng). Cùng ranh giới: không câu "số này đã là khách của văn phòng" của gợi ý trùng, không mã vụ việc mà lead đã thành. Không thấy các khớp thì không xác nhận "đã xem các khớp" của một Vàng/Đỏ (`AcknowledgeIntakeConflict` từ chối); Xanh chỉ thiếu định danh thì vẫn xác nhận được (không có hồ sơ nào để xem).
+>
+> **Chuyển cho luật sư** (`HandIntakeToLawyer`): người sửa được lead giao nó cho **một luật sư tư vấn** — cột riêng `intake_requests.consulting_lawyer_id`, không đổi `assigned_to`, nên nhân viên kinh doanh vẫn theo dõi lead mình được giao. Định nghĩa "thấy được" thêm một vế: người chỉ có `intake.create` thấy cả lead mà mình là luật sư tư vấn. Chỉ người mở được vụ (`intake.convert` + `matter.create`, đang làm việc) nhận được lead; luật sư nhận thông báo trong hệ thống chỉ mang mã và nguồn. Việc mở vụ giữ nguyên quyền.
+>
+> **Ghi chú chăm sóc** (`LogIntakeFollowUp`, bảng `intake_follow_ups`: kênh gọi/Zalo/email/gặp, thời gian, nội dung ≤ 1.000 ký tự, người ghi) và **hẹn liên hệ lại** (`intake_requests.next_follow_up_at`). `communication_logs` (§4.17) bắt buộc có vụ việc nên không dùng lại được. Nội dung không vào nhật ký hệ thống, không ra MCP, và ẩn danh (R7) xoá nó.
+>
+> **Trang chủ của nhân viên kinh doanh** chỉ có widget lead: "Lead của tôi" (số lead theo trạng thái), "Lead đến hẹn liên hệ lại", "Liên hệ chưa ai gọi lại" (§7.1). **Báo cáo theo người**: trang "Bức tranh đầu vào" thêm widget "Lead theo người phụ trách" (người được giao, chưa giao thì người ghi: số lead và tỉ lệ thành vụ việc), chỉ `intake.viewAny`. Máy chủ đã có dữ liệu nhận vai mới qua `php artisan migrate --force` rồi `php artisan db:seed --force`.
 
 **Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
 **chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
@@ -1774,6 +1791,13 @@ giữ — đúng lỗi "ngày cuối kỳ" mà M9 đã sửa cho trang Doanh thu
 cận đó thành `23:59:59`, khớp bậc `d7` của `CheckDeadlines` (§6.8): mốc nào được nhắc "còn 7 ngày"
 thì cũng có trên widget. Đây là bản sửa lỗi, không phải đổi luật; cùng định nghĩa là nguồn của cột
 "Mốc 7 ngày tới" ở §6.14.
+
+**Đính chính 2026-10-14 (làn kd — vai "Nhân viên kinh doanh", §5).** Trang chủ của vai `sales` không có
+widget vụ việc hay tiền nào (họ không có `matter.view`/`matter.viewAny`/`billing.view`). Hai widget mới
+chỉ hiện với vai đó, đứng trên cùng: hàng ô số **"Lead của tôi"** (số lead thấy được theo trạng thái,
+trừ "Đã gộp") và danh sách **"Lead đến hẹn liên hệ lại"** (lead còn mở có hẹn liên hệ lại hôm nay hoặc
+đã qua, hẹn sớm nhất trước). Widget "Liên hệ chưa ai gọi lại" hiện với họ như mọi người có `intake.create`.
+Trang chủ các vai khác không đổi.
 
 ### 7.2 Resource `Matter`
 

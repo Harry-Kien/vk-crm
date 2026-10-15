@@ -427,7 +427,7 @@ it('§14.8 gives a dev install that runs in Git Bash and generates the key befor
 
 /**
  * Gap 11 (quan sát được). Hai tài liệu hứa một con số cho dữ liệu mẫu (README "20 vụ việc", CAI-DAT "21
- * vụ việc, 12 khách hàng, 8 nhân sự") mà `migrate:fresh --seed` nay dựng 27 vụ, 12 khách, 9 nhân sự (8
+ * vụ việc, 12 khách hàng, 8 nhân sự") mà `migrate:fresh --seed` nay dựng 27 vụ, 12 khách, 10 nhân sự (9
  * đang hoạt động) và 16 tài khoản cổng; vụ chuyển từ tiếp nhận là vụ thứ 27, không phải 23. Test gieo
  * đúng `DatabaseSeeder` và so với chữ của hai tài liệu.
  */
@@ -438,20 +438,20 @@ it('§14.8 promises the demo data the seeder really builds', function () {
     expect(Matter::query()->withoutGlobalScopes()->count())->toBe(27)
         ->and(Client::query()->withoutGlobalScopes()->count())->toBe(12)
         ->and(ClientUser::query()->withoutGlobalScopes()->count())->toBe(16)
-        ->and(User::query()->count())->toBe(9)
-        ->and(User::query()->where('is_active', true)->count())->toBe(8)
+        ->and(User::query()->count())->toBe(10)
+        ->and(User::query()->where('is_active', true)->count())->toBe(9)
         ->and(Matter::query()->withoutGlobalScopes()->where('id', '>', 20)->where('confidentiality', Confidentiality::Restricted)->exists())->toBeTrue()
         ->and(IntakeRequest::query()->withoutGlobalScopes()->whereNotNull('matter_id')->max('matter_id'))
         ->toBe(Matter::query()->withoutGlobalScopes()->max('id'));
 
     $readme = igcFile('README.md');
-    expect(str_replace("\n", ' ', $readme))->toContain('27 vụ việc, 12 khách hàng, 16 tài khoản cổng khách và 9')
+    expect(str_replace("\n", ' ', $readme))->toContain('27 vụ việc, 12 khách hàng, 16 tài khoản cổng khách và 10')
         ->and($readme)->toContain('vụ thứ 27')
         ->and($readme)->not->toContain('vụ thứ 23')
         ->and($readme)->not->toContain('Dữ liệu mẫu có 20 vụ việc');
 
     expect(str_replace("\n", ' ', igcSection(igcFile('docs/CAI-DAT.md'), '# Cài lại VK-CRM trên một máy trống', '## Cần có sẵn trên máy')))
-        ->toContain('27 vụ việc, 12 khách hàng, 9 nhân')
+        ->toContain('27 vụ việc, 12 khách hàng, 10 nhân')
         ->toContain('16 tài khoản cổng khách')
         ->not->toContain('21 vụ việc');
 

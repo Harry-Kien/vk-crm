@@ -2,8 +2,8 @@
 
 Đã kiểm chứng thật ngày **2026-09-23**, và đi lại theo đúng chữ ngày **2026-10-08** (Git Bash trên
 Windows, bản clone mới, cổng riêng theo mục "Chạy nhiều bản cùng lúc"): cài phụ thuộc, dựng cơ sở dữ
-liệu từ số không, và cả hai màn hình đều lên với đủ dữ liệu mẫu — 27 vụ việc, 12 khách hàng, 9 nhân
-sự (8 đăng nhập được, cộng một luật sư "đã nghỉ việc" của dữ liệu mẫu M13), 16 tài khoản cổng khách.
+liệu từ số không, và cả hai màn hình đều lên với đủ dữ liệu mẫu — 27 vụ việc, 12 khách hàng, 10 nhân
+sự (9 đăng nhập được — từ 2026-10-14 có thêm nhân viên kinh doanh `kinhdoanh@`, cộng một luật sư "đã nghỉ việc" của dữ liệu mẫu M13), 16 tài khoản cổng khách.
 Các bước dưới đây là đúng những bước đã chạy, không phải mô tả.
 
 ## Cần có sẵn trên máy
@@ -116,12 +116,13 @@ Mật khẩu đều là `password`.
 | Luật sư | `/admin` | `luatsu1@luatvukhang.com` |
 | Trợ lý | `/admin` | `troly1@luatvukhang.com` |
 | Kế toán | `/admin` | `ketoan@luatvukhang.com` |
+| Nhân viên kinh doanh | `/admin` | `kinhdoanh@luatvukhang.com` |
 | Khách hàng | `/portal` | `khach1@example.com` |
 
 Cổng khách gửi một mã sáu số qua email sau bước mật khẩu. Trên máy dev, thư bị bắt lại và
 đọc ở `http://localhost:8025`.
 
-**Panel `/admin` bắt buộc 2FA ứng dụng (M8 Task 2, R2), không có cách nào tắt.** Năm tài khoản
+**Panel `/admin` bắt buộc 2FA ứng dụng (M8 Task 2, R2), không có cách nào tắt.** Sáu tài khoản
 nhân sự ở trên (`local`/`testing` thôi — không phải khi ép `db:seed --class=DemoDataSeeder` trên
 một máy chủ thật) đều dùng CHUNG một secret TOTP cố định:
 
@@ -884,11 +885,25 @@ làm gì với máy chủ:
   bắt buộc — kiểm TRƯỚC `git pull`, vì `composer install` của bản mới từ chối cài khi thiếu nó); thiếu
   hay sai khoá thông báo đẩy là VÀNG, không chặn `php artisan up`.
 
+**Bản cập nhật "Nhân viên kinh doanh" (2026-10-14) làm gì trên máy chủ đã có dữ liệu:**
+
+- `migrate --force` thêm ba cột vào `intake_requests` và một bảng, không sửa dữ liệu nào đã có — hai
+  migration: `2026_10_14_200001_add_lead_handoff_and_follow_up_columns_to_intake_requests_table`
+  (`consulting_lawyer_id`, `handed_to_lawyer_at`, `next_follow_up_at`: "Chuyển cho luật sư" và hẹn liên hệ
+  lại) và `2026_10_14_200002_create_intake_follow_ups_table` (bảng `intake_follow_ups`, mỗi lần chăm sóc
+  một lead là một dòng). Bảng rỗng sau nâng cấp.
+- `db:seed --force` (`ReferenceDataSeeder`) tạo vai mới `sales` ("Nhân viên kinh doanh") với đúng một
+  quyền, `intake.create` (SPEC §5, bổ sung 2026-10-14). Không thêm quyền nào, không đổi quyền của vai nào
+  khác. **Bắt buộc** trước khi đặt chức danh "Nhân viên kinh doanh" cho ai: chưa chạy thì người đó nhận
+  một vai trống, không mở được mục Tiếp nhận.
+- Không biến `.env` mới, không tác vụ lịch mới, không dòng cron mới.
+
 **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
-đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có tám tài khoản nhân sự, cùng mật khẩu `password`,
+đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có chín tài khoản nhân sự, cùng mật khẩu `password`,
 và CHƯA tài khoản nào có 2FA: `admin@luatvukhang.com` (Quản trị viên), `quanly@luatvukhang.com`,
 `luatsu1@luatvukhang.com`, `luatsu2@luatvukhang.com`, `luatsu3@luatvukhang.com`,
-`troly1@luatvukhang.com`, `troly2@luatvukhang.com`, `ketoan@luatvukhang.com`. Secret 2FA demo
+`troly1@luatvukhang.com`, `troly2@luatvukhang.com`, `ketoan@luatvukhang.com`,
+`kinhdoanh@luatvukhang.com` (nhân viên kinh doanh, từ 2026-10-14). Secret 2FA demo
 chỉ được gán ở `local`/`testing`, nên ở đây `/admin` bắt mỗi tài khoản tự cài 2FA ở lần đăng
 nhập đầu — và **ai đăng nhập TRƯỚC thì app xác thực của CHÍNH NGƯỜI ĐÓ được gắn vào tài khoản**
 (trust-on-first-use: hệ thống tin người đầu tiên tới, không hỏi người đó là ai). Email và mật
@@ -896,7 +911,7 @@ khẩu này nằm công khai trong mã nguồn và trong chính tài liệu này
 Internet, một người lạ đăng nhập `admin@luatvukhang.com` trước văn phòng là **chiếm trọn quyền
 quản trị** — tạo nhân sự, đọc mọi vụ việc, gửi thư cho khách bằng hộp thư và chân thư của văn
 phòng — còn văn phòng thì bị khoá ngoài chính tài khoản đó, vì mã 2FA nằm trong điện thoại của
-người kia. Bảy tài khoản còn lại cũng vậy, mỗi cái một vai. (Từ M13 dữ liệu mẫu có thêm một luật sư
+người kia. Tám tài khoản còn lại cũng vậy, mỗi cái một vai. (Từ M13 dữ liệu mẫu có thêm một luật sư
 "đã nghỉ việc", `luatsu4@luatvukhang.com`, để trang "Hiệu suất theo kỳ" có một lần bàn giao khi nghỉ
 việc: tài khoản đó đã bị vô hiệu hoá và mang mật khẩu ngẫu nhiên, không đăng nhập được.)
 

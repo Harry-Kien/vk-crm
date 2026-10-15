@@ -46,7 +46,8 @@ enum Permission: string
     /**
      * Ghi một lần có người liên hệ văn phòng và đổi trạng thái bản ghi MÌNH ghi hoặc được giao (M10,
      * SPEC §5 đính chính 2026-09-24). Người chỉ có quyền này thấy đúng những bản ghi đó — xem
-     * `IntakeRequest::scopeVisibleTo()`. Kế toán không có.
+     * `IntakeRequest::scopeVisibleTo()` (làn kd: cộng bản ghi được chuyển tới mình làm luật sư tư vấn).
+     * Kế toán không có. Là quyền DUY NHẤT của vai nhân viên kinh doanh (`Role::Sales`, làn kd).
      */
     case IntakeCreate = 'intake.create';
 

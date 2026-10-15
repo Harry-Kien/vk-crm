@@ -48,6 +48,10 @@ return [
         // M10 Task 7 (`AnonymiseProspect`): mã bản ghi và lý do / ngày hạn — không bao giờ giá trị đã xoá.
         'prospect_data_erased' => 'Xoá dữ liệu cá nhân của người liên hệ theo yêu cầu',
         'prospect_data_anonymised' => 'Ẩn danh dữ liệu người liên hệ hết hạn lưu',
+        // Làn kd (2026-10-14): app/Actions/Intake/{HandIntakeToLawyer,LogIntakeFollowUp}.php — chỉ id luật sư,
+        // kênh liên hệ và cờ có hẹn hay không; không tên, SĐT hay nội dung lần chăm sóc.
+        'intake_handed_to_lawyer' => 'Chuyển một lead cho luật sư tư vấn',
+        'intake_follow_up_logged' => 'Ghi một lần chăm sóc lead',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

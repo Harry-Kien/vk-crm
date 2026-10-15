@@ -6,6 +6,7 @@ use App\Enums\Permission;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeConversionWidget;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeOutcomesWidget;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeResponseTimeWidget;
+use App\Filament\Admin\Widgets\IntakeReport\IntakesByOwnerWidget;
 use App\Filament\Admin\Widgets\IntakeReport\IntakesBySourceWidget;
 use App\Models\IntakeRequest;
 use App\Models\User;
@@ -28,7 +29,8 @@ use Illuminate\Support\Facades\Gate;
  * tiếp nhận.
  *
  * **Dùng lại khuôn M9 Task 9, không dựng bộ thứ hai** ({@see RevenueDashboard}): một
- * `Filament\Pages\Dashboard` RIÊNG (không phải trang chủ §7.1) với `HasFiltersForm`; bốn widget
+ * `Filament\Pages\Dashboard` RIÊNG (không phải trang chủ §7.1) với `HasFiltersForm`; năm widget (làn kd thêm
+ * "Lead theo người phụ trách")
  * `ChartWidget` + `getType()`, `$isDiscovered = false`, view dùng chung có bảng số
  * (`filament.admin.widgets.revenue.chart-with-table`), không tooltip callback, không `RawJs` (phán
  * quyết CSP của M8 R4). Khoảng thời gian diễn dịch ở đúng một chỗ của cả hai trang
@@ -151,8 +153,9 @@ class IntakeReport extends Dashboard
     }
 
     /**
-     * Bốn widget, đăng ký TƯỜNG MINH ở đây — không `Filament::getWidgets()`: mỗi widget đặt
-     * `$isDiscovered = false`, nên trang chủ không có chúng và trang này là nơi DUY NHẤT liệt kê chúng.
+     * Năm widget (bốn của M10, cộng "Lead theo người phụ trách" của làn kd), đăng ký TƯỜNG MINH ở đây —
+     * không `Filament::getWidgets()`: mỗi widget đặt `$isDiscovered = false`, nên trang chủ không có chúng
+     * và trang này là nơi DUY NHẤT liệt kê chúng.
      *
      * @return array<class-string<Widget>>
      */
@@ -163,6 +166,7 @@ class IntakeReport extends Dashboard
             IntakeConversionWidget::class,
             IntakeResponseTimeWidget::class,
             IntakeOutcomesWidget::class,
+            IntakesByOwnerWidget::class,
         ];
     }
 }
