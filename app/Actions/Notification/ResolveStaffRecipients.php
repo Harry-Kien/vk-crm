@@ -8,6 +8,7 @@ use App\Enums\Role;
 use App\Models\Contract;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -391,6 +392,30 @@ class ResolveStaffRecipients
             ->permission(Permission::SettingsManage->value)
             ->orderBy('id')
             ->get()
+            ->values();
+    }
+
+    /**
+     * Làn tk, Task 1 — người nhận chuông/thư về MỘT VIỆC GIAO NỘI BỘ (`App\Jobs\SendTaskNotice`): đúng
+     * những người trong `$preferred` (người nhận việc, hay người giao) đang hoạt động, chưa xoá mềm, VÀ
+     * còn xem được chính việc đó (`TaskPolicy::view` — gồm "xem được vụ" của `MatterPolicy::view`, nên
+     * một việc của vụ `restricted` không bao giờ tới ai ngoài luật sư phụ trách và admin).
+     *
+     * KHÔNG có chuỗi dự phòng của {@see self::handle()}: lời báo này nói với ĐÚNG một người về việc của
+     * chính họ ("anh/chị được giao", "việc anh/chị giao đã xong") — gửi nó cho luật sư phụ trách hay một
+     * quản lý thay người đã nghỉ là gửi sai người. Việc của người đã nghỉ hiện ở danh sách "Công việc"
+     * của quản lý, nơi họ giao lại. Rỗng là câu trả lời đúng khi người đó không còn hợp lệ.
+     *
+     * @param  array<int, User|null>  $preferred
+     * @return Collection<int, User>
+     */
+    public function forTask(Task $task, array $preferred): Collection
+    {
+        return collect($preferred)
+            ->filter(fn (?User $user): bool => $user instanceof User)
+            ->unique(fn (User $user): int|string => $user->getKey())
+            ->filter(fn (User $user): bool => $user->is_active && ! $user->trashed())
+            ->filter(fn (User $user): bool => Gate::forUser($user)->allows('view', $task))
             ->values();
     }
 }

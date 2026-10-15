@@ -465,6 +465,12 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.intake_unanswered',
         'staff.matter_reassigned',
         'staff.stale_matter',
+        // Làn tk, Task 1: thư của việc giao nội bộ chưa đẩy — một chủ đề đẩy mới phải vào bảng R10 của
+        // SPEC §9 (AcceptanceDocsTest) và trang "Thông báo trên điện thoại"; chuông trong hệ thống đã báo.
+        'staff.task.accepted',
+        'staff.task.assigned',
+        'staff.task.completed',
+        'staff.task.declined',
     ];
     $pushed = array_values(array_map(fn (PushTopic $topic): string => $topic->value, array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => $topic !== PushTopic::Test)));
 

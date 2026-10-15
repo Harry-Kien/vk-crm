@@ -629,6 +629,15 @@ class Matter extends Model
         return $this->hasMany(StageLogDraft::class);
     }
 
+    /**
+     * Việc giao nội bộ của vụ (làn tk, Task 1) — MỌI việc, kể cả đã xong/đã huỷ. Không phải luật xem:
+     * ai thấy việc nào vẫn là `Task::scopeVisibleTo()` (tab "Công việc" ghép nó lên quan hệ này).
+     */
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(Task::class);
+    }
+
     /** SPEC §4.6: description_internal không bao giờ ra portal. */
     protected function internalAttributes(): array
     {

@@ -57,5 +57,9 @@ class DemoDataSeeder extends Seeder
         // nhận chưa có hợp đồng, để form "Soạn hợp đồng" của nó hiện phí đã báo làm gợi ý (R3). Gọi riêng
         // để làn khác thêm seeder vào danh sách trên mà không chạm dòng này.
         $this->call(IntakeSeeder::class);
+
+        // Làn tk, Task 1 — việc giao nội bộ mẫu: SAU mọi seeder trên (đọc đội ngũ vụ của `MatterSeeder`, vụ
+        // `restricted` và luật sư đã nghỉ việc của `TeamPerformanceSeeder`). Dòng riêng, như dòng trên.
+        $this->call(TaskSeeder::class);
     }
 }

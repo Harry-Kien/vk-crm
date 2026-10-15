@@ -12,6 +12,10 @@ use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
 use App\Filament\Admin\Widgets\Performance\OverdueTrendWidget;
 use App\Filament\Admin\Widgets\Performance\PerformanceTrendWidget;
 use App\Filament\Admin\Widgets\Performance\StaleTrendWidget;
+use App\Filament\Admin\Widgets\Tasks\MyActiveTasksWidget;
+use App\Filament\Admin\Widgets\Tasks\MyTasksWidget;
+use App\Filament\Admin\Widgets\Tasks\TasksAwaitingMeWidget;
+use App\Filament\Admin\Widgets\Tasks\TasksIAssignedWidget;
 use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
@@ -272,6 +276,20 @@ class TeamMember extends Page implements HasTable
     protected function getFooterWidgets(): array
     {
         return [StaleTrendWidget::class, OverdueTrendWidget::class];
+    }
+
+    /**
+     * Làn tk, Task 1 — ba khối việc giao nội bộ của "Việc của tôi" (Chờ tôi nhận, Đang làm, Tôi đã giao),
+     * CHỈ trên trang của chính người xem: trang của người khác là chỗ đọc số, không chỗ bấm "Đã nhận" thay
+     * họ. Mỗi khối tự đọc người dùng từ phiên, không tin `subjectId` — xem {@see MyTasksWidget}.
+     *
+     * @return list<class-string<MyTasksWidget>>
+     */
+    protected function getHeaderWidgets(): array
+    {
+        return $this->subject()->is($this->viewer())
+            ? [TasksAwaitingMeWidget::class, MyActiveTasksWidget::class, TasksIAssignedWidget::class]
+            : [];
     }
 
     public function table(Table $table): Table

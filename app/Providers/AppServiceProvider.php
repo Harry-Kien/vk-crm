@@ -34,6 +34,7 @@ use App\Models\MatterParty;
 use App\Models\Payment;
 use App\Models\PerformanceSnapshot;
 use App\Models\StageLog;
+use App\Models\Task;
 use App\Models\TimeEntry;
 use App\Models\User;
 use App\Support\Files\ClamAvScanner;
@@ -293,6 +294,10 @@ class AppServiceProvider extends ServiceProvider
             // M13 Task 7: ảnh chụp số liệu hằng ngày (R10). Map NGHIÊM NGẶT — thiếu tên ở đây thì
             // `Audit::record(..., $snapshot)` là một lỗi 500 (`ClassMorphViolationException`).
             'performance_snapshot' => PerformanceSnapshot::class,
+            // Làn tk, Task 1: việc giao nội bộ — chủ thể của các dòng nhật ký `task_*` và bản ghi liên
+            // quan của thư `staff.task.*`. Map NGHIÊM NGẶT: thiếu tên ở đây thì `Audit::record(..., $task)`
+            // là một lỗi 500 (`ClassMorphViolationException`).
+            'task' => Task::class,
         ]);
 
         /*

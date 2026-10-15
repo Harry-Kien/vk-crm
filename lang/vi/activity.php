@@ -263,6 +263,15 @@ return [
         // App\Actions\User\SuspendStaffAccess (mục A5).
         'staff_access_suspended' => 'Khoá truy cập nhân sự ngay (chưa bàn giao)',
         // --- Hết khối làn fb ----------------------------------------------------------------
+        // --- Làn tk, Task 1: giao việc nội bộ (app/Actions/Task) ------------------------------
+        'task_assigned' => 'Giao việc nội bộ',
+        'task_accepted' => 'Nhận việc được giao',
+        'task_declined' => 'Trả lại việc được giao',
+        'task_completed' => 'Hoàn thành việc được giao',
+        'task_updated' => 'Sửa việc đã giao',
+        'task_reassigned' => 'Giao lại việc cho người khác',
+        'task_cancelled' => 'Huỷ việc đã giao',
+        // --- Hết khối làn tk ----------------------------------------------------------------
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

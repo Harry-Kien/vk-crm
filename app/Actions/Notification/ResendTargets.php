@@ -64,6 +64,10 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *  - `staff.document_store_alert.*` (M14 Task 5; hậu tố là loại sự cố của kho tài liệu): thư nói về
  *    MỘT lần kiểm sức khoẻ đã qua. Sự cố còn thì lượt `storage.health` mỗi giờ tự báo lại — mỗi loại
  *    một thư mỗi ngày, và chỉ dòng `sent` chặn, nên một thư hỏng được gửi lại ở lượt kế tiếp.
+ *  - `staff.task.*` (làn tk, Task 1; hậu tố là loại lời báo — giao, nhận, trả lại, hoàn thành): thư báo
+ *    MỘT lần chuyển trạng thái đã qua của một việc nội bộ. Chuông trong hệ thống đi trước thư và không
+ *    phụ thuộc thư (`SendTaskNotice`), và trạng thái HIỆN TẠI của việc luôn ở trang "Công việc" — gửi lại
+ *    một lời báo cũ (ví dụ "được giao" cho một việc đã giao lại cho người khác) chỉ làm rối.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -92,6 +96,7 @@ final class ResendTargets
         'staff.handover_ready',
         'staff.intake_unanswered',
         'staff.document_store_alert.*',
+        'staff.task.*',
         'undeclared',
     ];
 

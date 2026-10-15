@@ -170,6 +170,9 @@ function spec1010OpenPages(): array
         'filament.admin.resources.matters.index',
         // Danh mục loại vụ việc: mọi nhân sự đọc được (`MatterTypePolicy::viewAny`), chỉ admin sửa.
         'filament.admin.resources.matter-types.index',
+        // Làn tk, Task 1 — "Công việc": mọi nhân sự mở được (`TaskPolicy::viewAny`); danh sách tự lọc theo
+        // `Task::visibleTo()`, không id nào trên URL (mọi thao tác là khung trên dòng).
+        'filament.admin.resources.tasks.index',
         // M12 — đăng ký/gỡ/gửi thử thiết bị CỦA CHÍNH người gọi; gỡ theo endpoint của người khác
         // và theo endpoint không có trả cùng 404 (test riêng dưới đây).
         'filament.admin.push.subscriptions.store',
