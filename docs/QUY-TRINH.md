@@ -86,6 +86,35 @@ người" (chỉ là gợi ý).
    khi bị dọn — 30 bản đêm gần nhất, cộng khoảng 30 ngày trong Thùng rác của Google Drive: thường
    khoảng hai tháng, lâu hơn nếu có đêm sao lưu bị lỡ (`docs/SAO-LUU-KHOI-PHUC.md`).
 
+**Nhân viên kinh doanh chăm sóc lead — từng bước** (bổ sung 2026-10-14, vai "Nhân viên kinh doanh"; SPEC
+§5, bổ sung cùng ngày). Tài khoản có chức danh **Nhân viên kinh doanh** làm việc ở mục **Tiếp nhận**, với
+những lead mình ghi hoặc được giao (ngoài ra chỉ có bảng tin, hồ sơ cá nhân, thiết bị nhận thông báo và
+danh mục loại vụ việc để đọc); không thấy vụ việc, hồ sơ khách, tài liệu, tiền, không trang Tìm kiếm,
+không báo cáo toàn văn phòng.
+
+1. **Ghi lead** như người trực điện thoại (bước 1–3 ở trên). Kết quả kiểm tra xung đột hiện cho anh/chị
+   **chỉ mức** Xanh/Vàng/Đỏ — không mã hồ sơ, không tên ai. Vàng hoặc Đỏ: **chưa nghe nội dung vụ việc**,
+   bấm **"Chuyển cho luật sư"** và hẹn khách sẽ có luật sư gọi lại. Vàng thì luật sư xem các khớp và quyết.
+   **Đỏ thì chỉ trưởng phòng/quản trị xử lý được** (từ chối, hoặc ghi đè kèm lý do) — luật sư cũng không,
+   và cũng chỉ thấy mã hồ sơ và vai của khớp Đỏ — nên chuyển thẳng cho trưởng phòng, hoặc báo trưởng phòng.
+   Xanh mà chỉ thiếu SĐT/CCCD của bên kia thì tự bấm "Xác nhận đã xem các khớp" được.
+2. **Mỗi lần liên hệ lại khách** (gọi, Zalo, email, gặp) bấm **"Ghi lần chăm sóc"** trên trang lead: kênh,
+   thời gian, một câu ngắn về việc đã làm ("đã gửi báo phí qua Zalo"), và **hẹn liên hệ lại** nếu có. Không
+   ghi nội dung vụ việc ở đây. Đổi trạng thái (Đã liên hệ → Đang tư vấn → Đã báo phí) bằng nút "Đổi trạng
+   thái" như trước — ghi lần chăm sóc không tự đổi trạng thái.
+3. **Trang chủ** của anh/chị có ba khối: **"Lead của tôi"** (số lead theo trạng thái), **"Lead đến hẹn liên
+   hệ lại"** (hẹn hôm nay hoặc đã qua), **"Liên hệ chưa ai gọi lại"**. Trên cả ba là dải **"Tình trạng hệ
+   thống"** khi lịch chạy tự động hay sao lưu có chuyện — dải đó mọi nhân sự đều thấy.
+4. **Khi khách cần tư vấn chuyên môn hay sắp ký:** "Chuyển cho luật sư" — chọn một luật sư (hoặc trưởng
+   phòng). Luật sư nhận thông báo, thấy lead, kiểm tra lại xung đột và **mở vụ** ("Chuyển thành vụ việc" —
+   nhân viên kinh doanh không có nút này). Anh/chị vẫn thấy và chăm sóc lead; khi lead thành vụ việc, trang
+   lead chỉ ghi "Đã chuyển thành vụ việc". Riêng khi vụ mở ra có mức bảo mật **"Hạn chế"**, anh/chị
+   **không còn thấy lead** nữa: nó rời danh sách và khối "Lead của tôi", mở đường dẫn cũ thì ra "không tìm
+   thấy" — vụ hạn chế chỉ người được xem vụ đó mới biết là có. Đó không phải lỗi.
+5. **Trưởng phòng/quản trị** thấy mọi lead, và trên trang **"Bức tranh đầu vào"** có khối **"Lead theo người
+   phụ trách"**: mỗi người (nhân viên kinh doanh, trợ lý, luật sư) nhận bao nhiêu lead trong kỳ và bao nhiêu
+   đã thành vụ việc. Lead tính cho người được giao; chưa giao ai thì cho người đã ghi.
+
 **Luật nghề nghiệp đứng sau giai đoạn này.** Nếu nghe hết câu chuyện rồi mới phát
 hiện bên kia là khách hàng hiện hữu thì thông tin bí mật đã nghe rồi và không rút lại
 được. Vì vậy kiểm tra xung đột đứng **trước** phần nội dung, không phải sau. Và khi

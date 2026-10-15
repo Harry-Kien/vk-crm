@@ -123,6 +123,9 @@ it('names every M10 migration file, and only files that exist, with the two new 
     $intakeMigrations = collect(File::files(database_path('migrations')))
         ->map(fn (SplFileInfo $file): string => $file->getBasename('.php'))
         ->filter(fn (string $name): bool => str_contains($name, 'intake'))
+        // Migration tiếp nhận của bản cập nhật SAU M10 (làn kd, 2026-10-14 — "Nhân viên kinh doanh") có đoạn
+        // nâng cấp riêng của nó trong CAI-DAT, không thuộc đoạn M10.
+        ->reject(fn (string $name): bool => $name >= '2026_10_14')
         ->sort()
         ->values()
         ->all();

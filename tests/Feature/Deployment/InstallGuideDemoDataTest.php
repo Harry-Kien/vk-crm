@@ -195,6 +195,16 @@ it('Bước 5 chỉ đưa dữ liệu mẫu lên máy chủ thật sau ADMIN_IP_
             ->and($step5)->toContain("`{$user->email}`");
     }
 
+    // Làn kd, vòng sửa 1 (F2): mọi số đếm bằng chữ của Bước 5 khớp số tài khoản đăng nhập được mà seeder vừa
+    // tạo — thêm `kinhdoanh@` mà "tám tài khoản demo" còn nguyên thì đỏ. (Đặt ở đây, không trong test riêng,
+    // để không seed dữ liệu mẫu — kèm tệp tài liệu mẫu trên ổ `private` — thêm một lần nữa.)
+    $active = $demoStaff->where('is_active', true)->count();
+
+    expect(installGuideCountWords($step5, 'tài khoản demo'))->not->toBeEmpty()
+        ->each->toBe($active)
+        ->and(installGuideCountWords($step5, 'tài khoản nhân sự'))->each->toBe($active)
+        ->and(installGuideCountWords($step5, 'tài khoản còn lại'))->each->toBe($active - 1);
+
     $allowlist = strpos($step5, 'ADMIN_IP_ALLOWLIST');
     $demoCommand = strpos($step5, 'php artisan db:seed --class=DemoDataSeeder --force');
 
@@ -264,4 +274,36 @@ it('chuỗi "hết demo, chuyển sang dùng thật" của Bước 5, chạy đ�
             File::delete($file);
         }
     }
+});
+
+/**
+ * Mọi số đếm bằng chữ (một…mười hai) đứng ngay trước `$noun` trong `$section`, đổi ra số, theo thứ
+ * tự xuất hiện. Khoảng trắng giữa hai từ có thể là xuống dòng (tài liệu ngắt dòng ở cột 100).
+ *
+ * @return list<int>
+ */
+function installGuideCountWords(string $section, string $noun): array
+{
+    $words = ['một' => 1, 'hai' => 2, 'ba' => 3, 'bốn' => 4, 'năm' => 5, 'sáu' => 6, 'bảy' => 7,
+        'tám' => 8, 'chín' => 9, 'mười' => 10, 'mười một' => 11, 'mười hai' => 12];
+    $alternatives = implode('|', array_map(fn (string $w): string => preg_quote($w, '/'), array_reverse(array_keys($words))));
+
+    preg_match_all('/(?<![\p{L}])('.$alternatives.')\s+'.preg_quote($noun, '/').'/iu', $section, $found);
+
+    return array_map(fn (string $w): int => $words[mb_strtolower($w)], $found[1]);
+}
+
+it('mục "Tài khoản dùng thử" đếm bằng chữ đúng số dòng nhân sự của bảng tài khoản', function () {
+    // Làn kd, vòng sửa 1 (F2): thêm `kinhdoanh@` vào bảng ("Sáu tài khoản") mà "cả năm tài khoản" còn nguyên —
+    // tài liệu tự mâu thuẫn trong cùng một đoạn. Số của Bước 5 kiểm ở test đầu tệp (cần seed dữ liệu mẫu).
+    $guide = (string) file_get_contents(base_path('docs/CAI-DAT.md'));
+    $start = strpos($guide, "\n## Tài khoản dùng thử");
+    $devSection = substr($guide, $start, strpos($guide, "\n## ", $start + 1) - $start);
+
+    // Mục "Tài khoản dùng thử": mỗi dòng bảng đăng nhập `/admin` là một nhân sự demo có secret 2FA chung.
+    $adminRows = preg_match_all('/^\|[^|\n]+\|\s*`\/admin`\s*\|/mu', $devSection);
+
+    expect($adminRows)->toBeGreaterThan(0)
+        ->and(installGuideCountWords($devSection, 'tài khoản'))->not->toBeEmpty()
+        ->each->toBe($adminRows);
 });

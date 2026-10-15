@@ -352,6 +352,27 @@ class ResolveStaffRecipients
     }
 
     /**
+     * Làn kd (2026-10-14) — người nhận thông báo "anh/chị vừa nhận một lead cần tư vấn"
+     * (`HandIntakeToLawyer`): đúng luật sư tư vấn (`consulting_lawyer_id`), trừ `$except` (người tự chuyển
+     * cho chính mình), và chỉ khi người đó đang hoạt động, chưa xoá mềm (quan hệ bỏ dòng đã xoá) và xem
+     * được bản ghi (`IntakeRequestPolicy::view`) — Action vừa kiểm `canReceive()` dưới khoá, đây là lần
+     * hỏi lại của lớp người nhận, cùng bộ lọc tầng 1 của {@see self::forIntake()}. Không ai thì rỗng.
+     *
+     * @return Collection<int, User>
+     */
+    public function forIntakeHandoff(IntakeRequest $intake, ?User $except = null): Collection
+    {
+        $lawyer = $intake->consultingLawyer()->first();
+
+        return $lawyer instanceof User
+            && ! $lawyer->is($except)
+            && $lawyer->is_active
+            && Gate::forUser($lawyer)->allows('view', $intake)
+                ? collect([$lawyer])
+                : collect();
+    }
+
+    /**
      * Làn fa (kiểm tra nghiệp vụ 2026-10-09, mục nhỏ) — người nhận thông báo "một lần tiếp nhận vừa ra Đỏ
      * chờ xử lý": mọi trưởng phòng/quản trị (`ConflictOverride` — đúng những vai `IntakeRequestPolicy::
      * resolveConflict` cho xử lý Đỏ) đang hoạt động, chưa xoá mềm. Không hỏi thêm "xem được bản ghi":

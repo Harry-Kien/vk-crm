@@ -38,6 +38,7 @@ bị chiếm): đổi cổng trong `.env` trước — `docs/CAI-DAT.md`, "Chạ
 | Nội bộ, luật sư | http://localhost/admin | `luatsu1@luatvukhang.com`, `luatsu2@…`, `luatsu3@…` | lawyer | `password` |
 | Nội bộ, trợ lý | http://localhost/admin | `troly1@luatvukhang.com`, `troly2@…` | assistant | `password` |
 | Nội bộ, kế toán | http://localhost/admin | `ketoan@luatvukhang.com` | accountant | `password` |
+| Nội bộ, nhân viên kinh doanh | http://localhost/admin | `kinhdoanh@luatvukhang.com` | sales | `password` |
 | Khách hàng | http://localhost/portal | `khach1@example.com` … `khach12@example.com` (thêm `khach2b@`, `khach5b@`, `khach8b@`, `khach11b@`) | — | `password` |
 | Mailpit | http://localhost:8025 | — | — | — |
 
@@ -49,8 +50,8 @@ sau bước mật khẩu — đọc ở Mailpit. Tài khoản demo và secret n�
 (`APP_ENV=local`): seed của máy chủ thật không tạo tài khoản nào. Chi tiết: `docs/CAI-DAT.md`,
 "Tài khoản dùng thử".
 
-Sau `migrate:fresh --seed` dữ liệu mẫu có 27 vụ việc, 12 khách hàng, 16 tài khoản cổng khách và 9
-nhân sự (8 tài khoản ở bảng trên, cộng một luật sư "đã nghỉ việc" của M13, không đăng nhập được).
+Sau `migrate:fresh --seed` dữ liệu mẫu có 27 vụ việc, 12 khách hàng, 16 tài khoản cổng khách và 10
+nhân sự (9 tài khoản ở bảng trên, cộng một luật sư "đã nghỉ việc" của M13, không đăng nhập được).
 Hai mươi vụ đầu mang các tình huống cố ý: vụ 1–3 quá hạn cập nhật, vụ 4–5 có hạn trong 3 ngày,
 vụ 6–9 thiếu giấy tờ, vụ 10–14 có tài liệu chờ duyệt, vụ 20 xung đột lợi ích với khách hàng số 2;
 các vụ sau là vụ mật, vụ của trang hiệu suất (M13) và vụ chuyển từ tiếp nhận (M10).

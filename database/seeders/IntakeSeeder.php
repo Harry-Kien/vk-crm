@@ -7,6 +7,8 @@ use App\Actions\Intake\AnonymiseProspect;
 use App\Actions\Intake\ChangeIntakeStatus;
 use App\Actions\Intake\ConvertIntakeToMatter;
 use App\Actions\Intake\DeclineIntake;
+use App\Actions\Intake\HandIntakeToLawyer;
+use App\Actions\Intake\LogIntakeFollowUp;
 use App\Actions\Intake\MergeIntake;
 use App\Actions\Intake\RecordIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
@@ -14,6 +16,7 @@ use App\Actions\Intake\UpdateIntakeIdentity;
 use App\Actions\Intake\UpdateIntakeSummary;
 use App\Enums\ClientType;
 use App\Enums\Confidentiality;
+use App\Enums\FollowUpChannel;
 use App\Enums\IntakeSource;
 use App\Enums\IntakeStatus;
 use App\Enums\PartyRole;
@@ -31,8 +34,8 @@ use Illuminate\Support\Carbon;
 use RuntimeException;
 
 /**
- * Dữ liệu mẫu TIẾP NHẬN (M10 Task 8): mười hai lần có người liên hệ văn phòng, đủ để mở màn hình
- * "Tiếp nhận", widget "Liên hệ chưa ai gọi lại" và trang "Bức tranh đầu vào" ra mà thấy được mọi tình
+ * Dữ liệu mẫu TIẾP NHẬN (M10 Task 8): mười hai lần có người liên hệ văn phòng (làn kd thêm năm lead của
+ * nhân viên kinh doanh mẫu — {@see self::salesLeads()}), đủ để mở màn hình "Tiếp nhận", widget "Liên hệ chưa ai gọi lại" và trang "Bức tranh đầu vào" ra mà thấy được mọi tình
  * huống của kế hoạch — bản ghi ở MỌI trạng thái (`IntakeStatus`), một cặp tiếp nhận đối nhau, một bản
  * Đỏ chờ trưởng phòng, một bản quá hạn phản hồi, một bản đã ẩn danh — trên đúng văn phòng mẫu mà
  * `StaffSeeder`/`ClientSeeder`/`MatterSeeder` dựng (nên PHẢI chạy sau ba seeder đó: hai bản Đỏ trỏ vào
@@ -80,6 +83,7 @@ class IntakeSeeder extends Seeder
             ->whereIn('email', [
                 'quanly@luatvukhang.com', 'luatsu1@luatvukhang.com', 'luatsu2@luatvukhang.com',
                 'luatsu3@luatvukhang.com', 'troly1@luatvukhang.com', 'troly2@luatvukhang.com',
+                'kinhdoanh@luatvukhang.com',
             ])
             ->get()
             ->keyBy(fn (User $user): string => strstr($user->email, '@', true))
@@ -95,6 +99,63 @@ class IntakeSeeder extends Seeder
         $this->opposingPair();
         $this->redWaitingForManager();
         $this->freshCall();
+        $this->salesLeads();
+    }
+
+    /**
+     * Làn kd (2026-10-14): năm lead do nhân viên kinh doanh mẫu (`kinhdoanh@`) ghi, mỗi lead một trạng thái
+     * (Mới, Đã liên hệ, Đang tư vấn, Đã báo phí, Khách không theo tiếp); bốn lead đã liên hệ có ghi chú
+     * chăm sóc (`LogIntakeFollowUp`), một trong số đó đã quá hẹn liên hệ lại (widget "Lead đến hẹn liên hệ
+     * lại"), và một lead đã "Chuyển cho luật sư" (`HandIntakeToLawyer`, luật sư Vũ Đức Khang). Không bên
+     * đối lập nào, SĐT `0966 300 1xx` không trùng ai (dải `0988 000 1xx` là của luồng nghiệm thu M10): cả
+     * năm Xanh, không đổi gì ở các tình huống M10 phía trên. Không lead nào thành vụ việc — chuyển đổi là
+     * việc của luật sư.
+     */
+    private function salesLeads(): void
+    {
+        $call = fn (string $name, string $phone, IntakeSource $source, CarbonImmutable $at): IntakeRequest => $this->at($at, fn () => $this->record('kinhdoanh', [
+            'contact_name' => $name,
+            'contact_phone' => $phone,
+            'contact_role' => PartyRole::Related,
+            'source' => $source,
+        ]));
+
+        // Đã liên hệ, đã quá hẹn gọi lại một ngày.
+        $start = $this->now->subDays(3)->setTime(9, 0);
+        $due = $call('Mai Hoàng Yến', '0966 300 101', IntakeSource::Zalo, $start);
+        $this->at($start->addHour(), fn () => $this->status('kinhdoanh', $due, IntakeStatus::Contacted));
+        $this->at($start->addHour(), fn () => $this->followUp($due, FollowUpChannel::Call, 'Đã gọi lại, khách hẹn gửi giấy tờ qua Zalo trong hai ngày.', $start->addDays(2)));
+
+        // Đang tư vấn, đã chuyển cho luật sư.
+        $start = $this->now->subDays(5)->setTime(10, 30);
+        $handed = $call('Phan Quốc Thịnh', '0966 300 102', IntakeSource::Phone, $start);
+        $this->at($start->addHours(2), fn () => $this->status('kinhdoanh', $handed, IntakeStatus::Contacted));
+        $this->at($start->addDay(), fn () => $this->followUp($handed, FollowUpChannel::Meeting, 'Gặp khách tại văn phòng, khách cần luật sư tư vấn trực tiếp.', null));
+        $this->at($start->addDay(), fn () => $this->status('kinhdoanh', $handed, IntakeStatus::Consulting));
+        $this->at($start->addDay()->addMinutes(10), fn () => app(HandIntakeToLawyer::class)->handle($this->staff['kinhdoanh'], $handed->fresh(), $this->staff['luatsu1']));
+
+        // Đã báo phí, hẹn gọi lại sau hai ngày nữa.
+        $start = $this->now->subDays(7)->setTime(14, 0);
+        $quoted = $call('Lâm Ngọc Bích', '0966 300 103', IntakeSource::WebsiteForm, $start);
+        $this->at($start->addHour(), fn () => $this->status('kinhdoanh', $quoted, IntakeStatus::Contacted));
+        $this->at($this->now->subDay()->setTime(9, 0), fn () => $this->quote('kinhdoanh', $quoted, '8.000.000'));
+        $this->at($this->now->subDay()->setTime(9, 5), fn () => $this->followUp($quoted, FollowUpChannel::Email, 'Đã gửi báo phí qua email, khách hẹn trả lời đầu tuần sau.', $this->now->addDays(2)->setTime(9, 0)));
+
+        // Khách không theo tiếp.
+        $start = $this->now->subDays(20)->setTime(8, 30);
+        $lost = $call('Hà Minh Khôi', '0966 300 104', IntakeSource::Referral, $start);
+        $this->at($start->addHours(3), fn () => $this->status('kinhdoanh', $lost, IntakeStatus::Contacted));
+        $this->at($start->addDays(4), fn () => $this->followUp($lost, FollowUpChannel::Call, 'Khách báo đã chọn văn phòng khác.', null));
+        $this->at($start->addDays(4)->addMinutes(5), fn () => $this->status('kinhdoanh', $lost, IntakeStatus::Lost));
+
+        // Vừa nhận qua form website, chưa gọi lại.
+        $call('Đoàn Thị Thu Hà', '0966 300 105', IntakeSource::WebsiteForm, $this->now->subMinutes(30));
+    }
+
+    /** Một lần chăm sóc qua đúng Action của màn hình (`LogIntakeFollowUp`), ở giờ đồng hồ đang đặt. */
+    private function followUp(IntakeRequest $intake, FollowUpChannel $channel, string $note, ?CarbonInterface $next): void
+    {
+        app(LogIntakeFollowUp::class)->handle($this->staff['kinhdoanh'], $intake->fresh(), $channel, now(), $note, $next);
     }
 
     /**

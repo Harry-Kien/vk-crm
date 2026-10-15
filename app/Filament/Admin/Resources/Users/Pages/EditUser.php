@@ -237,16 +237,17 @@ class EditUser extends EditRecord
     }
 
     /** Chức danh KHÔNG đứng tên phụ trách được một vụ việc — cùng tập vai `ReassignMatter` từ chối cho lead mới (I3, fix round 1). */
-    private const NON_LEADING_POSITIONS = [UserPosition::Assistant, UserPosition::Accountant];
+    private const NON_LEADING_POSITIONS = [UserPosition::Assistant, UserPosition::Accountant, UserPosition::Sales];
 
     /**
-     * Ruling (fix round 3, mục 5): trong hai đích "không lãnh đạo được", CHỈ Kế toán bị chặn khi
+     * Ruling (fix round 3, mục 5): trong các đích "không lãnh đạo được", CHỈ Kế toán bị chặn khi
      * còn giữ BẤT KỲ loại việc nào (kể cả mốc hạn/yêu cầu khách) — họ không xử lý được việc pháp lý
      * nào cả. Trợ lý vẫn giữ được mốc hạn/yêu cầu khách (chỉ không giữ được vai `lead`), nên chỉ bị
      * chặn khi còn dẫn vụ. Xem {@see GuardsStaffOffboarding::demotionBlockedByAnyOpenWorkReason()}
-     * so với {@see GuardsStaffOffboarding::demotionBlockedByLeadMattersReason()}.
+     * so với {@see GuardsStaffOffboarding::demotionBlockedByLeadMattersReason()}. Làn kd: Nhân viên
+     * kinh doanh như Kế toán — không có `matter.view`, nên không xử lý được việc pháp lý nào.
      */
-    private const FULLY_BLOCKED_DEMOTION_POSITIONS = [UserPosition::Accountant];
+    private const FULLY_BLOCKED_DEMOTION_POSITIONS = [UserPosition::Accountant, UserPosition::Sales];
 
     /**
      * R7 (M6.5 Task 4): chặn Ở ĐÂY, KHÔNG ở `UserPolicy::update()` — policy chỉ nhận `$model` HIỆN

@@ -111,6 +111,10 @@ class IntakeRequestsTable
                 TextColumn::make('assignee.name')
                     ->label(__('intake.fields.assigned_to'))
                     ->placeholder('—'),
+                // Làn kd: luật sư tư vấn sau "Chuyển cho luật sư" (`HandIntakeToLawyer`).
+                TextColumn::make('consultingLawyer.name')
+                    ->label(__('leads.fields.consulting_lawyer'))
+                    ->placeholder('—'),
                 TextColumn::make('received_at')
                     ->label(__('intake.fields.received_at'))
                     ->dateTime('d/m/Y H:i')

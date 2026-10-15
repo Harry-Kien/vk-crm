@@ -88,7 +88,7 @@ it('answers 404 to every non-admin and hides itself from their navigation', func
         ->assertNotFound();
 
     expect(ClientPaymentSettingsPage::shouldRegisterNavigation())->toBeFalse();
-})->with([Role::Manager, Role::Lawyer, Role::Assistant, Role::Accountant]);
+})->with([Role::Manager, Role::Lawyer, Role::Assistant, Role::Accountant, Role::Sales]);
 
 /** Mutation probe: xoá `boot()` → lần gọi `save` sau khi hạ quyền trả 403 thay vì 404. */
 it('answers 404 to a Livewire update from someone who lost the permission, and stores nothing', function () {

@@ -147,6 +147,24 @@ it('only says that a phone belongs to a client of the office: no name, no code, 
     expect(app(FindIntakeDuplicates::class)->handle($actor, '0912000112', null, 'Ai đó')->isExistingClient)->toBeFalse();
 });
 
+it('does not ask the client list at all for someone without matter.view (sales)', function () {
+    // Làn kd, rà soát Task 1, I1: "số này đã là khách" là một khớp với danh sách khách — cùng ranh giới
+    // `matter.view` với bảng khớp xung đột. Không tra: không cờ, không dòng `client_lookup`, không lượt đếm.
+    $client = Client::factory()->create(['phone' => '0912000111']);
+    MatterParty::factory()->for(Matter::factory()->create())->ourClient($client)->create();
+    $sales = dupStaff(Role::Sales);
+
+    $found = app(FindIntakeDuplicates::class)->handle($sales, '0912000111', null, 'Ai đó');
+
+    expect($found->isExistingClient)->toBeFalse()
+        ->and($found->clientLookupUnavailable)->toBeFalse()
+        ->and(Activity::query()->where('event', 'client_lookup')->count())->toBe(0)
+        ->and(RateLimiter::attempts(ClientLookupThrottle::keyFor($sales)))->toBe(0);
+
+    // Cặp dương: trợ lý (có `matter.view`) hỏi cùng số thì được trả lời "có".
+    expect(app(FindIntakeDuplicates::class)->handle(dupStaff(), '0912000111', null, 'Ai đó')->isExistingClient)->toBeTrue();
+});
+
 it('answers "no" for a client whose only matter is restricted and not visible to the asker', function () {
     $client = Client::factory()->create(['phone' => '0912000111']);
     $lead = dupStaff(Role::Lawyer);

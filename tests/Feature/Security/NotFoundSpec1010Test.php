@@ -134,6 +134,27 @@ function spec1010GatedPages(): array
         'filament.admin.pages.document-store' => Role::Lawyer,
         // Làn nt Task 1 — "Nhắc thanh toán cho khách" (công tắc, thông tin chuyển khoản): chỉ `settings.manage`.
         'filament.admin.pages.client-payment-reminders' => Role::Lawyer,
+        // Làn kd (2026-10-14) — hai trang từng ở OPEN ("mọi vai nhân sự") đóng với vai mới "Nhân viên
+        // kinh doanh", người không có `matter.view` lẫn `matter.viewAny`: danh sách vụ việc và trang Tìm
+        // kiếm (cổng của nó là `viewAny` của vụ việc). Mọi vai KHÁC vẫn mở được hai trang này — test
+        // "trang chỉ đóng với nhân viên kinh doanh mở cho mọi vai khác" dưới đây giữ lời khẳng định cũ.
+        'filament.admin.pages.search' => Role::Sales,
+        'filament.admin.resources.matters.index' => Role::Sales,
+    ];
+}
+
+/**
+ * Làn kd — những trang của nhóm GATED mà nhân viên kinh doanh MỞ ĐƯỢC: danh sách và trang tạo của Tiếp
+ * nhận (lead của chính họ). Mọi trang GATED khác của panel admin trả họ đúng trang 404 của một đường dẫn
+ * không tồn tại (test "nhân viên kinh doanh: …" dưới đây).
+ *
+ * @return list<string>
+ */
+function spec1010SalesOpenGatedPages(): array
+{
+    return [
+        'filament.admin.resources.intake-requests.index',
+        'filament.admin.resources.intake-requests.create',
     ];
 }
 
@@ -167,9 +188,7 @@ function spec1010OpenPages(): array
         'filament.admin.auth.logout',
         'filament.admin.auth.profile',
         'filament.admin.auth.multi-factor-authentication.set-up-required',
-        'filament.admin.pages.search',
         'filament.admin.pages.thong-bao-dien-thoai',
-        'filament.admin.resources.matters.index',
         // Danh mục loại vụ việc: mọi nhân sự đọc được (`MatterTypePolicy::viewAny`), chỉ admin sửa.
         'filament.admin.resources.matter-types.index',
         // M12 — đăng ký/gỡ/gửi thử thiết bị CỦA CHÍNH người gọi; gỡ theo endpoint của người khác
@@ -664,7 +683,82 @@ it('M14 "Kho tài liệu": mọi vai không phải admin nhận đúng trang 404
 
     expect($denied->getStatusCode())->toBe(404)
         ->and(spec1010Normalise($denied))->toBe(spec1010Normalise($unknown));
-})->with([Role::Lawyer, Role::Manager, Role::Assistant, Role::Accountant]);
+})->with([Role::Lawyer, Role::Manager, Role::Assistant, Role::Accountant, Role::Sales]);
+
+/*
+ * Làn kd (2026-10-14) — vai "Nhân viên kinh doanh". Ba lời khẳng định:
+ *  1. hai trang chuyển từ OPEN sang GATED vì vai mới (danh sách vụ việc, Tìm kiếm) vẫn mở cho MỌI vai
+ *     khác — lời khẳng định cũ của nhóm OPEN không bị nới lỏng;
+ *  2. lượt quét: mọi trang GATED của panel admin, trừ đúng hai trang Tiếp nhận của
+ *     `spec1010SalesOpenGatedPages()`, trả nhân viên kinh doanh đúng trang 404 của một đường dẫn không
+ *     tồn tại — một trang gated mới mà lỡ mở cho vai này làm test đỏ;
+ *  3. lead của người khác (trang sửa) và trang chuyển đổi (kể cả của lead chính mình — chuyển đổi là việc
+ *     của luật sư) trả cùng trang 404 như id không tồn tại.
+ */
+it('mở trang chỉ đóng với nhân viên kinh doanh cho mọi vai khác', function (Role $role) {
+    $actor = User::factory()->withRole($role)->create();
+
+    $pages = collect(spec1010GatedPages())->filter(fn (Role $denied): bool => $denied === Role::Sales)->keys();
+
+    expect($pages->all())->toContain('filament.admin.pages.search', 'filament.admin.resources.matters.index');
+
+    $refused = $pages
+        ->filter(fn (string $name): bool => $this->actingAs($actor, 'web')->get(route($name))->getStatusCode() !== 200)
+        ->values()
+        ->all();
+
+    expect($refused)->toBe([], 'trang đóng với vai '.$role->value);
+})->with(fn (): array => array_values(array_filter(Role::cases(), fn (Role $role): bool => $role !== Role::Sales)));
+
+it('nhân viên kinh doanh: mọi trang GATED của panel admin trừ Tiếp nhận trả đúng trang 404 của một đường dẫn không tồn tại', function () {
+    $sales = User::factory()->withRole(Role::Sales)->create();
+
+    $this->actingAs($sales, 'web');
+    $unknown = spec1010Normalise($this->get('/admin/khong-co-trang-nay'));
+
+    $pages = collect(array_keys(spec1010GatedPages()))->diff(spec1010SalesOpenGatedPages())->values();
+
+    expect($pages->count())->toBeGreaterThan(15);
+
+    $leaks = $pages
+        ->filter(function (string $name) use ($sales, $unknown): bool {
+            $this->actingAs($sales, 'web');
+            $response = $this->get(route($name));
+
+            return $response->getStatusCode() !== 404 || spec1010Normalise($response) !== $unknown;
+        })
+        ->values()
+        ->all();
+
+    expect($leaks)->toBe([]);
+
+    // Cặp dương: hai trang Tiếp nhận mở được cho chính người này.
+    foreach (spec1010SalesOpenGatedPages() as $name) {
+        $this->actingAs($sales, 'web')->get(route($name))->assertOk();
+    }
+});
+
+it('nhân viên kinh doanh: lead của người khác và trang chuyển đổi trả cùng trang 404 như id không tồn tại', function (string $name, string $whose) {
+    $sales = User::factory()->withRole(Role::Sales)->create();
+    $own = IntakeRequest::factory()->create(['created_by' => $sales->id]);
+    $existing = $whose === 'của mình' ? $own->id : $this->intake->id;
+
+    $this->actingAs($sales, 'web');
+    $denied = $this->get(route($name, ['record' => $existing]));
+
+    $this->actingAs($sales, 'web');
+    $missing = $this->get(route($name, ['record' => SPEC1010_MISSING_ID]));
+
+    expect($denied->getStatusCode())->toBe(404)
+        ->and(spec1010Normalise($denied))->toBe(spec1010Normalise($missing));
+
+    // Cặp dương: trang sửa lead của chính mình mở được.
+    $this->actingAs($sales, 'web')->get(route('filament.admin.resources.intake-requests.edit', ['record' => $own->id]))->assertOk();
+})->with([
+    'sửa lead người khác' => ['filament.admin.resources.intake-requests.edit', 'của người khác'],
+    'chuyển đổi lead người khác' => ['filament.admin.resources.intake-requests.convert', 'của người khác'],
+    'chuyển đổi lead của mình' => ['filament.admin.resources.intake-requests.convert', 'của mình'],
+]);
 
 /*
  * M14 — route tải trên kho Google Drive. Tài liệu có thật mà người cầm đường dẫn ký đúng không được

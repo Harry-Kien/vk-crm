@@ -209,6 +209,23 @@ it('refuses the accountant in the action itself too, and mails nobody', function
 });
 
 /**
+ * Gộp làn kd vào main (2026-10-15): vai "Nhân viên kinh doanh" (chỉ `intake.create`) không thấy tiền của vụ
+ * nào, nên `InstalmentPolicy::remindClient()` từ chối và Action tự từ chối dưới khoá, không thư nào đi.
+ */
+it('refuses the sales role in the policy and in the action itself, and mails nobody', function () {
+    corSwitch(true);
+
+    $sales = User::factory()->withRole(Role::Sales)->create();
+
+    expect($sales->can('remindClient', $this->overdue))->toBeFalse()
+        ->and(fn () => app(RemindClientOfOverdueInstalment::class)->handle($sales, $this->overdue))
+        ->toThrow(AuthorizationException::class);
+
+    expect(corSentMails())->toBe([])
+        ->and(CommunicationLog::query()->count())->toBe(0);
+});
+
+/**
  * Nút ẩn khi công tắc tắt hay đợt hết quá hạn, và Filament hỏi lại `->visible()` lúc bấm — nên hai câu từ
  * chối này của Action chỉ tới được khi trạng thái đổi giữa lúc Filament hỏi và lúc Action khoá hàng. Đo
  * thẳng Action. Mutation probes: bỏ câu hỏi công tắc / bỏ kiểm "đang quá hạn" ở Action → đỏ.

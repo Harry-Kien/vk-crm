@@ -17,7 +17,9 @@ use Illuminate\Support\Collection;
  *  - `isExistingClient`: một câu hỏi có/không "số này đã là khách của văn phòng" — không tên, không
  *    mã, không danh sách. Luôn `false` khi tra khách bị giới hạn tần suất hoặc khách đó thuộc vụ
  *    `restricted` mà người nhập không được biết (`clientLookupUnavailable` nói tra khách đã bị chặn
- *    vì giới hạn, để "false" không bị đọc thành "chắc chắn không phải khách").
+ *    vì giới hạn, để "false" không bị đọc thành "chắc chắn không phải khách"). Cũng luôn `false` (và
+ *    `clientLookupUnavailable` cũng `false`: không có lần tra nào) khi người nhập không có `matter.view`
+ *    — làn kd, nhân viên kinh doanh không được hỏi danh sách khách.
  */
 final readonly class IntakeDuplicates
 {

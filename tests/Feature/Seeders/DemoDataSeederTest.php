@@ -39,8 +39,10 @@ beforeEach(function () {
 });
 
 // M13 Task 8: người thứ chín là luật sư ĐÃ NGHỈ VIỆC của `TeamPerformanceSeeder` (vô hiệu hoá, mật khẩu ngẫu nhiên).
+// Làn kd (2026-10-14): người thứ mười là nhân viên kinh doanh `kinhdoanh@luatvukhang.com`.
 it('seeds the staff roster', function () {
-    expect(User::count())->toBe(9)
+    expect(User::count())->toBe(10)
+        ->and(User::where('position', UserPosition::Sales)->pluck('email')->all())->toBe(['kinhdoanh@luatvukhang.com'])
         ->and(User::where('position', UserPosition::Admin)->count())->toBe(1)
         ->and(User::where('position', UserPosition::Manager)->count())->toBe(1)
         ->and(User::where('position', UserPosition::Lawyer)->count())->toBe(4)

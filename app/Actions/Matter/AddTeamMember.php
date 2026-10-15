@@ -149,8 +149,10 @@ class AddTeamMember
 
     /**
      * "Có thể giữ vai này" (Task 3 brief): trợ lý cho `assistant`; luật sư hoặc manager cho
-     * `associate`; nhân sự nội bộ TRỪ kế toán cho `observer`. `lead` không có nhánh hợp lệ nào —
-     * luôn `false`, xem "Vai `lead` không đi qua đây" ở docblock lớp.
+     * `associate`; nhân sự nội bộ TRỪ kế toán và nhân viên kinh doanh cho `observer` (làn kd: nhân viên
+     * kinh doanh không có `matter.view`, nên một chỗ trong đội ngũ chỉ là một cái tên trên vụ mà họ không
+     * được thấy — và là một cánh cửa chờ sẵn nếu bộ quyền của vai đó có ngày nới ra). `lead` không có
+     * nhánh hợp lệ nào — luôn `false`, xem "Vai `lead` không đi qua đây" ở docblock lớp.
      *
      * Công khai vì cùng lý do {@see DeadlinesRelationManager::responsibleOptions()}:
      * đây là chỗ DUY NHẤT đo được danh sách thật của ô chọn người trong
@@ -165,7 +167,7 @@ class AddTeamMember
         return match ($role) {
             MatterRole::Assistant => $member->hasRole(Role::Assistant->value),
             MatterRole::Associate => $member->hasRole(Role::Lawyer->value) || $member->hasRole(Role::Manager->value),
-            MatterRole::Observer => ! $member->hasRole(Role::Accountant->value),
+            MatterRole::Observer => ! $member->hasRole(Role::Accountant->value) && ! $member->hasRole(Role::Sales->value),
             MatterRole::Lead => false,
         };
     }

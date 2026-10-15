@@ -9095,6 +9095,25 @@ dòng nhật ký `payment_received_mail_failed` cũng vậy; các câu chữ "lu
 một đợt tới hạn" chưa khớp hết quyền và lịch; hai job chọn người nhận thông báo lỗi theo hai quy tắc khác nhau.
 **Khi nhập hợp đồng đang chạy và ghi lùi khoản thu cũ: giữ công tắc TẮT** (nếu không, mỗi khoản ghi lùi gửi khách thư "đã nhận").
 
+### Vai trò nhân viên kinh doanh (làn kd)
+
+Theo yêu cầu chủ văn phòng (2026-10-10): nhân viên kinh doanh chỉ cập nhật lead CỦA MÌNH và chuyển lead cho luật sư;
+không thấy vụ việc, không thấy tiền. `Role::Sales` / `UserPosition::Sales` chỉ có quyền tiếp nhận; lead thuộc người
+nhận (`owner`), "Chuyển cho luật sư" (`HandIntakeToLawyer`, chọn người có quyền chuyển đổi, báo chuông + thư cho luật sư),
+"Ghi lần chăm sóc" (`LogIntakeFollowUp`: kênh, kết quả, hẹn lần sau) với bảng `intake_follow_ups`; trang chủ có "Lead của
+tôi" và "Lead đến hạn chăm sóc"; báo cáo tiếp nhận thêm "Theo người phụ trách". Kiểm xung đột: người không có
+`matter.view` không được gợi ý "số này đã là khách". Dữ liệu mẫu: tài khoản `kinhdoanh@luatvukhang.com` với lead ở
+nhiều trạng thái. Một task, rà soát + vòng sửa 1 (F1–F5), rà soát toàn làn: hết lỗi nghiêm trọng/quan trọng.
+
+**Gộp vào main (2026-10-15):** xung đột chữ ở tài liệu và tệp ngôn ngữ (giữ cả hai phía); cả bộ `--processes=2`
+**9411 passed, 37 skipped, 0 failed**; pint PASS; 58 test tài liệu xanh. Rà soát gộp: hai phát hiện minor. Sửa ngay:
+CAI-DAT mục nâng cấp nói "không tác vụ lịch mới" trong khi làn nt thêm `client-payments.due-soon` — tách thành câu riêng
+cho phần kinh doanh và thêm đoạn "Bản cập nhật Nhắc lịch thanh toán cho khách làm gì trên máy chủ đã có dữ liệu". Đưa vào
+đợt kiểm tra luồng nội bộ: khôi phục một vụ đã huỷ có thể để vụ do người đã chuyển sang vai kinh doanh đứng tên; người
+nghỉ/đổi vai còn giữ lead đã được chuyển (`consulting_lawyer_id`) mà không ai được báo; gộp hai lần tiếp nhận không mang
+bàn giao, lịch hẹn và các lần chăm sóc sang bản đích. Để sau (nhỏ): mở lại lead giữ hẹn cũ nên hiện quá hạn ngay; lần
+chăm sóc ghi lùi trước ngày nhận lead không bị chặn; vài câu chữ quyền.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9532,8 +9551,9 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
   tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
-- Giao – nhận – xử lý hồ sơ NỘI BỘ (làn feat-tk, đang làm); vai trò nhân viên kinh doanh quản lý lead (làn
-  feat-kd, đang làm). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch thanh toán cho khách (làn nt)" phía trên).
+- Giao – nhận – xử lý hồ sơ NỘI BỘ (làn feat-tk, đang làm). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
+  (mục "Vai trò nhân viên kinh doanh (làn kd)" phía trên). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch
+  thanh toán cho khách (làn nt)" phía trên).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn
   đề xuất lại SAU khi hệ thống hoàn chỉnh.
 - Chưa có trả lời: bảng so sánh hiệu suất chỉ giám đốc/quản lý xem (không làm bảng xếp hạng công khai).
