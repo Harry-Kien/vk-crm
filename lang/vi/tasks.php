@@ -46,6 +46,10 @@ return [
         'assignee_off_team' => 'Người nhận không còn trong đội ngũ vụ — cần giao lại',
         // Vòng sửa 1 (I1): việc bị trả lại mà người giao đã nghỉ — `Task::reassignmentReason()` = assigner_gone.
         'assigner_gone' => 'Người giao đã nghỉ — cần giao lại hoặc huỷ',
+        // Vòng sửa cuối 1 (F3, F4): ba mã mới của `Task::reassignmentReason()`.
+        'assignee_seat_declined' => 'Người nhận đã trả lại hồ sơ này — cần giao lại',
+        'assignee_off_access' => 'Người nhận không còn mở được hồ sơ — cần giao lại',
+        'assigner_off_access' => 'Người giao không còn mở được hồ sơ — cần giao lại hoặc huỷ',
     ],
 
     'due' => [
@@ -66,7 +70,7 @@ return [
         'assigner' => 'Người giao',
         'priority' => 'Ưu tiên',
         'overdue' => 'Chỉ việc quá hạn',
-        'needs_reassignment' => 'Cần giao lại (người nhận đã nghỉ hoặc rời đội ngũ vụ)',
+        'needs_reassignment' => 'Cần giao lại (người nhận đã nghỉ, rời đội ngũ, trả lại hay không còn mở được hồ sơ)',
     ],
 
     'empty' => [
@@ -102,15 +106,17 @@ return [
         'assign_submit' => 'Giao việc',
         'assign_success' => 'Đã giao việc. Người nhận được báo bằng chuông và thư.',
         'accept' => 'Đã nhận',
-        'accept_success' => 'Đã nhận việc. Người giao được báo.',
+        // Vòng sửa cuối 1 (F5): lời báo cho người giao đi qua `ResolveStaffRecipients::forTask()` — người giao đã
+        // nghỉ hay không còn mở được hồ sơ thì không nhận, nên câu không hứa chắc.
+        'accept_success' => 'Đã nhận việc. Người giao được báo nếu còn theo dõi việc này.',
         'decline' => 'Trả lại',
         'decline_heading' => 'Trả lại việc này cho người giao?',
         'decline_submit' => 'Trả lại',
-        'decline_success' => 'Đã trả lại việc. Người giao được báo kèm lý do.',
+        'decline_success' => 'Đã trả lại việc. Người giao (hay luật sư phụ trách hồ sơ, khi người giao không còn theo dõi việc) được báo kèm lý do.',
         'complete' => 'Hoàn thành',
         'complete_heading' => 'Báo việc này đã hoàn thành?',
         'complete_submit' => 'Hoàn thành',
-        'complete_success' => 'Đã báo hoàn thành. Người giao được báo.',
+        'complete_success' => 'Đã báo hoàn thành. Người giao được báo nếu còn theo dõi việc này.',
         'view' => 'Xem',
         'view_heading' => 'Chi tiết việc',
         'close' => 'Đóng',
@@ -289,27 +295,36 @@ return [
             'empty' => 'Không có hồ sơ nào chờ anh/chị nhận.',
         ],
         'fields' => [
-            'decline_reason_help' => 'Người giao và quản lý sẽ đọc lý do này — ví dụ đang quá tải, xung đột lợi ích. Anh/chị vẫn ở trong đội ngũ cho tới khi được phân công lại.',
+            'decline_reason_help' => 'Người phân công lại hồ sơ sẽ đọc lý do này — ví dụ đang quá tải, xung đột lợi ích. Anh/chị vẫn ở trong đội ngũ cho tới khi được phân công lại.',
         ],
         'actions' => [
             'accept' => 'Đã nhận hồ sơ',
-            'accept_success' => 'Đã nhận hồ sơ. Người giao được báo.',
+            // Vòng sửa cuối 1 (F5): người nhận lời báo là người còn hoạt động và còn mở được hồ sơ
+            // (`ResolveStaffRecipients::qualifies()`); vụ hạn chế thì "người quản lý vụ" là quản trị viên.
+            'accept_success' => 'Đã nhận hồ sơ. Người giao được báo nếu còn theo dõi hồ sơ.',
             'decline' => 'Trả lại',
             'decline_heading' => 'Trả lại hồ sơ này?',
-            'decline_description' => 'Anh/chị không bị gỡ khỏi vụ ngay: người giao, luật sư phụ trách và quản lý được báo kèm lý do để phân công lại.',
+            'decline_description' => 'Anh/chị không bị gỡ khỏi vụ ngay: người giao (nếu còn theo dõi hồ sơ), luật sư phụ trách và người quản lý hồ sơ (trưởng phòng; với hồ sơ hạn chế truy cập là quản trị viên) được báo kèm lý do để phân công lại.',
             'decline_submit' => 'Trả lại',
-            'decline_success' => 'Đã trả lại hồ sơ. Người giao và quản lý được báo kèm lý do.',
+            'decline_success' => 'Đã trả lại hồ sơ. Người giao (nếu còn theo dõi hồ sơ), luật sư phụ trách và người quản lý hồ sơ được báo kèm lý do.',
         ],
         'errors' => [
             // Một câu cho mọi lần không được thao tác (SPEC §10.10).
             'unavailable' => 'Hồ sơ này không còn mở được với anh/chị, hoặc anh/chị không còn trong đội ngũ của vụ. Hãy tải lại trang.',
             'not_in_state' => 'Ghế của anh/chị trong hồ sơ này hiện ở tình trạng ":status" nên thao tác này không làm được nữa. Hãy trao đổi với luật sư phụ trách hoặc quản lý.',
         ],
-        // Chuông (App\Notifications\Staff\MatterAssignmentAlert). :code, :member, :who, :role, :reason, :since đã escape.
+        // Vòng sửa cuối 1 (F2): chỗ bấm "Đã nhận hồ sơ" của người nhận (`App\Support\Tasks\SeatInbox::whereKey()`) —
+        // quản trị viên, kế toán, nhân viên kinh doanh không mở được "Việc của tôi".
+        'where' => [
+            'my_work' => 'ở mục Việc của tôi',
+            'team_tab' => 'trên dòng của anh/chị ở tab "Đội ngũ" của hồ sơ',
+        ],
+        // Chuông (App\Notifications\Staff\MatterAssignmentAlert). :code, :member, :who, :role, :reason, :since đã escape;
+        // :where là một câu của `where` ở trên.
         'alert' => [
             'assigned' => [
                 'title' => 'Anh/chị được giao hồ sơ :code',
-                'body' => ':who đã giao anh/chị vào đội ngũ hồ sơ :code với vai :role. Bấm "Đã nhận hồ sơ" hoặc "Trả lại" ở mục Việc của tôi.',
+                'body' => ':who đã giao anh/chị vào đội ngũ hồ sơ :code với vai :role. Bấm "Đã nhận hồ sơ" hoặc "Trả lại" :where.',
             ],
             'accepted' => [
                 'title' => 'Hồ sơ :code đã được nhận',
@@ -321,7 +336,7 @@ return [
             ],
             'reminder_awaiting' => [
                 'title' => 'Hồ sơ :code đang chờ anh/chị nhận',
-                'body' => 'Hồ sơ :code (vai :role) đã chờ anh/chị nhận :since (tính theo giờ làm việc). Bấm "Đã nhận hồ sơ" hoặc "Trả lại" ở mục Việc của tôi.',
+                'body' => 'Hồ sơ :code (vai :role) đã chờ anh/chị nhận :since (tính theo giờ làm việc). Bấm "Đã nhận hồ sơ" hoặc "Trả lại" :where.',
             ],
             'reminder_unaccepted' => [
                 'title' => 'Hồ sơ :code chưa được nhận',
@@ -354,6 +369,8 @@ return [
                 'declined' => 'Mở hồ sơ — tab "Đội ngũ" để phân công lại',
                 'reminder' => [
                     'awaiting' => 'Mở "Việc của tôi" để bấm "Đã nhận hồ sơ" hoặc "Trả lại"',
+                    // Vòng sửa cuối 1 (F2): người không mở được "Việc của tôi" (quản trị viên…) — `SeatInbox`.
+                    'awaiting_team_tab' => 'Mở tab "Đội ngũ" của hồ sơ để bấm "Đã nhận hồ sơ" hoặc "Trả lại"',
                     'unaccepted' => 'Mở hồ sơ — tab "Đội ngũ"',
                 ],
             ],
@@ -363,12 +380,15 @@ return [
     // Bàn giao vụ (một vụ hay hàng loạt): việc của lead cũ chuyển sang lead mới; thư tổng hợp bàn giao.
     'handover' => [
         'email' => [
-            'tasks_heading' => 'Việc nội bộ chuyển sang anh/chị (chờ anh/chị bấm "Đã nhận"):',
-            'task_line' => ':title — hạn :due',
+            // Vòng sửa cuối 1 (F5): danh sách dựng lại lúc gửi có cả việc lead mới đã bấm nhận — trạng thái trên từng dòng.
+            'tasks_heading' => 'Việc nội bộ chuyển sang anh/chị (việc "Chờ nhận" cần anh/chị bấm "Đã nhận" hoặc "Trả lại" ở tab "Chờ tôi nhận" của trang Công việc):',
+            'task_line' => ':title — :status, hạn :due',
             // Vòng sửa 1 (I1): việc lead cũ đã giao trên vụ — lead mới thành người giao (MoveTasksOnHandover).
             'followed_heading' => 'Việc luật sư phụ trách cũ đã giao trên hồ sơ, nay anh/chị là người giao (theo dõi ở tab "Tôi đã giao"):',
             'followed_line' => ':title — :assignee, :status, hạn :due',
             'accept_hint' => 'Hồ sơ vừa bàn giao hiện ở khối "Hồ sơ chờ tôi nhận" trong mục Việc của tôi: hãy bấm "Đã nhận hồ sơ", hoặc "Trả lại" kèm lý do nếu không nhận được.',
+            // Vòng sửa cuối 1 (F2): người không mở được "Việc của tôi" (quản trị viên…) — `SeatInbox`.
+            'accept_hint_team_tab' => 'Hồ sơ vừa bàn giao chờ anh/chị xác nhận: mở tab "Đội ngũ" của từng hồ sơ và bấm "Đã nhận hồ sơ" trên dòng của anh/chị, hoặc "Trả lại" kèm lý do nếu không nhận được.',
         ],
     ],
 

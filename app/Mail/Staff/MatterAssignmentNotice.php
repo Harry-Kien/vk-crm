@@ -2,8 +2,6 @@
 
 namespace App\Mail\Staff;
 
-use App\Filament\Admin\Pages\TeamMember;
-use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Jobs\SendMatterAssignmentNotice;
 use App\Jobs\SendWorkReminder;
 use App\Mail\BrandedMailable;
@@ -11,6 +9,7 @@ use App\Mail\OutboundHeaders;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\OfficeProfile;
+use App\Support\Tasks\SeatInbox;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -28,6 +27,9 @@ use Illuminate\Mail\Mailables\Envelope;
  * mang mã vụ hay tên khách (dòng tiêu đề hiện trên màn hình khoá); thân thư mang mã vụ, người, vai, lý do —
  * người nhận xem được vụ ở lúc gửi (job đã lọc). Bản ghi liên quan là vụ việc. Header `LEDGER_TIER` mang
  * khoá của LẦN báo/nhắc — job so khoá này để một lần thử lại không gửi lần hai.
+ *
+ * Đường dẫn (vòng sửa cuối 1, F2): lời nhắc chờ nhận trỏ tới chỗ người nhận bấm nhận ghế ({@see SeatInbox}:
+ * "Việc của tôi", hay tab "Đội ngũ" của vụ với quản trị viên…); hai mẫu kia trỏ tab "Đội ngũ" của vụ.
  */
 class MatterAssignmentNotice extends BrandedMailable
 {
@@ -92,10 +94,11 @@ class MatterAssignmentNotice extends BrandedMailable
                     ['label' => __('tasks.seat.email.fields.role'), 'value' => $this->roleLabel],
                     $this->kind === self::KIND_DECLINED ? ['label' => __('tasks.seat.email.fields.reason'), 'value' => (string) $this->reason] : null,
                 ])),
+                // Vòng sửa cuối 1 (F2): chỗ người nhận bấm nhận ghế — `SeatInbox` (docblock lớp).
                 'url' => $toMember
-                    ? TeamMember::getUrl(['user' => $this->recipient->getKey()], panel: 'admin')
-                    : MatterResource::getUrl('view', ['record' => $this->matter->getKey()], panel: 'admin'),
-                'action' => __('tasks.seat.email.action.'.$this->kind),
+                    ? SeatInbox::urlFor($this->recipient, $this->matter)
+                    : SeatInbox::teamTabUrl((int) $this->matter->getKey()),
+                'action' => __('tasks.seat.email.action.'.$this->kind.($toMember && ! SeatInbox::onMyWork($this->recipient) ? '_team_tab' : '')),
                 'office' => OfficeProfile::current()->legalName(),
             ],
         );

@@ -367,10 +367,15 @@ khi ai đó bận, nghỉ hay rời vụ. Hai thứ được giao: **một hồ 
    một người nghỉ việc). Người nhận được báo bằng chuông.
 2. Người nhận mở **Việc của tôi**: khối **"Hồ sơ chờ tôi nhận"** có hai nút ngay trên dòng —
    **"Đã nhận hồ sơ"** (một cú bấm) hoặc **"Trả lại"** kèm lý do (đang quá tải, xung đột lợi ích…). Cùng hai
-   nút có trên dòng của chính họ ở tab "Đội ngũ".
-3. **Trả lại không gỡ ai khỏi vụ.** Người giao, luật sư phụ trách và trưởng phòng nhận chuông và thư kèm lý
-   do; tab "Đội ngũ" và trang **Theo dõi đội ngũ** hiện "cần phân công lại". Người quản lý xử lý bằng các nút
-   sẵn có: gỡ người đó khỏi đội ngũ và thêm người khác, hoặc bàn giao vụ cho luật sư khác. Lý do trả lại chỉ
+   nút có trên dòng của chính họ ở tab "Đội ngũ". Quản trị viên không có mục Việc của tôi: một người được đổi
+   chức danh sang Quản trị viên khi còn hồ sơ chờ nhận thì chuông, thư nhắc và thư bàn giao dẫn thẳng tới tab
+   "Đội ngũ" của hồ sơ đó, và họ bấm trên dòng của mình ở đó.
+3. **Trả lại không gỡ ai khỏi vụ.** Người giao (nếu còn theo dõi hồ sơ), luật sư phụ trách và người quản lý
+   hồ sơ (trưởng phòng; với hồ sơ hạn chế truy cập là quản trị viên, vì trưởng phòng không mở được hồ sơ đó)
+   nhận chuông và thư kèm lý do; tab "Đội ngũ" và trang **Theo dõi đội ngũ** hiện "cần phân công lại". Người đã
+   trả lại hồ sơ không nhận được việc mới của hồ sơ đó, và việc họ còn giữ trên hồ sơ hiện "Cần giao lại".
+   Người quản lý xử lý bằng các nút sẵn có: gỡ người đó khỏi đội ngũ và thêm người khác, hoặc bàn giao vụ cho
+   luật sư khác. Lý do trả lại chỉ
    hiện cho người quản lý được đội ngũ và chính người trả lại.
 4. Người theo dõi (vai "Người theo dõi") và người tự thêm chính mình không phải bấm nhận. Các thành viên đã
    có trước khi tính năng này chạy coi như đã nhận.
@@ -379,9 +384,14 @@ khi ai đó bận, nghỉ hay rời vụ. Hai thứ được giao: **một hồ 
 trang **Công việc** (việc chung — trưởng phòng, quản trị viên): ghi việc cần làm, chọn người trong đội ngũ
 của vụ, đặt hạn và mức ưu tiên. Người nhận bấm **"Đã nhận"** hoặc **"Trả lại"** kèm lý do, rồi
 **"Hoàn thành"** (ghi chú kết quả tuỳ chọn). Người giao theo dõi ở tab **"Tôi đã giao"**: việc bị trả lại
-cần **"Giao lại"** hoặc **"Huỷ việc"**. Người nhận đã nghỉ hay rời đội ngũ vụ thì việc hiện "Cần giao lại";
-việc bị trả lại mà người giao đã nghỉ cũng vậy (cột "Người giao" ghi "Người giao đã nghỉ — cần giao lại hoặc
-huỷ"; bật bộ lọc "Cần giao lại" ở tab "Tất cả"). Việc của một vụ đã kết thúc chỉ còn huỷ được.
+cần **"Giao lại"** hoặc **"Huỷ việc"**. Việc hiện **"Cần giao lại"** (cột "Người nhận" ghi lý do; bật bộ lọc
+"Cần giao lại" ở tab "Tất cả") khi người nhận đã nghỉ, đã rời đội ngũ vụ, đã trả lại chính hồ sơ đó, hay không
+còn mở được hồ sơ (ví dụ đổi chức danh sang Kế toán hay Nhân viên kinh doanh) — việc đó đã biến khỏi danh
+sách của họ, nên luật sư phụ trách hay trưởng phòng giao lại. (Hồ sơ không đổi được sang hạn chế truy cập khi
+còn người trong đội ngũ sẽ không mở được nó.) Việc bị trả lại mà người giao đã nghỉ hay không còn mở được hồ sơ cũng vậy (cột "Người
+giao" ghi lý do). Trên một vụ đã kết thúc, người giao không sửa hay giao lại được việc còn mở nữa — chỉ còn
+huỷ; người nhận vẫn bấm "Đã nhận", "Trả lại" hay "Hoàn thành" được (ví dụ việc thu dọn cuối hồ sơ). Hộp thoại
+kết thúc vụ liệt kê số việc nội bộ còn mở và số người chưa nhận hồ sơ, cùng các việc còn dở khác.
 
 **Khi bàn giao vụ.** Việc đang mở của luật sư phụ trách cũ trên vụ đó chuyển sang luật sư phụ trách mới ở
 trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao liệt kê chúng. Những việc luật sư phụ trách cũ
@@ -408,8 +418,10 @@ Mỗi lời nhắc là một chuông và một thư; không ai nhận hai lần 
 đã kết thúc hay đã huỷ không nhắc. Một vụ hạn chế truy cập chỉ nhắc người mở được vụ (luật sư phụ trách,
 quản trị viên).
 
-**Trên bảng điều khiển** — ô **"Việc cần xử lý của tôi"**: việc chờ tôi nhận, việc của tôi đã quá hạn, hồ sơ
-chờ tôi nhận, việc tôi giao bị trả lại; bấm một ô để mở đúng danh sách. Ô chỉ hiện khi có việc.
+**Trên bảng điều khiển** — ô **"Việc cần xử lý của tôi"**: việc chờ tôi nhận, việc của tôi đã quá hạn (chờ
+nhận hay đang làm), hồ sơ chờ tôi nhận, việc tôi giao bị trả lại; bấm một ô để mở đúng danh sách — trang mở ra
+đã lọc sẵn, nên số dòng bằng số trên ô. Ô chỉ hiện khi có việc. Ô "Hồ sơ chờ tôi nhận" chỉ có với người có mục
+Việc của tôi (luật sư, trợ lý, trưởng phòng); quản trị viên nhận hồ sơ ở tab "Đội ngũ" như trên.
 
 **Trên Theo dõi đội ngũ** (và trang của một người): việc đang làm, việc chờ nhận, việc quá hạn, việc bị trả
 lại (việc người đó giao, chờ họ giao lại), hồ sơ chưa nhận, hồ sơ trả lại — số trên các vụ người xem được

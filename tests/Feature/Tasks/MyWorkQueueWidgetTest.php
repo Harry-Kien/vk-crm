@@ -48,11 +48,14 @@ it('counts what waits for me, my overdue work, my seats to accept and my returne
 
     expect(MyWorkQueueWidget::canView())->toBeTrue();
 
+    // Vòng sửa cuối 1 (F5): ô quá hạn mở tab "Tất cả" lọc sẵn (việc chưa nhận đã trễ cũng có mặt), không
+    // tab "Đang làm" — `TaskFinalFixTest` mở từng đường dẫn và so dòng.
     Livewire::test(MyWorkQueueWidget::class)
         ->assertSee(__('tasks.dashboard.heading'))
         ->assertSee(__('tasks.dashboard.awaiting'))
         ->assertSeeHtml(e(TaskResource::getUrl('index', ['tab' => 'awaiting'], panel: 'admin')))
-        ->assertSeeHtml(e(TaskResource::getUrl('index', ['tab' => 'active'], panel: 'admin')))
+        ->assertSeeHtml(e(MyWorkQueueWidget::links($this->assistant)['overdue']))
+        ->assertDontSeeHtml(e(TaskResource::getUrl('index', ['tab' => 'active'], panel: 'admin')))
         ->assertSeeHtml(e(TeamMember::getUrl(['user' => $this->assistant->id], panel: 'admin')));
 
     $this->get(Dashboard::getUrl(panel: 'admin'))->assertOk()->assertSeeLivewire(MyWorkQueueWidget::class);
@@ -71,6 +74,10 @@ it('never counts a task of a restricted matter I can no longer open', function (
     $this->matter->forceFill(['confidentiality' => Confidentiality::Restricted])->save();
 
     expect(MyWorkQueueWidget::countsFor($this->assistant))->toBe(['awaiting' => 0, 'overdue' => 0, 'seats' => 0, 'returned' => 0]);
+
+    // Vòng sửa cuối 1 (F6): qua Livewire — không có gì khác thì khối không dựng (404), không chỉ là số 0.
+    $this->actingAs($this->assistant, 'web');
+    Livewire::test(MyWorkQueueWidget::class)->assertStatus(404);
 });
 
 it('sits after the office work lists and before the stage chart', function () {

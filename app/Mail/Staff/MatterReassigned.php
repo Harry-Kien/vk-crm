@@ -5,8 +5,10 @@ namespace App\Mail\Staff;
 use App\Mail\BrandedMailable;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\Task;
 use App\Models\User;
 use App\Support\OfficeProfile;
+use App\Support\Tasks\SeatInbox;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -31,12 +33,12 @@ use Illuminate\Support\Collection;
  * vẫn không mang mã/tiêu đề của bất kỳ vụ `restricted` nào trong lô.
  *
  * `$blocks` là mảng con:
- * `array{matter: Matter, deadlines: Collection<int, Deadline>, client_requests_moved: int, reason: string}`.
+ * `array{matter: Matter, deadlines: Collection<int, Deadline>, client_requests_moved: int, tasks?: Collection<int, Task>, followed_tasks?: Collection<int, Task>, seat_pending?: bool, reason: string}`.
  */
 class MatterReassigned extends BrandedMailable
 {
     /**
-     * @param  array<int, array{matter: Matter, deadlines: Collection<int, Deadline>, client_requests_moved: int, reason: string}>  $blocks
+     * @param  array<int, array{matter: Matter, deadlines: Collection<int, Deadline>, client_requests_moved: int, tasks?: Collection<int, Task>, followed_tasks?: Collection<int, Task>, seat_pending?: bool, reason: string}>  $blocks
      */
     public function __construct(
         public User $recipient,
@@ -66,6 +68,20 @@ class MatterReassigned extends BrandedMailable
         );
     }
 
+    /**
+     * Câu "hãy bấm Đã nhận hồ sơ" cuối thư (làn tk; vòng sửa cuối 1, F2 + F5) — CHỈ khi ít nhất một vụ trong
+     * thư còn ghế chờ người nhận bấm nhận (`seat_pending`, job đọc lúc gửi), và chỉ đúng chỗ người nhận bấm
+     * được: "Việc của tôi", hay tab "Đội ngũ" của từng vụ với người không mở được trang đó ({@see SeatInbox}).
+     */
+    private function acceptHint(): ?string
+    {
+        if (! collect($this->blocks)->contains(fn (array $block): bool => (bool) ($block['seat_pending'] ?? false))) {
+            return null;
+        }
+
+        return __(SeatInbox::onMyWork($this->recipient) ? 'tasks.handover.email.accept_hint' : 'tasks.handover.email.accept_hint_team_tab');
+    }
+
     /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
@@ -77,6 +93,7 @@ class MatterReassigned extends BrandedMailable
             with: [
                 'recipientName' => $this->recipient->name,
                 'blocks' => $this->blocks,
+                'acceptHint' => $this->acceptHint(),
                 'office' => $office->legalName(),
                 'hotline' => $office->hotline(),
             ],

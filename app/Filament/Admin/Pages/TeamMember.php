@@ -423,11 +423,6 @@ class TeamMember extends Page implements HasTable
     }
 
     /**
-     * Dòng của người này — {@see BuildTeamWorkload} với một người, có N11 (xem docblock lớp), giữ tạm theo
-     * (người xem, người được xem) tối đa 5 phút qua {@see PerformanceCache} (R11, lối thoát cuối). Chỉ con số
-     * được giữ: ba danh sách ngắn và bảng "Vụ việc" luôn đọc trực tiếp, và cổng người vẫn hỏi ở mọi request.
-     */
-    /**
      * Làn tk, Task 2 — số giao – nhận nội bộ của người này như người xem đọc được ({@see BuildTaskWorkload}),
      * tính MỘT lần mỗi request, không qua bộ nhớ đệm: sáu phép đếm gộp trên bảng việc và ghế, và người vừa
      * bấm "Đã nhận" thấy số đổi ngay.
@@ -455,6 +450,11 @@ class TeamMember extends Page implements HasTable
         ], TeamOverview::TASK_COLUMNS);
     }
 
+    /**
+     * Dòng của người này — {@see BuildTeamWorkload} với một người, có N11 (xem docblock lớp), giữ tạm theo
+     * (người xem, người được xem) tối đa 5 phút qua {@see PerformanceCache} (R11, lối thoát cuối). Chỉ con số
+     * được giữ: ba danh sách ngắn và bảng "Vụ việc" luôn đọc trực tiếp, và cổng người vẫn hỏi ở mọi request.
+     */
     private function workload(): TeamWorkloadRow
     {
         $subject = $this->subject();

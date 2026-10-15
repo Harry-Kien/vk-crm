@@ -31,6 +31,7 @@
 @foreach ($block['tasks'] as $task)
 - {!! __('tasks.handover.email.task_line', [
     'title' => $task->title,
+    'status' => $task->status->label(),
     'due' => $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date'),
 ]) !!}
 @endforeach
@@ -50,7 +51,9 @@
 
 {!! __('reassign.email.action') !!}
 
-{!! __('tasks.handover.email.accept_hint') !!}
+@if ($acceptHint !== null)
+{!! $acceptHint !!}
 
+@endif
 {!! __('reassign.email.salutation', ['office' => $office]) !!}
 @endsection

@@ -26,7 +26,8 @@ use Illuminate\Support\Facades\Gate;
  * Widget là một component Livewire riêng: nó đọc người dùng từ phiên ở MỖI request, không nhận id người
  * nào từ trang (giá trị `subjectId` mà `TeamMember::getWidgetData()` truyền cho mọi widget bị bỏ qua — khối
  * này không có thuộc tính nào nhận nó). Truy vấn luôn là `Task::visibleTo($user)` thu hẹp theo nhóm của
- * chính `$user`: không cách nào đọc việc của người khác qua đây. `canView()` hỏi `TaskPolicy::viewAny`.
+ * chính `$user`: không cách nào đọc việc của người khác qua đây. `canView()` hỏi `TaskPolicy::viewAny`, và
+ * `boot()` hỏi lại ở mọi request (không đạt là 404).
  *
  * Không tự hiện trên bảng điều khiển (`$isDiscovered = false`); không tải lười, để ba khối hiện cùng trang.
  */
@@ -52,6 +53,15 @@ abstract class MyTasksWidget extends TableWidget
         $user = Auth::user();
 
         return $user instanceof User && Gate::forUser($user)->allows('viewAny', Task::class);
+    }
+
+    /**
+     * Cổng tường minh ở MỌI request của component (vòng sửa cuối 1, F6 — luật của làn: trang/widget tự hỏi
+     * Gate rồi `abort(404)`): cùng điều kiện {@see self::canView()}.
+     */
+    public function boot(): void
+    {
+        abort_unless(static::canView(), 404);
     }
 
     public function table(Table $table): Table

@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Gate;
  *
  * Hai tầng nói cùng một luật bằng hai thứ tiếng: `Task::scopeVisibleTo()` (truy vấn, mọi danh sách)
  * và `TaskPolicy::view()` (thuộc tính, mọi nút/Action). Test ghim hai tầng KHỚP NHAU trên cùng một ma
- * trận năm vai × việc chung / việc của vụ thường / việc của vụ hạn chế, rồi từng khả năng chuyển trạng
+ * trận sáu vai (thêm Nhân viên kinh doanh khi gộp làn kd) × việc chung / việc của vụ thường / việc của vụ hạn chế, rồi từng khả năng chuyển trạng
  * thái theo vai và trạng thái.
  */
 beforeEach(function () {
@@ -30,6 +30,8 @@ beforeEach(function () {
     $this->otherAssistant = User::factory()->withRole(Role::Assistant)->create();
     $this->outsider = User::factory()->withRole(Role::Lawyer)->create();
     $this->accountant = User::factory()->withRole(Role::Accountant)->create();
+    // Vòng sửa cuối 1 (F1, gộp làn kd): vai thứ sáu, không `matter.*` — như kế toán, chỉ việc chung của mình.
+    $this->sales = User::factory()->withRole(Role::Sales)->create();
 
     $this->matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
     $this->matter->addTeamMember($this->associate, MatterRole::Associate);
@@ -55,20 +57,27 @@ beforeEach(function () {
         'assigned_by' => $this->manager->id,
         'assignee_id' => $this->accountant->id,
     ]);
+
+    // Việc chung: quản lý giao cho nhân viên kinh doanh (vai thứ sáu, gộp làn kd).
+    $this->salesTask = Task::factory()->create([
+        'assigned_by' => $this->manager->id,
+        'assignee_id' => $this->sales->id,
+    ]);
 });
 
 /** @return array<string, list<string>> người => việc người đó phải thấy */
 function tkExpectedVisibility(): array
 {
     return [
-        'admin' => ['matterTask', 'restrictedTask', 'generalTask'],
-        'manager' => ['matterTask', 'generalTask'],
+        'admin' => ['matterTask', 'restrictedTask', 'generalTask', 'salesTask'],
+        'manager' => ['matterTask', 'generalTask', 'salesTask'],
         'lead' => ['matterTask', 'restrictedTask'],
         'associate' => ['matterTask'],
         'assistant' => ['matterTask'],
         'otherAssistant' => [],
         'outsider' => [],
         'accountant' => ['generalTask'],
+        'sales' => ['salesTask'],
     ];
 }
 
@@ -78,7 +87,7 @@ it('shows each person exactly the tasks the rules give them, in lists and in the
 
     $listed = Task::query()->visibleTo($user)->pluck('id')->sort()->values()->all();
 
-    $allowed = collect(['matterTask', 'restrictedTask', 'generalTask'])
+    $allowed = collect(['matterTask', 'restrictedTask', 'generalTask', 'salesTask'])
         ->filter(fn (string $key): bool => Gate::forUser($user)->allows('view', test()->{$key}->fresh()))
         ->map(fn (string $key): int => test()->{$key}->id)
         ->sort()->values()->all();

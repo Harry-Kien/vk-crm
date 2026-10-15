@@ -908,6 +908,31 @@ làm gì với máy chủ:
 - Mã QR chuyển khoản trong thư cần extension PHP `gd` (đã có trong dòng `apt` của Bước 1); thiếu `gd` thì thư
   vẫn gửi, chỉ không kèm ảnh QR.
 
+**Bản cập nhật "Giao – nhận – xử lý nội bộ" (2026-10-15) làm gì trên máy chủ đã có dữ liệu:**
+
+- `migrate --force` chạy hai migration:
+  `2026_10_14_100001_create_tasks_table` (bảng mới `tasks` — mỗi việc giao nội bộ là một dòng; rỗng sau nâng
+  cấp) và `2026_10_14_100002_add_assignment_columns_to_matter_user_table` (năm cột mới trên bảng đội ngũ vụ
+  `matter_user`: `assigned_by`, `assigned_at`, `accepted_at`, `declined_at`, `decline_reason`). Migration thứ
+  hai **ghi vào dữ liệu đã có**: mọi thành viên đội ngũ có từ trước được coi như **đã nhận hồ sơ** —
+  `accepted_at` và `assigned_at` lấy ngày người đó vào đội ngũ (`created_at` của dòng, không có thì giờ chạy
+  migration), `assigned_by` để trống. Nên sau nâng cấp không ai thấy hồ sơ cũ nào "chờ nhận", và không lời nhắc
+  nào đi cho đội ngũ cũ. `migrate:rollback` của migration này xoá năm cột (mất các mốc nhận/trả lại đã ghi
+  sau nâng cấp) — chỉ dùng trong mục "Nâng cấp hỏng: quay lại bản trước".
+- Một tác vụ lịch mới, `tasks.remind`: **mỗi 30 phút**, chỉ làm việc **trong giờ làm việc** của văn phòng (cùng
+  giờ làm việc của lời nhắc tiếp nhận, mặc định Thứ Hai–Thứ Sáu 08:00–17:30, giờ Việt Nam; ngoài giờ lượt chạy
+  không làm gì), không chạy chồng. Nó chạy dưới đúng dòng cron `schedule:run` sẵn có (Bước 8), **không cần dòng
+  cron mới**. Nó nhắc việc và hồ sơ chờ nhận quá lâu, việc sắp đến hạn và việc quá hạn (`docs/QUY-TRINH.md`,
+  mục "Giao – nhận – xử lý nội bộ"); chạy lại là vô hại (không ai nhận hai lần cùng một lời nhắc).
+- Các mẫu thư mới cho NHÂN SỰ, họ `staff.task.*` (không thư nào gửi khách): báo được giao / đã nhận / bị trả
+  lại / đã hoàn thành một việc (`staff.task.assigned`, `.accepted`, `.declined`, `.completed`), năm lời nhắc
+  của lịch trên (`staff.task.reminder.*`) và ba thư về hồ sơ (`staff.task.matter.declined`,
+  `staff.task.matter.reminder.*`). Chúng đi qua hàng đợi thư sẵn có, hiện trong trang "Thư đã gửi" và không gửi lại
+  tay được. Thông báo đẩy có thêm một chủ đề, `staff.task.assigned` (một câu chung, không tên việc), chỉ khi
+  máy chủ đã có khoá thông báo đẩy (M12).
+- Không quyền mới (`db:seed --force` không có gì mới cho bản này), không biến `.env` mới, không đổi cấu hình
+  nginx hay Apache.
+
 **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
 đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có chín tài khoản nhân sự, cùng mật khẩu `password`,
 và CHƯA tài khoản nào có 2FA: `admin@luatvukhang.com` (Quản trị viên), `quanly@luatvukhang.com`,

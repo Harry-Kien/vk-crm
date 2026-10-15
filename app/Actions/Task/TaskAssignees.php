@@ -6,6 +6,7 @@ use App\Enums\TaskStatus;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 
@@ -19,6 +20,9 @@ use Illuminate\Support\Facades\Gate;
  *    "người theo dõi"), đang hoạt động, chưa xoá mềm, VÀ mở được vụ (`MatterPolicy::view`). Vế cuối là thứ
  *    giữ vụ `restricted` kín: một thành viên khác lead còn sót trong đội ngũ của vụ hạn chế không mở được
  *    vụ, nên không nhận được việc của nó (tiêu đề việc không bao giờ tới tay họ).
+ *  - Vòng sửa cuối 1 (F3): người đã "Trả lại" chính ghế của mình trong vụ (quá tải, xung đột lợi ích…) không
+ *    nhận được việc mới của vụ đó — cùng vế `seat_declined` của `Task::scopeNeedsReassignment()`, nơi việc
+ *    họ còn giữ hiện "Cần giao lại". Ghế còn chờ nhận thì vẫn nhận được việc.
  *
  * Không ai tự giao việc cho chính mình: người giao không có trong danh sách, và Action từ chối riêng.
  */
@@ -42,6 +46,7 @@ class TaskAssignees
             ? User::query()->where('is_active', true)->orderBy('name')->get(['users.id', 'users.name', 'users.is_active', 'users.deleted_at'])
             : $matter->team()
                 ->wherePivotIn('role_in_matter', self::workingSeats())
+                ->where(fn (Builder $seat): Builder => self::notDeclined($seat))
                 ->where('users.is_active', true)
                 ->orderBy('users.name')
                 ->get(['users.id', 'users.name', 'users.is_active', 'users.deleted_at']);
@@ -85,7 +90,14 @@ class TaskAssignees
         return $matter->team()
             ->whereKey($candidate->getKey())
             ->wherePivotIn('role_in_matter', self::workingSeats())
+            ->where(fn (Builder $seat): Builder => self::notDeclined($seat))
             ->exists()
             && Gate::forUser($candidate)->allows('view', $matter);
+    }
+
+    /** Ghế chưa "Trả lại" — phủ định của `MatterUser::scopeReturned()` trên bảng `matter_user` của quan hệ `team`. */
+    private static function notDeclined(Builder $seat): Builder
+    {
+        return $seat->whereNotNull('matter_user.accepted_at')->orWhereNull('matter_user.declined_at');
     }
 }

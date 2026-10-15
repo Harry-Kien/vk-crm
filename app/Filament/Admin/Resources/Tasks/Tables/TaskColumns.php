@@ -28,6 +28,12 @@ final class TaskColumns
     /** Trong ngần này ngày tới hạn thì tô vàng — một việc nội bộ ngắn hơn một mốc tố tụng (7 ngày). */
     public const DUE_SOON_DAYS = 2;
 
+    /** Mã của `Task::reassignmentReason()` ghi dưới tên NGƯỜI NHẬN — nhãn `tasks.columns.assignee_<mã>`. */
+    private const ASSIGNEE_REASONS = ['inactive', 'off_team', 'seat_declined', 'off_access'];
+
+    /** Mã của `Task::reassignmentReason()` ghi dưới tên NGƯỜI GIAO — nhãn `tasks.columns.<mã>`. */
+    private const ASSIGNER_REASONS = ['assigner_gone', 'assigner_off_access'];
+
     /**
      * Quan hệ nạp sẵn cho mọi bảng việc: người nhận/người giao KỂ CẢ đã nghỉ (vẫn hiện tên), vụ cùng đội
      * ngũ của nó (để `TaskPolicy::view` → `MatterPolicy::view` trả lời trong bộ nhớ, không một truy vấn
@@ -58,17 +64,18 @@ final class TaskColumns
                 ->searchable() : null,
             TextColumn::make('assignee.name')
                 ->label(__('tasks.columns.assignee'))
-                ->description(fn (Task $record): ?string => match ($record->reassignmentReason()) {
-                    'inactive' => __('tasks.columns.assignee_inactive'),
-                    'off_team' => __('tasks.columns.assignee_off_team'),
-                    default => null,
-                })
-                ->color(fn (Task $record): ?string => in_array($record->reassignmentReason(), ['inactive', 'off_team'], true) ? 'danger' : null),
-            // Vòng sửa 1 (I1): việc bị trả lại mà người giao đã nghỉ — "Cần giao lại" ghi ở cột người giao.
+                ->description(fn (Task $record): ?string => in_array($record->reassignmentReason(), self::ASSIGNEE_REASONS, true)
+                    ? __('tasks.columns.assignee_'.$record->reassignmentReason())
+                    : null)
+                ->color(fn (Task $record): ?string => in_array($record->reassignmentReason(), self::ASSIGNEE_REASONS, true) ? 'danger' : null),
+            // Vòng sửa 1 (I1): việc bị trả lại mà người giao đã nghỉ (vòng sửa cuối 1, F4: hay không còn mở được
+            // hồ sơ) — "Cần giao lại" ghi ở cột người giao.
             TextColumn::make('assigner.name')
                 ->label(__('tasks.columns.assigner'))
-                ->description(fn (Task $record): ?string => $record->reassignmentReason() === 'assigner_gone' ? __('tasks.columns.assigner_gone') : null)
-                ->color(fn (Task $record): ?string => $record->reassignmentReason() === 'assigner_gone' ? 'danger' : null)
+                ->description(fn (Task $record): ?string => in_array($record->reassignmentReason(), self::ASSIGNER_REASONS, true)
+                    ? __('tasks.columns.'.$record->reassignmentReason())
+                    : null)
+                ->color(fn (Task $record): ?string => in_array($record->reassignmentReason(), self::ASSIGNER_REASONS, true) ? 'danger' : null)
                 ->toggleable(),
             TextColumn::make('due_date')
                 ->label(__('tasks.columns.due_date'))

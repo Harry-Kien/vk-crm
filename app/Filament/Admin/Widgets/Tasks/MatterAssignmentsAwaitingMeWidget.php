@@ -9,12 +9,12 @@ use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Models\Matter;
 use App\Models\MatterUser;
 use App\Models\User;
+use App\Support\Tasks\SeatInbox;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Gate;
 
 /**
  * Khối "Hồ sơ chờ tôi nhận" của "Việc của tôi" (làn tk, Task 2) — trang của chính người đang đăng nhập
@@ -49,8 +49,23 @@ class MatterAssignmentsAwaitingMeWidget extends TableWidget
         $user = Auth::user();
 
         return $user instanceof User
-            && Gate::forUser($user)->allows('viewAny', Matter::class)
+            && SeatInbox::onMyWork($user)
             && self::seats($user)->exists();
+    }
+
+    /**
+     * Cổng tường minh ở MỌI request của component (vòng sửa cuối 1, F6 — luật của làn: trang/widget tự hỏi
+     * Gate rồi `abort(404)`): tài khoản nhân sự mở được "Việc của tôi" — trang chứa khối này
+     * ({@see SeatInbox::onMyWork()}, cổng `UserPolicy::viewPerformance` của chính mình); kế toán, nhân viên kinh
+     * doanh, quản trị viên và tài khoản cổng khách nhận 404. Không hỏi "còn ghế nào chờ" ở đây — bấm "Đã nhận
+     * hồ sơ" trên ghế cuối cùng là một request của chính component này, và nó phải trả lời được; `canView()`
+     * lo phần ẩn khối.
+     */
+    public function boot(): void
+    {
+        $user = Auth::user();
+
+        abort_unless($user instanceof User && SeatInbox::onMyWork($user), 404);
     }
 
     /** Ghế đang chờ `$user` nhận, trên vụ họ còn xem được — MỘT định nghĩa cho khối và cho `canView()`. */

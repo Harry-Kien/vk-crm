@@ -2,11 +2,11 @@
 
 namespace App\Notifications\Staff;
 
-use App\Filament\Admin\Pages\TeamMember;
-use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Jobs\SendMatterAssignmentNotice;
 use App\Jobs\SendWorkReminder;
 use App\Models\Matter;
+use App\Models\User;
+use App\Support\Tasks\SeatInbox;
 use Filament\Actions\Action;
 use Illuminate\Notifications\Notification;
 
@@ -23,6 +23,11 @@ use Illuminate\Notifications\Notification;
  *
  * `viewData.seat_key` là khoá chống trùng của job: `event@<id dòng nhật ký>` cho lời báo một sự kiện,
  * khoá của lần nhắc cho lời nhắc.
+ *
+ * Nút "Mở" (vòng sửa cuối 1, F2): lời báo cho NGƯỜI NGỒI GHẾ (được giao, nhắc chờ nhận) trỏ tới chỗ họ bấm
+ * nhận — "Việc của tôi", hay tab "Đội ngũ" của vụ với người không mở được trang đó (quản trị viên…), câu
+ * ":where" theo cùng luật ({@see SeatInbox}); lời báo cho người giao/người quản lý trỏ tab "Đội ngũ" của vụ,
+ * nơi họ phân công lại.
  */
 class MatterAssignmentAlert extends Notification
 {
@@ -74,9 +79,9 @@ class MatterAssignmentAlert extends Notification
             'actions' => [
                 Action::make('open')
                     ->label(__('tasks.alert.open'))
-                    ->url($toMember
-                        ? TeamMember::getUrl(['user' => $notifiable->getKey()], panel: 'admin')
-                        : MatterResource::getUrl('view', ['record' => $this->matter->getKey()], panel: 'admin'))
+                    ->url($toMember && $notifiable instanceof User
+                        ? SeatInbox::urlFor($notifiable, $this->matter)
+                        : SeatInbox::teamTabUrl((int) $this->matter->getKey()))
                     ->markAsRead()
                     ->toArray(),
             ],
@@ -87,6 +92,7 @@ class MatterAssignmentAlert extends Notification
                 'role' => e($this->roleLabel),
                 'reason' => e((string) $this->reason),
                 'since' => e($this->since),
+                'where' => $notifiable instanceof User ? __(SeatInbox::whereKey($notifiable)) : '',
             ]),
             'color' => $warning ? 'warning' : 'info',
             'duration' => 'persistent',

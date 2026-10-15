@@ -3,6 +3,7 @@
 namespace App\Notifications\Staff;
 
 use App\Actions\Schedule\RemindPendingWork;
+use App\Enums\TaskStatus;
 use App\Filament\Admin\Resources\Tasks\TaskResource;
 use App\Jobs\SendWorkReminder;
 use App\Models\Task;
@@ -77,12 +78,16 @@ class TaskReminderAlert extends Notification
         ];
     }
 
-    /** Tab của trang "Công việc" mà lời nhắc trỏ tới: việc của tôi, hay việc tôi đã giao. */
-    public static function tabFor(string $kind): string
+    /**
+     * Tab của trang "Công việc" mà lời nhắc trỏ tới: việc của tôi, hay việc tôi đã giao. Nhắc sắp hạn/quá hạn
+     * cho người nhận trỏ tab của TRẠNG THÁI việc (vòng sửa cuối 1, F5): việc chưa nhận nằm ở "Chờ tôi nhận",
+     * không ở "Đang làm".
+     */
+    public static function tabFor(string $kind, Task $task): string
     {
         return match ($kind) {
             RemindPendingWork::AWAITING => 'awaiting',
-            RemindPendingWork::DUE_SOON, RemindPendingWork::OVERDUE => 'active',
+            RemindPendingWork::DUE_SOON, RemindPendingWork::OVERDUE => $task->status === TaskStatus::Pending ? 'awaiting' : 'active',
             default => 'assigned',
         };
     }
@@ -101,6 +106,6 @@ class TaskReminderAlert extends Notification
     {
         return self::onBehalf($kind, $task, $onBehalfOf)
             ? TaskAlert::onBehalfUrl($task)
-            : TaskResource::getUrl('index', ['tab' => self::tabFor($kind)], panel: 'admin');
+            : TaskResource::getUrl('index', ['tab' => self::tabFor($kind, $task)], panel: 'admin');
     }
 }

@@ -9,6 +9,7 @@ use App\Mail\Staff\MatterReassigned;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\Audit;
@@ -172,12 +173,21 @@ class SendReassignmentDigest implements ShouldQueue
                 ->orderBy('id')
                 ->get();
 
+            // Vòng sửa cuối 1 (F5): ghế luật sư phụ trách của lead mới còn chờ họ bấm "Đã nhận hồ sơ" LÚC GỬI —
+            // tự bàn giao cho chính mình (ghế nhận ngay) hay đã bấm nhận trước khi job chạy thì không.
+            $seatPending = MatterUser::query()
+                ->where('matter_user.matter_id', $matter->getKey())
+                ->where('matter_user.user_id', $newLead->getKey())
+                ->awaitingAcceptance()
+                ->exists();
+
             $blocks[] = [
                 'matter' => $matter,
                 'deadlines' => $deadlines,
                 'client_requests_moved' => $clientRequestsMoved,
                 'tasks' => $tasks,
                 'followed_tasks' => $followed,
+                'seat_pending' => $seatPending,
                 'reason' => $ids['reason'] ?? '',
             ];
         }
