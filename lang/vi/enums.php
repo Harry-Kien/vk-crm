@@ -191,6 +191,10 @@ return [
             'new_client_document' => 'Khách nộp giấy tờ',
             'instalment_overdue' => 'Đợt thanh toán quá hạn',
             'handover_ready' => 'Gói bàn giao đã sẵn sàng',
+            // Làn tk, Task 1 vòng sửa 1 (I2).
+            'task' => [
+                'assigned' => 'Được giao việc',
+            ],
         ],
         'push' => [
             'test' => 'Thông báo thử',

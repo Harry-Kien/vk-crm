@@ -3,7 +3,9 @@
 namespace App\Jobs;
 
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Push\SendPushAlert;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Enums\TaskStatus;
 use App\Mail\Staff\TaskNotice;
 use App\Models\OutboundMessage;
@@ -41,6 +43,14 @@ use Spatie\Activitylog\Models\Activity;
  * Khoá là id dòng nhật ký: chuông đã có `viewData.task_event_id` đó thì không gửi lại; thư đã có dòng
  * nhật ký thư `sent` cùng mẫu, cùng người, cùng `payload.tier` = {@see TaskNotice::ledgerKey()} thì không
  * gửi lại. Chuông đi TRƯỚC thư: thư hỏng không làm mất chuông.
+ *
+ * # Thông báo đẩy (vòng sửa 1, I2 — M12 R10)
+ *
+ * Chỉ lời "được giao" đẩy lên điện thoại (`PushTopic::StaffTaskAssigned`, một câu chung — không tiêu đề
+ * việc, không mã vụ). {@see SendPushAlert} nhận ĐÚNG người mà CHÍNH lượt chạy này vừa gửi thư thành công
+ * (cùng luật `SendHandoverPackageReady`): sau thư, nên thư ném lỗi thì không đẩy (lượt thử lại gửi thư rồi
+ * mới đẩy); thư đã có trong sổ thì lượt này dừng trước cả thư lẫn push — chống trùng của push là sổ thư.
+ * `SendPushAlert` không ném vì lỗi lúc chạy. Ba loại báo người giao không đẩy (SPEC §9, bảng R10).
  */
 class SendTaskNotice implements ShouldQueue
 {
@@ -90,6 +100,11 @@ class SendTaskNotice implements ShouldQueue
         }
 
         Mail::to($user->email)->send(new TaskNotice($task, $this->kind, $user, $actorName, $this->eventId));
+
+        // Xem docblock lớp, mục "Thông báo đẩy".
+        if ($this->kind === TaskAlert::ASSIGNED) {
+            app(SendPushAlert::class)->handle([$user], PushTopic::StaffTaskAssigned, $task);
+        }
     }
 
     /** Xem docblock lớp, mục "Đọc lại mọi thứ khi chạy", bước 2. */

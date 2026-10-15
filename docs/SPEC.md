@@ -2046,6 +2046,7 @@ Chủ đề (`App\Enums\PushTopic`) mang đúng tên mẫu thư nó đi cùng:
 | `staff.new_client_document` | `staff.new_client_document` | như thư | trang vụ việc, tab Danh mục hồ sơ |
 | `staff.instalment_overdue` | `staff.instalment_overdue` (M9) | như thư | trang Công nợ cho người mở được nó, không thì tab Hợp đồng và thanh toán |
 | `staff.handover_ready` | `staff.handover_ready`, báo gói bàn giao đã sinh (M7 Task 4; nối lúc gộp `main` vào nhánh M12) | như thư | trang vụ việc, tab Tài liệu (nơi xem lại và công bố gói) |
+| `staff.task.assigned` | `staff.task.assigned`, báo được giao một việc nội bộ, kể cả khi được giao lại (làn tk, Task 1 — đính chính dưới) | như thư | trang Công việc, tab Chờ tôi nhận |
 
 - Nội dung: tiêu đề là tên văn phòng, thân là chỉ một câu chung (`lang/vi/push.php`) — không mã hồ
   sơ, tiêu đề vụ, tên khách, tên các bên, tiêu đề tài liệu, tên giấy tờ, lý do từ chối, nội dung
@@ -2062,6 +2063,16 @@ Chủ đề (`App\Enums\PushTopic`) mang đúng tên mẫu thư nó đi cùng:
   qua `PushTopic`). Mọi mẫu thư về sau phải được xếp vào một trong hai bên (`PushTopicTest`).
 - Email không tắt được với mọi chủ đề và mọi người (R14): email là chứng cứ "văn phòng có báo cho tôi
   không"; push là tiện ích, và "nhận push hay không" chính là "máy này đã bật chưa".
+
+**Đính chính 2026-10-15 (làn tk, Task 1 — giao việc nội bộ, vòng sửa 1).** Thư `staff.task.assigned`
+(người được giao một việc, hay được giao lại một việc) có thông báo đẩy cùng tên: một câu chung "Anh/chị
+vừa được giao một việc mới" — không tiêu đề việc, không mã vụ, không tên khách hay tên người giao; chạm
+vào thì mở trang Công việc, tab Chờ tôi nhận (URL không mang id vụ: việc chung không có vụ). Người nhận
+là ĐÚNG người vừa nhận thư (`App\Jobs\SendTaskNotice`, người nhận qua
+`ResolveStaffRecipients::forTask()` — gồm luật vụ `restricted`), TTL 72 giờ, `normal`. Ba thư báo người
+giao — `staff.task.accepted`, `staff.task.declined`, `staff.task.completed` — cố ý không đẩy: người giao
+theo dõi việc ở "Tôi đã giao", chuông và thư đủ. Lời báo người vừa mất việc khi việc được giao lại cho
+người khác chỉ là chuông trong hệ thống, không thư, không đẩy.
 
 ---
 

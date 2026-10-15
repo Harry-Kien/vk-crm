@@ -59,7 +59,7 @@ function pwaDocsChecklist(): string
     return pwaDocsFile('docs/research/2026-10-01-pwa-kiem-tra-may-that.md');
 }
 
-/** Tám chủ đề có sự kiện thật (mọi case trừ "Gửi thử"). */
+/** Các chủ đề có sự kiện thật (mọi case trừ "Gửi thử") — mười, từ làn tk vòng sửa 1. */
 function pwaDocsEventTopics(): array
 {
     return array_values(array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => $topic !== PushTopic::Test));
@@ -86,16 +86,18 @@ function pwaDocsLanding(PushTopic $topic): array
         PushTopic::StaffNewClientDocument => [__('matters.tabs.checklist')],
         PushTopic::StaffInstalmentOverdue => [__('billing.receivables.title'), __('billing.tab.title')],
         PushTopic::StaffHandoverReady => [__('matters.tabs.documents')],
+        PushTopic::StaffTaskAssigned => [__('tasks.title'), __('tasks.tabs.awaiting')],
         PushTopic::Test => [],
     };
 }
 
-it('danh sách kiểm tra có mục G kích hoạt ĐỦ chín chủ đề: mỗi dòng một chủ đề, đúng app, đúng câu màn hình khoá, đúng nơi chạm mở', function (): void {
+it('danh sách kiểm tra có mục G kích hoạt ĐỦ mười chủ đề: mỗi dòng một chủ đề, đúng app, đúng câu màn hình khoá, đúng nơi chạm mở', function (): void {
     $sectionG = pwaDocsSection(pwaDocsChecklist(), '## G.', '## H.');
     $firm = (string) config('vkcrm.brand.short_name');
 
-    // Vòng sửa cuối I5: `staff.handover_ready` nối lúc gộp `main` vào nhánh — dòng G9.
-    expect(pwaDocsEventTopics())->toHaveCount(9);
+    // Vòng sửa cuối I5: `staff.handover_ready` nối lúc gộp `main` vào nhánh — dòng G9. Làn tk, Task 1
+    // vòng sửa 1 (I2): `staff.task.assigned` — dòng G10.
+    expect(pwaDocsEventTopics())->toHaveCount(10);
 
     preg_match_all('/^\| (G\d+) \|/m', $sectionG, $ids);
     expect($ids[1])->toBe(array_map(fn (int $i): string => 'G'.$i, range(1, count(pwaDocsEventTopics()))));
@@ -166,13 +168,14 @@ it('bảng kết quả của danh sách kiểm tra có chỗ ghi mọi mục m�
     $results = pwaDocsSection(pwaDocsChecklist(), '## Bảng kết quả', null);
 
     expect($results)->toContain('| D1–D10 |')
-        ->toContain('| G1–G9 |')
+        ->toContain('| G1–G10 |')
+        ->not->toContain('| G1–G9 |')
         ->not->toContain('| G1–G8 |')
         ->toContain('| H1–H4 |')
         ->not->toContain('| D1–D9 |');
 });
 
-it('SPEC §9 có bảng chủ đề đẩy: đúng chín chủ đề của PushTopic, gói bàn giao đã nối, và hai thư nhân sự của M7/M10 nằm trong danh sách cố ý không đẩy', function (): void {
+it('SPEC §9 có bảng chủ đề đẩy: đúng mọi chủ đề của PushTopic, gói bàn giao và việc được giao đã nối, và hai thư nhân sự của M7/M10 nằm trong danh sách cố ý không đẩy', function (): void {
     $sectionNine = pwaDocsSection(pwaDocsFile('docs/SPEC.md'), '## 9. Email', '## 10.');
     $erratum = pwaDocsSection($sectionNine, '**Đính chính 2026-10-04 (M12 Task 10, phán quyết R10', '**Đính chính');
 
@@ -197,6 +200,16 @@ it('SPEC §9 có bảng chủ đề đẩy: đúng chín chủ đề của PushT
         ->toContain('`staff.matter_reassigned`')
         ->toContain('`staff.intake_unanswered`')
         ->toContain('chỉ một câu chung');
+
+    // Làn tk, Task 1 vòng sửa 1 (I2): chủ đề `staff.task.assigned` có dòng trong bảng, và đính chính của
+    // làn nói rõ ba thư báo người giao việc cố ý không đẩy.
+    $tasks = pwaDocsFlat(pwaDocsSection($sectionNine, '**Đính chính 2026-10-15 (làn tk, Task 1', '**Đính chính'));
+    expect($expected)->toContain('staff.task.assigned')
+        ->and($tasks)->toContain('`staff.task.assigned`')
+        ->toContain('`staff.task.accepted`')
+        ->toContain('`staff.task.declined`')
+        ->toContain('`staff.task.completed`')
+        ->toContain('không đẩy');
 });
 
 it('SPEC §10 mục 2 ghi các chỉ thị CSP của M12 đúng như ContentSecurityPolicy, và máy chủ push KHÔNG vào connect-src', function (): void {
@@ -336,5 +349,8 @@ it('"Ghi chú M12" có phần nghiệm thu Task 10: R1–R14, câu hỏi chờ t
         ->toContain('`staff.handover_ready`')
         ->toContain('PENDING OWNER')
         ->toContain('Giai đoạn 2')
-        ->toContain(count(pwaDocsEventTopics()).' chủ đề');
+        // Biên bản nghiệm thu M12 ghi số chủ đề LÚC M12 xong (9). Chủ đề thêm sau đó — `staff.task.assigned`
+        // của làn tk — được ghi ở SPEC §9 (đính chính của làn) và ở bảng kết quả G1–G10, không viết lại biên
+        // bản của milestone khác.
+        ->toContain('9 chủ đề');
 });

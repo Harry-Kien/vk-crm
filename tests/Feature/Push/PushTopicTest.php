@@ -26,6 +26,7 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\StageLog;
+use App\Models\Task;
 use App\Models\User;
 use App\Notifications\PushAlert;
 use App\Support\Pwa\AppIcons;
@@ -80,6 +81,8 @@ function pushTopicMarkers(): array
         'ghi chú đợt thu' => 'DAUVET-GHICHU-DOT',
         'mã hợp đồng' => 'DAUVET-MAHD',
         'số tiền' => '987654321',
+        // Làn tk, Task 1 vòng sửa 1 (I2) — `staff.task.assigned`: thư mang tiêu đề việc và mã vụ; push thì không.
+        'tiêu đề việc' => 'DAUVET-TIEUDE-VIEC',
     ];
 }
 
@@ -148,6 +151,8 @@ function pushTopicRelated(PushTopic $topic, Matter $matter): ?Model
             ]),
         // Vòng sửa cuối I5 (M7 Task 4): tài liệu gói bàn giao — `HandoverPackageReady::relatedRecord()`.
         PushTopic::StaffHandoverReady => Document::factory()->create(['matter_id' => $matter->id, 'title' => 'Gói bàn giao hồ sơ '.$matter->code]),
+        // Làn tk, Task 1 vòng sửa 1 (I2): chính việc được giao — `TaskNotice::relatedRecord()`; tiêu đề việc mang dấu.
+        PushTopic::StaffTaskAssigned => Task::factory()->forMatter($matter)->create(['title' => $m['tiêu đề việc']]),
         PushTopic::Test => null,
     };
 }
@@ -273,6 +278,8 @@ it('points every topic at the right page and tab', function (PushTopic $topic, s
     // Người nhận không mở được trang "Công nợ" (ở đây: tài khoản không vai trò) — tab tiền của vụ.
     'staff.instalment_overdue' => [PushTopic::StaffInstalmentOverdue, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(BillingRelationManager::class, MatterResource::getRelations(), true)],
     'staff.handover_ready' => [PushTopic::StaffHandoverReady, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(DocumentsRelationManager::class, MatterResource::getRelations(), true)],
+    // Làn tk vòng sửa 1 (I2): trang "Công việc", tab "Chờ tôi nhận" — cùng chỗ chuông "được giao" mở; không id vụ.
+    'staff.task.assigned' => [PushTopic::StaffTaskAssigned, 'admin', fn () => '/admin/tasks?tab=awaiting'],
     'push.test / portal' => [PushTopic::Test, 'portal', fn () => parse_url(PortalPushDevices::getUrl(panel: 'portal'), PHP_URL_PATH)],
     'push.test / admin' => [PushTopic::Test, 'admin', fn () => parse_url(AdminPushDevices::getUrl(panel: 'admin'), PHP_URL_PATH)],
 ]);
@@ -345,6 +352,7 @@ it('sends deadlines with a 24 hour TTL and high urgency only at one day and over
     'giấy tờ khách nộp' => [PushTopic::StaffNewClientDocument, null, 259200, 'normal'],
     'đợt thu quá hạn' => [PushTopic::StaffInstalmentOverdue, null, 259200, 'normal'],
     'gói bàn giao' => [PushTopic::StaffHandoverReady, null, 259200, 'normal'],
+    'được giao việc' => [PushTopic::StaffTaskAssigned, null, 259200, 'normal'],
     'gửi thử' => [PushTopic::Test, null, 3600, 'normal'],
 ]);
 
@@ -379,6 +387,9 @@ it('words a deadline alert by how pressing it is, without naming the deadline', 
  * `staff.matter_reassigned` (thư tổng hợp mốc hạn khi bàn giao vụ: một danh sách để đọc trên máy tính;
  * mỗi mốc vẫn có thư nhắc và push riêng theo bậc) và `staff.intake_unanswered` (M10; phán quyết 1 của
  * làn: push cho thư của M10 thuộc M10, làm qua `PushTopic`). Controller chốt hay đảo hai mục này.
+ *
+ * Làn tk, Task 1 vòng sửa 1 (I2): ba thư báo NGƯỜI GIAO việc (đã nhận, trả lại, hoàn thành) cũng không
+ * đẩy — chỉ `staff.task.assigned` đẩy.
  */
 it('has no topic for the mails that are deliberately never pushed', function () {
     expect(array_map(fn (PushTopic $topic): string => $topic->value, PushTopic::cases()))
@@ -388,6 +399,9 @@ it('has no topic for the mails that are deliberately never pushed', function () 
         ->not->toContain('staff.stale_matter')
         ->not->toContain('staff.matter_reassigned')
         ->not->toContain('staff.intake_unanswered')
+        ->not->toContain('staff.task.accepted')
+        ->not->toContain('staff.task.declined')
+        ->not->toContain('staff.task.completed')
         ->and(array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => str_starts_with($topic->value, 'staff.backup_alert')))->toBe([]);
 });
 
@@ -465,10 +479,10 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.intake_unanswered',
         'staff.matter_reassigned',
         'staff.stale_matter',
-        // Làn tk, Task 1: thư của việc giao nội bộ chưa đẩy — một chủ đề đẩy mới phải vào bảng R10 của
-        // SPEC §9 (AcceptanceDocsTest) và trang "Thông báo trên điện thoại"; chuông trong hệ thống đã báo.
+        // Làn tk, Task 1 vòng sửa 1 (I2): `staff.task.assigned` NAY đẩy (người được giao cần biết ngay, kể
+        // cả khi không ngồi máy). Ba thư báo người giao — đã nhận, trả lại, hoàn thành — cố ý không đẩy:
+        // người giao đang theo dõi việc ở "Tôi đã giao", chuông và thư đủ (SPEC §9, bảng R10).
         'staff.task.accepted',
-        'staff.task.assigned',
         'staff.task.completed',
         'staff.task.declined',
     ];

@@ -172,7 +172,8 @@ Với MỌI dòng, ĐẠT gồm cả ba điều:
 Thông báo "gói bàn giao hồ sơ đã sẵn sàng" (`staff.handover_ready`, dòng G9) nối lúc gộp phần bàn
 giao hồ sơ (M7) vào nhánh M12. Thư tổng hợp khi bàn giao vụ việc (`staff.matter_reassigned`) và thư
 nhắc "liên hệ chưa ai gọi lại" của phần tiếp nhận (`staff.intake_unanswered`) cố ý KHÔNG có thông báo
-đẩy — chỉ có thư.
+đẩy — chỉ có thư. Thông báo "được giao việc" (`staff.task.assigned`, dòng G10) thêm ở phần giao việc
+nội bộ (2026-10-15); ba thư báo người giao việc (đã nhận, trả lại, hoàn thành) chỉ có chuông và thư.
 
 | # | Loại và app | Làm | ĐẠT khi (ngoài ba điều trên) | Chụp |
 |---|---|---|---|---|
@@ -185,6 +186,7 @@ nhắc "liên hệ chưa ai gọi lại" của phần tiếp nhận (`staff.inta
 | G7 | `staff.new_client_document` — **app nội bộ** | Khách thử nộp một giấy tờ (như F1). | **Luật Vũ Khang** — "Khách vừa nộp giấy tờ mới cần xem. Chạm để xem." Chạm: trang vụ việc, tab **Danh mục hồ sơ** (nơi duyệt giấy tờ). | Màn hình khoá; trang mở ra. |
 | G8 | `staff.instalment_overdue` — **app nội bộ** | Vụ thử có hợp đồng, với một đợt thu chưa thu đủ mà **ngày đến hạn đã qua**. Chờ lượt nhắc lúc **08:00** sáng. Người nhận: luật sư phụ trách và kế toán (vụ hạn chế: luật sư phụ trách và quản trị viên) — thử trên máy của một trong họ. | **Luật Vũ Khang** — "Có khoản thu đã quá hạn cần theo dõi. Chạm để xem." (không số tiền, không tên khách). Chạm: người mở được trang **Công nợ** (thường là kế toán, quản trị viên) tới trang **Công nợ**; người khác tới tab **Hợp đồng và thanh toán** của vụ. | Màn hình khoá; trang mở ra. |
 | G9 | `staff.handover_ready` — **app nội bộ** | Trên máy tính, một vụ thử đã kết thúc (đã chuyển tới giai đoạn cuối): trang vụ việc → khối **Gói bàn giao hồ sơ** → **Sinh gói bàn giao** → **Sinh gói**. Chờ gói sinh xong (lượt rút hàng đợi mỗi phút; gói lớn có thể vài phút). Người nhận: luật sư phụ trách và người bấm sinh gói — thử trên máy của một trong họ. | **Luật Vũ Khang** — "Gói bàn giao hồ sơ đã sẵn sàng để xem và công bố. Chạm để xem." (không mã hồ sơ). Chạm: trang vụ việc, tab **Tài liệu**. | Màn hình khoá; trang mở ra. |
+| G10 | `staff.task.assigned` — **app nội bộ** | Trên máy tính, luật sư phụ trách mở một vụ thử → tab **Công việc** → **Giao việc**, chọn người nhận là người cầm máy thử (một trợ lý trong đội ngũ vụ), gõ một tiêu đề → **Giao việc**. Làm lại một lần với **Giao lại** trên trang **Công việc** (tab **Tôi đã giao**) để giao lại việc đó cho người cầm máy thử. | **Luật Vũ Khang** — "Anh/chị vừa được giao một việc mới. Chạm để xem và nhận việc." (không tiêu đề việc, không mã hồ sơ, không tên người giao). Chạm: trang **Công việc**, tab **Chờ tôi nhận**. Người giao **không** nhận thông báo đẩy khi việc được nhận, trả lại hay hoàn thành (chỉ chuông và thư). | Màn hình khoá; trang mở ra. |
 
 ---
 
@@ -221,5 +223,5 @@ Phiên bản iPhone (iOS): ______ Mẫu máy: ______ · Phiên bản Android: __
 | E1–E3 | | | |
 | E4–E5 (chỉ khi bật giới hạn địa chỉ) | | | |
 | F1–F2 | | | |
-| G1–G9 | | | |
+| G1–G10 | | | |
 | H1–H4 | | (nếu có thời gian) | |

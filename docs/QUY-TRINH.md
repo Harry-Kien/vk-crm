@@ -527,10 +527,10 @@ rồi bật từ trong ứng dụng. iPhone chỉ cho nhận thông báo trong �
 
 Cùng các bước trên, với địa chỉ `/admin` thay cho `/portal`: ứng dụng nội bộ tên **VK Nội bộ**
 (biểu tượng nền sáng, phân biệt với ứng dụng của khách), đăng nhập bằng mật khẩu và mã của ứng dụng
-xác thực. Ứng dụng nội bộ báo khi có mốc thời hạn cần chú ý, khi khách gửi giấy tờ hay câu hỏi, và
-khi có khoản thu quá hạn (người theo dõi công nợ). Nếu văn phòng bật giới hạn địa chỉ cho trang nội
-bộ (`ADMIN_IP_ALLOWLIST`), ứng dụng nội bộ chỉ mở được trong mạng văn phòng — câu hỏi 2 cho chủ văn
-phòng trong `docs/PROGRESS.md`, "Ghi chú M12".
+xác thực. Ứng dụng nội bộ báo khi anh/chị được giao việc mới, khi có mốc thời hạn cần chú ý, khi khách
+gửi giấy tờ hay câu hỏi, và khi có khoản thu quá hạn (người theo dõi công nợ). Nếu văn phòng bật giới
+hạn địa chỉ cho trang nội bộ (`ADMIN_IP_ALLOWLIST`), ứng dụng nội bộ chỉ mở được trong mạng văn
+phòng — câu hỏi 2 cho chủ văn phòng trong `docs/PROGRESS.md`, "Ghi chú M12".
 
 Khách gọi báo mất hay đổi điện thoại: mở **Tài khoản portal → tài khoản của khách → "Gỡ mọi máy nhận
 thông báo"** — mọi máy đang nhận thông báo của đúng tài khoản đó thôi nhận, mỗi máy một dòng trong Nhật

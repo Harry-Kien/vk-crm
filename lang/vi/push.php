@@ -32,8 +32,9 @@ return [
             // Vòng sửa cuối I3: mỗi chủ đề đẩy của nhân sự có tên ở đây (`PushDevicesPageTest` ghim) — kế
             // toán chỉ bao giờ nhận "khoản thu quá hạn", nên câu nói rõ là tuỳ việc người đó phụ trách.
             'admin' => 'Bật thông báo trên điện thoại để biết ngay khi có việc cần anh/chị chú ý, tuỳ việc '
-                .'anh/chị phụ trách: mốc thời hạn sắp đến, khách gửi giấy tờ hay câu hỏi, khoản thu quá hạn, '
-                .'gói bàn giao hồ sơ đã sẵn sàng. Thư điện tử vẫn gửi như trước và không tắt được.',
+                .'anh/chị phụ trách: được giao việc mới, mốc thời hạn sắp đến, khách gửi giấy tờ hay câu hỏi, '
+                .'khoản thu quá hạn, gói bàn giao hồ sơ đã sẵn sàng. Thư điện tử vẫn gửi như trước và không '
+                .'tắt được.',
         ],
         'lock_screen' => 'Thông báo chỉ hiện một câu chung — không tên, không mã hồ sơ, không nội dung. '
             .'Chạm vào để xem trong ứng dụng.',
@@ -109,6 +110,10 @@ return [
             'instalment_overdue' => 'Có khoản thu đã quá hạn cần theo dõi. Chạm để xem.',
             // Vòng sửa cuối I5 (M7 Task 4): không mã hồ sơ — chỉ thư nội bộ mới mang mã.
             'handover_ready' => 'Gói bàn giao hồ sơ đã sẵn sàng để xem và công bố. Chạm để xem.',
+            // Làn tk, Task 1 vòng sửa 1 (I2): không tiêu đề việc, không mã vụ, không tên người giao.
+            'task' => [
+                'assigned' => 'Anh/chị vừa được giao một việc mới. Chạm để xem và nhận việc.',
+            ],
         ],
         'test' => 'Thông báo thử: máy này đã nhận được thông báo của văn phòng.',
     ],
