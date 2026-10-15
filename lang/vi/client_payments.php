@@ -165,7 +165,7 @@ return [
         'no_recipients' => 'Không có tài khoản cổng khách hàng nào nhận được thư này: khách chưa có tài khoản đã kích hoạt, hoặc vụ việc không còn trên cổng khách. Hãy liên hệ khách bằng kênh khác.',
         'not_overdue' => 'Đợt này không còn quá hạn (đã thu đủ, đã miễn, đã dời hạn hoặc hợp đồng không còn hiệu lực), nên không gửi thư nhắc.',
         'switch_off' => 'Nhắc lịch thanh toán cho khách đang tắt, nên không gửi thư nào cho khách.',
-        'communication_summary' => 'Gửi thư nhắc thanh toán đợt quá hạn qua hệ thống: :instalment, còn phải trả :amount, hạn :date. Người nhận: :recipients. Kết quả từng thư xem ở tab "Thư đã gửi".',
+        'communication_summary' => 'Gửi thư nhắc thanh toán đợt quá hạn qua hệ thống. Người nhận: :recipients. Kết quả từng thư xem ở tab "Thư đã gửi".',
         'failed_notification' => [
             'title' => 'Thư nhắc thanh toán chưa tới được khách',
             'body' => 'Hệ thống đã thử nhiều lần mà không gửi được thư nhắc đợt quá hạn của hồ sơ :code cho khách. Hãy báo khách bằng kênh khác nếu cần.',

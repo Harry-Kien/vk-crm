@@ -18,7 +18,6 @@ use App\Models\User;
 use App\Support\Audit;
 use App\Support\Billing\ClientPaymentReminders;
 use App\Support\Billing\ClientPaymentSettings;
-use App\Support\Billing\Money;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Throwable;
@@ -42,10 +41,12 @@ use Throwable;
  *  5. **Người nhận** ({@see ClientPaymentReminders::recipients()}: R12 + cổng còn cho xem vụ); không ai
  *     thì từ chối ({@see ClientReminderRefused::noRecipients()}) — không ghi gì.
  *  6. Ghi **sổ liên lạc của vụ** (một dòng `communication_logs` loại thư điện tử, người ghi là người bấm,
- *     lúc bấm, nội dung nêu đợt, số còn phải trả, hạn và địa chỉ người nhận; nội bộ — không bao giờ ra
- *     cổng) và **nhật ký** `client_payment_reminder_sent` trên đợt (người gây ra, ngày hạn, số còn phải
- *     trả, `recipients` là địa chỉ thư nhận). Hai dòng này là "ai gửi, lúc nào, gửi cho ai" của lần bấm;
- *     kết quả TỪNG thư nằm ở sổ thư (tab "Thư đã gửi").
+ *     lúc bấm, nội dung CHỈ nêu địa chỉ người nhận; nội bộ — không bao giờ ra cổng) và **nhật ký**
+ *     `client_payment_reminder_sent` trên đợt (người gây ra, ngày hạn, số còn phải trả, `recipients` là
+ *     địa chỉ thư nhận). Hai dòng này là "ai gửi, lúc nào, gửi cho ai" của lần bấm; kết quả TỪNG thư nằm
+ *     ở sổ thư (tab "Thư đã gửi"). Tên đợt, số tiền và hạn KHÔNG vào sổ liên lạc: tab "Liên lạc" mở cho
+ *     mọi người xem được vụ (kể cả trợ lý trong đội, không có `billing.view`), còn dòng nhật ký tiền chỉ
+ *     hiện với người có `billing.view`.
  *
  * Sau khi transaction commit (không bao giờ bên trong — luật của {@see LocksBillingRows}: transaction tiền
  * có thể chạy lại): xếp {@see SendPaymentOverdueReminderMail} `->afterCommit()` (R2) với id đợt, ngày hạn,
@@ -124,10 +125,9 @@ class RemindClientOfOverdueInstalment
             'duration_minutes' => null,
             // Cột NOT NULL `string(200)`; tên khách hàng là `clients.name` `string(200)` — luôn vừa.
             'counterpart' => (string) $matter->client()->withoutGlobalScopes()->value('name'),
+            // Chỉ "gửi cho ai" (ai gửi, lúc nào là `created_by`, `occurred_at`): tab "Liên lạc" mở cho mọi
+            // người xem được vụ, kể cả trợ lý không có `billing.view` — không tên đợt, số tiền hay hạn ở đây.
             'summary' => __('client_payments.remind_action.communication_summary', [
-                'instalment' => $instalment->name,
-                'amount' => Money::format($outstanding),
-                'date' => $due->format('d/m/Y'),
                 'recipients' => implode(', ', $addresses),
             ]),
             'is_visible_to_client' => false,

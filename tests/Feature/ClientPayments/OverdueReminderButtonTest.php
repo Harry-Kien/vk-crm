@@ -3,11 +3,13 @@
 use App\Actions\Billing\RemindClientOfOverdueInstalment;
 use App\Enums\CommunicationType;
 use App\Enums\InstalmentTrigger;
+use App\Enums\MatterRole;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Exceptions\ClientReminderRefused;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\CommunicationLogsRelationManager;
 use App\Jobs\SendPaymentOverdueReminderMail;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -310,9 +312,11 @@ it('writes who sent it, when and to whom into the communication log of the matte
         ->and($log->is_visible_to_client)->toBeFalse()
         ->and($log->summary)->toContain('vo@example.test')
         ->toContain('chong@example.test')
-        ->toContain('Đợt 1 TENDOT-QUAHAN')
-        ->toContain('6.000.000')
-        ->toContain('15/10/2026');
+        // Sổ liên lạc mở cho mọi người xem được vụ (kể cả trợ lý không có `billing.view`): không đợt,
+        // không số tiền, không hạn — những thứ đó ở dòng nhật ký bên dưới, sau cổng `billing.view`.
+        ->not->toContain('TENDOT-QUAHAN')
+        ->not->toContain('6.000.000')
+        ->not->toContain('15/10/2026');
 
     $activity = Activity::query()->where('event', 'client_payment_reminder_sent')->sole();
 
@@ -322,6 +326,29 @@ it('writes who sent it, when and to whom into the communication log of the matte
         ->and($activity->properties['recipients'])->toBe(['chong@example.test', 'vo@example.test'])
         ->and($activity->properties['due_date'])->toBe('2026-10-15')
         ->and(__('activity.events.client_payment_reminder_sent'))->not->toBe('activity.events.client_payment_reminder_sent');
+});
+
+it('does not show the amount, the due date or the instalment to an assistant of the team in the "Liên lạc" tab', function () {
+    corSwitch(true);
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    corSend($this->matter, $this->overdue, $this->lead);
+    $log = CommunicationLog::query()->sole();
+
+    // Trợ lý trong đội xem được vụ nhưng không có `billing.view` — tab "Hợp đồng và thanh toán" đóng với họ.
+    expect($assistant->can('view', $this->matter))->toBeTrue()
+        ->and($assistant->can('billing.view'))->toBeFalse();
+
+    $this->actingAs($assistant, 'web');
+
+    test()->livewire(CommunicationLogsRelationManager::class, ['ownerRecord' => $this->matter, 'pageClass' => ViewMatter::class])
+        ->assertCanSeeTableRecords([$log])
+        ->assertSee('vo@example.test')
+        ->assertSee('chong@example.test')
+        ->assertDontSee('6.000.000')
+        ->assertDontSee('15/10/2026')
+        ->assertDontSee('TENDOT-QUAHAN');
 });
 
 it('queues the mail job to run only after the transaction commits', function () {
