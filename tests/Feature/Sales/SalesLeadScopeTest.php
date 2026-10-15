@@ -1,13 +1,16 @@
 <?php
 
+use App\Enums\Confidentiality;
 use App\Enums\IntakeStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\IntakeReport;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\EditIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\ListIntakeRequests;
 use App\Filament\Admin\Widgets\IntakeReport\IntakesByOwnerWidget;
+use App\Filament\Admin\Widgets\MyLeadsWidget;
 use App\Filament\Admin\Widgets\UnansweredIntakesWidget;
 use App\Models\IntakeRequest;
+use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -84,4 +87,40 @@ it('keeps the office-wide intake report, and its per-person widget, away from a 
     $this->get(route('filament.admin.pages.intake-report'))->assertNotFound();
 
     $this->livewire(IntakesByOwnerWidget::class)->assertNotFound();
+});
+
+it('drops a lead that became a restricted matter out of the sales persons view, and the guide says so', function () {
+    // Làn kd, vòng sửa 1 (F5): QUY-TRINH từng hứa "trang lead chỉ ghi 'Đã chuyển thành vụ việc'". Với vụ mức
+    // bảo mật "Hạn chế" thì lead BIẾN MẤT với nhân viên kinh doanh (vế `restricted` của `scopeVisibleTo`):
+    // trang của nó là 404, nó rời danh sách và hàng ô "Lead của tôi".
+    $open = IntakeRequest::factory()->status(IntakeStatus::Won)->create([
+        'created_by' => $this->sales->id, 'contact_name' => 'Lead Thành Vụ Thường',
+        'matter_id' => Matter::factory()->create()->id,
+    ]);
+    $secret = IntakeRequest::factory()->status(IntakeStatus::Won)->create([
+        'created_by' => $this->sales->id, 'contact_name' => 'Lead Thành Vụ Hạn Chế',
+        'matter_id' => Matter::factory()->restricted()->create()->id,
+    ]);
+
+    $this->actingAs($this->sales, 'web');
+
+    $this->livewire(ListIntakeRequests::class)
+        ->assertCanSeeTableRecords([$open])
+        ->assertCanNotSeeTableRecords([$secret]);
+    $this->get(route('filament.admin.resources.intake-requests.edit', ['record' => $open->id]))->assertOk()
+        ->assertSee(__('leads.decision.converted'));
+    $this->get(route('filament.admin.resources.intake-requests.edit', ['record' => $secret->id]))->assertNotFound();
+
+    $stats = collect((fn () => $this->getStats())->call($this->livewire(MyLeadsWidget::class)->instance()))
+        ->mapWithKeys(fn ($stat): array => [(string) $stat->getLabel() => (string) $stat->getValue()]);
+
+    expect($stats[IntakeStatus::Won->label()])->toBe('1');
+
+    // Hướng dẫn cho nhân viên kinh doanh (QUY-TRINH, giai đoạn 1) nói đúng điều đó, ở ngay bước mở vụ.
+    $guide = (string) file_get_contents(base_path('docs/QUY-TRINH.md'));
+    $step = substr($guide, (int) strpos($guide, '4. **Khi khách cần tư vấn chuyên môn hay sắp ký:**'), 900);
+
+    expect($step)->toContain('"Đã chuyển thành vụ việc"')
+        ->and($step)->toContain(Confidentiality::Restricted->label())
+        ->and($step)->toContain('không còn thấy lead');
 });

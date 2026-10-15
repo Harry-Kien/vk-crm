@@ -79,6 +79,7 @@ it('shows a sales person only the level of a yellow match and the advice to hand
         ->assertOk()
         ->assertSee(__('intake.check.heading_attention'))
         ->assertSee(__('leads.conflict.hidden_note'))
+        ->assertDontSee(__('leads.conflict.hidden_note_red'))
         ->assertDontSee($this->matter->code)
         ->assertDontSee('Ông Đối Thủ Cũ')
         // Bảng khớp (cột "Trùng theo", câu ranh giới) không được vẽ. Tên lĩnh vực thì có trong ô chọn "Lĩnh vực"
@@ -118,13 +119,50 @@ it('shows a sales person only the level of a red match, without the matter code 
     $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])
         ->assertOk()
         ->assertSee(__('intake.check.heading_red'))
-        ->assertSee(__('leads.conflict.hidden_note'))
+        // Vòng sửa 1 (F5): lời khuyên của Đỏ nói đúng ai xử lý — chỉ trưởng phòng/quản trị, không phải luật sư
+        // được chuyển lead (người đó cũng chỉ thấy mã hồ sơ và vai của khớp Đỏ); không dùng câu của Vàng.
+        ->assertSee(__('leads.conflict.hidden_note_red'))
+        ->assertDontSee(__('leads.conflict.hidden_note'))
         ->assertDontSee($this->matter->code)
         ->assertDontSee('Khách Hiện Hữu Thật')
         // Bảng khớp (cột "Trùng theo", câu ranh giới) không được vẽ. Tên lĩnh vực thì có trong ô chọn "Lĩnh vực"
         // của form — danh mục mọi nhân sự đọc được — nên không đo bằng chữ đó.
         ->assertDontSee(__('matters.conflict.column_tier'))
         ->assertDontSee(__('matters.conflict.boundary_note'));
+
+    // Trưởng phòng ghi đè: mức đã lưu vẫn là Đỏ (ghi đè không đổi kết quả, lần chạy gần nhất vẫn Đỏ) — câu
+    // vẫn là câu của Đỏ, không trở về câu "luật sư xem các khớp và quyết" của Vàng.
+    $this->actingAs(User::factory()->withRole(Role::Manager)->create(), 'web');
+    $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->callAction(TestAction::make('resolveRed')->schemaComponent('checkActions'), data: ['override_reason' => 'Đã gọi xác minh, không xung đột.'])
+        ->assertHasNoErrors();
+
+    expect($intake->fresh()->hasConflictOverride())->toBeTrue()
+        ->and($intake->fresh()->awaitsConflictResolution())->toBeFalse();
+
+    $this->actingAs($this->sales, 'web');
+    $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->assertSee(__('leads.conflict.hidden_note_red'))
+        ->assertDontSee(__('leads.conflict.hidden_note'));
+
+    // Đang chờ trưởng phòng mà lần chạy gần nhất KHÔNG ra Đỏ: lần gọi trước của cùng người gọi (Xanh) bị khoá
+    // khi lần gọi sau ra Đỏ — vẫn là câu của Đỏ.
+    $caller = ['contact_phone' => '0905666777', 'contact_name' => 'Người Gọi Hai Lần'];
+    $earlier = scbRecord($this->sales, ['name' => 'Ông Chồng Cũ', 'phone' => '0977000333'], $caller);
+    scbRecord($this->sales, ['name' => 'Bị Đơn Là Khách Lần Nữa', 'phone' => '0912000111'], $caller);
+
+    expect($earlier->fresh()->conflict_level)->toBe(ConflictLevel::Green)
+        ->and($earlier->fresh()->awaitsConflictResolution())->toBeTrue();
+
+    $this->livewire(EditIntakeRequest::class, ['record' => $earlier->getRouteKey()])
+        ->assertSee(__('leads.conflict.hidden_note_red'))
+        ->assertDontSee(__('leads.conflict.hidden_note'));
+
+    // Câu chữ: Đỏ chỉ trưởng phòng/quản trị xử lý; không câu nào còn nói các khớp "chỉ luật sư" xem được
+    // (trợ lý — có `matter.view` — cũng xem và xác nhận được khớp Vàng).
+    expect(__('leads.conflict.hidden_note_red'))->toContain('trưởng phòng/quản trị')
+        ->and(__('leads.conflict.hidden_note'))->not->toContain('chỉ luật sư')
+        ->and(__('leads.conflict.hidden_note_red'))->not->toContain('chỉ luật sư');
 });
 
 it('still lets a sales person confirm a green check that only lacks identifiers, where there is no office record to see', function () {

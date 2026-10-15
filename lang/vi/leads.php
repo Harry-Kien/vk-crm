@@ -61,8 +61,11 @@ return [
     ],
 
     'conflict' => [
-        'hidden_note' => 'Chi tiết các khớp (hồ sơ, lĩnh vực, tên bên trùng) chỉ luật sư xem được. Nếu mức là Vàng hoặc Đỏ: chưa nghe nội dung vụ việc — hãy "Chuyển cho luật sư" để luật sư xem và quyết.',
-        'gate_hint_acknowledgement' => 'Chỉ luật sư (người xem được các khớp) xác nhận được. Hãy "Chuyển cho luật sư".',
+        'hidden_note' => 'Chi tiết các khớp (hồ sơ, lĩnh vực, tên bên trùng) chỉ người làm việc trên vụ việc (luật sư, trợ lý…) xem được. Chưa nghe nội dung vụ việc — hãy "Chuyển cho luật sư" để luật sư xem các khớp và quyết.',
+        // Đỏ: luật sư được chuyển lead cũng chỉ thấy mã hồ sơ và vai của khớp Đỏ, và không xử lý được nó
+        // (`AcknowledgeIntakeConflict` từ chối Đỏ; chỉ `resolveConflict` — trưởng phòng/quản trị).
+        'hidden_note_red' => 'Mức Đỏ: chỉ trưởng phòng/quản trị xử lý được (từ chối, hoặc ghi đè kèm lý do) — luật sư cũng không. Không nghe nội dung vụ việc; hãy "Chuyển cho luật sư" và chọn trưởng phòng, hoặc báo trưởng phòng.',
+        'gate_hint_acknowledgement' => 'Chỉ người xem được các khớp (luật sư, trợ lý…) xác nhận được. Hãy "Chuyển cho luật sư".',
     ],
 
     'decision' => [
@@ -70,7 +73,7 @@ return [
     ],
 
     'errors' => [
-        'acknowledge_needs_lawyer' => 'Chỉ luật sư (người xem được các khớp) mới xác nhận đã xem các khớp. Hãy chuyển lead cho luật sư.',
+        'acknowledge_needs_lawyer' => 'Chỉ người xem được các khớp (luật sư, trợ lý…) mới xác nhận đã xem các khớp. Hãy chuyển lead cho luật sư.',
     ],
 
     'notifications' => [

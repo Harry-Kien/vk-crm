@@ -812,8 +812,10 @@ class EditIntakeRequest extends EditRecord
 
         return [
             'matchesHidden' => $hidden,
+            // Làn kd, vòng sửa 1 (F5): Đỏ (lần chạy gần nhất ra Đỏ, hay đang chờ trưởng phòng) có câu riêng — chỉ
+            // trưởng phòng/quản trị xử lý, luật sư được chuyển lead cũng không; Vàng thì luật sư xem và quyết.
             'hiddenNote' => $hidden && $table !== null && ($awaiting || $table['level'] !== ConflictLevel::Green->value)
-                ? __('leads.conflict.hidden_note')
+                ? __(($awaiting || $lastRunRed) ? 'leads.conflict.hidden_note_red' : 'leads.conflict.hidden_note')
                 : null,
             'checkedAt' => $intake->conflict_checked_at?->format('d/m/Y H:i'),
             'result' => $table === null ? null : [
