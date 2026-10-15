@@ -4,6 +4,7 @@ namespace App\Actions\Intake;
 
 use App\Actions\Intake\Concerns\HoldsConflictCheckLock;
 use App\Enums\IntakeStatus;
+use App\Models\IntakeFollowUp;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
 use App\Models\User;
@@ -41,6 +42,14 @@ use Illuminate\Validation\ValidationException;
  *     (`merge_target`, câu `intake_org.errors.merge_organization_differs`): giữ một trong hai là bỏ tổ
  *     chức kia khỏi kiểm tra, và hai tổ chức khác nhau thì không phải cùng một lần liên hệ. Cùng tổ chức
  *     mà gõ tên khác nhau → người dùng sửa tên ở một bản cho trùng rồi gộp lại.
+ *  4. **Phần chăm sóc lead** (làn kd; làn fi, A2 — trước đó gộp làm mất bàn giao và lịch hẹn). Các lần
+ *     chăm sóc (`intake_follow_ups`) của bản nguồn chuyển sang bản đích, giữ người ghi và thời điểm. Luật
+ *     sư tư vấn (`consulting_lawyer_id`, cùng `handed_to_lawyer_at`): bản đích chưa có thì nhận của bản
+ *     nguồn; cả hai có mà khác nhau thì giữ của bản đích, id luật sư của bản nguồn vào nhật ký gộp. Luật
+ *     sư của bản nguồn không còn nhận được lead ({@see HandIntakeToLawyer::canReceive()} — bản nguồn đã
+ *     đóng không chặn ai nghỉ việc hay đổi vai) thì không sang, id của họ vào nhật ký gộp. Hẹn
+ *     liên hệ lại (`next_follow_up_at`): hẹn SỚM NHẤT còn ở tương lai của hai bản; không bản nào có hẹn
+ *     tương lai thì bản đích giữ hẹn của nó.
  * Sau đó bản đích được KIỂM TRA LẠI ngay (`CheckIntakeConflict`, trong cùng khoá và transaction): danh
  * sách bên đối lập (và có thể tổ chức) của nó vừa đổi, và một bên mang sang có thể khớp một khách hiện
  * hữu (Đỏ thật).
@@ -74,7 +83,10 @@ use Illuminate\Validation\ValidationException;
  * khoá CẢ HAI dòng, theo thứ tự id tăng dần (hai lần gộp ngược chiều nhau không khoá chéo). Nhật ký:
  * `intake_merged` trên bản nguồn (mã bản đích, số bên đã chuyển) và `intake_merge_received` trên bản
  * đích (mã bản nguồn, số bên, và `organization_carried: true` CHỈ khi bản đích vừa nhận hay bổ sung tổ
- * chức từ bản nguồn) — không tên, không SĐT, không mã số thuế. Bản ghi tự động của model tắt cho hai lần lưu.
+ * chức từ bản nguồn; làn fi: `follow_ups_moved` khi có lần chăm sóc sang, `consulting_lawyer_carried: true`
+ * khi bản đích nhận luật sư tư vấn, `source_consulting_lawyer_id` khi hai luật sư khác nhau và bản đích giữ
+ * của nó, `next_follow_up_from_source: true` khi hẹn liên hệ lại lấy của bản nguồn) — không tên, không
+ * SĐT, không mã số thuế. Bản ghi tự động của model tắt cho hai lần lưu.
  *
  * **Gộp không phải một lần phản hồi** (R5, Task 5): `first_response_at` của cả hai bản không đổi. Bản
  * nguồn rời `new` mà không có mốc phản hồi; đồng hồ của người gọi chạy tiếp ở bản đích, tính từ
@@ -146,6 +158,8 @@ class MergeIntake
                 $lockedTarget->organization_id_number_hash = $organization['hash'];
             }
 
+            $leadCarried = $this->carryLeadCare($lockedSource, $lockedTarget);
+
             $lockedSource->fill(['status' => IntakeStatus::Merged, 'merged_into_id' => $lockedTarget->getKey()]);
             $lockedSource->blameOn($actor);
             $lockedSource->disableLogging()->save();
@@ -162,6 +176,7 @@ class MergeIntake
                 'merged_from' => $lockedSource->code,
                 'moved_parties' => $moved,
                 ...($organization !== null ? ['organization_carried' => true] : []),
+                ...$leadCarried,
             ], $actor);
 
             return $lockedTarget;
@@ -197,6 +212,59 @@ class MergeIntake
         return $target->organization_id_number_hash === null && $source->organization_id_number_hash !== null
             ? ['name' => $target->organization_name, 'hash' => $source->organization_id_number_hash]
             : null;
+    }
+
+    /**
+     * Phần chăm sóc lead (làn kd) của bản nguồn sang bản đích — làn fi, A2; luật ở docblock lớp, mục 4.
+     * Đổi `$target` trong bộ nhớ (nơi gọi lưu) và chuyển thẳng các dòng `intake_follow_ups` bằng một câu
+     * UPDATE (không qua model: `HasBlameable` sẽ ghi người gộp vào `updated_by`; người ghi và thời điểm
+     * của từng lần chăm sóc phải giữ nguyên). Trả các khoá nhật ký `intake_merge_received` mô tả những gì
+     * đã mang sang — chỉ số đếm, cờ và id, không nội dung.
+     *
+     * @return array<string, int|bool>
+     */
+    private function carryLeadCare(IntakeRequest $source, IntakeRequest $target): array
+    {
+        $carried = [];
+
+        $followUps = IntakeFollowUp::query()
+            ->where('intake_request_id', $source->getKey())
+            ->update(['intake_request_id' => $target->getKey()]);
+
+        if ($followUps > 0) {
+            $carried['follow_ups_moved'] = $followUps;
+        }
+
+        if ($source->consulting_lawyer_id !== null) {
+            // Vòng sửa 1 (I2): bản nguồn đã đóng (từ chối, khách không theo) không nằm trong `OpenLeads`,
+            // nên luật sư của nó có thể đã nghỉ hay đổi sang vai không nhận lead mà không bị chặn. Bản đích
+            // chỉ nhận người còn nhận được lead — không thì một lead đang mở kẹt ở người không chuyển đổi
+            // được, hay một nhân viên kinh doanh thấy lead của người khác qua vế "luật sư tư vấn".
+            $sourceLawyer = User::withTrashed()->find($source->consulting_lawyer_id);
+
+            if ($sourceLawyer === null || ! HandIntakeToLawyer::canReceive($sourceLawyer)) {
+                $carried['source_consulting_lawyer_id'] = $source->consulting_lawyer_id;
+            } elseif ($target->consulting_lawyer_id === null) {
+                $target->consulting_lawyer_id = $source->consulting_lawyer_id;
+                $target->handed_to_lawyer_at = $source->handed_to_lawyer_at;
+                $carried['consulting_lawyer_carried'] = true;
+            } elseif ($target->consulting_lawyer_id !== $source->consulting_lawyer_id) {
+                $carried['source_consulting_lawyer_id'] = $source->consulting_lawyer_id;
+            }
+        }
+
+        $now = now();
+        $sourceNext = $source->next_follow_up_at;
+        $targetNext = $target->next_follow_up_at;
+
+        // Hẹn của bản nguồn thắng khi nó còn ở tương lai VÀ bản đích không có hẹn tương lai nào sớm hơn.
+        if ($sourceNext !== null && $sourceNext->greaterThan($now)
+            && ($targetNext === null || $targetNext->lessThanOrEqualTo($now) || $sourceNext->lessThan($targetNext))) {
+            $target->next_follow_up_at = $sourceNext;
+            $carried['next_follow_up_from_source'] = true;
+        }
+
+        return $carried;
     }
 
     /** Chuyển các bên đối lập sang bản đích, bỏ những bên bản đích đã có y hệt. Trả số dòng đã chuyển. */

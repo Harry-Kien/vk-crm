@@ -2,6 +2,7 @@
 
 namespace App\Actions\Matter;
 
+use App\Actions\Concerns\ChecksAccountActive;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\User;
@@ -23,7 +24,8 @@ use Illuminate\Validation\ValidationException;
  * Đây là đường thẳng: đổi đúng một cột của dòng lưu trữ, có lý do và nhật ký.
  *
  * Luật:
- *  - Cổng `MatterPolicy::extendClientAccess` — luật sư phụ trách của chính vụ hoặc quản trị viên.
+ *  - Cổng `MatterPolicy::extendClientAccess` — luật sư phụ trách của chính vụ hoặc quản trị viên —, với
+ *    tài khoản còn hiệu lực ({@see ChecksAccountActive}, làn fi A3: như `RetractStageLog`, hỏi dưới khoá).
  *  - Vụ phải đang kết thúc, có dòng lưu trữ, chưa ghi quyết định tiêu huỷ.
  *  - Ngày mới là một ngày thật (`Y-m-d`), SAU hôm nay và SAU hạn hiện có (chỉ gia hạn, không rút
  *    ngắn — rút quyền khách đã có đường "Tắt công bố"), và không quá {@see self::MAX_DAYS} ngày kể từ
@@ -37,6 +39,8 @@ use Illuminate\Validation\ValidationException;
  */
 class ExtendClientAccess
 {
+    use ChecksAccountActive;
+
     /** Trần chủ động: gia hạn tối đa từng ấy ngày kể từ hôm nay mỗi lần. */
     public const MAX_DAYS = 365;
 
@@ -58,6 +62,10 @@ class ExtendClientAccess
                 ->whereKey($matter->getKey())
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            if (! $this->accountIsActive($actor)) {
+                throw new AuthorizationException;
+            }
 
             Gate::forUser($actor)->authorize('extendClientAccess', $locked);
 

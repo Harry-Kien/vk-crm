@@ -12,6 +12,7 @@ use App\Support\Billing\Money;
 use App\Support\MatterStaleness;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
@@ -161,8 +162,12 @@ class MattersTable
     /**
      * Làn fm A4 — "Khôi phục" một hồ sơ đã huỷ ({@see RestoreMatter}), lý do bắt buộc (`required()` ở
      * form là lớp tiện lợi; Action tự kiểm tra lại). Lời từ chối của Action (lý do toàn khoảng trắng,
-     * hồ sơ đã được người khác khôi phục) hiện thành thông báo đỏ và giữ hộp thoại mở; mất quyền giữa
-     * chừng thì câu chung `actions.unauthorized`.
+     * hồ sơ đã được người khác khôi phục, thiếu người phụ trách mới) hiện thành thông báo đỏ và giữ hộp
+     * thoại mở; mất quyền giữa chừng thì câu chung `actions.unauthorized`.
+     *
+     * Làn fi A3: khi người phụ trách hiện tại không còn xử lý được vụ ({@see RestoreMatter::leadCanStillHandle()}),
+     * hộp thoại hiện thêm ô bắt buộc "Người phụ trách mới" ({@see RestoreMatter::newLeadOptions()}); Action
+     * hỏi lại dưới khoá và chuyển vụ cho người đó trong cùng transaction.
      */
     public static function restoreAction(): Action
     {
@@ -180,16 +185,28 @@ class MattersTable
                     ->rows(3)
                     ->required()
                     ->maxLength(RestoreMatter::REASON_MAX),
+                Select::make('new_lead_id')
+                    ->label(__('lifecycle.restore.new_lead'))
+                    ->helperText(fn (Matter $record): string => __('lifecycle.restore.new_lead_help', [
+                        'name' => User::query()->withTrashed()->find($record->lead_lawyer_id)?->name ?? '—',
+                    ]))
+                    ->options(fn (Matter $record): array => RestoreMatter::newLeadOptions($record))
+                    ->searchable()
+                    ->native(false)
+                    ->visible(fn (Matter $record): bool => ! RestoreMatter::leadCanStillHandle($record))
+                    ->required(),
             ])
             ->action(function (Action $action, Matter $record, array $data): void {
                 $actor = Auth::user();
                 abort_unless($actor instanceof User, 403);
 
+                $newLead = filled($data['new_lead_id'] ?? null) ? User::query()->find($data['new_lead_id']) : null;
+
                 try {
-                    app(RestoreMatter::class)->handle($record, $actor, (string) ($data['reason'] ?? ''));
+                    app(RestoreMatter::class)->handle($record, $actor, (string) ($data['reason'] ?? ''), $newLead);
                 } catch (ValidationException $exception) {
                     Notification::make()
-                        ->title($exception->errors()['reason'][0] ?? __('actions.unauthorized'))
+                        ->title(collect($exception->errors())->flatten()->first() ?? __('actions.unauthorized'))
                         ->danger()
                         ->send();
                     $action->halt();

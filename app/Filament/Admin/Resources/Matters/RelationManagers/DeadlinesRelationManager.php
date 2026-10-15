@@ -225,8 +225,9 @@ class DeadlinesRelationManager extends RelationManager
             ->emptyStateHeading(__('deadlines.tab.empty_state'))
             // Làn fm A1: vụ đã kết thúc không còn được nhắc hạn, nên tab nói thẳng điều đó và ẩn
             // nút thêm/sửa (`AddMatterDeadline`/`UpdateDeadline` tự từ chối bằng
-            // `MatterClosedForDeadlines`). Các nút dọn việc — xong, mở lại, đổi người giữ, xoá —
-            // vẫn còn.
+            // `MatterClosedForDeadlines`). Làn fi (B4; vòng sửa 1, I5): nút "Mở lại" cũng ẩn —
+            // `SetDeadlineCompletion` từ chối bằng `MatterClosedForDeadlines::reopen()`, cùng luật. Các nút
+            // dọn việc — xong, đổi người giữ, xoá — vẫn còn.
             ->description(fn (): ?string => $this->getOwnerRecord()->isClosed()
                 ? __('lifecycle.deadlines.closed_notice')
                 : null)
@@ -694,7 +695,9 @@ class DeadlinesRelationManager extends RelationManager
             ->modalHeading(__('deadlines.tab.actions.reopen_heading'))
             ->modalDescription(__('deadlines.tab.actions.reopen_description'))
             ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
-            ->visible(fn (Deadline $record): bool => (bool) $record->is_completed)
+            ->visible(fn (Deadline $record): bool => (bool) $record->is_completed
+                // Làn fi (B4): vụ đã kết thúc không nhắc hạn — SetDeadlineCompletion từ chối mở lại.
+                && ! $this->getOwnerRecord()->isClosed())
             ->successNotificationTitle(__('deadlines.tab.actions.reopen_success'))
             ->action(function (Action $action, Deadline $record): void {
                 $reopened = null;

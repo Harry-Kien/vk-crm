@@ -9114,6 +9114,33 @@ nghỉ/đổi vai còn giữ lead đã được chuyển (`consulting_lawyer_id`
 bàn giao, lịch hẹn và các lần chăm sóc sang bản đích. Để sau (nhỏ): mở lại lead giữ hẹn cũ nên hiện quá hạn ngay; lần
 chăm sóc ghi lùi trước ngày nhận lead không bị chặn; vài câu chữ quyền.
 
+### Lỗi luồng nội bộ còn treo sau các đợt gộp (làn fi)
+
+Theo chỉ đạo chủ văn phòng 2026-10-15 ("luồng nội bộ là quan trọng nhất… ổn định nhất"). Gom các phát hiện minor
+"nên làm" của rà soát làn kd, fm, fa thuộc luồng nội bộ:
+- **A1 — người nghỉ/đổi vai còn giữ lead:** lead đang mở được chuyển tư vấn (`consulting_lawyer_id`) là việc dở của
+  `GuardsStaffOffboarding` (vô hiệu hoá, xoá, đổi vai); "Khoá truy cập ngay" đếm và nói rõ lead, chỉ đường chuyển.
+- **A2 — gộp hai lần tiếp nhận:** mang sang các lần chăm sóc, luật sư tư vấn (chỉ khi người đó còn nhận được lead) và
+  hẹn chăm sóc; nhật ký gộp ghi những gì đã mang. Mở lại lead bỏ luật sư tư vấn không còn nhận được.
+- **A3 — khôi phục vụ đã huỷ:** luật sư phụ trách cũ không còn xử lý được (đã sang Kinh doanh/Kế toán, tạm khoá, đã
+  xoá) thì hộp thoại "Khôi phục" đòi chọn người phụ trách mới; `RestoreMatter`/`ExtendClientAccess` đòi người bấm còn
+  hoạt động.
+- **A4 — gói bàn giao:** không công bố được tài liệu của gói khi gói đang sinh lại; `PublishDocument` đọc `matter_id`
+  trước transaction rồi khoá `matters` → `matter_archives` → `documents`, đối chiếu dưới khoá, đọc lại người công bố
+  (rà soát toàn làn bắt lỗi nghiêm trọng C1: lần đọc không khoá nằm trong transaction trên MariaDB REPEATABLE READ).
+- **B:** mở lại lead xoá hẹn đã qua; lần chăm sóc không ghi trước ngày nhận lead; mở lại về "Đỏ chờ" gửi
+  `IntakeRedPending`; mốc hạn trên vụ đã kết thúc không "Mở lại" được (một luật, `MatterClosedForDeadlines::reopen()`);
+  thẻ nháp AI không hiện ô dự kiến trên vụ đã kết thúc. SPEC đính chính §4.19, §5, §6.5, §6.8, §6.11; QUY-TRINH dòng
+  "Khoá truy cập ngay".
+
+Một task; rà soát task đạt; rà soát toàn làn: 1 nghiêm trọng + 5 quan trọng → vòng sửa 1 → rà soát lại: hết.
+**Gộp vào main (2026-10-15):** main không đổi từ gốc làn (`ace21553`) nên cây gộp TRÙNG cây làn `855a78a4` đã chạy
+cả bộ `--processes=2`: **9470 passed, 40 skipped, 0 failed**; MariaDB 176 passed trên các tệp đã chạm; pint PASS.
+Làn cũng sửa `PushInstallGuideTest` đỏ sẵn trên `ace21553` (CAI-DAT thêm hai đoạn nâng cấp mà test chưa biết). Để
+sau (nhỏ, đưa vào đợt kiểm tra luồng nội bộ): mốc hạn/yêu cầu của người KHÁC đã nghỉ trong lúc vụ bị huỷ vẫn ở người
+đó sau khi khôi phục; gộp từ bản "Đỏ chờ" không gửi `IntakeRedPending` cho bản đích; danh sách tiếp nhận chưa có bộ
+lọc "Luật sư tư vấn"; gộp mang sang lần chăm sóc trước ngày nhận của bản đích.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9551,7 +9578,7 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
   tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
-- Giao – nhận – xử lý hồ sơ NỘI BỘ (làn feat-tk, đang làm). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
+- Giao – nhận – xử lý hồ sơ NỘI BỘ (làn feat-tk, đang làm). Lỗi luồng nội bộ còn treo: **ĐÃ GỘP** (làn fi). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
   (mục "Vai trò nhân viên kinh doanh (làn kd)" phía trên). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch
   thanh toán cho khách (làn nt)" phía trên).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn

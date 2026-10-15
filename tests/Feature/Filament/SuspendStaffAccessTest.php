@@ -126,6 +126,8 @@ it('names the open work that stays behind in the confirmation', function () {
             'matters' => 1,
             'deadlines' => 1,
             'requests' => 0,
+            'consulting_leads' => 0,
+            'assigned_leads' => 0,
         ]));
 });
 

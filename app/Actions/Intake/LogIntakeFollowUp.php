@@ -25,7 +25,8 @@ use Illuminate\Validation\ValidationException;
  *
  * **Kiểm tra đầu vào:** nội dung bắt buộc sau khi bỏ khoảng trắng hai đầu, tối đa
  * {@see IntakeFollowUp::NOTE_MAX_LENGTH} ký tự (độ dài cột — MariaDB strict); thời gian liên hệ không ở
- * tương lai; hẹn liên hệ lại (nếu có) phải ở sau lúc này.
+ * tương lai và (làn fi, B2) không trước lúc văn phòng nhận lead (`received_at`, đọc dưới khoá, so theo
+ * phút); hẹn liên hệ lại (nếu có) phải ở sau lúc này.
  *
  * **Hẹn liên hệ lại:** mỗi lần ghi đặt `intake_requests.next_follow_up_at` bằng đúng hẹn của lần này —
  * để trống là XOÁ hẹn cũ (vừa liên hệ xong thì hẹn cũ đã xong việc). Widget "Lead đến hẹn liên hệ lại"
@@ -81,6 +82,14 @@ class LogIntakeFollowUp
 
             if (HandIntakeToLawyer::isClosed($locked)) {
                 throw ValidationException::withMessages(['note' => [__('leads.follow_ups.errors.closed')]]);
+            }
+
+            // Làn fi (B2): không liên hệ lại khách trước lúc văn phòng nhận lead. Đọc trên dòng đã khoá; so theo
+            // phút (ô thời gian trên form không có giây), nên cùng phút nhận lead thì nhận.
+            if ($occurred->lessThan($locked->received_at->copy()->startOfMinute())) {
+                throw ValidationException::withMessages(['occurred_at' => [__('leads.follow_ups.errors.occurred_before_received', [
+                    'at' => $locked->received_at->format('d/m/Y H:i'),
+                ])]]);
             }
 
             $followUp = (new IntakeFollowUp([

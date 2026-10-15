@@ -827,6 +827,16 @@ Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu c
   đã kết thúc, chưa tiêu huỷ, tới một ngày sau hôm nay và sau hạn hiện có, tối đa 365 ngày kể từ hôm
   nay, lý do bắt buộc, ghi `client_access_extended`. Lần đồng bộ lại khi vụ vẫn đóng giữ ngày muộn
   hơn giữa ngày tính lại và ngày đã gia hạn; mở lại vụ vẫn đưa cột về NULL.
+- *Đính chính 2026-10-15 (làn fi A3).* "Khôi phục: lý do bắt buộc" ở trên chưa đủ. Trong lúc hồ sơ nằm
+  ở "đã huỷ", luật sư phụ trách có thể đã nghỉ việc, bị khoá truy cập hay đổi sang chức danh không phụ
+  trách vụ được (luật chặn nghỉ việc không thấy hồ sơ đã huỷ). Khi người phụ trách không còn xử lý được
+  vụ (`RestoreMatter::leadCanStillHandle()`: còn tài khoản, đang hoạt động, chưa xoá, có
+  `matter.transitionStage`), hộp thoại "Khôi phục" đòi chọn **người phụ trách mới** (luật sư/trưởng
+  phòng đang làm việc); thiếu thì từ chối trên ô `new_lead_id`, không gì đổi. Có người mới thì cùng
+  transaction khôi phục rồi bàn giao qua `ReassignMatter` (mốc hạn, yêu cầu khách của người cũ đi theo;
+  người cũ không ở lại đội ngũ); `matter_restored` mang thêm `new_lead_id` và `previous_lead_id`.
+  `RestoreMatter` và `ExtendClientAccess` hỏi tài khoản người thực hiện còn hoạt động (đọc lại dưới
+  khoá, như `RetractStageLog`): tài khoản bị vô hiệu hoá = không có quyền.
 - *`client_access_until`* là ngày CUỐI khách còn tra cứu được (hết ngày đó, theo giờ ứng dụng);
   xem đính chính M7 Task 5 ở §6.12.
 - *Bốn cột tiêu huỷ* (`destroyed_at`, `destroyed_by`, `destruction_reason`,
@@ -975,6 +985,8 @@ quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồ
 > **Ghi chú chăm sóc** (`LogIntakeFollowUp`, bảng `intake_follow_ups`: kênh gọi/Zalo/email/gặp, thời gian, nội dung ≤ 1.000 ký tự, người ghi) và **hẹn liên hệ lại** (`intake_requests.next_follow_up_at`). `communication_logs` (§4.17) bắt buộc có vụ việc nên không dùng lại được. Nội dung không vào nhật ký hệ thống, không ra MCP, và ẩn danh (R7) xoá nó.
 >
 > **Trang chủ của nhân viên kinh doanh** chỉ có widget lead (ngoài dải "Tình trạng hệ thống" mọi nhân sự đều có, đứng trên cùng, và ô tài khoản): "Lead của tôi" (số lead theo trạng thái), "Lead đến hẹn liên hệ lại", "Liên hệ chưa ai gọi lại" (§7.1). **Báo cáo theo người**: trang "Bức tranh đầu vào" thêm widget "Lead theo người phụ trách" (người được giao, chưa giao thì người ghi: số lead và tỉ lệ thành vụ việc), chỉ `intake.viewAny`. Máy chủ đã có dữ liệu nhận vai mới qua `php artisan migrate --force` rồi `php artisan db:seed --force`.
+>
+> **Đính chính 2026-10-15 (làn fi A1, A2, B1–B3; vòng sửa 1, I2, I4).** (1) "Đổi chức danh … sang `sales` bị chặn như sang kế toán" ở trên đọc là: bị chặn bởi mọi việc dở **trừ lead người đó phụ trách** (`assigned_to`) — nhân viên kinh doanh vẫn là người phụ trách lead được; sang kế toán thì cả lead phụ trách cũng chặn (§6.11, đính chính cùng ngày). (2) **Gộp** (`MergeIntake`) mang sang bản đích các lần chăm sóc (giữ người ghi, thời điểm), luật sư tư vấn khi bản đích chưa có (cả hai có mà khác nhau: giữ của bản đích, id kia vào nhật ký gộp) và hẹn liên hệ lại sớm nhất còn ở tương lai của hai bản. Luật sư tư vấn của bản nguồn chỉ sang khi người đó còn nhận được lead (`HandIntakeToLawyer::canReceive()`); bản nguồn đã đóng không chặn ai nghỉ việc hay đổi vai, nên người đó có thể đã nghỉ hay sang vai kinh doanh — khi đó id vào nhật ký gộp, bản đích không có luật sư tư vấn. (3) **Mở lại** (`ReopenIntake`) xoá hẹn liên hệ lại đã qua, bỏ luật sư tư vấn không còn nhận được lead (dòng `intake_reopened` mang `consulting_lawyer_dropped`; lead về tay người phụ trách), và khi đưa một lần từ chối vì xung đột về "Đỏ chờ" LẦN ĐẦU thì báo trưởng phòng/quản trị như đường thường (`IntakeRedPending`, sau commit). (4) **Ghi lần chăm sóc** từ chối thời gian liên hệ trước lúc văn phòng nhận lead (và ở tương lai), lỗi trên đúng ô.
 
 **Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
 **chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
@@ -1104,6 +1116,15 @@ Job `CheckStaleMatters` chạy hằng ngày 07:30:
 5. Ghi activity log. Dispatch thông báo cho khách nếu là tài liệu quan trọng
    (nhóm C hoặc B).
 
+**Đính chính 2026-10-15 (làn fi A4; vòng sửa 1, C1).** Thêm một cổng trạng thái: rút một dòng tiến độ xếp
+sinh lại gói bàn giao chưa công bố (`matter_archives.handover_status = generating`); trong lúc đó mọi version
+của gói (`handover_document_id` và chuỗi `parent_document_id` của nó) bị từ chối với câu "gói đang được sinh
+lại" — mục lục của chúng có thể còn dòng đã rút (kể cả khi lần sinh kẹt ở `generating`: người dùng sinh lại).
+Tài liệu khác của vụ vẫn công bố được. Thứ tự khoá `matters` → `matter_archives` → `documents`; `matter_id` của
+tài liệu đọc bằng một câu riêng TRƯỚC transaction (luật rà soát cuối M7, I1) và đối chiếu lại dưới khoá; "hồ sơ
+đã tiêu huỷ" đọc trên dòng lưu trữ đã khoá; người công bố được đọc lại từ CSDL ngay trước kiểm tra quyền (tài
+khoản vừa bị vô hiệu hoá không công bố được).
+
 ### 6.6 Khách nộp tài liệu
 
 Luồng ở `app/Actions/Document/SubmitClientDocument`:
@@ -1179,6 +1200,13 @@ nhắc của một vụ `restricted` đi tới manager và trợ lý không đư
   sư phụ trách → một manager xem được vụ → một admin xem được vụ.
 - Job gửi thư suy lại người nhận lúc thật sự gửi, và không gửi lại cho người đã nhận thư của đúng
   mốc và bậc đó khi hàng đợi thử lại.
+
+**Đính chính 2026-10-15 (làn fm A1, làn fi B4; vòng sửa 1, I5).** Nhắc hạn chỉ đọc vụ đang mở, nên một mốc
+mở trên vụ đã kết thúc không bao giờ được nhắc. Một luật (`MatterClosedForDeadlines`): trên vụ đã kết thúc
+không thêm mốc (`AddMatterDeadline`), không sửa tên/ngày/mức độ (`UpdateDeadline`) và không **mở lại** một mốc
+đã xong (`SetDeadlineCompletion`; nút "Mở lại" ẩn). Đánh dấu xong, đổi người giữ, công bố và xoá mốc vẫn được.
+Lối ra duy nhất: nhờ quản trị viên mở lại vụ qua "Chuyển giai đoạn" (chỉ quản trị viên mở lại được vụ đã kết
+thúc), rồi đặt hay mở lại mốc.
 
 **Đính chính 2026-09-24 (M9).** Thư nội bộ về **tiền** (`staff.instalment_overdue`,
 §9 — nhắc đợt thanh toán quá hạn) đi tới người **được xem tiền của vụ** (có
@@ -1384,6 +1412,17 @@ việc (màn hình hàng loạt bên dưới).
 Màn hình hàng loạt: chọn nhiều vụ việc của một luật sư và bàn giao cùng lúc.
 Khi vô hiệu hoá một tài khoản `users` mà người đó còn là lead lawyer của vụ việc
 đang mở, hệ thống **chặn** và yêu cầu bàn giao trước.
+
+**Đính chính 2026-10-15 (làn fi A1; vòng sửa 1, I3, I4).** Lead tiếp nhận đang mở (`App\Support\OpenLeads`:
+ở một bước còn làm việc, chưa thành vụ, chưa ẩn danh) là việc dở như vụ dẫn, mốc hạn và yêu cầu khách — hai
+loại: lead được "Chuyển cho luật sư" tới người đó (`consulting_lawyer_id`) và lead người đó là "Người phụ
+trách" (`assigned_to`). Vô hiệu hoá và xoá bị chặn bởi cả hai. Đổi chức danh: sang **Kế toán** bị chặn bởi mọi
+việc dở; sang **Nhân viên kinh doanh** bị chặn bởi mọi việc dở **trừ lead người đó phụ trách** (nhân viên kinh
+doanh vẫn là người phụ trách lead được — câu "bị chặn như sang kế toán" ở §5 đọc theo đính chính này); sang
+**Trợ lý** bị chặn bởi vụ đang dẫn và lead được chuyển tư vấn. Màn hình hàng loạt không chuyển lead: câu chặn
+chỉ đường "Chuyển cho luật sư" / ô "Người phụ trách" trên từng lead. "Khoá truy cập ngay" (không chặn ai) nêu và
+ghi nhật ký cả số lead đang mở lúc khoá, cùng đường chuyển chúng — sau khi khoá, công tắc "Đang hoạt động"
+không còn gì để chặn.
 
 ### 6.12 Kết thúc và bàn giao hồ sơ cho khách — `GenerateHandoverPackage`
 

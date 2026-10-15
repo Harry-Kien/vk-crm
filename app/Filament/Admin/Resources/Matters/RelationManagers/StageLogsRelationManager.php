@@ -109,6 +109,9 @@ class StageLogsRelationManager extends RelationManager
     /**
      * Thẻ của các nháp ĐANG CHỜ của vụ, cũ nhất trước (thứ tự AI soạn).
      *
+     * Làn fi (B5): vụ đứng ở giai đoạn kết thúc thì thẻ bỏ dòng "Dự kiến có tin tiếp theo" — form "Thêm
+     * cập nhật" mở từ nháp ẩn ô đó và không gửi nó (cùng điều kiện `AddUpdateAction::buildSchema()`).
+     *
      * @return list<array{id: int, title: ?string, meta: string, fields: list<array{label: string, value: string, internal: bool}>, note: ?string}>
      */
     private function stageLogDraftCards(): array
@@ -118,6 +121,8 @@ class StageLogsRelationManager extends RelationManager
         if (! Gate::allows('view', $matter)) {
             return [];
         }
+
+        $terminal = (bool) $matter->currentStage()?->is_terminal;
 
         return StageLogDraft::query()
             ->where('matter_id', $matter->getKey())
@@ -132,7 +137,9 @@ class StageLogsRelationManager extends RelationManager
                     static::draftField('ai_drafts.fields.public_content', $draft->public_content),
                     static::draftField('ai_drafts.fields.next_step', $draft->next_step),
                     static::draftField('ai_drafts.fields.client_action', $draft->client_action),
-                    static::draftField('ai_drafts.fields.expected_next_update_at', $draft->expected_next_update_at?->format('d/m/Y')),
+                    ...($terminal ? [] : [
+                        static::draftField('ai_drafts.fields.expected_next_update_at', $draft->expected_next_update_at?->format('d/m/Y')),
+                    ]),
                     static::draftField('ai_drafts.fields.internal_note', $draft->internal_note, internal: true),
                 ],
                 'note' => null,

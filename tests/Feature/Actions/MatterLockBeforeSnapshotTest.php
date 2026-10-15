@@ -1,26 +1,34 @@
 <?php
 
 use App\Actions\Document\MarkChecklistItemNotApplicable;
+use App\Actions\Document\PublishDocument;
 use App\Actions\Document\RetractDocument;
 use App\Actions\Document\ReviewChecklistItem;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\HandoverPackageStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Exceptions\ChecklistItemNotReviewable;
+use App\Exceptions\DocumentNotPublishable;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\Support\MatterLockRace;
 
 /**
@@ -91,6 +99,29 @@ function mlbsPublishedDocument(Matter $matter): Document
 
 const MLBS_REASON = 'Văn bản này công bố nhầm, văn phòng sẽ gửi bản đúng sau.';
 
+/** Làn fi, vòng sửa 1 (C1): một văn bản nhóm B đã ký và nộp, có tệp — `PublishDocument` công bố được. */
+function mlbsPublishableDocument(Matter $matter): Document
+{
+    Storage::fake('private');
+    config(['media-library.prefix' => 'test-'.Str::random(16)]);
+
+    $document = Document::factory()->for($matter)->group(DocumentGroup::Issued)->create([
+        'status' => DocumentStatus::SignedFiled,
+        'client_can_view' => false,
+        'client_can_download' => false,
+    ]);
+    $document->addMedia(UploadedFile::fake()->createWithContent('ban-an.pdf', '%PDF-1.4 ban an'))
+        ->usingFileName(Str::lower((string) Str::ulid()).'.pdf')
+        ->toMediaCollection('file');
+
+    return $document->refresh();
+}
+
+function mlbsReleased(Document $document): bool
+{
+    return Document::query()->withoutGlobalScope(ClientPortalScope::class)->find($document->id)->isReleasedToPortal();
+}
+
 // ---------------------------------------------------------------------------------------------
 // Thứ tự câu lệnh — mọi driver.
 // ---------------------------------------------------------------------------------------------
@@ -127,6 +158,54 @@ it('RetractDocument: câu đầu tiên trong transaction khoá matters theo id, 
     expect($first)->toStartWith(mlbsMatterLockPrefix())
         ->and($first)->not->toContain(DB::connection()->getQueryGrammar()->wrapTable('documents'))
         ->and($document->fresh()->status)->toBe(DocumentStatus::Retracted);
+});
+
+/*
+ * Làn fi, vòng sửa 1 (C1): `PublishDocument` khoá `matters` → `matter_archives` → `documents` (A4). Lần đọc
+ * `documents.matter_id` không khoá để biết khoá dòng nào chạy TRƯỚC transaction, như `RetractDocument`.
+ */
+it('PublishDocument: câu đầu tiên trong transaction khoá matters theo id, không đọc documents trước', function () {
+    $document = mlbsPublishableDocument($this->matter);
+
+    $first = mlbsFirstStatementInsideTransaction(
+        fn () => app(PublishDocument::class)->handle($document, $this->lead, true, true, false, false, false),
+    );
+
+    expect($first)->toStartWith(mlbsMatterLockPrefix())
+        ->and($first)->not->toContain(DB::connection()->getQueryGrammar()->wrapTable('documents'))
+        ->and(mlbsReleased($document))->toBeTrue();
+});
+
+it('PublishDocument: matter_id dưới khoá khác lần đọc trước transaction thì từ chối như không có bản ghi', function () {
+    $document = mlbsPublishableDocument($this->matter);
+    $other = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
+    $moved = false;
+
+    // Ngay sau lần đọc `matter_id` đầu tiên, dòng tài liệu bị chuyển sang vụ khác (ngoài mọi Action).
+    DB::listen(function (QueryExecuted $query) use ($document, $other, &$moved): void {
+        if (! $moved && str_starts_with($query->sql, 'select') && str_contains($query->sql, 'matter_id')
+            && str_contains($query->sql, 'documents')) {
+            $moved = true;
+            DB::table('documents')->where('id', $document->id)->update(['matter_id' => $other->id]);
+        }
+    });
+
+    expect(fn () => app(PublishDocument::class)->handle($document, $this->lead, true, true, false, false, false))
+        ->toThrow(DocumentNotPublishable::class, __('documents.publish.missing'));
+
+    expect($moved)->toBeTrue()
+        ->and(mlbsReleased($document))->toBeFalse();
+});
+
+it('PublishDocument đọc lại người thực hiện: tài khoản vừa bị vô hiệu hoá không công bố được bằng đối tượng cũ', function () {
+    $document = mlbsPublishableDocument($this->matter);
+    $staleActor = $this->lead->fresh();
+    User::query()->whereKey($this->lead->id)->update(['is_active' => false]);
+
+    expect(fn () => app(PublishDocument::class)->handle($document, $staleActor, true, true, false, false, false))
+        ->toThrow(AuthorizationException::class);
+
+    expect(mlbsReleased($document))->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -203,3 +282,85 @@ it('RetractDocument từ chối người vừa mất quyền trong lúc nó đ�
     expect($outcome)->toBe('refused')
         ->and(Document::query()->find($document->id)->status)->toBe(DocumentStatus::Published);
 })->with(['removed_from_team', 'deactivated'])->group('mariadb-locking');
+
+/**
+ * Làn fi, vòng sửa 1 (C1). Trước bản sửa, `PublishDocument` đọc `documents.matter_id` không khoá BÊN TRONG
+ * transaction, trước khoá `matters`: READ VIEW cố định trước lúc đợi, nên Gate `publish` (đội ngũ) đọc dữ
+ * liệu cũ, và người vừa bị vô hiệu hoá không bị đọc lại.
+ */
+it('PublishDocument từ chối người vừa mất quyền trong lúc nó đợi khoá matters (MariaDB, hai phiên)', function (string $write) {
+    MatterLockRace::requireMariadb();
+
+    $associate = User::factory()->withRole(Role::Lawyer)->create();
+    $this->matter->addTeamMember($associate, MatterRole::Associate);
+    $document = mlbsPublishableDocument($this->matter);
+
+    $matterId = $this->matter->id;
+    $associateId = $associate->id;
+
+    $outcome = MatterLockRace::run(
+        $matterId,
+        fn (Connection $child) => $write === 'removed_from_team'
+            ? $child->table('matter_user')->where('matter_id', $matterId)->where('user_id', $associateId)->delete()
+            : $child->table('users')->where('id', $associateId)->update(['is_active' => false]),
+        function () use ($document, $associate): string {
+            try {
+                app(PublishDocument::class)->handle($document, $associate, true, true, false, false, false);
+
+                return 'published';
+            } catch (AuthorizationException) {
+                return 'refused';
+            } catch (QueryException $exception) {
+                return 'database error: '.$exception->errorInfo[1];
+            }
+        },
+    );
+
+    expect($outcome)->toBe('refused')
+        ->and(mlbsReleased($document))->toBeFalse();
+})->with(['removed_from_team', 'deactivated'])->group('mariadb-locking');
+
+/**
+ * Làn fi, vòng sửa 1 (C1) — đúng cuộc đua của A4: rút một dòng tiến độ commit `handover_status = generating`
+ * (`RequestHandoverPackage::refreshAfterRetraction`) trong lúc lần công bố gói cũ đợi khoá `matters`. Trước
+ * bản sửa, câu đọc có khoá `matter_archives` sau lúc đợi gặp lỗi 1020 (`innodb_snapshot_isolation`): người
+ * dùng thấy lỗi 500 thay cho câu "gói đang được sinh lại".
+ */
+it('PublishDocument từ chối gói bàn giao vừa chuyển sang đang sinh lại trong lúc nó đợi khoá matters (MariaDB, hai phiên)', function () {
+    MatterLockRace::requireMariadb();
+
+    $package = mlbsPublishableDocument($this->matter);
+    MatterArchive::factory()->create([
+        'matter_id' => $this->matter->id,
+        'archived_by' => $this->lead->id,
+        'handover_status' => HandoverPackageStatus::Ready,
+        'handover_document_id' => $package->id,
+        'handover_requested_at' => now()->subDay()->startOfSecond(),
+        'handover_generated_at' => now()->subDay(),
+    ]);
+
+    $matterId = $this->matter->id;
+    $lead = $this->lead;
+
+    $outcome = MatterLockRace::run(
+        $matterId,
+        fn (Connection $child) => $child->table('matter_archives')->where('matter_id', $matterId)
+            ->update(['handover_status' => HandoverPackageStatus::Generating->value]),
+        function () use ($package, $lead): string {
+            try {
+                app(PublishDocument::class)->handle($package, $lead, true, true, false, false, false);
+
+                return 'published';
+            } catch (DocumentNotPublishable $exception) {
+                return $exception->getMessage() === __('documents.publish.handover_regenerating')
+                    ? 'regenerating'
+                    : 'other refusal: '.$exception->getMessage();
+            } catch (QueryException $exception) {
+                return 'database error: '.$exception->errorInfo[1];
+            }
+        },
+    );
+
+    expect($outcome)->toBe('regenerating')
+        ->and(mlbsReleased($package))->toBeFalse();
+})->group('mariadb-locking');

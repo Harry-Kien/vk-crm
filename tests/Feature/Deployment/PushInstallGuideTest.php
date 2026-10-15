@@ -291,7 +291,8 @@ it('CAI-DAT Bước 5 có đoạn M12 "làm gì trên máy chủ đã có dữ l
 
     $upgrade = pushGuideFlat(pushGuideSection($guide, '## Nâng cấp lên bản mới', '### Bản cập nhật M12'));
     expect($upgrade)
-        ->toContain('"Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13)')
+        // Làn fi, vòng sửa 1: CAI-DAT trên main (ace21553, gộp làn kd + nt) đã thêm hai đoạn mới vào danh sách.
+        ->toContain('"Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13, "Nhân viên kinh doanh", "Nhắc lịch thanh toán cho khách")')
         ->toContain('hôm nay là M11')
         ->toContain('và M12 ("Bản cập nhật M12", có một bước TRƯỚC `git pull`)')
         ->not->toContain('chỉ M12')
