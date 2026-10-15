@@ -55,8 +55,10 @@ class ResolveClientRecipients
      * `NotifyClientOfStageUpdate`, `NotifyClientOfDocumentPublished`,
      * `NotifyClientOfChecklistItemRejected`, `NotifyClientOfRequestAnswered` và (việc sau gộp M7,
      * làn fu2) `App\Jobs\SendMissingDocumentsMail` cùng Action xếp nó,
-     * `App\Actions\Schedule\RemindMissingDocuments` — đủ năm thư khách về một vụ — nên lời gửi thật,
-     * nút "Gửi lại" của nhật ký thư và câu trên màn hình hỏi cùng một câu.
+     * `App\Actions\Schedule\RemindMissingDocuments`, (làn nt) `App\Jobs\SendPaymentReceivedMail`, và
+     * (làn nt Task 2) hai thư nhắc tiền qua `App\Support\Billing\ClientPaymentReminders::recipients()`
+     * (lịch báo trước hạn, nút "Gửi thư nhắc" cùng hộp thoại xem trước của nó, và hai job gửi) — nên lời
+     * gửi thật, nút "Gửi lại" của nhật ký thư (ở các mẫu có nút đó) và câu trên màn hình hỏi cùng một câu.
      *
      * @param  Collection<int, ClientUser>  $accounts
      * @return Collection<int, ClientUser>

@@ -217,6 +217,15 @@ return [
         // M7 Task 10: app/Actions/Settings/UpdateOfficeProfile.php — `changed_fields` nêu TÊN các
         // trường đã đổi trên trang "Thông tin văn phòng", không nêu giá trị.
         'office_profile_updated' => 'Sửa thông tin văn phòng',
+        // Làn nt (nhắc lịch thanh toán cho khách): App\Actions\Settings\UpdateClientPaymentSettings —
+        // `changed_fields` nêu TÊN trường, `enabled` là giá trị mới của công tắc khi nó đổi; và
+        // App\Jobs\SendPaymentReceivedMail::failed() khi thư xác nhận đã nhận tiền hỏng hẳn.
+        'client_payment_settings_updated' => 'Đổi cấu hình nhắc thanh toán cho khách',
+        'payment_received_mail_failed' => 'Gửi thư xác nhận đã nhận tiền cho khách thất bại hẳn',
+        // Làn nt Task 2: App\Actions\Billing\RemindClientOfOverdueInstalment (nút "Gửi thư nhắc" — `recipients` là
+        // địa chỉ thư của tài khoản cổng nhận) và App\Jobs\SendPaymentOverdueReminderMail::failed().
+        'client_payment_reminder_sent' => 'Gửi thư nhắc khách đợt thanh toán quá hạn',
+        'client_payment_reminder_failed' => 'Gửi thư nhắc khách đợt thanh toán quá hạn thất bại hẳn',
         // M7 Task 8: app/Actions/Communication/{LogCommunication,DeleteCommunicationLog}.php —
         // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
         'communication_logged' => 'Ghi nhật ký liên lạc',

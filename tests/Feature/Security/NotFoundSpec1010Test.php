@@ -132,6 +132,8 @@ function spec1010GatedPages(): array
         'filament.admin.pages.ket-noi-ai-cua-toi' => Role::Accountant,
         // M14 — "Kho tài liệu" (con số của kho, hồ sơ chuyển dữ liệu ra nước ngoài): chỉ `settings.manage`.
         'filament.admin.pages.document-store' => Role::Lawyer,
+        // Làn nt Task 1 — "Nhắc thanh toán cho khách" (công tắc, thông tin chuyển khoản): chỉ `settings.manage`.
+        'filament.admin.pages.client-payment-reminders' => Role::Lawyer,
     ];
 }
 

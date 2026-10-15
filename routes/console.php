@@ -556,3 +556,22 @@ Schedule::call(new CapturePerformanceSnapshots)
     ->dailyAt('23:50')
     ->name('performance.snapshot')
     ->withoutOverlapping(30);
+
+/**
+ * Làn nt Task 2 — thư báo trước hạn cho KHÁCH (sau công tắc "Nhắc lịch thanh toán cho khách", mặc định
+ * TẮT): 08:15 hằng ngày giờ Việt Nam. Đợt còn phải trả có ngày hạn từ hôm nay tới hôm nay + N ngày (N cấu
+ * hình, mặc định 3) → mỗi tài khoản cổng đang hoạt động, đã kích hoạt của khách nhận MỘT thư cho đợt đó
+ * (`App\Actions\Schedule\RemindClientsOfUpcomingInstalments`). Công tắc tắt thì lượt chạy chỉ đọc một dòng
+ * cấu hình.
+ *
+ * 08:15: sau `instalments.reconcile-stage` (07:00) để đợt theo giai đoạn vừa có ngày hạn được báo ngay sáng
+ * đó, lệch khỏi phút 08:00 (`instalments.remind`, `backup.monitor`, `missing-documents.remind`) và 08:30
+ * (`unseen-updates.remind`) để log lịch đọc được. Chạy lại là vô hại: sổ thư chặn thư thứ hai cho cùng
+ * đợt, cùng ngày hạn, cùng người. `withoutOverlapping(60)` vì nó xếp thư — hai lượt chồng nhau cùng đọc sổ
+ * thư trước khi bên nào ghi `sent` — và 60 phút, không 1440 mặc định (`BackupScheduleTest`). Gọi bằng chuỗi
+ * `Lớp@handle`, không `use`: luật làn song song cho tệp này là chỉ nối thêm ở cuối. CHỈ `->name()`.
+ */
+Schedule::call('App\Actions\Schedule\RemindClientsOfUpcomingInstalments@handle')
+    ->dailyAt('08:15')
+    ->name('client-payments.due-soon')
+    ->withoutOverlapping(60);

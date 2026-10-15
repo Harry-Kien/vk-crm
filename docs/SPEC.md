@@ -1996,6 +1996,12 @@ nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (�
 hồ sơ, loại vụ việc, tên khách, tên đợt, các con số và ngày — không tiêu đề vụ
 việc. M9 **không** gửi thư nhắc nợ nào cho khách.
 
+**Đính chính 2026-10-15 (chủ văn phòng đảo quyết định 2026-10-04):** thư về tiền gửi khách chỉ có sau MỘT
+công tắc "Nhắc lịch thanh toán cho khách" trong Cấu hình, **mặc định tắt**. Khi bật: lộ trình thanh toán trên cổng
+khách, thư xác nhận đã nhận tiền, thư báo trước hạn (theo lịch), và với đợt quá hạn chỉ thư do người bấm "Gửi thư
+nhắc" sau khi xem trước — không bao giờ tự gửi thư đòi nợ. Khi tắt, đúng như câu trên. Xem `docs/QUY-TRINH.md`, mục
+"Nhắc lịch thanh toán cho khách".
+
 **Đính chính 2026-09-30 (M9 Task 11).** Nội dung thật của mẫu: tiêu đề "Đợt thanh toán
 quá hạn N ngày: <tên đợt> (<mã hồ sơ>)"; thân thư gồm mã hồ sơ kèm loại vụ việc, tên khách
 hàng, tên đợt, số tiền **còn phải thu** (không phải giá trị mặt của đợt), ngày đến hạn, số

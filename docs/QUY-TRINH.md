@@ -137,7 +137,7 @@ một khách hàng khác.
 | Hỏi lại văn phòng và nhận trả lời | Yêu cầu từ khách, trả lời theo luồng; hộp thư văn phòng sắp theo hoạt động gần nhất | **[Xong]** phần hỏi và trả lời trên màn hình. **Còn thiếu:** văn phòng **không được báo** khi khách gửi yêu cầu mới hay hỏi tiếp, nhân sự phải tự mở tab Yêu cầu của từng vụ (`requests/REQ-1`, `REQ-2`); khách không được báo khi văn phòng trả lời (`REQ-4`). Cả ba chuyển sang M6 Task 4 |
 | Nhận thư báo khi có cập nhật mới | Bốn mẫu thư cho khách, chỉ chứa nội dung đã công bố | **[Xong]** M6 (`StageUpdate`, `DocumentPublished`, `DocumentRejected`, `RequestAnswered`; cộng `MissingDocuments`). Dòng tiến độ công bố nhầm rút được khỏi cổng ("Rút khỏi cổng", làn fm 2026-10-09); thư đã gửi thì không thu hồi được |
 | Nhận thông báo trên điện thoại, chạm một lần là mở đúng hồ sơ | Ứng dụng cài từ trình duyệt (không qua chợ ứng dụng), thông báo đẩy đi cùng bốn thư của khách, màn hình khoá chỉ hiện một câu chung | **[Đang làm]** M12 — đã có mã, chờ gộp và chờ chủ văn phòng thử trên iPhone, Android thật; hướng dẫn cài ở mục cuối tài liệu này |
-| **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Khối **Hợp đồng và thanh toán** trên trang tiến độ của cổng: số hợp đồng, tổng giá trị, thuế suất, ngày ký, từng đợt (đến hạn khi nào, đã thanh toán, còn lại, quá hạn) và các khoản văn phòng đã nhận. Không hiện ghi chú nội bộ, lý do miễn/huỷ, người ghi, khoản thu đã huỷ, bản nháp hay hợp đồng đã huỷ. Đợt theo tiến độ chưa tới bước của nó nói "đến hạn khi vụ việc tới bước …" bằng nhãn cho khách; tới bước đó thì đổi thành ngày đến hạn. Gói bàn giao in cùng bảng kê đó | **[Xong]** M9 Task 10 — chủ văn phòng đã quyết: **khách xem được** (phán quyết P1, 2026-09-24). Không có thư nhắc nợ nào gửi khách |
+| **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Khối **Hợp đồng và thanh toán** trên trang tiến độ của cổng: số hợp đồng, tổng giá trị, thuế suất, ngày ký, từng đợt (đến hạn khi nào, đã thanh toán, còn lại, quá hạn) và các khoản văn phòng đã nhận. Không hiện ghi chú nội bộ, lý do miễn/huỷ, người ghi, khoản thu đã huỷ, bản nháp hay hợp đồng đã huỷ. Đợt theo tiến độ chưa tới bước của nó nói "đến hạn khi vụ việc tới bước …" bằng nhãn cho khách; tới bước đó thì đổi thành ngày đến hạn. Gói bàn giao in cùng bảng kê đó | **[Xong]** M9 Task 10 — chủ văn phòng đã quyết: **khách xem được** (phán quyết P1, 2026-09-24). Thư về tiền gửi khách chỉ có khi bật công tắc "Nhắc lịch thanh toán cho khách" (mặc định tắt) — xem mục cùng tên |
 
 Văn phòng nhìn ngược lại: mỗi dòng đã công bố mang nhãn **khách đã xem lúc nào**, và
 dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
@@ -151,7 +151,7 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 | Chốt một giá trị hợp đồng duy nhất | Tab **Hợp đồng và thanh toán** của vụ: một hợp đồng cho một vụ, giá trị là số khách trả (đã gồm thuế nếu có); bản nháp sửa thẳng được; từ lúc kích hoạt, đổi giá trị hay lịch thu chỉ bằng **Ký phụ lục** (lý do, ngày ký, giá trị cũ và mới được giữ lại, không sửa, không xoá); bản nháp chưa có khoản thu thì xoá được | **[Xong]** M9 |
 | Chia thành các đợt thu gắn vào tiến độ | Mỗi đợt đến hạn theo một trong ba cách: khi ký hợp đồng, vào một ngày cụ thể, hoặc **khi vụ việc tới một giai đoạn** ("thu đợt hai 15 ngày sau khi nộp đơn khởi kiện") — luật sư chuyển giai đoạn là đợt đó có ngày đến hạn ngay, tính từ ngày giai đoạn thật sự xảy ra; một lượt đối chiếu 07:00 hằng ngày bắt nốt những đợt lỡ | **[Xong]** M9 (Task 4, 6) |
 | Ghi từng khoản tiền thật sự nhận, ai ghi, nhận bằng cách nào | Trang **Công nợ** của kế toán (xem "Kế toán ghi tiền" bên dưới); người ghi, ngày tiền về, cách nhận, mã giao dịch/số biên lai; ghi nhầm thì **huỷ** kèm lý do, khoản đã huỷ vẫn nằm đó | **[Xong]** M9 (Task 5, 8) |
-| Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Không có thư nhắc nợ nào gửi khách | **[Xong]** M9 Task 11 |
+| Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Hệ thống không TỰ gửi thư đòi nợ quá hạn cho khách — xem "Nhắc lịch thanh toán cho khách" bên dưới | **[Xong]** M9 Task 11 |
 | Nhìn bức tranh tiền: đã thu trên tổng, còn phải thu | Trang **Doanh thu**: vành khuyên đã thu / còn phải thu / quá hạn, doanh thu theo thời gian, theo đợt/giai đoạn, cơ cấu theo 12 lĩnh vực, tải theo luật sư, hồ sơ đã kết thúc còn công nợ; lọc theo kỳ, luật sư, lĩnh vực. Mỗi biểu đồ ghi rõ nó lọc theo ngày ký hay ngày tiền về, theo luật sư lúc thu hay luật sư hiện tại | **[Xong]** M9 Task 9 |
 | Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ | **[Xong]** M9 |
 
@@ -207,6 +207,52 @@ một dòng trong nhật ký hệ thống.
 
 Không có ô tải bản scan biên lai ở trang này (đã chọn giữ `mã giao dịch / số biên lai`, M9 Task 8);
 bản scan, nếu cần lưu, tải lên tab Tài liệu của vụ ở nhóm "Chỉ nội bộ".
+
+### Nhắc lịch thanh toán cho khách (công tắc, mặc định TẮT — chủ văn phòng 2026-10-10)
+
+Mọi thứ trong mục này chỉ chạy khi **công tắc đang BẬT**. Tắt (mặc định) thì hệ thống chạy đúng như
+trước: chỉ nhắc nội bộ cho nhân sự, khách không nhận thư nào về tiền.
+
+**Bật, tắt ở đâu.** Quản trị viên mở **Nhắc thanh toán cho khách** (menu trái): công tắc,
+số ngày báo trước hạn (1–30, mặc định 3) và thông tin chuyển khoản của văn phòng (ngân hàng, số tài
+khoản, chủ tài khoản, chi nhánh). Phải điền đủ thông tin chuyển khoản mới bật được, và không bật được
+trên tài khoản giả của dữ liệu mẫu ("TAI KHOAN THU NGHIEM"); quét mã QR xem thử trên trang bằng ứng
+dụng ngân hàng trước khi bật. Mỗi lần đổi có một dòng trong Nhật ký hệ thống (ai, lúc nào). Tắt là có hiệu lực ngay, kể cả với thư đã xếp hàng mà chưa đi: thư đó **không** được gửi.
+
+**Khách nhận gì khi công tắc bật.**
+
+- Trên cổng khách, trang hồ sơ có thêm phần **Lộ trình thanh toán**: giá trị hợp đồng, đã thanh toán,
+  còn lại, thông tin chuyển khoản, và với mỗi đợt đã có ngày hạn mà còn phải trả — số tiền, **nội dung
+  chuyển khoản** (`MÃ-HỒ-SƠ DOT n`, để kế toán nhận ra tiền của hồ sơ nào) và mã QR điền sẵn số tiền.
+- **Thư xác nhận đã nhận tiền** mỗi khi văn phòng ghi một khoản thu (huỷ khoản thu thì không gửi gì):
+  số tiền, ngày nhận và số còn phải trả theo hợp đồng (hay "đã thanh toán đủ"). Hợp đồng bị huỷ trước
+  khi thư kịp đi thì thư chỉ xác nhận khoản đã nhận, không nói gì về số còn lại.
+- **Thư báo trước hạn**, mỗi sáng 08:15: đợt còn phải trả có ngày hạn từ hôm nay tới hết số ngày báo
+  trước. Mỗi đợt một thư cho mỗi tài khoản — chạy lại hay đổi số ngày không gửi lại; văn phòng **Dời
+  hạn** đợt sang ngày khác thì khách được báo một lần nữa cho ngày mới. Thư có tên đợt, số tiền còn phải
+  trả, ngày hạn, thông tin chuyển khoản, nội dung chuyển khoản và mã QR (khi máy chủ có extension `gd`).
+  Đợt "theo giai đoạn" chưa tới giai đoạn thì chưa có ngày hạn nên không được báo.
+- Người nhận: tài khoản cổng **đang hoạt động và đã kích hoạt** của khách, và chỉ khi vụ còn hiện trên
+  cổng của họ (vụ chưa công bố hay đã hết hạn tra cứu thì không ai nhận). Vụ **hạn chế**: thư chỉ nêu
+  mã hồ sơ và mời đăng nhập cổng, không nêu số tiền.
+
+**Đợt quá hạn — không tự gửi cho khách; người quản lý hợp đồng quyết.** Thư nhắc nội bộ 08:00 cho kế
+toán và luật sư giữ nguyên. Muốn nhắc khách thì luật sư trong đội của vụ, quản lý hoặc quản trị viên
+(kế toán không) mở tab **Hợp đồng và thanh toán** của vụ, bấm **Gửi thư nhắc** trên dòng của đợt quá hạn:
+hộp thoại cho **xem trước** đúng thư sẽ gửi — người nhận, số tiền còn phải trả, ngày hạn, tiêu đề và nội
+dung — rồi bấm **Gửi thư**. Mỗi đợt **một lần mỗi ngày** (bấm lần thứ hai trong ngày thì hệ thống báo giờ
+và người đã gửi). Mỗi lần gửi để lại một dòng ở tab **Liên lạc** của vụ và một dòng trong Nhật ký hệ
+thống: ai gửi, lúc nào, gửi cho những địa chỉ nào. Kết quả từng thư (đã đi hay lỗi) xem ở tab **Thư đã
+gửi**; thư lỗi hẳn thì người đã bấm nhận chuông báo để liên hệ khách bằng kênh khác. Khách vừa trả đủ
+hay đợt vừa được dời hạn trước khi thư kịp đi thì thư không đi.
+
+**Thử trên bản xem thử.** Dữ liệu mẫu có sẵn tài khoản chuyển khoản rõ là giả ("TAI KHOAN THU NGHIEM"),
+một đợt sắp đến hạn của khách `khach1@example.com` và nhiều đợt quá hạn. Trên máy dev bật công tắc ngay
+được, rồi bấm **Gửi thư nhắc** trên một đợt quá hạn — thư hiện trong hộp thư thử Mailpit sau khoảng một phút (lượt xử lý hàng
+đợi). Muốn thấy ngay thư báo trước hạn thay vì đợi 08:15:
+`bin/dev artisan schedule:test --name=client-payments.due-soon`. Trước khi dùng thật, thay tài khoản giả
+bằng tài khoản thật của văn phòng: ngoài máy dev (`APP_ENV=local`) hệ thống không cho bật công tắc trên tài
+khoản giả, và chạy lại dữ liệu mẫu không bao giờ ghi đè thông tin chuyển khoản đã cấu hình.
 
 ### Nhập hợp đồng đang chạy khi bắt đầu dùng hệ thống
 

@@ -9076,6 +9076,25 @@ trên máy dev.
   phục vụ đã huỷ giữ nguyên công tắc cổng; công cụ MCP liệt kê cập nhật vẫn trả dòng đã rút; các nút sửa sai tài liệu của fa
   chưa xét khoá hồ sơ đã tiêu huỷ của fm; bộ lọc "Hồ sơ" trên Nhật ký hệ thống không có vụ đã huỷ.
 
+
+### Nhắc lịch thanh toán cho khách (làn nt) — công tắc, mặc định tắt
+
+Theo quyết định chủ văn phòng 2026-10-10 (đảo quyết định 2026-10-04) và 2026-10-15 ("không phải chức năng chủ chốt, chỉ
+cần công tắc"). MỘT công tắc trong Cấu hình, **mặc định TẮT**; tắt thì khách không nhận gì về tiền. Bật thì: lộ trình
+thanh toán trên trang vụ của cổng khách; thư xác nhận đã nhận tiền; thư báo trước hạn (lịch 08:15, mỗi đợt mỗi người nhận
+một thư); đợt quá hạn: nút "Gửi thư nhắc" có xem trước, một lần mỗi đợt mỗi ngày, ghi sổ liên lạc của vụ — không bao giờ tự
+gửi thư đòi nợ; thông tin chuyển khoản và mã VietQR vẽ tại chỗ (không gửi số tiền ra dịch vụ ngoài). Mọi thư qua
+`ResolveClientRecipients::onPortal` + R12, xếp hàng sau commit, có trong sổ thư. Hai task, mỗi task rà soát + rà soát lại;
+rà soát toàn làn: hết lỗi nghiêm trọng/quan trọng.
+
+**Gộp vào main (2026-10-15):** không xung đột chữ; cả bộ `--processes=2` **9343 passed, 37 skipped, 0 failed**; 2286 test
+tập trung xanh; pint PASS. Rà soát gộp: mười phát hiện, đều minor sau kiểm chứng. Sửa ngay: SPEC (đính chính §email:
+thư về tiền gửi khách chỉ sau công tắc), QUY-TRINH dòng "Xem đã đóng bao nhiêu…", PROGRESS "Còn chờ". Để sau (chỉ có tác
+dụng khi BẬT công tắc): dòng sổ thư của ba thư tiền gắn với vụ nên trợ lý không có `billing.view` thấy được nhãn thư;
+dòng nhật ký `payment_received_mail_failed` cũng vậy; các câu chữ "luật sư hoặc quản lý bấm" và "văn phòng sẽ báo khi
+một đợt tới hạn" chưa khớp hết quyền và lịch; hai job chọn người nhận thông báo lỗi theo hai quy tắc khác nhau.
+**Khi nhập hợp đồng đang chạy và ghi lùi khoản thu cũ: giữ công tắc TẮT** (nếu không, mỗi khoản ghi lùi gửi khách thư "đã nhận").
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9513,8 +9532,8 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
   tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
-- Giao – nhận – xử lý hồ sơ NỘI BỘ (giao việc, bước "Đã nhận"/"Trả lại"); vai trò nhân viên kinh doanh quản
-  lý lead; nhắc lịch thanh toán cho khách sau MỘT công tắc, mặc định tắt (đảo quyết định 2026-10-04).
+- Giao – nhận – xử lý hồ sơ NỘI BỘ (làn feat-tk, đang làm); vai trò nhân viên kinh doanh quản lý lead (làn
+  feat-kd, đang làm). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch thanh toán cho khách (làn nt)" phía trên).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn
   đề xuất lại SAU khi hệ thống hoàn chỉnh.
 - Chưa có trả lời: bảng so sánh hiệu suất chỉ giám đốc/quản lý xem (không làm bảng xếp hạng công khai).

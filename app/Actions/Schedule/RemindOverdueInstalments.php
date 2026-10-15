@@ -35,7 +35,10 @@ use Throwable;
  * có xếp job hay không; job tính lại từ đầu lúc chạy ("re-derive the audience at send time").
  *
  * **Không có thư cho khách (P1).** Muốn nhắc khách là một phán quyết mới, và phải theo M6.5 R12
- * (chỉ tài khoản `is_active` và đã `activated_at`).
+ * (chỉ tài khoản `is_active` và đã `activated_at`). Phán quyết đó (làn nt Task 2, chủ văn phòng
+ * 2026-10-10) KHÔNG đổi tác vụ này: quá hạn vẫn không tự gửi gì cho khách; khi công tắc "Nhắc lịch
+ * thanh toán cho khách" bật, người quản lý hợp đồng bấm "Gửi thư nhắc" trên dòng đợt
+ * (`App\Actions\Billing\RemindClientOfOverdueInstalment`, dùng lại {@see self::candidates()} lúc gửi).
  *
  * **Không có transaction, không ghi dòng tiền nào.** Tác vụ chỉ ĐỌC (đợt, vụ việc, sổ thư) rồi xếp
  * job; nên không có khoá `matters` → `contracts` → `instalments` → `payments` nào để giữ, và
