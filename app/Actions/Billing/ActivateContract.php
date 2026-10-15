@@ -26,7 +26,9 @@ use Illuminate\Support\Facades\Gate;
  *     TRƯỚC (câu đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi
  *     `contracts`; đọc lại trạng thái và giá trị từ hàng đã khoá — không tin đối tượng người gọi
  *     cầm trong tay.
- *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)`.
+ *  2. **Quyền:** `ContractPolicy::activate` qua `Gate::forUser($actor)` — `contract.manage` hoặc
+ *     `contract.enter` (làn kt: kế toán ghi nhận hợp đồng giấy khách đã ký; trước làn kt câu này hỏi
+ *     `update`, nay chỉ còn là cổng của phụ lục/hoàn tất/huỷ).
  *  3. Chỉ từ `draft` (`ContractStatusConflict::notDraft`).
  *  4. `signed_at` là một ngày hợp lệ, không ở tương lai (so theo ngày, múi giờ ứng dụng).
  *  5. **Bất biến:** `ScheduleTotal::lockedOf()` (tổng các đợt chưa huỷ, đọc từ DB bằng một lần
@@ -41,6 +43,10 @@ use Illuminate\Support\Facades\Gate;
  *  9. `Audit::record('contract_activated', ..., $actor)` bên trong transaction.
  *
  * **Không** tự đổi đầu mục danh mục nào (M9 Task 7: tab tiền chỉ nhắc luật sư tải bản đã ký lên).
+ *
+ * **Sau commit** (làn kt): người kích hoạt không phải luật sư phụ trách thì luật sư phụ trách nhận một
+ * dòng chuông ({@see NotifyLeadLawyerOfContractEntry}), gọi NGOÀI transaction. Bước 2–9 là lõi
+ * {@see self::activateLocked()}, dùng chung với {@see EnterSignedContract}.
  */
 class ActivateContract
 {
@@ -48,57 +54,77 @@ class ActivateContract
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
-    public function __construct(private TriggerInstalmentsForStage $stageTrigger) {}
+    public function __construct(
+        private TriggerInstalmentsForStage $stageTrigger,
+        private NotifyLeadLawyerOfContractEntry $notifier,
+    ) {}
 
     public function handle(User $actor, Contract $contract, DateTimeInterface|string $signedAt): Contract
     {
-        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $signedAt): Contract {
-            Gate::forUser($actor)->authorize('update', $locked);
+        $activated = $this->inContractTransaction(
+            (int) $contract->getKey(),
+            fn (Matter $lockedMatter, Contract $locked): Contract => $this->activateLocked($actor, $lockedMatter, $locked, $signedAt),
+        );
 
-            if ($locked->status !== ContractStatus::Draft) {
-                throw ContractStatusConflict::notDraft($locked);
-            }
+        $this->notifier->handle($actor, $activated, NotifyLeadLawyerOfContractEntry::ACTIVATED);
 
-            $signedOn = $this->validatedPastDate($signedAt, 'signed_at');
+        return $activated;
+    }
 
-            $scheduleTotal = ScheduleTotal::lockedOf($locked->id);
+    /**
+     * LÕI — bước 2 tới 9 của docblock lớp; chỉ gọi BÊN TRONG một transaction tiền đã khoá `matters`
+     * rồi `contracts` (theo thứ tự DUY NHẤT của {@see LocksBillingRows}), với đúng hai hàng đã khoá đó;
+     * không tự mở transaction, không gửi chuông (người gọi gửi sau commit). Hai lối vào:
+     * {@see self::handle()} và {@see EnterSignedContract} (soạn rồi kích hoạt trong CÙNG một
+     * transaction — làn kt), cùng thành ngữ `TriggerInstalmentsForStage::releaseLocked()`.
+     */
+    public function activateLocked(User $actor, Matter $lockedMatter, Contract $locked, DateTimeInterface|string $signedAt): Contract
+    {
+        Gate::forUser($actor)->authorize('activate', $locked);
 
-            if ($scheduleTotal !== $locked->total_amount) {
-                throw ContractTotalMismatch::onActivation($locked, $scheduleTotal);
-            }
+        if ($locked->status !== ContractStatus::Draft) {
+            throw ContractStatusConflict::notDraft($locked);
+        }
 
-            $locked->fill([
-                'status' => ContractStatus::Active,
-                'signed_at' => $signedOn->toDateString(),
-                'activated_by' => $actor->id,
+        $signedOn = $this->validatedPastDate($signedAt, 'signed_at');
+
+        $scheduleTotal = ScheduleTotal::lockedOf($locked->id);
+
+        if ($scheduleTotal !== $locked->total_amount) {
+            throw ContractTotalMismatch::onActivation($locked, $scheduleTotal);
+        }
+
+        $locked->fill([
+            'status' => ContractStatus::Active,
+            'signed_at' => $signedOn->toDateString(),
+            'activated_by' => $actor->id,
+        ]);
+        $locked->blameOn($actor)->save();
+
+        $onSigning = $this->scopelessly(Instalment::query())
+            ->where('contract_id', $locked->id)
+            ->where('trigger_type', InstalmentTrigger::OnSigning->value)
+            ->orderBy('sequence')
+            ->get();
+
+        foreach ($onSigning as $instalment) {
+            $instalment->fill([
+                'due_date' => $signedOn->copy()->addDays($instalment->due_days_after_trigger)->toDateString(),
+                'triggered_at' => now(),
             ]);
-            $locked->blameOn($actor)->save();
+            $instalment->blameOn($actor)->save();
+        }
 
-            $onSigning = $this->scopelessly(Instalment::query())
-                ->where('contract_id', $locked->id)
-                ->where('trigger_type', InstalmentTrigger::OnSigning->value)
-                ->orderBy('sequence')
-                ->get();
+        $this->releaseStageTriggeredInstalments($lockedMatter, $locked);
 
-            foreach ($onSigning as $instalment) {
-                $instalment->fill([
-                    'due_date' => $signedOn->copy()->addDays($instalment->due_days_after_trigger)->toDateString(),
-                    'triggered_at' => now(),
-                ]);
-                $instalment->blameOn($actor)->save();
-            }
+        Audit::record('contract_activated', $locked, [
+            'code' => $locked->code,
+            'signed_at' => $signedOn->toDateString(),
+            'total_amount' => $locked->total_amount,
+            'on_signing_released' => $onSigning->count(),
+        ], $actor);
 
-            $this->releaseStageTriggeredInstalments($lockedMatter, $locked);
-
-            Audit::record('contract_activated', $locked, [
-                'code' => $locked->code,
-                'signed_at' => $signedOn->toDateString(),
-                'total_amount' => $locked->total_amount,
-                'on_signing_released' => $onSigning->count(),
-            ], $actor);
-
-            return $locked->refresh();
-        });
+        return $locked->refresh();
     }
 
     /**

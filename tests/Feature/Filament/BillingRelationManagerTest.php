@@ -1017,10 +1017,15 @@ it('does not offer delete-draft on a contract that has been signed', function ()
     billingTab($this->matter)->assertActionHidden(TestAction::make('deleteDraftContract')->table());
 });
 
-it('does not offer delete-draft to the accountant, who cannot manage contracts', function () {
+it('does not offer delete-draft to an account that reads the money but neither manages nor enters contracts', function () {
+    // Làn kt: kế toán nay có `contract.enter` (xoá được bản nháp mình nhập), nên người đọc tiền mà
+    // không có quyền ghi hợp đồng nào là một tài khoản cấp thẳng `matter.view` + `billing.view`.
     Contract::factory()->for($this->matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 50_000_000]);
+    $reader = User::factory()->create();
+    $reader->givePermissionTo(['matter.view', 'billing.view']);
+    $this->matter->addTeamMember($reader, MatterRole::Associate);
 
-    $this->actingAs($this->accountant, 'web');
+    $this->actingAs($reader, 'web');
 
     billingTab($this->matter)->assertActionHidden(TestAction::make('deleteDraftContract')->table());
 });

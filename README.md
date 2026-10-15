@@ -274,7 +274,9 @@ Tóm tắt những điều không được bỏ qua:
     **quyền theo dõi đội ngũ** của M13 (`performance.viewAny`) tới một máy chủ đã có dữ liệu — bỏ
     bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay tab "Hợp
     đồng và thanh toán", menu Tiếp nhận không hiện với ai, và trang "Theo dõi đội ngũ" không hiện với
-    ai (vai trò chưa mang quyền nào trong tám quyền đó). Bản M12 không thêm quyền nào.
+    ai (vai trò chưa mang quyền nào trong tám quyền đó). Bản M12 không thêm quyền nào. Bản "Kế toán
+    nhập hợp đồng" (làn kt) thêm **quyền nhập hợp đồng** `contract.enter` cho vai kế toán — bỏ bước
+    này thì kế toán không thấy trang Hợp đồng.
   - Bản M10 (tiếp nhận) thêm hai tác vụ lịch dưới dòng cron sẵn có — `intakes.remind-unanswered`
     mỗi 15 phút, và `prospects.anonymise` lúc 03:30, ẩn danh (không hoàn tác được) người liên hệ
     không thành khách đã quá hạn lưu — cùng hai biến `.env` tuỳ chọn, `PROSPECT_RETENTION_MONTHS`

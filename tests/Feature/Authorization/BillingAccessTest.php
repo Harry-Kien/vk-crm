@@ -320,9 +320,11 @@ it('refuses contract management to an account that reads the money but lacks con
     expect(canReadMoney($reader, $this->chain))->toBe([true, true, true, true])
         ->and(canManageContract($reader, $this->matter, $this->chain))->toBe([false, false, false, false])
         ->and(canManageContract($manager, $this->matter, $this->chain))->toBe([true, true, true, true])
-        // Vai kế toán: đọc được, không soạn/sửa/xoá/miễn (SPEC §5 bổ sung M9).
+        // Vai kế toán: đọc được, không phụ lục/hoàn tất/huỷ (`update`), không miễn (SPEC §5 bổ sung M9).
+        // Làn kt (SPEC §5 bổ sung 2026-10-15): `contract.enter` cho kế toán soạn (`create`) và xoá
+        // (`delete`) bản nháp — ma trận đủ của quyền đó ở `ContractEntryAccessTest`.
         ->and(canReadMoney($this->accountant, $this->chain))->toBe([true, true, true, true])
-        ->and(canManageContract($this->accountant, $this->matter, $this->chain))->toBe([false, false, false, false]);
+        ->and(canManageContract($this->accountant, $this->matter, $this->chain))->toBe([true, false, true, false]);
 });
 
 it('refuses contract management on a matter whose money the account cannot see, contract.manage or not', function () {

@@ -1444,7 +1444,9 @@ sudo -u www-data php artisan up
   (`intake.create`, `intake.viewAny`, `intake.convert`) — không chạy thì menu Tiếp nhận không hiện
   với ai, kể cả quản trị viên; bản M12 không thêm quyền nào; bản M13 thêm quyền `performance.viewAny` —
   không chạy thì trang Theo dõi đội ngũ không hiện với ai; bản M14 không thêm quyền nào (trang "Kho
-  tài liệu" dùng quyền `settings.manage` sẵn có). Từng bản làm gì trên máy chủ đã có dữ liệu:
+  tài liệu" dùng quyền `settings.manage` sẵn có); bản "Kế toán nhập hợp đồng" (làn kt) thêm quyền
+  `contract.enter` cho vai kế toán — không chạy thì kế toán không thấy trang Hợp đồng và không nhập được
+  hợp đồng cho hồ sơ (không migration nào, không tác vụ lịch mới). Từng bản làm gì trên máy chủ đã có dữ liệu:
   Bước 5, các đoạn "Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13, "Nhân viên kinh doanh",
   "Nhắc lịch thanh toán cho khách"). Bản nào
   phải làm thêm việc tay TRƯỚC hay SAU chuỗi lệnh này có hướng dẫn riêng — hôm nay là M11

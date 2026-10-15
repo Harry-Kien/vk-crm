@@ -40,6 +40,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Url;
 
 /**
  * Trang "Công nợ" cho kế toán (M9 Task 8; kế hoạch, P3 "Ai thấy và ghi tiền"): kế toán ghi tiền
@@ -121,9 +122,36 @@ class Receivables extends Page implements HasTable
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBanknotes;
 
+    /**
+     * Làn kt: bộ lọc của bảng đọc được từ query string `filters` — nút "Ghi khoản thu" của trang
+     * "Hợp đồng" ({@see ContractEntry}) liên kết sang đây lọc sẵn mã hồ sơ
+     * (`?filters[matter_code][code]=VK-…`). Cùng khoá `filters` với `ListRecords` của Filament.
+     *
+     * @var array<string, mixed>|null
+     */
+    #[Url(as: 'filters')]
+    public ?array $tableFilters = null;
+
     public static function getNavigationLabel(): string
     {
         return __('billing.receivables.navigation_label');
+    }
+
+    /**
+     * Làn kt: lối tắt "Nhập hợp đồng cho hồ sơ" sang trang {@see ContractEntry} — để kế toán không còn
+     * phải hỏi "thêm số tiền của hồ sơ ở đâu". Chỉ hiện với người mở được trang đó.
+     *
+     * @return array<int, Action>
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('openContractEntry')
+                ->label(__('contract_entry.actions.open_contracts'))
+                ->icon(Heroicon::OutlinedClipboardDocumentList)
+                ->visible(fn (): bool => ContractEntry::canAccess())
+                ->url(fn (): string => ContractEntry::getUrl()),
+        ];
     }
 
     public function getTitle(): string
@@ -248,6 +276,19 @@ class Receivables extends Page implements HasTable
                         fn (Builder $query, $value): Builder => $query->whereHas(
                             'contract.matter',
                             fn (Builder $matter) => $matter->where('client_id', $value),
+                        ),
+                    )),
+                // Làn kt: "Mã hồ sơ" — đích của nút "Ghi khoản thu" trên trang "Hợp đồng" (xem
+                // `$tableFilters`). Đúng mã, không "chứa": liên kết mang mã đầy đủ của một hồ sơ.
+                Filter::make('matter_code')
+                    ->schema([
+                        TextInput::make('code')->label(__('billing.receivables.recent_payments.filters.matter_code')),
+                    ])
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        filled($data['code'] ?? null),
+                        fn (Builder $query): Builder => $query->whereHas(
+                            'contract.matter',
+                            fn (Builder $matter) => $matter->where('code', trim((string) $data['code'])),
                         ),
                     )),
             ])

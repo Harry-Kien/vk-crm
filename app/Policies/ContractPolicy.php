@@ -16,22 +16,28 @@ use App\Policies\Concerns\ReadsPortalParents;
  * Tiền của một vụ việc đi theo MỘT định nghĩa — `billing.view` + `Matter::listableBy()`, xem
  * {@see ChecksBillingAccess} — không theo `matter.view` (M9 P3).
  *
- * **Policy trả lời AI, Action trả lời KHI NÀO.** Ba câu hỏi ghi (`create`, `update`, `delete`)
- * cùng một điều kiện hôm nay: thấy tiền của vụ và có `contract.manage`. Trạng thái nào thì làm
- * được việc gì không nằm ở đây: hợp đồng chỉ xoá được khi còn `draft` và chưa có khoản thu nào —
- * hook `Contract::deleting` giữ điều đó ở mọi đường ghi qua model; kích hoạt, phụ lục, huỷ, hoàn
- * tất đòi trạng thái nào là việc của các Action trong `app/Actions/Billing/`. Cùng quy ước với
- * docblock của `DocumentPolicy::publish`, nơi điều kiện "trạng thái nào thì công bố được" thuộc
- * về `PublishDocument` chứ không thuộc policy.
- * Ba thân hàm viết rời chứ không gọi lẫn nhau, cùng lý do với `DocumentPolicy::publish`/`delete`:
- * ba câu hỏi khác nhau, một ngày siết một câu không được âm thầm siết luôn hai câu kia.
+ * **Policy trả lời AI, Action trả lời KHI NÀO.** Mọi câu hỏi ghi đòi trước hết "thấy tiền của vụ".
+ * Trạng thái nào thì làm được việc gì không nằm ở đây: hợp đồng chỉ xoá được khi còn `draft` và chưa
+ * có khoản thu nào — hook `Contract::deleting` giữ điều đó ở mọi đường ghi qua model; sửa nháp, kích
+ * hoạt, phụ lục, huỷ, hoàn tất đòi trạng thái nào là việc của các Action trong `app/Actions/Billing/`.
+ * Cùng quy ước với docblock của `DocumentPolicy::publish`, nơi điều kiện "trạng thái nào thì công bố
+ * được" thuộc về `PublishDocument` chứ không thuộc policy.
+ * Các thân hàm viết rời chứ không gọi lẫn nhau, cùng lý do với `DocumentPolicy::publish`/`delete`:
+ * mỗi câu hỏi một khác, một ngày siết một câu không được âm thầm siết luôn các câu kia.
  *
- * `update` là cổng của MỌI thay đổi trên một hợp đồng đã có: sửa bản nháp và lịch thu của nó,
- * kích hoạt, ký phụ lục (kể cả đổi số tiền hay huỷ một đợt — {@see ContractAmendmentPolicy} vì
- * thế không có `create`), hoàn tất, huỷ. SPEC §5 gom tất cả vào `contract.manage`.
+ * **Hai nhóm câu hỏi ghi (làn kt, 2026-10-15, SPEC §5 "Bổ sung 2026-10-15").**
+ *  - **Nhập hợp đồng đã ký** — `create` (soạn bản nháp cho vụ), {@see self::updateDraft()} (sửa bản
+ *    nháp và lịch thu của nó), `delete` (xoá bản nháp), {@see self::activate()} (kích hoạt với ngày
+ *    ký): `contract.manage` **hoặc** `contract.enter`. Kế toán có `contract.enter`, nên nhập được hợp
+ *    đồng giấy đã ký của một vụ có sẵn mà không mở nội dung hồ sơ.
+ *  - **Quyết định thương mại trên hợp đồng đã ký** — `update`: ký phụ lục (kể cả đổi số tiền hay huỷ
+ *    một đợt — {@see ContractAmendmentPolicy} vì thế không có `create`), hoàn tất, huỷ. Chỉ
+ *    `contract.manage`. Miễn, dời hạn, thư nhắc khách ở `InstalmentPolicy`, cũng chỉ `contract.manage`.
+ * Trước làn kt `update` còn là cổng của sửa nháp và kích hoạt; hai việc đó nay có ability riêng, và
+ * `UpdateDraftContract`/`ActivateContract` cùng hai nút của tab tiền hỏi đúng ability đó.
  *
  * Khách hàng (M9 Task 10, P1): CHỈ `view` — hợp đồng đã ký của một vụ việc khách thấy trên cổng,
- * xem {@see self::view()}. `viewAny`, `create`, `update`, `delete` vẫn từ chối khách: chúng đi qua
+ * xem {@see self::view()}. `viewAny` và mọi câu hỏi ghi vẫn từ chối khách: chúng đi qua
  * `ChecksBillingAccess`, nơi nhánh khách luôn trả `false`.
  */
 class ContractPolicy
@@ -71,30 +77,51 @@ class ContractPolicy
     }
 
     /**
-     * Soạn hợp đồng cho một vụ: `Gate::allows('create', [Contract::class, $matter])`.
+     * Soạn hợp đồng (bản nháp) cho một vụ: `Gate::allows('create', [Contract::class, $matter])` —
+     * `contract.manage` hoặc `contract.enter` (xem docblock lớp).
      *
      * **Không có ngữ cảnh vụ việc thì từ chối** — khác `DocumentPolicy::create`, không có nhánh
-     * "câu hỏi giao diện": một hợp đồng luôn thuộc về đúng một vụ, và màn hình duy nhất soạn hợp
-     * đồng (tab tiền của vụ) luôn có vụ trong tay. `mixed` vì cùng lý do với `canListBilling()`.
+     * "câu hỏi giao diện": một hợp đồng luôn thuộc về đúng một vụ, và hai màn hình soạn hợp đồng (tab
+     * tiền của vụ, trang "Hợp đồng" của kế toán) luôn có vụ trong tay. `mixed` vì cùng lý do với
+     * `canListBilling()`.
      *
      * @param  Matter|null  $context
      */
     public function create(User|ClientUser $user, mixed $context = null): bool
     {
         return $this->canSeeBilling($user, $context instanceof Matter ? $context : null)
-            && $user->can(Permission::ContractManage->value);
+            && ($user->can(Permission::ContractManage->value) || $user->can(Permission::ContractEnter->value));
     }
 
+    /** Sửa một bản nháp và thay lịch thu của nó (`UpdateDraftContract`; "còn nháp không" là việc của Action). */
+    public function updateDraft(User|ClientUser $user, Contract $contract): bool
+    {
+        return $this->canSeeBilling($user, $contract->matter)
+            && ($user->can(Permission::ContractManage->value) || $user->can(Permission::ContractEnter->value));
+    }
+
+    /** Ghi nhận khách đã ký: `draft` → `active` (`ActivateContract`, `EnterSignedContract`). */
+    public function activate(User|ClientUser $user, Contract $contract): bool
+    {
+        return $this->canSeeBilling($user, $contract->matter)
+            && ($user->can(Permission::ContractManage->value) || $user->can(Permission::ContractEnter->value));
+    }
+
+    /** Phụ lục, hoàn tất, huỷ — chỉ `contract.manage` (xem docblock lớp). */
     public function update(User|ClientUser $user, Contract $contract): bool
     {
         return $this->canSeeBilling($user, $contract->matter)
             && $user->can(Permission::ContractManage->value);
     }
 
-    /** "Khi nào xoá được" (`draft`, chưa có khoản thu) là hook `Contract::deleting`, xem docblock lớp. */
+    /**
+     * Xoá bản nháp (`DeleteDraftContract`). "Khi nào xoá được" (`draft`, chưa có khoản thu) là hook
+     * `Contract::deleting`, xem docblock lớp — nên `contract.enter` ở đây không bao giờ xoá được một
+     * hợp đồng đã ký.
+     */
     public function delete(User|ClientUser $user, Contract $contract): bool
     {
         return $this->canSeeBilling($user, $contract->matter)
-            && $user->can(Permission::ContractManage->value);
+            && ($user->can(Permission::ContractManage->value) || $user->can(Permission::ContractEnter->value));
     }
 }
