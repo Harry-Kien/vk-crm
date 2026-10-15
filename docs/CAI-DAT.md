@@ -131,7 +131,7 @@ JBSWY3DPEHPK3PXP
 ```
 
 Thêm secret này vào một app xác thực (Google Authenticator, Authy, 1Password…) MỘT LẦN — theo
-kiểu "nhập mã thủ công" (manual entry key), tên tài khoản đặt tuỳ ý — và dùng lại được cho cả năm
+kiểu "nhập mã thủ công" (manual entry key), tên tài khoản đặt tuỳ ý — và dùng lại được cho cả sáu
 tài khoản, qua mọi lần `migrate:fresh --seed`. Không cần quét mã QR.
 
 Một máy chủ THẬT không bao giờ có secret này: seeder chỉ gán nó khi `APP_ENV` là `local` hoặc
@@ -966,7 +966,7 @@ sudo -u www-data php artisan migrate:fresh --force && \
 (Mọi dòng bằng `www-data`, kể cả `rm`: tệp hồ sơ mẫu thuộc về `www-data`, người quản trị không xoá
 được — `Permission denied`.)
 
-- `migrate:fresh --force` xoá MỌI bảng trong CSDL `DB_DATABASE` rồi tạo lại — tám tài khoản demo,
+- `migrate:fresh --force` xoá MỌI bảng trong CSDL `DB_DATABASE` rồi tạo lại — chín tài khoản demo,
   khách, vụ việc, nhật ký, phiên đăng nhập (ai đang đăng nhập đều bị đẩy ra), thư còn chờ gửi.
   `db:seed --force` nạp lại dữ liệu tham chiếu, như lần cài đầu ở trên.
 - `rm -rf storage/app/private/[0-9]*` xoá tệp của tài liệu mẫu: mỗi tài liệu nằm trong một thư
@@ -980,7 +980,7 @@ sudo -u www-data php artisan migrate:fresh --force && \
   rồi thì dừng lại, đừng chạy.
 - Không có đường tắt nào khác. Trên CSDL demo, Bước 6 từ chối ("Hệ thống đã có 1 quản trị viên"
   — người đó chính là `admin@luatvukhang.com`); `--additional` chỉ thêm một quản trị viên mới bên
-  cạnh tám tài khoản demo vẫn mật khẩu `password`, vẫn chưa ai cài 2FA. Xoá tay từng tài khoản
+  cạnh chín tài khoản demo vẫn mật khẩu `password`, vẫn chưa ai cài 2FA. Xoá tay từng tài khoản
   cũng không đủ: khách, vụ việc, tài liệu và nhật ký mẫu vẫn còn.
 
 ### Bước 6 — Tạo quản trị viên đầu tiên: `vkcrm:create-admin`
