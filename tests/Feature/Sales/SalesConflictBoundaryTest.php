@@ -14,10 +14,13 @@ use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\ClientLookupThrottle;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
+use Spatie\Activitylog\Models\Activity;
 
 /*
  * Làn kd, Task 1 — phán quyết: nhân viên kinh doanh KHÔNG thấy thông tin của khách hay vụ hiện hữu qua
@@ -197,6 +200,36 @@ it('never tells a sales person that the caller is already a client of the office
     $this->livewire(EditIntakeRequest::class, ['record' => $other->getRouteKey()])
         ->assertOk()
         ->assertSee(__('intake.duplicates.existing_client'));
+});
+
+it('does not put the "already a client" flag into the page state sent to a sales person', function () {
+    // Rà soát Task 1, I1: câu "đã là khách" không vẽ, nhưng cờ `is_client` từng nằm trong thuộc tính công
+    // khai `$duplicates` — tức trong wire:snapshot của HTML gửi xuống trình duyệt.
+    $intake = scbRecord($this->sales, ['name' => 'Bên Kia Mới Toanh', 'phone' => '0966555444'], ['contact_phone' => '0912000111']);
+
+    $this->actingAs($this->sales, 'web');
+
+    $page = $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->assertOk()
+        ->assertSet('duplicates.is_client', false);
+
+    expect(json_encode($page->snapshot, JSON_UNESCAPED_UNICODE))->not->toContain('"is_client":true')
+        ->and($page->html())->not->toContain('&quot;is_client&quot;:true');
+
+    // Không tra danh sách khách thay họ: không dòng nhật ký `client_lookup`, không lượt nào của bộ đếm.
+    expect(Activity::query()->where('event', 'client_lookup')->where('causer_id', $this->sales->id)->count())->toBe(0)
+        ->and(RateLimiter::attempts(ClientLookupThrottle::keyFor($this->sales)))->toBe(0);
+
+    // Cặp dương: trợ lý (có `matter.view`) ghi cùng cuộc gọi thì cờ có trong trạng thái trang.
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $other = scbRecord($assistant, ['name' => 'Bên Kia Khác Nữa', 'phone' => '0966555433'], ['contact_phone' => '0912000111', 'contact_name' => 'Người Gọi Thứ Hai']);
+
+    $this->actingAs($assistant, 'web');
+
+    $shown = $this->livewire(EditIntakeRequest::class, ['record' => $other->getRouteKey()])
+        ->assertSet('duplicates.is_client', true);
+
+    expect(json_encode($shown->snapshot, JSON_UNESCAPED_UNICODE))->toContain('"is_client":true');
 });
 
 it('does not show a sales person the code of the matter their won lead became', function () {

@@ -968,7 +968,9 @@ class EditIntakeRequest extends EditRecord
             'hasHidden' => (bool) ($data['has_hidden'] ?? false),
             'sameName' => $actor->can(Permission::IntakeViewAny->value) ? $rows($data['same_name'] ?? []) : [],
             // Làn kd: "số này đã là khách của văn phòng" là một khớp với danh sách khách — cùng ranh giới
-            // `viewConflictMatches` với bảng khớp; nhân viên kinh doanh không thấy.
+            // `viewConflictMatches` với bảng khớp; nhân viên kinh doanh không thấy. Cổng thật ở
+            // `FindIntakeDuplicates` (không `matter.view` thì không tra, cờ `false` ngay từ phiên), vì
+            // `$duplicates` là trạng thái công khai: cờ ở đó đã nằm trong HTML. Đây chỉ là lớp thứ hai.
             'isClient' => (bool) ($data['is_client'] ?? false) && Gate::allows('viewConflictMatches', $this->intake()),
             'lookupUnavailable' => (bool) ($data['lookup_unavailable'] ?? false),
         ];

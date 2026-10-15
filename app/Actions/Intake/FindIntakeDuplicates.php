@@ -31,6 +31,11 @@ use Illuminate\Support\Facades\Gate;
  *    lần/giờ/nhân sự với ô "Tra khách hàng" và dò trùng khi tạo khách — một oracle, một bộ đếm; và
  *    cùng ranh giới `restricted`). Chạm trần thì gợi ý tắt (`clientLookupUnavailable`), không làm hỏng
  *    việc ghi nhận. Khách thuộc vụ `restricted` mà người nhập không được biết thì trả lời như "không".
+ *    Làn kd (rà soát Task 1, I1): CHỈ tra cho người có `matter.view` — cùng ranh giới với bảng khớp
+ *    xung đột (`IntakeRequestPolicy::viewConflictMatches`). Người không có (nhân viên kinh doanh) không
+ *    được hỏi danh sách khách: không tra, không dòng `client_lookup`, không lượt đếm, cờ luôn `false` —
+ *    vì cờ đi vào trạng thái Livewire công khai của trang sửa (`EditIntakeRequest::$duplicates`), tức
+ *    vào HTML gửi xuống trình duyệt, nên giấu câu ở view thôi là chưa đủ.
  *
  * Bản đã gộp vào bản khác và bản đã ẩn danh không bao giờ là gợi ý.
  */
@@ -80,7 +85,9 @@ class FindIntakeDuplicates
                 ->get();
         }
 
-        [$isExistingClient, $lookupUnavailable] = $this->clientHint($actor, [$phone, $idNumber]);
+        [$isExistingClient, $lookupUnavailable] = $actor->can(Permission::MatterView->value)
+            ? $this->clientHint($actor, [$phone, $idNumber])
+            : [false, false];
 
         return new IntakeDuplicates($sameIdentity, $hasHidden, $sameName, $isExistingClient, $lookupUnavailable);
     }
