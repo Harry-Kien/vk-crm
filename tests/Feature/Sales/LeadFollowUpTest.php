@@ -140,3 +140,22 @@ it('wipes the care notes when the prospect is anonymised', function () {
         ->and($row->channel)->toBe(FollowUpChannel::Meeting)
         ->and($lost->fresh()->next_follow_up_at)->toBeNull();
 });
+
+it('re-checks the right to edit on the locked row: a lead reassigned away mid-request takes no care note', function () {
+    // Làn kd, vòng sửa 1 (F4): như "Chuyển cho luật sư" — quyền đọc lại trên dòng đã khoá. Cuộc đua giữa hai
+    // request không dựng được qua màn hình, nên test cầm một bản model CŨ của lead đã bị giao đi.
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $lead = IntakeRequest::factory()->status(IntakeStatus::Contacted)->create([
+        'created_by' => $manager->id,
+        'assigned_to' => $this->sales->id,
+        'received_at' => now()->subDays(2),
+    ]);
+    $stale = $lead->fresh();
+    IntakeRequest::query()->whereKey($lead->getKey())->update(['assigned_to' => User::factory()->withRole(Role::Sales)->create()->id]);
+
+    expect(fn () => app(LogIntakeFollowUp::class)->handle($this->sales, $stale, FollowUpChannel::Call, now(), 'Gọi lại', now()->addDay()))
+        ->toThrow(AuthorizationException::class);
+
+    expect(IntakeFollowUp::query()->count())->toBe(0)
+        ->and($lead->fresh()->next_follow_up_at)->toBeNull();
+});

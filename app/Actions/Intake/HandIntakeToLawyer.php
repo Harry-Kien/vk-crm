@@ -33,9 +33,10 @@ use Illuminate\Validation\ValidationException;
  * còn làm việc (`ChangeIntakeStatus::OPEN` — không phải "Văn phòng từ chối"/"Khách không theo tiếp").
  * Chuyển cho chính luật sư đang giữ lead thì từ chối (không gì đổi, không thông báo lặp).
  *
- * Câu đầu tiên của transaction là lần đọc có khoá dòng bản ghi; mọi điều kiện đọc lại trên dòng đó. Nhật
- * ký: bản ghi tự động của model tắt; dòng `intake_handed_to_lawyer` mang id luật sư mới và trước — không
- * tên, SĐT hay nội dung. Luật sư nhận thông báo trong hệ thống {@see IntakeHandedToLawyer} (chỉ mã và
+ * Câu đầu tiên của transaction là lần đọc có khoá dòng bản ghi; mọi điều kiện về bản ghi — quyền sửa
+ * (`update`, hỏi cả trước transaction trên model truyền vào và lại trên dòng đã khoá), "còn mở", luật sư
+ * đang giữ — đọc lại trên dòng đó; người nhận đọc lại từ bảng `users`. Nhật ký: bản ghi tự động của
+ * model tắt; dòng `intake_handed_to_lawyer` mang id luật sư mới và trước — không tên, SĐT hay nội dung. Luật sư nhận thông báo trong hệ thống {@see IntakeHandedToLawyer} (chỉ mã và
  * nguồn) SAU KHI transaction commit, người nhận qua `ResolveStaffRecipients::forIntakeHandoff()`.
  */
 class HandIntakeToLawyer
@@ -78,6 +79,10 @@ class HandIntakeToLawyer
 
         $handed = DB::transaction(function () use ($actor, $intake, $lawyer): IntakeRequest {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
+
+            // Quyền sửa hỏi lại trên dòng đã khoá: lần hỏi trước transaction dùng model truyền vào, đọc trước
+            // khoá — lead có thể vừa được giao cho người khác giữa hai lần đọc.
+            Gate::forUser($actor)->authorize('update', $locked);
 
             if (self::isClosed($locked)) {
                 throw ValidationException::withMessages(['consulting_lawyer_id' => [__('leads.handoff.errors.closed')]]);

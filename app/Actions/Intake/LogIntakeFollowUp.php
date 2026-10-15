@@ -32,9 +32,10 @@ use Illuminate\Validation\ValidationException;
  * đọc cột đó. Lần chăm sóc KHÔNG đổi trạng thái và không chạm mốc phản hồi đầu (R5): rời "Mới" vẫn chỉ đi
  * qua "Đổi trạng thái" (`ChangeIntakeStatus`).
  *
- * Câu đầu tiên của transaction là lần đọc có khoá dòng bản ghi; điều kiện "còn mở" đọc lại trên dòng đó.
- * Nhật ký: dòng `intake_follow_up_logged` (chủ thể là bản ghi) mang id dòng, kênh và cờ có hẹn hay không —
- * KHÔNG nội dung (R7: ẩn danh phải phủ được nhật ký; nội dung nằm ở `intake_follow_ups.note`, nơi
+ * Câu đầu tiên của transaction là lần đọc có khoá dòng bản ghi; quyền sửa (`update`, hỏi cả đầu `handle()`
+ * trên model truyền vào và lại trên dòng đã khoá) và điều kiện "còn mở" đọc lại trên dòng đó. Nhật ký:
+ * dòng `intake_follow_up_logged` (chủ thể là bản ghi) mang id dòng, kênh và cờ có hẹn hay không — KHÔNG
+ * nội dung (R7: ẩn danh phải phủ được nhật ký; nội dung nằm ở `intake_follow_ups.note`, nơi
  * `AnonymiseProspect` xoá nó).
  */
 class LogIntakeFollowUp
@@ -73,6 +74,10 @@ class LogIntakeFollowUp
 
         return DB::transaction(function () use ($actor, $intake, $channel, $occurred, $note, $next): IntakeFollowUp {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
+
+            // Quyền sửa hỏi lại trên dòng đã khoá: lần hỏi đầu `handle()` dùng model truyền vào, đọc trước
+            // khoá — lead có thể vừa được giao cho người khác giữa hai lần đọc.
+            Gate::forUser($actor)->authorize('update', $locked);
 
             if (HandIntakeToLawyer::isClosed($locked)) {
                 throw ValidationException::withMessages(['note' => [__('leads.follow_ups.errors.closed')]]);

@@ -201,3 +201,20 @@ it('needs both intake.convert and matter.create to receive a lead — either alo
         ->and(HandIntakeToLawyer::canReceive($createOnly->fresh()))->toBeFalse()
         ->and(HandIntakeToLawyer::canReceive($both->fresh()))->toBeTrue();
 });
+
+it('re-checks the right to edit on the locked row: a lead reassigned away mid-request is not handed over', function () {
+    // Làn kd, vòng sửa 1 (F4): quyền `update` từng chỉ hỏi trên model truyền vào (đọc trước khoá). Đây là
+    // một cuộc đua giữa hai request — không dựng được qua màn hình (Livewire nạp lại bản ghi mỗi request) —
+    // nên test cầm một bản model CŨ: lúc đọc lead còn giao cho nhân viên kinh doanh, rồi trưởng phòng giao
+    // nó cho người khác trước khi dòng bị khoá.
+    $stale = $this->lead->fresh();
+    $colleague = User::factory()->withRole(Role::Sales)->create();
+    IntakeRequest::query()->whereKey($this->lead->getKey())->update(['assigned_to' => $colleague->id]);
+
+    expect(fn () => app(HandIntakeToLawyer::class)->handle($this->sales, $stale, $this->lawyer))
+        ->toThrow(AuthorizationException::class);
+
+    expect($this->lead->fresh()->consulting_lawyer_id)->toBeNull()
+        ->and(Activity::query()->where('event', 'intake_handed_to_lawyer')->count())->toBe(0)
+        ->and($this->lawyer->notifications()->count())->toBe(0);
+});
