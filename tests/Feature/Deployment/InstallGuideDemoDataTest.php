@@ -195,6 +195,16 @@ it('Bước 5 chỉ đưa dữ liệu mẫu lên máy chủ thật sau ADMIN_IP_
             ->and($step5)->toContain("`{$user->email}`");
     }
 
+    // Làn kd, vòng sửa 1 (F2): mọi số đếm bằng chữ của Bước 5 khớp số tài khoản đăng nhập được mà seeder vừa
+    // tạo — thêm `kinhdoanh@` mà "tám tài khoản demo" còn nguyên thì đỏ. (Đặt ở đây, không trong test riêng,
+    // để không seed dữ liệu mẫu — kèm tệp tài liệu mẫu trên ổ `private` — thêm một lần nữa.)
+    $active = $demoStaff->where('is_active', true)->count();
+
+    expect(installGuideCountWords($step5, 'tài khoản demo'))->not->toBeEmpty()
+        ->each->toBe($active)
+        ->and(installGuideCountWords($step5, 'tài khoản nhân sự'))->each->toBe($active)
+        ->and(installGuideCountWords($step5, 'tài khoản còn lại'))->each->toBe($active - 1);
+
     $allowlist = strpos($step5, 'ADMIN_IP_ALLOWLIST');
     $demoCommand = strpos($step5, 'php artisan db:seed --class=DemoDataSeeder --force');
 
@@ -283,9 +293,9 @@ function installGuideCountWords(string $section, string $noun): array
     return array_map(fn (string $w): int => $words[mb_strtolower($w)], $found[1]);
 }
 
-it('số tài khoản demo đếm bằng chữ trong CAI-DAT khớp đúng số tài khoản dữ liệu mẫu tạo ra', function () {
-    // Làn kd, vòng sửa 1 (F2): thêm `kinhdoanh@` mà "cả năm tài khoản" / "tám tài khoản demo" còn nguyên —
-    // tài liệu tự mâu thuẫn trong cùng một đoạn.
+it('mục "Tài khoản dùng thử" đếm bằng chữ đúng số dòng nhân sự của bảng tài khoản', function () {
+    // Làn kd, vòng sửa 1 (F2): thêm `kinhdoanh@` vào bảng ("Sáu tài khoản") mà "cả năm tài khoản" còn nguyên —
+    // tài liệu tự mâu thuẫn trong cùng một đoạn. Số của Bước 5 kiểm ở test đầu tệp (cần seed dữ liệu mẫu).
     $guide = (string) file_get_contents(base_path('docs/CAI-DAT.md'));
     $start = strpos($guide, "\n## Tài khoản dùng thử");
     $devSection = substr($guide, $start, strpos($guide, "\n## ", $start + 1) - $start);
@@ -296,17 +306,4 @@ it('số tài khoản demo đếm bằng chữ trong CAI-DAT khớp đúng số 
     expect($adminRows)->toBeGreaterThan(0)
         ->and(installGuideCountWords($devSection, 'tài khoản'))->not->toBeEmpty()
         ->each->toBe($adminRows);
-
-    // Bước 5: số tài khoản nhân sự demo đăng nhập được mà `DemoDataSeeder` tạo ở `production`.
-    app()->detectEnvironment(fn () => 'production');
-    test()->artisan('db:seed', ['--class' => ReferenceDataSeeder::class, '--force' => true])->assertSuccessful()->run();
-    test()->artisan('db:seed', ['--class' => DemoDataSeeder::class, '--force' => true])->assertSuccessful()->run();
-
-    $active = User::query()->where('is_active', true)->count();
-    $step5 = installGuideStep5();
-
-    expect(installGuideCountWords($step5, 'tài khoản demo'))->not->toBeEmpty()
-        ->each->toBe($active)
-        ->and(installGuideCountWords($step5, 'tài khoản nhân sự'))->each->toBe($active)
-        ->and(installGuideCountWords($step5, 'tài khoản còn lại'))->each->toBe($active - 1);
 });
