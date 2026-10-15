@@ -207,6 +207,12 @@ return [
             'title' => 'Một việc của anh/chị đã được huỷ',
             'body' => ':who đã huỷ việc ":title". Lý do: :reason',
         ],
+        // Vòng sửa 1 (I1): người vừa mất việc không còn xem được nó — câu chung, không tiêu đề, không mã vụ.
+        'reassigned_away' => [
+            'title' => 'Một việc anh/chị đang giữ đã được giao cho người khác',
+            'body' => ':who đã giao lại cho người khác một việc anh/chị đang giữ. Anh/chị không cần làm tiếp '
+                .'việc đó; nếu đã làm dở, hãy trao đổi với :who.',
+        ],
     ],
 
     // Thư (App\Mail\Staff\TaskNotice). Tiêu đề thư không mang tên việc hay mã vụ.

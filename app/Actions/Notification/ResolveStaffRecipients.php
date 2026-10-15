@@ -418,4 +418,26 @@ class ResolveStaffRecipients
             ->filter(fn (User $user): bool => Gate::forUser($user)->allows('view', $task))
             ->values();
     }
+
+    /**
+     * Làn tk, Task 1, vòng sửa 1 (I1) — người nhận chuông "việc anh/chị đang giữ đã được giao cho người
+     * khác" (`App\Notifications\Staff\TaskAlert::REASSIGNED_AWAY`): đúng những người trong `$preferred`
+     * (người VỪA giữ việc) đang hoạt động và chưa xoá mềm.
+     *
+     * KHÔNG hỏi `TaskPolicy::view` như {@see self::forTask()}: sau khi giao lại, chỉ người nhận HIỆN TẠI xem
+     * được việc, nên cổng đó luôn bỏ người cũ — đúng người cần được báo nhất. Chuông này vì vậy không mang
+     * gì của việc (không tiêu đề, không mã vụ, không lý do): chỉ tên người giao lại, nên không cần "còn
+     * xem được vụ". Không chuỗi dự phòng, cùng lý do của `forTask()`.
+     *
+     * @param  array<int, User|null>  $preferred
+     * @return Collection<int, User>
+     */
+    public function forFormerTaskHolder(array $preferred): Collection
+    {
+        return collect($preferred)
+            ->filter(fn (?User $user): bool => $user instanceof User)
+            ->unique(fn (User $user): int|string => $user->getKey())
+            ->filter(fn (User $user): bool => $user->is_active && ! $user->trashed())
+            ->values();
+    }
 }

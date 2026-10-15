@@ -13,8 +13,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * "Giao lại" — chuyển một việc còn mở sang người khác: việc bị trả lại, hay người nhận đã nghỉ/bị vô
- * hiệu. Việc trở về "Chờ nhận" cho người mới (mốc nhận, mốc trả lại và lý do cũ xoá — lịch sử nằm ở
+ * "Giao lại" — chuyển một việc còn mở sang người khác: việc bị trả lại, người nhận đã nghỉ/bị vô hiệu
+ * hay rời đội ngũ vụ, hoặc người giao/luật sư phụ trách/quản lý chủ động chuyển một việc đang chờ nhận
+ * hay đang làm (người đang giữ quá tải, vắng mặt). Việc trở về "Chờ nhận" cho người mới (mốc nhận, mốc trả lại và lý do cũ xoá — lịch sử nằm ở
  * nhật ký, dòng `task_reassigned` và `task_declined`); người giao ban đầu (`assigned_by`) giữ nguyên, để
  * việc vẫn nằm ở "Tôi đã giao" của họ. Cổng: `TaskPolicy::reassign` (người giao, luật sư phụ trách vụ,
  * quản lý/quản trị).
@@ -23,8 +24,11 @@ use Illuminate\Validation\ValidationException;
  * toàn cục). Giao lại cho CHÍNH người đang giữ chỉ được khi họ đã trả lại (sau khi hai bên trao đổi);
  * việc đang chờ nhận/đang làm mà chọn lại đúng người đó thì không có gì để chuyển.
  *
- * Người mới nhận chuông + thư `staff.task.assigned`. Người cũ không được báo: họ đã trả lại, đã nghỉ,
- * hoặc — khi người quản lý chủ động chuyển — không còn xem được việc (chỉ người nhận HIỆN TẠI xem được).
+ * Người mới nhận chuông + thư `staff.task.assigned`. Người cũ (vòng sửa 1, I1): việc biến khỏi danh
+ * sách của họ — chỉ người nhận HIỆN TẠI xem được việc — nên khi họ còn GIỮ nó (chờ nhận hay đang làm) họ
+ * nhận MỘT chuông chung `TaskAlert::REASSIGNED_AWAY` (không tiêu đề, không mã vụ, không thư), để không
+ * làm tiếp một việc đã sang tay người khác. Họ đã trả lại thì đã buông việc: không báo. Họ đã nghỉ/bị vô
+ * hiệu: job bỏ họ (`ResolveStaffRecipients::forFormerTaskHolder()`).
  */
 class ReassignTask
 {
@@ -73,6 +77,10 @@ class ReassignTask
             ], causer: $actor);
 
             $this->queueNotice($fresh, TaskAlert::ASSIGNED, $locked->getKey(), $activity);
+
+            if ($from !== TaskStatus::Declined) {
+                $this->queueNotice($fresh, TaskAlert::REASSIGNED_AWAY, $previous, $activity);
+            }
 
             return $fresh;
         });

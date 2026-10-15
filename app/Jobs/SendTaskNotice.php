@@ -19,18 +19,22 @@ use Spatie\Activitylog\Models\Activity;
 
 /**
  * Lời báo của MỘT lần chuyển trạng thái của một việc nội bộ (làn tk, Task 1) cho MỘT người: chuông
- * ({@see TaskAlert}) rồi thư ({@see TaskNotice}, trừ loại "huỷ" — chỉ chuông). Các Action xếp job này
- * `->afterCommit()` (M6.5 R2: thư không bao giờ gửi trong transaction).
+ * ({@see TaskAlert}) rồi thư ({@see TaskNotice}, trừ hai loại chỉ chuông — "huỷ" và "đã giao cho người
+ * khác"). Các Action xếp job này `->afterCommit()` (M6.5 R2: thư không bao giờ gửi trong transaction).
  *
  * # Đọc lại mọi thứ khi chạy
  *
  * Job nhận id, không nhận model: khi nó chạy, việc có thể đã đổi. Ba lần lọc, theo thứ tự:
  *  1. việc còn (chưa xoá mềm) và dòng nhật ký của lần chuyển còn;
- *  2. lời "được giao" còn ĐÚNG: chỉ tới người ĐANG giữ việc khi việc còn chờ nhận (một việc vừa giao rồi
- *     giao lại ngay cho người khác không báo người đầu). Bốn loại còn lại không cần lần lọc này: chúng báo
- *     một sự kiện đã xảy ra, cho người giao (`assigned_by` không bao giờ đổi, kể cả khi giao lại) hay cho
- *     người giữ một việc đã huỷ (trạng thái cuối, không giao lại được);
- *  3. người nhận qua `ResolveStaffRecipients::forTask()` — đang hoạt động, chưa xoá, còn xem được việc.
+ *  2. lời báo còn ĐÚNG: lời "được giao" chỉ tới người ĐANG giữ việc khi việc còn chờ nhận (một việc vừa
+ *     giao rồi giao lại ngay cho người khác không báo người đầu); lời "đã giao cho người khác" chỉ tới
+ *     người KHÔNG còn giữ việc (việc đã quay về họ trước khi job chạy thì họ đã có lời "được giao" mới).
+ *     Bốn loại còn lại không cần lần lọc này: chúng báo một sự kiện đã xảy ra, cho người giao
+ *     (`assigned_by` không bao giờ đổi, kể cả khi giao lại) hay cho người giữ một việc đã huỷ (trạng
+ *     thái cuối, không giao lại được);
+ *  3. người nhận qua `ResolveStaffRecipients::forTask()` — đang hoạt động, chưa xoá, còn xem được việc;
+ *     riêng lời "đã giao cho người khác" qua `ResolveStaffRecipients::forFormerTaskHolder()` — đang hoạt
+ *     động, chưa xoá (người cũ không còn xem được việc, và chuông của họ không mang gì của việc).
  *
  * # Chống trùng khi thử lại
  *
@@ -67,7 +71,9 @@ class SendTaskNotice implements ShouldQueue
             return;
         }
 
-        $user = $recipients->forTask($task, [$recipient])->first();
+        $user = ($this->kind === TaskAlert::REASSIGNED_AWAY
+            ? $recipients->forFormerTaskHolder([$recipient])
+            : $recipients->forTask($task, [$recipient]))->first();
 
         if ($user === null) {
             return;
@@ -79,7 +85,7 @@ class SendTaskNotice implements ShouldQueue
             $user->notify(new TaskAlert($task, $this->kind, $actorName, $this->eventId));
         }
 
-        if ($this->kind === TaskAlert::CANCELLED || $this->alreadyDelivered($task, $user)) {
+        if (in_array($this->kind, [TaskAlert::CANCELLED, TaskAlert::REASSIGNED_AWAY], true) || $this->alreadyDelivered($task, $user)) {
             return;
         }
 
@@ -89,8 +95,11 @@ class SendTaskNotice implements ShouldQueue
     /** Xem docblock lớp, mục "Đọc lại mọi thứ khi chạy", bước 2. */
     private function stillRelevant(Task $task): bool
     {
-        return $this->kind !== TaskAlert::ASSIGNED
-            || ($task->assignee_id === $this->recipientId && $task->status === TaskStatus::Pending);
+        return match ($this->kind) {
+            TaskAlert::ASSIGNED => $task->assignee_id === $this->recipientId && $task->status === TaskStatus::Pending,
+            TaskAlert::REASSIGNED_AWAY => $task->assignee_id !== $this->recipientId,
+            default => true,
+        };
     }
 
     private function alreadyAlerted(User $user): bool
