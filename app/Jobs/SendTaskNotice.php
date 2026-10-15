@@ -36,7 +36,10 @@ use Spatie\Activitylog\Models\Activity;
  *     thái cuối, không giao lại được);
  *  3. người nhận qua `ResolveStaffRecipients::forTask()` — đang hoạt động, chưa xoá, còn xem được việc;
  *     riêng lời "đã giao cho người khác" qua `ResolveStaffRecipients::forFormerTaskHolder()` — đang hoạt
- *     động, chưa xoá (người cũ không còn xem được việc, và chuông của họ không mang gì của việc).
+ *     động, chưa xoá (người cũ không còn xem được việc, và chuông của họ không mang gì của việc); và lời
+ *     "bị trả lại" qua `ResolveStaffRecipients::forTaskAssigner()` (làn tk, Task 2): người giao đã rời vụ,
+ *     nghỉ việc hay bị vô hiệu thì luật sư phụ trách hiện tại của vụ nhận thay — một việc bị trả lại cần
+ *     một người giao lại, không được rơi vào khoảng trống.
  *
  * # Chống trùng khi thử lại
  *
@@ -75,15 +78,19 @@ class SendTaskNotice implements ShouldQueue
     {
         $task = Task::query()->withoutGlobalScope(ClientPortalScope::class)->with('matter')->find($this->taskId);
         $event = Activity::query()->find($this->eventId);
-        $recipient = User::query()->find($this->recipientId);
+        // `withTrashed()`: người giao đã bị xoá mềm vẫn cần được nhận ra, để lời "bị trả lại" đi tới người
+        // thay họ (bước 3). Ba bộ lọc dưới đây đều bỏ người đã xoá mềm.
+        $recipient = User::query()->withTrashed()->find($this->recipientId);
 
         if ($task === null || $event === null || $recipient === null || ! $this->stillRelevant($task)) {
             return;
         }
 
-        $user = ($this->kind === TaskAlert::REASSIGNED_AWAY
-            ? $recipients->forFormerTaskHolder([$recipient])
-            : $recipients->forTask($task, [$recipient]))->first();
+        $user = (match (true) {
+            $this->kind === TaskAlert::REASSIGNED_AWAY => $recipients->forFormerTaskHolder([$recipient]),
+            $this->kind === TaskAlert::DECLINED && $recipient->getKey() === $task->assigned_by => $recipients->forTaskAssigner($task),
+            default => $recipients->forTask($task, [$recipient]),
+        })->first();
 
         if ($user === null) {
             return;

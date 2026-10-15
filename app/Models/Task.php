@@ -154,6 +154,58 @@ class Task extends Model
         return $query->whereIn($this->qualifyColumn('status'), TaskStatus::openValues());
     }
 
+    /**
+     * Việc người nhận còn GIỮ (làn tk, Task 2): chờ nhận hoặc đang làm — chưa trả lại, chưa xong, chưa huỷ.
+     * Một việc "Bị trả lại" vẫn còn mở ({@see self::scopeOpen()}) nhưng đã về tay người giao.
+     */
+    public function scopeHeld(Builder $query): Builder
+    {
+        return $query->whereIn($this->qualifyColumn('status'), [TaskStatus::Pending->value, TaskStatus::Accepted->value]);
+    }
+
+    /** Việc chưa ai bấm "Đã nhận" (mọi người nhận) — làn tk, Task 2. */
+    public function scopePendingAcceptance(Builder $query): Builder
+    {
+        return $query->where($this->qualifyColumn('status'), TaskStatus::Pending->value);
+    }
+
+    /** Việc người nhận đã nhận, chưa xong (mọi người nhận) — làn tk, Task 2. */
+    public function scopeInProgress(Builder $query): Builder
+    {
+        return $query->where($this->qualifyColumn('status'), TaskStatus::Accepted->value);
+    }
+
+    /** Việc bị trả lại, chờ người giao giao lại hay huỷ — làn tk, Task 2. */
+    public function scopeReturned(Builder $query): Builder
+    {
+        return $query->where($this->qualifyColumn('status'), TaskStatus::Declined->value);
+    }
+
+    /**
+     * Việc CÓ HẠN đã hoàn thành trong `$bounds` (hai cận đủ giờ của `PerformancePeriod::bounds()`) — tập của
+     * chỉ số "Việc hoàn thành đúng hạn" (làn tk, Task 2). Đúng hạn hay trễ: {@see self::completedOnTime()}.
+     *
+     * @param  array{0: string, 1: string}  $bounds
+     */
+    public function scopeCompletedWithDueDateBetween(Builder $query, array $bounds): Builder
+    {
+        return $query->where($this->qualifyColumn('status'), TaskStatus::Completed->value)
+            ->whereNotNull($this->qualifyColumn('due_date'))
+            ->whereBetween($this->qualifyColumn('completed_at'), $bounds);
+    }
+
+    /**
+     * Việc đã hoàn thành KHÔNG muộn hơn hết ngày hạn (theo `APP_TIMEZONE`) — cùng nghĩa "đúng hạn" của mốc
+     * thời hạn (P1: xong không muộn hơn hết ngày đến hạn). Việc chưa xong hay không có hạn: `false`.
+     */
+    public function completedOnTime(): bool
+    {
+        return $this->status === TaskStatus::Completed
+            && $this->completed_at !== null
+            && $this->due_date !== null
+            && $this->completed_at->copy()->setTimezone((string) config('app.timezone'))->toDateString() <= $this->due_date->toDateString();
+    }
+
     /** "Chờ tôi nhận": giao cho `$user`, chưa ai bấm "Đã nhận". */
     public function scopeAwaitingAcceptanceBy(Builder $query, User $user): Builder
     {

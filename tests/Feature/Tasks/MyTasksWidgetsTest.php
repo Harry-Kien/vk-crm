@@ -60,7 +60,9 @@ it('puts the three task blocks on my own page, and not on someone else\'s', func
     $this->actingAs($this->assistant, 'web');
     $own = $this->livewire(TeamMember::class, ['user' => $this->assistant->id])->instance();
 
-    expect($own->getVisibleHeaderWidgets())->toBe([
+    // Làn tk, Task 2: khối "Hồ sơ chờ tôi nhận" đứng thứ hai nhưng tự ẩn khi không có hồ sơ nào chờ —
+    // `array_values` vì Filament giữ khoá của khối đã lọc.
+    expect(array_values($own->getVisibleHeaderWidgets()))->toBe([
         TasksAwaitingMeWidget::class,
         MyActiveTasksWidget::class,
         TasksIAssignedWidget::class,

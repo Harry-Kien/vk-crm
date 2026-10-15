@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Pages;
 
 use App\Actions\Performance\BuildMatterTypeMix;
 use App\Actions\Performance\BuildPerformanceTrend;
+use App\Actions\Performance\BuildTaskWorkload;
 use App\Actions\Performance\BuildTeamWorkload;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\MatterResource;
@@ -12,6 +13,7 @@ use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
 use App\Filament\Admin\Widgets\Performance\OverdueTrendWidget;
 use App\Filament\Admin\Widgets\Performance\PerformanceTrendWidget;
 use App\Filament\Admin\Widgets\Performance\StaleTrendWidget;
+use App\Filament\Admin\Widgets\Tasks\MatterAssignmentsAwaitingMeWidget;
 use App\Filament\Admin\Widgets\Tasks\MyActiveTasksWidget;
 use App\Filament\Admin\Widgets\Tasks\MyTasksWidget;
 use App\Filament\Admin\Widgets\Tasks\TasksAwaitingMeWidget;
@@ -26,6 +28,7 @@ use App\Policies\UserPolicy;
 use App\Support\Audit;
 use App\Support\MatterStaleness;
 use App\Support\Performance\PerformanceCache;
+use App\Support\Performance\TaskWorkloadRow;
 use App\Support\Performance\TeamRoster;
 use App\Support\Performance\TeamWorkloadRow;
 use BackedEnum;
@@ -169,6 +172,8 @@ class TeamMember extends Page implements HasTable
     /** Bộ nhớ đệm TRONG một request của dòng {@see BuildTeamWorkload}. */
     private ?TeamWorkloadRow $workload = null;
 
+    private ?TaskWorkloadRow $taskWorkload = null;
+
     /**
      * Đường dẫn `/team/{user}`: nối dưới slug của {@see TeamOverview}. Slug riêng (`team-member`) giữ
      * tên route khác (`filament.admin.pages.team-member`), vì `getRelativeRouteName()` dựng tên route
@@ -283,12 +288,15 @@ class TeamMember extends Page implements HasTable
      * CHỈ trên trang của chính người xem: trang của người khác là chỗ đọc số, không chỗ bấm "Đã nhận" thay
      * họ. Mỗi khối tự đọc người dùng từ phiên, không tin `subjectId` — xem {@see MyTasksWidget}.
      *
-     * @return list<class-string<MyTasksWidget>>
+     * Làn tk, Task 2: khối "Hồ sơ chờ tôi nhận" ({@see MatterAssignmentsAwaitingMeWidget}) đứng ngay sau
+     * "Chờ tôi nhận" — cùng nhóm việc cần một cú bấm của người xem; nó tự ẩn khi không có hồ sơ nào chờ.
+     *
+     * @return list<class-string<MyTasksWidget|MatterAssignmentsAwaitingMeWidget>>
      */
     protected function getHeaderWidgets(): array
     {
         return $this->subject()->is($this->viewer())
-            ? [TasksAwaitingMeWidget::class, MyActiveTasksWidget::class, TasksIAssignedWidget::class]
+            ? [TasksAwaitingMeWidget::class, MatterAssignmentsAwaitingMeWidget::class, MyActiveTasksWidget::class, TasksIAssignedWidget::class]
             : [];
     }
 
@@ -383,6 +391,8 @@ class TeamMember extends Page implements HasTable
                 'isActive' => $row->isActive,
             ],
             'metrics' => self::metrics($row),
+            // Làn tk, Task 2: khối riêng sau N1–N11 — các con số giao – nhận nội bộ (`BuildTaskWorkload`).
+            'taskMetrics' => self::taskMetrics($this->taskWorkload()),
             'mix' => app(BuildMatterTypeMix::class)->handle($viewer, $subject),
             'lists' => $lists = $this->lists($viewer, $subject, $row),
             'explanations' => $this->explanations(hasLists: $lists !== []),
@@ -404,6 +414,7 @@ class TeamMember extends Page implements HasTable
                 'label' => $code === 'not_applicable' ? __('performance.not_applicable') : __("performance.columns.{$code}"),
                 'sentence' => __("performance.explain.{$code}"),
             ], self::EXPLAINED_CODES),
+            ...TeamOverview::taskExplanations(),
             ['label' => __('performance.team_member.mix.label'), 'sentence' => __('performance.team_member.mix.explain')],
             ...($hasLists ? [['label' => __('performance.team_member.lists.label'), 'sentence' => __('performance.team_member.lists.explain', ['limit' => self::LIST_LIMIT])]] : []),
             ['label' => __('performance.trend.label'), 'sentence' => __('performance.trend.explain', ['days' => BuildPerformanceTrend::MEMBER_PAGE_DAYS])],
@@ -416,6 +427,34 @@ class TeamMember extends Page implements HasTable
      * (người xem, người được xem) tối đa 5 phút qua {@see PerformanceCache} (R11, lối thoát cuối). Chỉ con số
      * được giữ: ba danh sách ngắn và bảng "Vụ việc" luôn đọc trực tiếp, và cổng người vẫn hỏi ở mọi request.
      */
+    /**
+     * Làn tk, Task 2 — số giao – nhận nội bộ của người này như người xem đọc được ({@see BuildTaskWorkload}),
+     * tính MỘT lần mỗi request, không qua bộ nhớ đệm: sáu phép đếm gộp trên bảng việc và ghế, và người vừa
+     * bấm "Đã nhận" thấy số đổi ngay.
+     */
+    private function taskWorkload(): TaskWorkloadRow
+    {
+        $subject = $this->subject();
+
+        return $this->taskWorkload ??= app(BuildTaskWorkload::class)
+            ->handle($this->viewer(), collect([$subject]))[$subject->getKey()];
+    }
+
+    /**
+     * @return list<array{key: string, label: string, value: string|Htmlable|null, note: ?string}>
+     */
+    private static function taskMetrics(TaskWorkloadRow $row): array
+    {
+        return array_map(fn (string $name): array => [
+            'key' => $name,
+            'label' => __("tasks.workload.columns.{$name}"),
+            'value' => in_array($name, ['tasksOverdue', 'seatsReturned'], true)
+                ? TeamOverview::dangerWhenPositive($row->{$name})
+                : (string) $row->{$name},
+            'note' => null,
+        ], TeamOverview::TASK_COLUMNS);
+    }
+
     private function workload(): TeamWorkloadRow
     {
         $subject = $this->subject();

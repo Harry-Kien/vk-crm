@@ -2074,6 +2074,17 @@ giao — `staff.task.accepted`, `staff.task.declined`, `staff.task.completed` �
 theo dõi việc ở "Tôi đã giao", chuông và thư đủ. Lời báo người vừa mất việc khi việc được giao lại cho
 người khác chỉ là chuông trong hệ thống, không thư, không đẩy.
 
+**Đính chính 2026-10-15 (làn tk, Task 2 — nhận hồ sơ, nhắc việc).** Tám mẫu thư mới, cùng họ `staff.task.*`
+(không gửi lại được, `ResendTargets`), đều KHÔNG đẩy (`PushTopicTest`): năm thư nhắc của lịch `tasks.remind`
+— `staff.task.reminder.awaiting` (việc chờ nhận quá 24 giờ làm việc), `.unaccepted` (báo người giao sau 48
+giờ làm việc), `.due_soon` (đến hạn hôm nay hoặc ngày mai), `.overdue` và `.overdue_assigner` (quá hạn, mỗi
+ngày làm việc một lần) — và ba thư "nhận hồ sơ": `staff.task.matter.declined` (một người trả lại ghế được
+giao trong đội ngũ vụ, kèm lý do — cho người giao, luật sư phụ trách, người giám sát vụ),
+`staff.task.matter.reminder.awaiting` và `.unaccepted` (ghế chờ nhận quá 24 / 48 giờ làm việc). Người
+nhận đã có chuông cùng lúc; việc mới được giao — thứ cần biết ngay — đã đẩy qua `staff.task.assigned`.
+Người nhận mọi thư qua `ResolveStaffRecipients` (`forTask()`, `forTaskAssigner()`, `qualifies()`,
+`handle()`), nên vụ `restricted` chỉ tới luật sư phụ trách và quản trị viên.
+
 ---
 
 ## 10. Bảo mật — yêu cầu cụ thể

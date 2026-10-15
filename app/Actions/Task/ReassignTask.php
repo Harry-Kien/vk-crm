@@ -78,7 +78,9 @@ class ReassignTask
 
             $this->queueNotice($fresh, TaskAlert::ASSIGNED, $locked->getKey(), $activity);
 
-            if ($from !== TaskStatus::Declined) {
+            // Làn tk, Task 2 (rà soát Task 1, r1): người giao lại chính là người đang giữ (một quản lý giao
+            // cho luật sư phụ trách, rồi luật sư đó chuyển tiếp) thì không tự báo mình.
+            if ($from !== TaskStatus::Declined && $previous !== $actor->getKey()) {
                 $this->queueNotice($fresh, TaskAlert::REASSIGNED_AWAY, $previous, $activity);
             }
 

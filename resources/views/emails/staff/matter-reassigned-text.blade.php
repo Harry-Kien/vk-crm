@@ -26,9 +26,20 @@
 @if ($block['client_requests_moved'] > 0)
 {!! __('reassign.email.client_requests_moved', ['count' => $block['client_requests_moved']]) !!}
 @endif
+@if (count($block['tasks'] ?? []) > 0)
+{!! __('tasks.handover.email.tasks_heading') !!}
+@foreach ($block['tasks'] as $task)
+- {!! __('tasks.handover.email.task_line', [
+    'title' => $task->title,
+    'due' => $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date'),
+]) !!}
+@endforeach
+@endif
 @endforeach
 
 {!! __('reassign.email.action') !!}
+
+{!! __('tasks.handover.email.accept_hint') !!}
 
 {!! __('reassign.email.salutation', ['office' => $office]) !!}
 @endsection

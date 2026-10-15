@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Pages;
 
+use App\Actions\Performance\BuildTaskWorkload;
 use App\Actions\Performance\BuildTeamWorkload;
 use App\Enums\Permission;
 use App\Models\User;
@@ -63,6 +64,13 @@ use Illuminate\Support\HtmlString;
  *    `var(--danger-600)` — tiền lệ `->color('danger')` của `StaleMattersWidget`, nói bằng style nội
  *    tuyến vì dự án không có bước dựng CSS. Tỉ lệ không bao giờ tô màu.
  *
+ * # Giao – nhận nội bộ (làn tk, Task 2)
+ *
+ * Sau N10, sáu cột {@see self::TASK_COLUMNS} của {@see BuildTaskWorkload} — việc đang làm, chờ nhận, quá
+ * hạn, bị trả lại (việc người đó giao), hồ sơ chưa nhận, hồ sơ trả lại ("cần phân công lại") — cùng người
+ * xem, cùng tập người. Không sắp xếp được (danh sách cột sắp xếp của M13 giữ nguyên); việc quá hạn và hồ sơ
+ * trả lại > 0 tô `var(--danger-600)`. Câu giải thích ở `tasks.workload.explain.*`, in cùng khối "Cách tính".
+ *
  * # Nhật ký (R14)
  *
  * {@see self::mount()} ghi MỘT dòng `performance_viewed` (chủ thể rỗng, `page = team_overview`):
@@ -91,6 +99,14 @@ class TeamOverview extends Page implements HasTable
      * @var list<string>
      */
     public const EXPLAINED_CODES = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9', 'n10', 'not_applicable'];
+
+    /**
+     * Làn tk, Task 2 — cột giao – nhận nội bộ ({@see BuildTaskWorkload}, trường của `TaskWorkloadRow`), theo
+     * thứ tự cột; tên cột và câu giải thích ở `tasks.workload.columns.<tên>` / `tasks.workload.explain.<tên>`.
+     *
+     * @var list<string>
+     */
+    public const TASK_COLUMNS = ['tasksInProgress', 'tasksAwaiting', 'tasksOverdue', 'tasksReturned', 'seatsAwaiting', 'seatsReturned'];
 
     protected string $view = 'filament.admin.pages.team-overview';
 
@@ -168,6 +184,12 @@ class TeamOverview extends Page implements HasTable
                         ? null
                         : "{$record['checklistSettled']}/{$record['checklistTotal']}")
                     ->placeholder(__('performance.not_applicable')),
+                // Làn tk, Task 2 — giao – nhận nội bộ (`BuildTaskWorkload`). Không sắp xếp được (cột M13
+                // giữ nguyên luật R8 của nó); việc quá hạn và hồ sơ trả lại tô đỏ khi > 0.
+                ...array_map(
+                    fn (string $name): TextColumn => self::taskColumn($name, danger: in_array($name, ['tasksOverdue', 'seatsReturned'], true)),
+                    self::TASK_COLUMNS,
+                ),
             ])
             ->filters([
                 Filter::make('include_inactive')
@@ -188,10 +210,39 @@ class TeamOverview extends Page implements HasTable
      */
     public function explanations(): array
     {
-        return array_map(fn (string $code): array => [
-            'label' => $code === 'not_applicable' ? __('performance.not_applicable') : __("performance.columns.{$code}"),
-            'sentence' => __("performance.explain.{$code}"),
-        ], self::EXPLAINED_CODES);
+        return [
+            ...array_map(fn (string $code): array => [
+                'label' => $code === 'not_applicable' ? __('performance.not_applicable') : __("performance.columns.{$code}"),
+                'sentence' => __("performance.explain.{$code}"),
+            ], self::EXPLAINED_CODES),
+            ...self::taskExplanations(),
+        ];
+    }
+
+    /**
+     * Làn tk, Task 2 — câu giải thích của các cột giao – nhận nội bộ ({@see self::TASK_COLUMNS}); trang của
+     * một người in cùng danh sách.
+     *
+     * @return list<array{label: string, sentence: string}>
+     */
+    public static function taskExplanations(): array
+    {
+        return array_map(fn (string $name): array => [
+            'label' => __("tasks.workload.columns.{$name}"),
+            'sentence' => __("tasks.workload.explain.{$name}"),
+        ], self::TASK_COLUMNS);
+    }
+
+    /** Làn tk, Task 2 — một cột đếm giao – nhận nội bộ; không sắp xếp được, `$danger` như {@see self::countColumn()}. */
+    private static function taskColumn(string $name, bool $danger): TextColumn
+    {
+        $column = TextColumn::make($name)->label(__("tasks.workload.columns.{$name}"));
+
+        if ($danger) {
+            $column->formatStateUsing(fn (int $state): string|Htmlable => self::dangerWhenPositive($state));
+        }
+
+        return $column;
     }
 
     /**
@@ -232,10 +283,13 @@ class TeamOverview extends Page implements HasTable
         /** @var User $viewer */
         $viewer = Auth::user();
 
-        $rows = app(BuildTeamWorkload::class)->handle($viewer, TeamRoster::subjectsFor($viewer, $includeInactive));
+        $subjects = TeamRoster::subjectsFor($viewer, $includeInactive);
+        $rows = app(BuildTeamWorkload::class)->handle($viewer, $subjects);
+        // Làn tk, Task 2: cột giao – nhận nội bộ, cùng tập người, cùng người xem.
+        $tasks = app(BuildTaskWorkload::class)->handle($viewer, $subjects);
 
         return self::sorted(
-            array_map(fn (TeamWorkloadRow $row): array => get_object_vars($row), $rows),
+            array_map(fn (TeamWorkloadRow $row): array => get_object_vars($row) + get_object_vars($tasks[$row->userId]), $rows),
             $sortColumn,
             $sortDirection,
         );

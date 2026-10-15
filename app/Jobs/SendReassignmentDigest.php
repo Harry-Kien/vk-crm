@@ -4,10 +4,12 @@ namespace App\Jobs;
 
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\ClientRequestStatus;
+use App\Enums\TaskStatus;
 use App\Mail\Staff\MatterReassigned;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\Task;
 use App\Models\User;
 use App\Support\Audit;
 use Filament\Notifications\Notification;
@@ -89,13 +91,14 @@ class SendReassignmentDigest implements ShouldQueue
     public int $tries = 5;
 
     /**
-     * @param  array<int, array{deadline_ids: array<int, int>, client_request_ids: array<int, int>, reason: string}>  $matters
-     *                                                                                                                          Keyed theo `matter_id`. `deadline_ids`/`client_request_ids` là những id
-     *                                                                                                                          CÓ THỂ còn liên quan lúc bàn giao — `handle()` hỏi lại CSDL, không tin
-     *                                                                                                                          chúng còn đúng lúc job chạy (xem docblock lớp). `reason` là lý do bàn
-     *                                                                                                                          giao của CHÍNH lần này (một chuỗi cố định, không cần dựng lại — khác
-     *                                                                                                                          hẳn mốc/yêu cầu khách, không có khái niệm "còn hợp lệ hay không" cho
-     *                                                                                                                          một chuỗi lịch sử).
+     * Keyed theo `matter_id`. `deadline_ids`/`client_request_ids` là những id CÓ THỂ còn liên quan lúc bàn
+     * giao — `handle()` hỏi lại CSDL, không tin chúng còn đúng lúc job chạy (xem docblock lớp). `reason` là
+     * lý do bàn giao của CHÍNH lần này (một chuỗi cố định, không cần dựng lại — khác hẳn mốc/yêu cầu
+     * khách, không có khái niệm "còn hợp lệ hay không" cho một chuỗi lịch sử). Làn tk, Task 2: mỗi phần tử
+     * có thể mang thêm `task_ids` — việc nội bộ vừa chuyển sang lead mới, cùng luật "dựng lại lúc gửi" (chỉ
+     * việc còn của vụ đó, còn do lead mới giữ, còn chờ nhận hay đang làm).
+     *
+     * @param  array<int, array{deadline_ids: array<int, int>, client_request_ids: array<int, int>, task_ids?: array<int, int>, reason: string}>  $matters
      */
     public function __construct(
         public readonly int $newLeadId,
@@ -142,10 +145,23 @@ class SendReassignmentDigest implements ShouldQueue
                 ->where('status', '!=', ClientRequestStatus::Closed->value)
                 ->count();
 
+            // Làn tk, Task 2: việc nội bộ vừa chuyển sang lead mới (`MoveTasksOnHandover`) — cùng luật
+            // "dựng lại lúc gửi": còn của vụ này, còn do lead mới giữ, còn chờ nhận hay đang làm.
+            $tasks = Task::query()
+                ->whereKey($ids['task_ids'] ?? [])
+                ->where('matter_id', $matter->getKey())
+                ->where('assignee_id', $newLead->getKey())
+                ->whereIn('status', [TaskStatus::Pending->value, TaskStatus::Accepted->value])
+                ->orderByRaw('CASE WHEN due_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('due_date')
+                ->orderBy('id')
+                ->get();
+
             $blocks[] = [
                 'matter' => $matter,
                 'deadlines' => $deadlines,
                 'client_requests_moved' => $clientRequestsMoved,
+                'tasks' => $tasks,
                 'reason' => $ids['reason'] ?? '',
             ];
         }

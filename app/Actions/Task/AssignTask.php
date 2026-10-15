@@ -45,7 +45,7 @@ use Illuminate\Validation\ValidationException;
  * # Báo người nhận
  *
  * Chuông + thư `staff.task.assigned`, xếp `->afterCommit()` ({@see QueuesTaskNotices}); job lọc
- * lại người nhận khi chạy ({@see TaskAlert}).
+ * lại người nhận khi chạy (`App\Jobs\SendTaskNotice`, chuông {@see TaskAlert}).
  */
 class AssignTask
 {

@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Gate;
  * một màn hình mở từ trước). Hai lần bấm "Đã nhận" cùng lúc vì vậy xếp hàng trên dòng việc: lần sau
  * thấy trạng thái lần trước đã ghi.
  *
- * # Ba câu từ chối
+ * # Hai câu từ chối
  *
  *  - {@see self::refuse()}: một câu chung (`tasks.errors.unavailable`) cho mọi lần người gọi không được
  *    xem việc, việc/vụ không còn, hay tài khoản đã bị vô hiệu — không phân biệt được với nhau (SPEC §10.10).

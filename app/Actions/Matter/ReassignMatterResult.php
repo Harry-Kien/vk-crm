@@ -30,10 +30,14 @@ final readonly class ReassignMatterResult
      *                                             của `ReassignMatter::handle()`).
      * @param  array<int, int>  $movedRequestIds  Id các `client_requests` CHƯA đóng vừa chuyển
      *                                            trong CHÍNH lần gọi này (bước 4).
+     * @param  list<int>  $movedTaskIds  Làn tk, Task 2 — id các việc nội bộ đang mở của lead cũ vừa
+     *                                   chuyển sang lead mới trong CHÍNH lần gọi này
+     *                                   (`App\Actions\Task\MoveTasksOnHandover`); cùng luật ảnh chụp.
      */
     public function __construct(
         public StageLog $stageLog,
         public array $movedDeadlineIds,
         public array $movedRequestIds,
+        public array $movedTaskIds = [],
     ) {}
 }

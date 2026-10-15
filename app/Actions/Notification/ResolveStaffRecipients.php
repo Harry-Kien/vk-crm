@@ -440,4 +440,35 @@ class ResolveStaffRecipients
             ->filter(fn (User $user): bool => $user->is_active && ! $user->trashed())
             ->values();
     }
+
+    /**
+     * Làn tk, Task 2 — người nhận lời báo CẦN NGƯỜI GIAO LÀM GÌ ĐÓ về một việc: việc bị trả lại
+     * (`staff.task.declined`), việc chưa ai nhận quá lâu, việc quá hạn (lịch `RemindPendingWork`). Người giao
+     * nếu còn hợp lệ ({@see self::forTask()}); không thì — việc của một vụ — luật sư phụ trách HIỆN TẠI của vụ
+     * (qua cùng `forTask()`), khi họ không phải chính người đang giữ việc. Lý do: người giao rời vụ (bàn giao
+     * sang người khác), nghỉ việc, hay bị vô hiệu — lời báo cần một người quyết định, và luật sư phụ trách
+     * thấy mọi việc của vụ mình (`TaskPolicy::view`) và giao lại được (`TaskPolicy::reassign`).
+     *
+     * Khác {@see self::forTask()} có chủ ý: lời báo "đã nhận", "đã hoàn thành" chỉ là tin cho chính người
+     * giao — chúng không qua đây. Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì
+     * rỗng (việc hiện ở danh sách "Công việc" của quản lý).
+     *
+     * @return Collection<int, User>
+     */
+    public function forTaskAssigner(Task $task): Collection
+    {
+        $assigner = $this->forTask($task, [$task->assigner]);
+
+        if ($assigner->isNotEmpty() || $task->matter_id === null) {
+            return $assigner;
+        }
+
+        $lead = $task->matter?->leadLawyer;
+
+        if ($lead === null || $lead->getKey() === $task->assignee_id) {
+            return collect();
+        }
+
+        return $this->forTask($task, [$lead]);
+    }
 }

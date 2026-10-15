@@ -4,11 +4,13 @@ namespace Database\Seeders;
 
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
+use App\Enums\Role;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Audit;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 
@@ -23,7 +25,9 @@ use Illuminate\Database\Seeder;
  *  - quản lý → kế toán: hai việc chung (một chờ nhận, một đang làm);
  *  - quản lý → luật sư đã nghỉ việc (`TeamPerformanceSeeder`): một việc chung còn mở — dòng của bộ lọc
  *    "Cần giao lại";
- *  - admin → luật sư phụ trách của vụ `restricted`: một việc mà quản lý KHÔNG thấy.
+ *  - admin → luật sư phụ trách của vụ `restricted`: một việc mà quản lý KHÔNG thấy;
+ *  - làn tk, Task 2: một hồ sơ chờ nhận quá lâu, một hồ sơ bị trả lại ({@see self::seedSeats()}), và việc đã
+ *    xong / lần trả lại của tháng trước cho cột "Việc hoàn thành đúng hạn" ({@see self::seedLastMonth()}).
  *
  * Ghi dòng thẳng (không qua Action): dữ liệu mẫu cần mốc thời gian trong quá khứ (giao 3 ngày trước, quá
  * hạn), và không gửi thư cho ai. Mọi dòng vẫn theo đúng luật của Action — người nhận việc của vụ là thành
@@ -110,6 +114,118 @@ class TaskSeeder extends Seeder
                 'priority' => TaskPriority::High,
                 'due_date' => $now->addDays(1)->toDateString(),
             ], TaskStatus::Pending, $now->subHours(3), null);
+        }
+
+        $this->seedSeats($pairs, $now);
+        $this->seedLastMonth($pairs, $now);
+    }
+
+    /**
+     * Làn tk, Task 2 — "Nhận hồ sơ": một hồ sơ CHỜ NHẬN quá lâu (luật sư được thêm vào đội ngũ 3 ngày trước,
+     * chưa bấm "Đã nhận hồ sơ" — dòng của khối "Hồ sơ chờ tôi nhận" và của lịch nhắc) và một hồ sơ BỊ TRẢ
+     * LẠI kèm lý do (trợ lý — dòng "Hồ sơ trả lại" của "Theo dõi đội ngũ"). Người được thêm đủ điều kiện của
+     * `AddTeamMember` (vai hợp lệ, đang làm việc, vụ thường nên vào đội ngũ là mở được vụ).
+     *
+     * @param  list<array{0: Matter, 1: User, 2: User}>  $pairs
+     */
+    private function seedSeats(array $pairs, CarbonImmutable $now): void
+    {
+        $seats = [
+            [$pairs[1] ?? $pairs[0] ?? null, Role::Lawyer, MatterRole::Associate, $now->subDays(3)->subHours(2), null],
+            [$pairs[2] ?? $pairs[0] ?? null, Role::Assistant, MatterRole::Assistant, $now->subDays(2), 'Em đang theo ba vụ cùng giai đoạn xét xử, xin anh phân công người khác giúp em.'],
+        ];
+
+        foreach ($seats as [$pair, $role, $seatRole, $assignedAt, $declineReason]) {
+            if ($pair === null) {
+                continue;
+            }
+
+            [$matter, $lead] = $pair;
+            $onTeam = $matter->team()->pluck('users.id')->all();
+            // Người tạo SAU CÙNG đủ điều kiện: các tài khoản demo đầu tiên (luatsu1, troly1…) có số vụ được
+            // xem đã ghim ở test phân quyền dữ liệu mẫu — một ghế mới không được làm đổi các số đó.
+            $member = User::query()->role($role->value)->where('is_active', true)->whereNotIn('id', $onTeam)->orderByDesc('id')->first();
+
+            if ($member === null) {
+                continue;
+            }
+
+            $matter->team()->attach($member->getKey(), [
+                'role_in_matter' => $seatRole->value,
+                'assigned_by' => $lead->getKey(),
+                'assigned_at' => $assignedAt,
+                'accepted_at' => null,
+                'declined_at' => $declineReason === null ? null : $assignedAt->addHours(4),
+                'decline_reason' => $declineReason,
+                'created_at' => $assignedAt,
+                'updated_at' => $assignedAt,
+            ]);
+        }
+    }
+
+    /**
+     * Làn tk, Task 2 — số liệu của THÁNG TRƯỚC (kỳ mặc định của "Hiệu suất theo kỳ") để cột "Việc hoàn thành
+     * đúng hạn" có giá trị: năm việc có hạn trợ lý của vụ đầu tiên đã hoàn thành (bốn đúng hạn, một trễ một
+     * ngày) — đủ ngưỡng 5 của tỉ lệ — và hai lần trợ lý đó trả lại việc (dòng nhật ký `task_declined` trong
+     * kỳ; hai việc đó sau đã huỷ).
+     *
+     * @param  list<array{0: Matter, 1: User, 2: User}>  $pairs
+     */
+    private function seedLastMonth(array $pairs, CarbonImmutable $now): void
+    {
+        if ($pairs === []) {
+            return;
+        }
+
+        [$matter, $lead, $assistant] = $pairs[0];
+        $month = $now->subMonthNoOverflow()->startOfMonth();
+
+        foreach ([3, 8, 13, 18, 22] as $index => $day) {
+            $due = $month->addDays($day);
+            $done = $index === 4 ? $due->addDay()->setTime(9, 0) : $due->setTime(15, 0);
+            $assignedAt = $due->subDays(4)->setTime(9, 0);
+
+            $task = new Task;
+            $task->forceFill([
+                'matter_id' => $matter->getKey(),
+                'title' => 'Việc tháng trước '.($index + 1).': chuẩn bị tài liệu cho buổi làm việc',
+                'assigned_by' => $lead->getKey(),
+                'assignee_id' => $assistant->getKey(),
+                'priority' => TaskPriority::Normal,
+                'due_date' => $due->toDateString(),
+                'status' => TaskStatus::Completed,
+                'assigned_at' => $assignedAt,
+                'accepted_at' => $assignedAt->addHour(),
+                'completed_at' => $done,
+                'created_at' => $assignedAt,
+                'updated_at' => $done,
+            ])->save();
+        }
+
+        foreach ([6, 20] as $day) {
+            $at = $month->addDays($day)->setTime(10, 0);
+
+            $task = new Task;
+            $task->forceFill([
+                'matter_id' => $matter->getKey(),
+                'title' => 'Việc tháng trước bị trả lại rồi huỷ',
+                'assigned_by' => $lead->getKey(),
+                'assignee_id' => $assistant->getKey(),
+                'priority' => TaskPriority::Normal,
+                'status' => TaskStatus::Cancelled,
+                'assigned_at' => $at->subHours(3),
+                'cancelled_at' => $at->addDay(),
+                'cancel_reason' => 'Đã giao việc khác thay.',
+                'created_at' => $at->subHours(3),
+                'updated_at' => $at->addDay(),
+            ])->save();
+
+            Audit::record('task_declined', $task, [
+                'matter_id' => $matter->getKey(),
+                'from' => TaskStatus::Pending->value,
+                'to' => TaskStatus::Declined->value,
+                'reason' => 'Đang quá tải.',
+            ], causer: $assistant)?->forceFill(['created_at' => $at, 'updated_at' => $at])->save();
         }
     }
 

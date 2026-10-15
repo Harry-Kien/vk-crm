@@ -39,11 +39,26 @@
                     @if ($block['client_requests_moved'] > 0)
                         <p style="margin:0;">{{ __('reassign.email.client_requests_moved', ['count' => $block['client_requests_moved']]) }}</p>
                     @endif
+
+                    {{-- Làn tk, Task 2: việc nội bộ chuyển sang theo lần bàn giao (chờ nhận). --}}
+                    @if (count($block['tasks'] ?? []) > 0)
+                        <p style="margin:8px 0 4px; font-weight:700;">{{ __('tasks.handover.email.tasks_heading') }}</p>
+                        <ul style="margin:0; padding-left:18px;">
+                            @foreach ($block['tasks'] as $task)
+                                <li>{{ __('tasks.handover.email.task_line', [
+                                    'title' => $task->title,
+                                    'due' => $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date'),
+                                ]) }}</li>
+                            @endforeach
+                        </ul>
+                    @endif
                 </td>
             </tr>
         </table>
     @endforeach
 
     <p style="margin:0 0 16px;">{{ __('reassign.email.action') }}</p>
+    {{-- Làn tk, Task 2: ghế luật sư phụ trách vừa bàn giao chờ người nhận bấm "Đã nhận hồ sơ". --}}
+    <p style="margin:0 0 16px;">{{ __('tasks.handover.email.accept_hint') }}</p>
     <p style="margin:0;">{{ __('reassign.email.salutation', ['office' => $office]) }}</p>
 @endsection

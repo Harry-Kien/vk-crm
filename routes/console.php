@@ -556,3 +556,17 @@ Schedule::call(new CapturePerformanceSnapshots)
     ->dailyAt('23:50')
     ->name('performance.snapshot')
     ->withoutOverlapping(30);
+
+/**
+ * Làn tk, Task 2 — nhắc của luồng giao – nhận nội bộ (`App\Actions\Schedule\RemindPendingWork`): việc và
+ * hồ sơ chờ nhận quá 24 giờ làm việc (nhắc người nhận; quá 48 giờ làm việc báo người giao), việc sắp đến
+ * hạn (một lần cho mỗi hạn) và việc quá hạn (mỗi ngày một lần, người nhận và người giao). Mỗi 30 phút, cả
+ * ngày; "trong giờ làm việc" là cổng của chính Action (`BusinessHours::isOpen()`, cùng luật
+ * `intakes.remind-unanswered` — không cron gõ tay theo giờ). Chống trùng nằm ở chuông và sổ thư theo
+ * từng người nhận, nên chạy lại là vô hại. `withoutOverlapping(30)`, không 1440 mặc định. Nối ở cuối tệp
+ * (luật làn song song cho tệp này); lớp gọi bằng chuỗi `Lớp@handle` để không thêm dòng `use` đầu tệp.
+ */
+Schedule::call('App\Actions\Schedule\RemindPendingWork@handle')
+    ->cron('*/30 * * * *')
+    ->name('tasks.remind')
+    ->withoutOverlapping(30);

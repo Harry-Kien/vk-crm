@@ -2,6 +2,7 @@
 
 use App\Filament\Admin\Widgets\MattersByStageWidget;
 use App\Filament\Admin\Widgets\MattersMissingDocumentsWidget;
+use App\Filament\Admin\Widgets\MyWorkQueueWidget;
 use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
 use App\Filament\Admin\Widgets\StaleMattersWidget;
 use App\Filament\Admin\Widgets\UnansweredIntakesWidget;
@@ -42,6 +43,9 @@ it('orders the dashboard widgets the way SPEC 7.1 numbers them', function () {
         UnansweredIntakesWidget::class => UnansweredIntakesWidget::getSort(),
         MattersMissingDocumentsWidget::class => MattersMissingDocumentsWidget::getSort(),
         UnseenUpdatesWidget::class => UnseenUpdatesWidget::getSort(),
+        // Làn tk, Task 2: "Việc cần xử lý của tôi" — sau mọi danh sách việc của văn phòng, trước biểu đồ
+        // thống kê (mục 6 dời từ 2 lên 3 để có chỗ; thứ tự tương đối của các mục cũ không đổi).
+        MyWorkQueueWidget::class => MyWorkQueueWidget::getSort(),
         MattersByStageWidget::class => MattersByStageWidget::getSort(),
     ];
 

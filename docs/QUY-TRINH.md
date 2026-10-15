@@ -279,6 +279,64 @@ thông báo cho nhân sự là câu hỏi cho luật sư của văn phòng (`doc
 
 ---
 
+## Giao – nhận – xử lý nội bộ: hồ sơ và công việc (làn tk)
+
+Mọi lần giao trong văn phòng đều có người nhận xác nhận, có người theo dõi, và không rơi vào khoảng trống
+khi ai đó bận, nghỉ hay rời vụ. Hai thứ được giao: **một hồ sơ** (một chỗ trong đội ngũ của vụ việc) và
+**một việc** (một đầu việc cụ thể, có hạn hoặc không). Chỉ trong nội bộ — khách không bao giờ thấy.
+
+**Nhận hồ sơ.**
+
+1. Luật sư phụ trách hay trưởng phòng thêm một người vào **tab "Đội ngũ"** của vụ (luật sư cộng sự, trợ
+   lý), hoặc **bàn giao** vụ cho một luật sư phụ trách mới (nút "Bàn giao", hay "Bàn giao hàng loạt" khi
+   một người nghỉ việc). Người nhận được báo bằng chuông.
+2. Người nhận mở **Việc của tôi**: khối **"Hồ sơ chờ tôi nhận"** có hai nút ngay trên dòng —
+   **"Đã nhận hồ sơ"** (một cú bấm) hoặc **"Trả lại"** kèm lý do (đang quá tải, xung đột lợi ích…). Cùng hai
+   nút có trên dòng của chính họ ở tab "Đội ngũ".
+3. **Trả lại không gỡ ai khỏi vụ.** Người giao, luật sư phụ trách và trưởng phòng nhận chuông và thư kèm lý
+   do; tab "Đội ngũ" và trang **Theo dõi đội ngũ** hiện "cần phân công lại". Người quản lý xử lý bằng các nút
+   sẵn có: gỡ người đó khỏi đội ngũ và thêm người khác, hoặc bàn giao vụ cho luật sư khác. Lý do trả lại chỉ
+   hiện cho người quản lý được đội ngũ và chính người trả lại.
+4. Người theo dõi (vai "Người theo dõi") và người tự thêm chính mình không phải bấm nhận. Các thành viên đã
+   có trước khi tính năng này chạy coi như đã nhận.
+
+**Giao việc.** Trong tab **"Công việc"** của vụ (luật sư phụ trách, luật sư cộng sự, trưởng phòng) hay trên
+trang **Công việc** (việc chung — trưởng phòng, quản trị viên): ghi việc cần làm, chọn người trong đội ngũ
+của vụ, đặt hạn và mức ưu tiên. Người nhận bấm **"Đã nhận"** hoặc **"Trả lại"** kèm lý do, rồi
+**"Hoàn thành"** (ghi chú kết quả tuỳ chọn). Người giao theo dõi ở tab **"Tôi đã giao"**: việc bị trả lại
+cần **"Giao lại"** hoặc **"Huỷ việc"**. Người nhận đã nghỉ hay rời đội ngũ vụ thì việc hiện "Cần giao lại".
+Việc của một vụ đã kết thúc chỉ còn huỷ được.
+
+**Khi bàn giao vụ.** Việc đang mở của luật sư phụ trách cũ trên vụ đó chuyển sang luật sư phụ trách mới ở
+trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao liệt kê chúng. Lead cũ ở lại làm luật sư cộng
+sự thì việc ở lại với họ. Việc chung của người nghỉ việc ở lại "Cần giao lại" cho trưởng phòng giao lại.
+Người giao việc đã rời vụ thì lời báo "bị trả lại" và các lời nhắc cho người giao đi tới luật sư phụ trách
+hiện tại của vụ.
+
+**Nhắc tự động** (lịch `tasks.remind`, mỗi 30 phút, chỉ trong giờ làm việc Thứ Hai–Thứ Sáu 08:00–17:30):
+
+| Khi nào | Ai nhận | Bao nhiêu lần |
+|---|---|---|
+| Việc hay hồ sơ chờ nhận quá **24 giờ làm việc** | người nhận | một lần cho mỗi lần giao |
+| Vẫn chưa nhận sau **48 giờ làm việc** | người giao (người giao đã nghỉ hay rời vụ thì luật sư phụ trách của vụ; với hồ sơ, nếu chính luật sư phụ trách là người chưa nhận thì trưởng phòng) | một lần cho mỗi lần giao |
+| Việc **đến hạn hôm nay hoặc ngày mai** | người nhận | một lần cho mỗi hạn (dời hạn thì nhắc lại cho hạn mới) |
+| Việc **quá hạn** | người nhận và người giao | mỗi ngày làm việc một lần |
+
+Mỗi lời nhắc là một chuông và một thư; không ai nhận hai lần cùng một lời nhắc. Việc đã trả lại, việc của vụ
+đã kết thúc hay đã huỷ không nhắc. Một vụ hạn chế truy cập chỉ nhắc người mở được vụ (luật sư phụ trách,
+quản trị viên).
+
+**Trên bảng điều khiển** — ô **"Việc cần xử lý của tôi"**: việc chờ tôi nhận, việc của tôi đã quá hạn, hồ sơ
+chờ tôi nhận, việc tôi giao bị trả lại; bấm một ô để mở đúng danh sách. Ô chỉ hiện khi có việc.
+
+**Trên Theo dõi đội ngũ** (và trang của một người): việc đang làm, việc chờ nhận, việc quá hạn, việc bị trả
+lại (việc người đó giao, chờ họ giao lại), hồ sơ chưa nhận, hồ sơ trả lại — số trên các vụ người xem được
+xem. **Trên Hiệu suất theo kỳ:** cột **"Việc hoàn thành đúng hạn"** (việc có hạn hoàn thành trong kỳ, xong
+không muộn hơn ngày hạn, dạng "80% (4/5)", dưới 5 việc thì "Chưa đủ dữ liệu") và số lần trả lại việc trong
+kỳ. Không xếp hạng, như mọi số của M13.
+
+---
+
 ## Nền móng chạy dưới tất cả
 
 | Thứ gì | Trạng thái |
@@ -331,8 +389,8 @@ Năm thứ dưới đây không nằm trong bất kỳ kế hoạch nào. Tôi k
    khi hệ thống chạy thật vài tháng, vì mẫu phải lấy từ chính văn bản văn phòng đang dùng.
 2. **Lịch phiên toà dạng lịch.** Dữ liệu mốc hạn đã có, nhưng nhìn theo danh sách chứ
    chưa nhìn theo tháng. Rẻ để thêm sau khi màn hình mốc hạn của M6 xong.
-3. **Giao việc nội bộ.** Hiện chỉ có mốc hạn gắn người phụ trách. Một văn phòng đông
-   người thường cần giao việc nhỏ không phải mốc tố tụng.
+3. **Giao việc nội bộ — đã làm** (chủ văn phòng yêu cầu 2026-10-10): xem mục "Giao – nhận – xử lý nội
+   bộ" ở trên. Trao đổi, thảo luận theo từng việc (chat) chưa làm — sẽ đề xuất sau.
 4. **Hoá đơn điện tử.** M9 ghi thuế giá trị gia tăng trên hợp đồng, nhưng phát hành
    hoá đơn điện tử là một tích hợp với nhà cung cấp, cần chọn nhà cung cấp trước.
 5. **Tính phí theo giờ.** Cố ý hoãn: mô hình hiện tại là ký một lần thu theo giai

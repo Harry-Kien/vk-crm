@@ -161,6 +161,7 @@ class ReassignMatters
                     $digestMatters[$matter->getKey()] = [
                         'deadline_ids' => $result->movedDeadlineIds,
                         'client_request_ids' => $result->movedRequestIds,
+                        'task_ids' => $result->movedTaskIds,
                         'reason' => $reason,
                     ];
 

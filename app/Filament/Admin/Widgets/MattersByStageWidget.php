@@ -35,7 +35,10 @@ class MattersByStageWidget extends ChartWidget
     //
     // Dời từ 1 lên 2 ở M10 Task 5, cùng lý do: widget "Liên hệ chưa ai gọi lại" chen vào ngay dưới
     // mục 3 và đẩy mục 4, 5 lên một số.
-    protected static ?int $sort = 2;
+    //
+    // Dời từ 2 lên 3 ở làn tk, Task 2: "Việc cần xử lý" của chính người xem (`MyWorkQueueWidget`) đứng
+    // ngay trước biểu đồ thống kê này, sau mọi danh sách việc của văn phòng.
+    protected static ?int $sort = 3;
 
     public function getHeading(): string|Htmlable|null
     {

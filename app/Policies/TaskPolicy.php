@@ -113,22 +113,27 @@ class TaskPolicy
             && in_array($task->status, [TaskStatus::Pending, TaskStatus::Accepted], true);
     }
 
-    /** "Sửa": người quản lý được việc ({@see self::manages()}), việc còn mở. */
+    /**
+     * "Sửa": người quản lý được việc ({@see self::manages()}), việc còn mở, và — việc của một vụ — vụ chưa
+     * kết thúc (làn tk, Task 2; rà soát Task 1, m6): cùng luật "giao việc trên một vụ" của
+     * {@see self::assignOnMatter()}. Vụ đã kết thúc thì việc còn mở chỉ còn một đường: huỷ.
+     */
     public function update(User|ClientUser $user, Task $task): bool
     {
-        return $this->manages($user, $task) && $task->isOpen();
+        return $this->manages($user, $task) && $task->isOpen()
+            && ($task->matter_id === null || $task->matter?->isOpen() === true);
     }
 
-    /** "Giao lại" cho người khác: như `update`. */
+    /** "Giao lại" cho người khác: như `update` — không giao lại việc của một vụ đã kết thúc. */
     public function reassign(User|ClientUser $user, Task $task): bool
     {
         return $this->update($user, $task);
     }
 
-    /** "Huỷ việc" (kèm lý do): như `update`. */
+    /** "Huỷ việc" (kèm lý do): người quản lý được việc, việc còn mở — kể cả trên vụ đã kết thúc. */
     public function cancel(User|ClientUser $user, Task $task): bool
     {
-        return $this->update($user, $task);
+        return $this->manages($user, $task) && $task->isOpen();
     }
 
     /** Không ai xoá một việc: huỷ là đường duy nhất, và để lại dấu vết. */

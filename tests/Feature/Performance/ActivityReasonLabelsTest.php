@@ -172,6 +172,8 @@ it('finds the four reason constants of today, each on its event', function () {
         'Deadline/UpdateDeadline.php::HANDOVER_REASON => deadline_responsible_changed.deadline_updated',
         'Matter/ReassignMatter.php::DEADLINE_HANDOVER_REASON => deadline_responsible_changed.matter_reassigned',
         'Matter/ReassignMatter.php::REQUEST_HANDOVER_REASON => client_request_assigned.matter_reassigned',
+        // Làn tk, Task 2.
+        'Task/MoveTasksOnHandover.php::HANDOVER_REASON => task_reassigned.matter_reassigned',
     ]);
 });
 

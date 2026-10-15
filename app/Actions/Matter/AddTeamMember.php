@@ -6,8 +6,10 @@ use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
+use App\Jobs\SendMatterAssignmentNotice;
 use App\Models\Matter;
 use App\Models\User;
+use App\Notifications\Staff\MatterAssignmentAlert;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -61,6 +63,14 @@ use Illuminate\Validation\ValidationException;
  * vì đây là nơi DUY NHẤT trong app "sinh" ra một `observer` qua giao diện, và người đọc sau cần
  * biết vai này không tự hạn chế quyền gì — nếu SPEC sau này muốn `observer` chỉ-đọc, cổng phải
  * được thêm ở `team()`/từng Action đọc `pivot.role_in_matter`, không phải ở đây.
+ *
+ * # Nhận hồ sơ (làn tk, Task 2)
+ *
+ * Ghế vừa thêm ghi `$actor` là người giao (`Matter::seatAssignment()`): trừ vai "người theo dõi" và trừ
+ * khi người giao tự thêm chính mình, ghế CHỜ người nhận bấm "Đã nhận hồ sơ" hoặc "Trả lại"
+ * (`AcceptMatterAssignment` / `DeclineMatterAssignment`), và người nhận được một chuông
+ * `MatterAssignmentAlert::ASSIGNED` sau commit (job lọc lại "còn hoạt động, còn xem được vụ" khi chạy).
+ * Ghế chờ nhận vẫn là thành viên đầy đủ — "chờ nhận" không bớt quyền gì trên vụ.
  */
 class AddTeamMember
 {
@@ -111,7 +121,9 @@ class AddTeamMember
                 ]);
             }
 
-            $locked->addTeamMember($member, $role);
+            // Làn tk, Task 2 — "Nhận hồ sơ": `$actor` là người giao ghế; ghế (trừ "người theo dõi")
+            // chờ người nhận bấm "Đã nhận hồ sơ" (`Matter::seatAssignment()`).
+            $locked->addTeamMember($member, $role, assignedBy: $actor);
 
             // Fix round 1, finding I1 — hỏi lại `matter.view` TRÊN CHÍNH NGƯỜI VỪA THÊM, SAU khi
             // đã ghi dòng `matter_user`, không phải trước.
@@ -140,10 +152,16 @@ class AddTeamMember
                 ]);
             }
 
-            Audit::record('team_member_added', $locked, [
+            $activity = Audit::record('team_member_added', $locked, [
                 'user_id' => $member->getKey(),
                 'role' => $role->value,
             ], $actor);
+
+            // Làn tk, Task 2: người vừa được giao ghế chờ nhận nhận một chuông (sau commit; job lọc lại
+            // "còn hoạt động, còn xem được vụ" khi chạy). Ghế không cần xác nhận thì không báo.
+            if (Matter::seatAwaitsAcceptance($member, $role, $actor) && $activity !== null) {
+                SendMatterAssignmentNotice::dispatch($locked->getKey(), $member->getKey(), MatterAssignmentAlert::ASSIGNED, $member->getKey(), $activity->getKey())->afterCommit();
+            }
         });
     }
 

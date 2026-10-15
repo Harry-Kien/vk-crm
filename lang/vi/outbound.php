@@ -87,6 +87,15 @@ return [
         'staff.task.accepted' => 'Báo người giao việc đã được nhận',
         'staff.task.declined' => 'Báo người giao việc bị trả lại',
         'staff.task.completed' => 'Báo người giao việc đã hoàn thành',
+        // Làn tk, Task 2: App\Mail\Staff\TaskReminder (lịch `tasks.remind`) và MatterAssignmentNotice (nhận hồ sơ).
+        'staff.task.reminder.awaiting' => 'Nhắc nhân sự nhận việc đang chờ',
+        'staff.task.reminder.unaccepted' => 'Báo người giao việc chưa được nhận',
+        'staff.task.reminder.due_soon' => 'Nhắc nhân sự việc sắp đến hạn',
+        'staff.task.reminder.overdue' => 'Nhắc nhân sự việc đã quá hạn',
+        'staff.task.reminder.overdue_assigner' => 'Báo người giao việc đã quá hạn',
+        'staff.task.matter.declined' => 'Báo người giao hồ sơ bị trả lại',
+        'staff.task.matter.reminder.awaiting' => 'Nhắc nhân sự nhận hồ sơ đang chờ',
+        'staff.task.matter.reminder.unaccepted' => 'Báo người giao hồ sơ chưa được nhận',
     ],
 
     'matter_tab' => [

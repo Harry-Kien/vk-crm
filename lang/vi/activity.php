@@ -271,6 +271,9 @@ return [
         'task_updated' => 'Sửa việc đã giao',
         'task_reassigned' => 'Giao lại việc cho người khác',
         'task_cancelled' => 'Huỷ việc đã giao',
+        // Làn tk, Task 2: App\Actions\Matter\AcceptMatterAssignment / DeclineMatterAssignment.
+        'matter_assignment_accepted' => 'Nhận hồ sơ được giao',
+        'matter_assignment_declined' => 'Trả lại hồ sơ được giao',
         // --- Hết khối làn tk ----------------------------------------------------------------
     ],
 
@@ -329,6 +332,10 @@ return [
             'office' => 'Văn phòng gỡ theo yêu cầu của khách (mất hoặc đổi máy)',
             // Làn fb, mục A5: ForgetPushDevice::REASON_STAFF_SUSPENDED.
             'staff_suspended' => 'Khoá truy cập ngay: gỡ mọi máy của nhân sự',
+        ],
+        // Làn tk, Task 2: MoveTasksOnHandover::HANDOVER_REASON — việc nội bộ của lead cũ chuyển khi bàn giao vụ.
+        'task_reassigned' => [
+            'matter_reassigned' => 'Bàn giao vụ việc: việc đang mở của luật sư cũ chuyển sang luật sư phụ trách mới (chờ nhận)',
         ],
     ],
 ];

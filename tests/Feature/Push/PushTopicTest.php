@@ -485,6 +485,16 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.task.accepted',
         'staff.task.completed',
         'staff.task.declined',
+        // Làn tk, Task 2: thư nhắc của lịch `tasks.remind` và thư "nhận hồ sơ" — không đẩy. Người nhận đã
+        // có chuông, và lời được giao một việc mới (thứ cần biết ngay) đã đẩy qua `staff.task.assigned`.
+        'staff.task.matter.declined',
+        'staff.task.matter.reminder.awaiting',
+        'staff.task.matter.reminder.unaccepted',
+        'staff.task.reminder.awaiting',
+        'staff.task.reminder.due_soon',
+        'staff.task.reminder.overdue',
+        'staff.task.reminder.overdue_assigner',
+        'staff.task.reminder.unaccepted',
     ];
     $pushed = array_values(array_map(fn (PushTopic $topic): string => $topic->value, array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => $topic !== PushTopic::Test)));
 

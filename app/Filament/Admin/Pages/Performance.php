@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Pages;
 
 use App\Actions\Performance\BuildPerformanceReport;
+use App\Actions\Performance\BuildTaskPerformance;
 use App\Enums\Permission;
 use App\Models\User;
 use App\Support\Audit;
@@ -115,6 +116,12 @@ class Performance extends Page implements HasTable
 
     /** @var Collection<int, User>|null */
     private ?Collection $subjects = null;
+
+    /** Làn tk, Task 2 — {@see self::taskReport()} của request này, theo (kỳ, công tắc). */
+    private ?string $taskReportKey = null;
+
+    /** @var array{rows: array<int, array{taskOnTime: Ratio, tasksDeclined: int}>, reference: array{taskOnTime: Ratio, tasksDeclined: int}|null}|null */
+    private ?array $taskReport = null;
 
     public static function getNavigationLabel(): string
     {
@@ -272,6 +279,12 @@ class Performance extends Page implements HasTable
                     ->label(__('performance.columns.p9'))
                     ->state(fn (array $record): string => $record['completionRatio']->label())
                     ->description(fn (array $record): string => self::completionBreakdown($record)),
+                // Làn tk, Task 2 — việc giao nội bộ (`BuildTaskPerformance`): tỉ lệ kèm tử/mẫu, số lần trả
+                // lại bên dưới; không sắp xếp, không tô màu (R8). Trước P8: xu hướng vẫn là cột cuối.
+                TextColumn::make('taskOnTime')
+                    ->label(__('tasks.performance.column'))
+                    ->state(fn (array $record): string => $record['taskOnTime']->label())
+                    ->description(fn (array $record): string => __('tasks.performance.declined', ['count' => $record['tasksDeclined']])),
                 // P8 (Task 7): đầu kỳ → cuối kỳ từ ảnh chụp; dòng "Chung" không có (docblock PerformanceRow).
                 TextColumn::make('trend')
                     ->label(__('performance.columns.p8'))
@@ -317,7 +330,39 @@ class Performance extends Page implements HasTable
                 default => __("performance.columns.{$code}"),
             },
             'sentence' => __("performance.explain.{$code}"),
-        ], $codes)), ...PerformanceCache::explanations()];
+        ], $codes)),
+            // Làn tk, Task 2 — cột "Việc hoàn thành đúng hạn" (`BuildTaskPerformance`).
+            ['label' => __('tasks.performance.column'), 'sentence' => __('tasks.performance.explain')],
+            ...PerformanceCache::explanations(),
+        ];
+    }
+
+    /**
+     * Làn tk, Task 2 — "Việc hoàn thành đúng hạn" và số việc trả lại của kỳ đang hiện, cho cùng người trên
+     * trang ({@see BuildTaskPerformance}); tính MỘT lần mỗi (kỳ, công tắc) trong một request và giữ tạm qua
+     * {@see PerformanceCache} như báo cáo chính, cùng bộ lọc (kỳ, công tắc, id người).
+     *
+     * @return array{rows: array<int, array{taskOnTime: Ratio, tasksDeclined: int}>, reference: array{taskOnTime: Ratio, tasksDeclined: int}|null}
+     */
+    public function taskReport(): array
+    {
+        $key = $this->stateKey();
+
+        if ($this->taskReport === null || $this->taskReportKey !== $key) {
+            /** @var User $viewer */
+            $viewer = Auth::user();
+            $subjects = $this->subjects();
+
+            $this->taskReport = PerformanceCache::remember(
+                'performance-tasks',
+                $viewer,
+                [$key, $subjects->modelKeys()],
+                fn (): array => app(BuildTaskPerformance::class)->handle($viewer, $subjects, $this->period()),
+            );
+            $this->taskReportKey = $key;
+        }
+
+        return $this->taskReport;
     }
 
     /**
@@ -405,8 +450,14 @@ class Performance extends Page implements HasTable
     private function records(?string $sortColumn, ?string $sortDirection): array
     {
         $report = $this->report();
+        // Làn tk, Task 2: hai cột việc giao nội bộ, cùng người, cùng kỳ.
+        $tasks = $this->taskReport();
+        $noTasks = ['taskOnTime' => new Ratio(0, 0), 'tasksDeclined' => 0];
 
-        $people = array_map(fn (PerformanceRow $row): array => get_object_vars($row), $report->rows);
+        $people = array_map(
+            fn (PerformanceRow $row): array => get_object_vars($row) + ($tasks['rows'][$row->userId] ?? $noTasks),
+            $report->rows,
+        );
 
         if ($sortColumn === 'name' && $sortDirection === 'desc') {
             $people = array_reverse($people, preserve_keys: true);
@@ -414,7 +465,7 @@ class Performance extends Page implements HasTable
 
         return $report->reference === null
             ? $people
-            : [self::REFERENCE_KEY => get_object_vars($report->reference)] + $people;
+            : [self::REFERENCE_KEY => get_object_vars($report->reference) + ($tasks['reference'] ?? $noTasks)] + $people;
     }
 
     /** Ghi `performance_viewed` cho người có `performance.viewAny` (R14); không ghi khi xem số của chính mình. */
