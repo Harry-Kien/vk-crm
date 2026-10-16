@@ -6,6 +6,7 @@ use App\Actions\Billing\CancelContract;
 use App\Actions\Billing\CompleteContract;
 use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
+use App\Actions\Billing\EnterSignedContract;
 use App\Actions\Billing\RecordPayment;
 use App\Actions\Billing\TriggerInstalmentsForStage;
 use App\Actions\Billing\UnwaiveInstalment;
@@ -284,6 +285,21 @@ it('locks matters first, then the code sequence, when drafting a contract', func
     ]));
 
     expect($order)->toBe(['matters', 'code_sequences']);
+});
+
+/**
+ * Làn kt — `EnterSignedContract`: lõi của `DraftContract` (`matters` rồi `code_sequences`), rồi hàng
+ * `contracts` CHÍNH transaction vừa chèn (chưa commit, không transaction nào khác khoá được — docblock
+ * Action), rồi đúng hai khoá `instalments` của lõi `ActivateContract`. Không một transaction thứ hai.
+ */
+it('locks matters first, then the code sequence, then the contract it just drafted and its instalments, when entering a signed contract', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
+
+    $order = lockOrderOf(fn () => app(EnterSignedContract::class)->handle($this->accountant, $matter, ['total_amount' => 10_000_000], [
+        ['name' => 'Trọn gói', 'amount' => 10_000_000, 'trigger_type' => 'on_signing'],
+    ], today()->toDateString()));
+
+    expect($order)->toBe(['matters', 'code_sequences', 'contracts', 'instalments', 'instalments']);
 });
 
 /**

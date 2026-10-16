@@ -29,7 +29,8 @@ use Illuminate\Validation\ValidationException;
  *  2. **Quyền:** `ContractPolicy::create` với ngữ cảnh là vụ ĐÃ KHOÁ, hỏi qua
  *     `Gate::forUser($actor)` — không phải đối tượng người gọi cầm: một vụ vừa chuyển sang
  *     `restricted` sau khi màn hình nạp nó thì quản lý không còn thấy tiền của nó nữa. Định nghĩa
- *     "ai thấy tiền của vụ nào" nằm ở `ChecksBillingAccess`, không viết lại ở đây.
+ *     "ai thấy tiền của vụ nào" nằm ở `ChecksBillingAccess`, không viết lại ở đây. `create` cho qua
+ *     `contract.manage` hoặc `contract.enter` (làn kt: kế toán nhập hợp đồng đã ký).
  *  3. **Một hợp đồng CHƯA HUỶ cho một vụ** (M9 quyết định 1, đọc lại ở làn fb mục A1): hỏi "vụ đã
  *     có hợp đồng nháp/đang hiệu lực/đã hoàn tất chưa" sau khi đã khoá vụ, để hai lần soạn đồng
  *     thời xếp hàng thay vì cùng thấy "chưa". Hợp đồng ĐÃ HUỶ không chặn: nó ở lại làm lịch sử, và
@@ -54,6 +55,11 @@ use Illuminate\Validation\ValidationException;
  * lại" tiếng Việt (`MoneyTransactionConcurrencyTest`). `blameOn($actor)` trước mọi `save()`; `Audit::record(...,
  * $actor)` bên trong transaction (không mutation probe nào phân biệt được vị trí đó với vị trí
  * ngay sau commit — nói thẳng như kế hoạch yêu cầu). Không một dòng `Auth::` nào.
+ *
+ * **Sau commit** (làn kt): người soạn không phải luật sư phụ trách thì luật sư phụ trách nhận một dòng
+ * chuông ({@see NotifyLeadLawyerOfContractEntry}) — gọi NGOÀI transaction, nên một lần chạy lại vì xung
+ * đột khoá không gửi hai lần. Bước 2–7 là lõi {@see self::draftLocked()}, dùng chung với
+ * {@see EnterSignedContract}.
  */
 class DraftContract
 {
@@ -61,71 +67,92 @@ class DraftContract
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
+    public function __construct(private readonly NotifyLeadLawyerOfContractEntry $notifier) {}
+
     /**
      * @param  array{total_amount?: mixed, vat_rate_percent?: mixed, billing_model?: BillingModel|string|null, note?: string|null}  $attributes
      * @param  list<array<string, mixed>>  $instalments
      */
     public function handle(User $actor, Matter $matter, array $attributes, array $instalments): Contract
     {
-        return $this->moneyTransaction(function () use ($actor, $matter, $attributes, $instalments): Contract {
+        $contract = $this->moneyTransaction(function () use ($actor, $matter, $attributes, $instalments): Contract {
             $lockedMatter = $this->scopelessly(Matter::query())->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
-            Gate::forUser($actor)->authorize('create', [Contract::class, $lockedMatter]);
-
-            if ($this->scopelessly(Contract::query())
-                ->where('matter_id', $lockedMatter->id)
-                ->where('status', '!=', ContractStatus::Cancelled->value)
-                ->exists()) {
-                throw ValidationException::withMessages(['matter_id' => [__('billing.validation.contract_exists')]]);
-            }
-
-            $billingModel = $this->billingModel($attributes['billing_model'] ?? null);
-
-            if ($billingModel !== BillingModel::FixedFee) {
-                throw BillingModelNotSupported::make($billingModel);
-            }
-
-            $totalAmount = $this->validatedAmount($attributes['total_amount'] ?? null, 'total_amount');
-            $vatRate = $this->validatedVatRate($attributes['vat_rate_percent'] ?? null);
-
-            $rows = [];
-
-            foreach (array_values($instalments) as $index => $row) {
-                $rows[] = $this->instalmentAttributes($lockedMatter, $row, "instalments.{$index}");
-            }
-
-            $year = now()->year;
-
-            $contract = new Contract([
-                'matter_id' => $lockedMatter->id,
-                'code' => CodeSequence::format("HD-{$year}-", CodeSequence::next("contract:{$year}")),
-                'status' => ContractStatus::Draft,
-                'billing_model' => $billingModel,
-                'total_amount' => $totalAmount,
-                'vat_rate_percent' => $vatRate,
-                'note' => isset($attributes['note']) && trim($attributes['note']) !== '' ? trim($attributes['note']) : null,
-            ]);
-            $contract->blameOn($actor)->save();
-
-            foreach ($rows as $index => $row) {
-                $instalment = new Instalment([
-                    ...$row,
-                    'contract_id' => $contract->id,
-                    'sequence' => $index + 1,
-                    'status' => InstalmentStatus::Pending,
-                ]);
-                $instalment->blameOn($actor)->save();
-            }
-
-            Audit::record('contract_drafted', $contract, [
-                'code' => $contract->code,
-                'matter_id' => $lockedMatter->id,
-                'total_amount' => $totalAmount,
-                'instalment_count' => count($rows),
-            ], $actor);
-
-            return $contract->refresh();
+            return $this->draftLocked($actor, $lockedMatter, $attributes, $instalments);
         });
+
+        $this->notifier->handle($actor, $contract, NotifyLeadLawyerOfContractEntry::DRAFTED);
+
+        return $contract;
+    }
+
+    /**
+     * LÕI — bước 2 tới 7 của docblock lớp; chỉ gọi BÊN TRONG một transaction tiền đã khoá hàng
+     * `matters` (câu đầu tiên của transaction), với đúng hàng đã khoá đó; không tự mở transaction,
+     * không gửi chuông (người gọi gửi sau commit). Hai lối vào: {@see self::handle()} và
+     * {@see EnterSignedContract} (soạn rồi kích hoạt trong CÙNG một transaction — làn kt), cùng thành
+     * ngữ `TriggerInstalmentsForStage::releaseLocked()`.
+     *
+     * @param  array{total_amount?: mixed, vat_rate_percent?: mixed, billing_model?: BillingModel|string|null, note?: string|null}  $attributes
+     * @param  list<array<string, mixed>>  $instalments
+     */
+    public function draftLocked(User $actor, Matter $lockedMatter, array $attributes, array $instalments): Contract
+    {
+        Gate::forUser($actor)->authorize('create', [Contract::class, $lockedMatter]);
+
+        if ($this->scopelessly(Contract::query())
+            ->where('matter_id', $lockedMatter->id)
+            ->where('status', '!=', ContractStatus::Cancelled->value)
+            ->exists()) {
+            throw ValidationException::withMessages(['matter_id' => [__('billing.validation.contract_exists')]]);
+        }
+
+        $billingModel = $this->billingModel($attributes['billing_model'] ?? null);
+
+        if ($billingModel !== BillingModel::FixedFee) {
+            throw BillingModelNotSupported::make($billingModel);
+        }
+
+        $totalAmount = $this->validatedAmount($attributes['total_amount'] ?? null, 'total_amount');
+        $vatRate = $this->validatedVatRate($attributes['vat_rate_percent'] ?? null);
+
+        $rows = [];
+
+        foreach (array_values($instalments) as $index => $row) {
+            $rows[] = $this->instalmentAttributes($lockedMatter, $row, "instalments.{$index}");
+        }
+
+        $year = now()->year;
+
+        $contract = new Contract([
+            'matter_id' => $lockedMatter->id,
+            'code' => CodeSequence::format("HD-{$year}-", CodeSequence::next("contract:{$year}")),
+            'status' => ContractStatus::Draft,
+            'billing_model' => $billingModel,
+            'total_amount' => $totalAmount,
+            'vat_rate_percent' => $vatRate,
+            'note' => isset($attributes['note']) && trim($attributes['note']) !== '' ? trim($attributes['note']) : null,
+        ]);
+        $contract->blameOn($actor)->save();
+
+        foreach ($rows as $index => $row) {
+            $instalment = new Instalment([
+                ...$row,
+                'contract_id' => $contract->id,
+                'sequence' => $index + 1,
+                'status' => InstalmentStatus::Pending,
+            ]);
+            $instalment->blameOn($actor)->save();
+        }
+
+        Audit::record('contract_drafted', $contract, [
+            'code' => $contract->code,
+            'matter_id' => $lockedMatter->id,
+            'total_amount' => $totalAmount,
+            'instalment_count' => count($rows),
+        ], $actor);
+
+        return $contract->refresh();
     }
 
     private function billingModel(BillingModel|string|null $value): BillingModel

@@ -11,7 +11,8 @@ ChatGPT. Đọc `docs/CHINH-SACH-AI.md` trước: bạn phải cam kết với c
 ## Trước khi bắt đầu
 
 1. **Quản trị viên đã bật quyền AI cho bạn** ("Chỉ đọc" hay "Đọc và ghi") trên trang "Kết nối AI", và
-   văn phòng đã bật máy chủ AI. Chưa thì mọi bước dưới đây kết thúc bằng lỗi.
+   văn phòng đã bật máy chủ AI (công tắc **"Cho phép trợ lý AI đọc dữ liệu"**). Chưa thì mọi bước
+   dưới đây kết thúc bằng lỗi.
 2. **Bạn đã đọc và tích cam kết** trên trang "Kết nối AI của tôi" trong `/admin`. Khi chính sách đổi
    phiên bản, bạn phải cam kết lại; tới lúc đó kết nối cũ ngừng chạy.
 3. **Bạn đã tắt việc dùng hội thoại để huấn luyện AI** trên tài khoản AI của mình
@@ -19,7 +20,7 @@ ChatGPT. Đọc `docs/CHINH-SACH-AI.md` trước: bạn phải cam kết với c
 4. **Địa chỉ máy chủ AI (URL MCP)** của văn phòng: `https://khachhang.luatvukhang.com/mcp`. Nếu văn
    phòng tách tên miền quản trị riêng, URL nằm trên **tên miền quản trị** (cùng tên miền với
    `/admin`): dán URL trên tên miền cổng khách thì kết nối không bao giờ thành. Trang "Kết nối AI của
-   tôi" hiện đúng URL cần dán.
+   tôi" hiện đúng URL cần dán, kèm nút **Sao chép**.
 5. **Bạn đang ở trong mạng mà văn phòng cho vào `/admin`**, nếu văn phòng giới hạn IP vào trang quản
    trị. Với MỌI ứng dụng (Claude web, ChatGPT, Claude Code…), bước đăng nhập `/admin` và màn hình
    đồng ý mở trong trình duyệt của CHÍNH bạn, nên chịu cùng giới hạn đó: ở nhà hay ngoài văn phòng,
@@ -27,6 +28,30 @@ ChatGPT. Đọc `docs/CHINH-SACH-AI.md` trước: bạn phải cam kết với c
    ở bất cứ đâu, cho tới lần phải kết nối lại (mã làm mới hết hạn sau 30 ngày, đổi mật khẩu, đặt lại
    xác thực hai lớp, bị thu hồi) hay phải cam kết lại chính sách (văn phòng đổi phiên bản): cả hai đi
    qua `/admin`, nên lại cần mạng của văn phòng.
+
+## Trang "Kết nối AI của tôi"
+
+Mở trong `/admin`, mục **Kết nối AI của tôi** trên thanh điều hướng. Đầu trang là một dòng **"Tình
+trạng của tôi"**, đọc từ hệ thống ngay lúc mở trang:
+
+| Dòng trạng thái | Nghĩa là | Việc của bạn |
+|---|---|---|
+| Chưa được bật | Quản trị viên chưa bật quyền AI cho bạn (hay vai của bạn không xem được nội dung vụ việc) | Hỏi quản trị viên nếu bạn cần |
+| Trợ lý AI của văn phòng đang tắt | Công tắc "Cho phép trợ lý AI đọc dữ liệu" đang tắt | Chờ quản trị viên bật lại |
+| Chưa cam kết chính sách dùng AI | Chưa cam kết, hay chính sách vừa đổi phiên bản | Bước 1 |
+| Sẵn sàng — chưa nối ứng dụng AI nào | Mọi điều kiện đã đủ | Bước 2, 3, 4 |
+| Đã kết nối | Có ít nhất một kết nối đang sống | Không cần làm gì |
+
+Bên dưới là **"Các bước kết nối"**, mỗi bước tự hiện dấu ✓ khi xong:
+
+1. **Đọc và cam kết chính sách dùng AI** — mục "Chính sách dùng AI" ngay trên trang.
+2. **Sao chép địa chỉ máy chủ** — bấm **Sao chép** cạnh địa chỉ (hay chọn địa chỉ bằng tay).
+3. **Thêm kết nối trong ứng dụng AI** — ba thẻ **Claude**, **ChatGPT**, **Ứng dụng khác**; bấm thẻ của
+   ứng dụng bạn dùng. Các bước trong thẻ là bản rút gọn của các mục dưới đây.
+4. **Đăng nhập, bấm "Đồng ý" — xong** — xem "Màn hình đồng ý" ngay dưới.
+
+Cuối trang là **"Kết nối của tôi"**: từng ứng dụng đang nối, lần dùng cuối ("3 giờ trước", kèm ngày
+giờ), và nút **Thu hồi** cho từng kết nối.
 
 **Màn hình đồng ý.** Ở mọi ứng dụng, bước cuối là đăng nhập `/admin` của văn phòng (kèm mã xác thực
 hai lớp) rồi một trang hỏi bạn có đồng ý cho ứng dụng AI hành động với danh nghĩa và quyền của bạn
@@ -147,10 +172,10 @@ ghi nhật ký cần hai lần gọi (xem trước, rồi xác nhận). Chi ti�
 - **Vừa được bật quyền, hay quản trị viên vừa đổi gì, mà ứng dụng vẫn như cũ**: Claude giữ thông tin
   máy chủ khoảng 5 phút [DC:715]; ChatGPT giữ danh sách chức năng cho tới khi bấm Refresh [DC:87].
   Chờ vài phút, bấm Refresh, hay ngắt rồi kết nối lại.
-- **Lỗi 401 lặp lại** (ứng dụng đòi đăng nhập mãi): kiểm với quản trị viên (1) quyền AI của bạn còn
-  bật không, (2) máy chủ AI của văn phòng còn bật không, và tự kiểm (3) bạn đã cam kết đúng phiên bản
-  chính sách hiện hành trên trang "Kết nối AI của tôi" chưa. Đổi mật khẩu, đặt lại xác thực hai lớp
-  cũng thu hồi mọi kết nối: kết nối lại từ đầu.
+- **Lỗi 401 lặp lại** (ứng dụng đòi đăng nhập mãi): mở trang "Kết nối AI của tôi" — dòng "Tình trạng
+  của tôi" nói lý do: (1) quyền AI của bạn chưa bật hay đã bị tắt ("Chưa được bật"), (2) máy chủ AI
+  của văn phòng đang tắt, hay (3) bạn chưa cam kết đúng phiên bản chính sách hiện hành. Đổi mật khẩu,
+  đặt lại xác thực hai lớp cũng thu hồi mọi kết nối: kết nối lại từ đầu.
 - **Lỗi 429** (quá nhiều yêu cầu): chờ đúng số giây ứng dụng báo (`Retry-After`) rồi thử lại. Mỗi
   người có giới hạn số lần gọi mỗi phút, chức năng ghi có thêm giới hạn mỗi ngày. Khi cả văn phòng
   kết nối trong cùng một giờ, bước đăng ký có thể báo 429 cho người tới sau: thử lại sang giờ sau.

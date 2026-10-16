@@ -111,8 +111,16 @@ it('counts the permissions of the M13 addition as the Permission enum does', fun
 
     preg_match('/\((\d+) quyền gốc \+ (\d+) quyền tiền của M9 \+ (\d+) quyền tiếp nhận của M10 \+ (\d+) quyền của M13 = \*\*(\d+)\*\*/u', $addition, $count);
 
+    // Làn kt (SPEC §5 "Bổ sung 2026-10-15"): một quyền sau M13 — tổng của câu M13 cộng các bổ sung sau nó
+    // là số trường hợp của enum. Câu của làn kt nói "21 quyền ở trên + 1 quyền của làn kt = **22**".
+    $kt = m13fr1SpecSection('> **Bổ sung 2026-10-15 (làn kt — kế toán nhập hợp đồng).**', "\n>\n");
+    preg_match('/\((\d+) quyền ở trên \+ (\d+) quyền của làn kt = \*\*(\d+)\*\*/u', $kt, $ktCount);
+
     expect($count)->toHaveCount(6)
-        ->and((int) $count[5])->toBe(count(Permission::cases()))
+        ->and($ktCount)->toHaveCount(4)
+        ->and((int) $ktCount[1])->toBe((int) $count[5])
+        ->and((int) $ktCount[1] + (int) $ktCount[2])->toBe((int) $ktCount[3])
+        ->and((int) $ktCount[3])->toBe(count(Permission::cases()))
         ->and((int) $count[1] + (int) $count[2] + (int) $count[3] + (int) $count[4])->toBe((int) $count[5])
         ->and((int) $count[4])->toBe(1);
 });

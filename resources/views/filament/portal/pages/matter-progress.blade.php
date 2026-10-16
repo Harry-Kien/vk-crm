@@ -350,8 +350,9 @@
              điện thoại văn phòng lặng lẽ biến mất khỏi trang. Hai thứ ấy không thay thế nhau —
              một người đang lo lắng lúc chín giờ tối muốn gọi, không muốn điền biểu mẫu — nên
              chúng cùng hiện, và cái nút đứng trước vì nó là cách để lại dấu vết trong hồ sơ. --}}
+        @php($acceptsNewRequests = $this->acceptsNewRequests())
         <section data-portal-block="7" style="{{ $card }}">
-            <h2 style="{{ $blockHeading }}">{{ __('portal_progress.blocks.requests.heading') }}</h2>
+            <h2 style="{{ $blockHeading }}">{{ $acceptsNewRequests ? __('portal_progress.blocks.requests.heading') : __('settings.business.portal_progress_requests_heading') }}</h2>
 
             {{--
                 M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27) — huy hiệu "có trả
@@ -371,11 +372,22 @@
                 </p>
             @endif
 
-            <p>{{ __('portal_progress.blocks.requests.lead') }}</p>
+            {{-- Làn st (vòng sửa 1): công tắc "khách gửi yêu cầu mới" của trang Cài đặt nghiệp vụ. Tắt thì
+                 nút không hứa điều OpenClientRequest sẽ từ chối: cùng một đích (các cuộc trao đổi đã có vẫn
+                 trả lời được), nhãn khác, kèm câu "tạm không nhận"; số hotline bên dưới vẫn hiện. --}}
+            @if (! $acceptsNewRequests)
+                <p data-portal-requests="closed">{{ __('settings.business.portal_progress_requests_off') }}</p>
 
-            <a href="{{ $this->requestEntryPoint() }}" style="{{ $primaryTap }}margin-top:0.5rem;">
-                {{ __('portal_progress.blocks.requests.open') }}
-            </a>
+                <a href="{{ $this->requestEntryPoint() }}" style="{{ $primaryTap }}margin-top:0.5rem;">
+                    {{ __('settings.business.portal_progress_requests_view') }}
+                </a>
+            @else
+                <p>{{ __('portal_progress.blocks.requests.lead') }}</p>
+
+                <a href="{{ $this->requestEntryPoint() }}" style="{{ $primaryTap }}margin-top:0.5rem;">
+                    {{ __('portal_progress.blocks.requests.open') }}
+                </a>
+            @endif
 
             <p style="margin-top:0.75rem;{{ $muted }}">{{ __('portal_progress.blocks.requests.call_lead') }}</p>
 

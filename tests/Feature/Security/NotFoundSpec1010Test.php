@@ -114,6 +114,8 @@ function spec1010GatedPages(): array
         'filament.admin.pages.team' => Role::Lawyer,
         'filament.admin.pages.receivables' => Role::Assistant,
         'filament.admin.pages.revenue-dashboard' => Role::Assistant,
+        // Làn kt — "Hợp đồng" (kế toán nhập hợp đồng đã ký): `billing.view` + `contract.enter`/`contract.manage`.
+        'filament.admin.pages.contract-entry' => Role::Assistant,
         'filament.admin.resources.client-users.index' => Role::Accountant,
         'filament.admin.resources.client-users.create' => Role::Accountant,
         'filament.admin.resources.clients.index' => Role::Accountant,
@@ -132,8 +134,17 @@ function spec1010GatedPages(): array
         'filament.admin.pages.ket-noi-ai-cua-toi' => Role::Accountant,
         // M14 — "Kho tài liệu" (con số của kho, hồ sơ chuyển dữ liệu ra nước ngoài): chỉ `settings.manage`.
         'filament.admin.pages.document-store' => Role::Lawyer,
+        // Làn tl (2026-10-15) — "Tài liệu" (mọi tài liệu người xem được thấy, xuyên các vụ): `matter.view`;
+        // kế toán (chỉ `matter.viewAny`) và nhân viên kinh doanh không có.
+        'filament.admin.pages.documents' => Role::Accountant,
         // Làn nt Task 1 — "Nhắc thanh toán cho khách" (công tắc, thông tin chuyển khoản): chỉ `settings.manage`.
         'filament.admin.pages.client-payment-reminders' => Role::Lawyer,
+        // làn st — trang tổng "Cài đặt" và bốn trang con: chỉ `settings.manage` (admin).
+        'filament.admin.pages.settings' => Role::Manager,
+        'filament.admin.pages.settings.business' => Role::Lawyer,
+        'filament.admin.pages.settings.roles' => Role::Assistant,
+        'filament.admin.pages.settings.security' => Role::Accountant,
+        'filament.admin.pages.settings.mail' => Role::Lawyer,
         // Làn kd (2026-10-14) — hai trang từng ở OPEN ("mọi vai nhân sự") đóng với vai mới "Nhân viên
         // kinh doanh", người không có `matter.view` lẫn `matter.viewAny`: danh sách vụ việc và trang Tìm
         // kiếm (cổng của nó là `viewAny` của vụ việc). Mọi vai KHÁC vẫn mở được hai trang này — test

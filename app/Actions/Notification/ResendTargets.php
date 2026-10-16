@@ -82,6 +82,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *    MỘT lần chuyển trạng thái đã qua của một việc nội bộ. Chuông trong hệ thống đi trước thư và không
  *    phụ thuộc thư (`SendTaskNotice`), và trạng thái HIỆN TẠI của việc luôn ở trang "Công việc" — gửi lại
  *    một lời báo cũ (ví dụ "được giao" cho một việc đã giao lại cho người khác) chỉ làm rối.
+ *  - `staff.test_mail` (làn st): thư thử của nút "Gửi thư thử" (Cài đặt › Thư điện tử) chỉ để kiểm
+ *    tra máy chủ gửi thư, tới chính người bấm — gửi lại từ sổ thư là bỏ qua giới hạn tần suất và nhật
+ *    ký của nút đó; bấm lại nút là đủ.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -115,6 +118,8 @@ final class ResendTargets
         // Làn nt Task 2 — lý do ở docblock lớp.
         'client.payment_reminder.*',
         'staff.task.*',
+        // làn st — lý do ở docblock lớp.
+        'staff.test_mail',
         'undeclared',
     ];
 

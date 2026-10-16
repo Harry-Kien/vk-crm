@@ -133,7 +133,7 @@ một khách hàng khác.
 | Khai các bên trong vụ việc | Tab **Các bên**; thêm, sửa, gỡ một bên (gỡ là xoá mềm kèm lý do); mỗi lần đều chạy lại kiểm tra xung đột | **[Xong]** sau M6.5 — trước đó không sửa hay gỡ được bên đã nhập, số điện thoại viết kiểu `(+84) 912 345 678` bị từ chối (`conflict-05`, `09`, `10`); sửa ở Task 9 (R14) |
 | Giao luật sư phụ trách và đội ngũ | Tab **Đội ngũ**: thêm, gỡ luật sư phối hợp, trợ lý, người theo dõi; đổi luật sư phụ trách qua **Bàn giao**; phạm vi nhìn thấy suy từ đội ngũ | **[Xong]** sau M6.5 — trước đó **không có màn hình nào** thêm người vào đội ngũ: mọi vụ chỉ có luật sư phụ trách, trợ lý không bao giờ thấy vụ (`intake/intake-01`, `roles/roles-03`, `spec-gap/spec-gap-01`, `e2e/F4`, critical); sửa ở Task 3 (R6), bàn giao một vụ ở Task 4 (R7) |
 | Áp danh mục giấy tờ theo loại vụ việc | `ApplyChecklistTemplate`, màn hình quản lý danh mục mẫu trên loại vụ việc, nút thêm đầu mục cho một vụ, thanh tiến độ `X/Y` | **[Xong]** sau M6.5 — trước đó không có màn hình danh mục mẫu nào và 3/6 loại vụ việc mở ra với danh mục rỗng, khách không nộp được giấy tờ (`intake/intake-02`, `checklist/checklist-02`, `roles/roles-06`, `spec-gap/spec-gap-04`, critical; Task 15); thanh `X/Y` đếm nhầm văn bản văn phòng phát hành (`checklist-05`; Task 17, SPEC §4.10) |
-| Ký hợp đồng dịch vụ, chốt giá trị và các đợt thu | Tab **Hợp đồng và thanh toán** trên trang vụ việc: luật sư phụ trách bấm "Soạn hợp đồng" (một giá trị, thuế suất nếu có, các đợt theo phần trăm hoặc số tiền), rồi "Kích hoạt" khi khách đã ký — tổng các đợt lệch một đồng thì không kích hoạt được | **[Xong]** M9 — xem Giai đoạn 5 |
+| Ký hợp đồng dịch vụ, chốt giá trị và các đợt thu | Tab **Hợp đồng và thanh toán** trên trang vụ việc: luật sư phụ trách bấm "Soạn hợp đồng" (một giá trị, thuế suất nếu có, các đợt theo phần trăm hoặc số tiền), rồi "Kích hoạt" khi khách đã ký — tổng các đợt lệch một đồng thì không kích hoạt được. Hợp đồng giấy đã ký mà luật sư chưa nhập thì **kế toán nhập** ở trang **Hợp đồng** (xem "Kế toán nhập hợp đồng", Giai đoạn 5) | **[Xong]** M9; kế toán nhập: làn kt (2026-10-15) |
 
 ---
 
@@ -151,6 +151,28 @@ một khách hàng khác.
 | Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Xong]** M6 (`StaleMattersWidget`, `CheckStaleMatters` + thư `StaleMatterReminder`) |
 | Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Xong]** M7: màn hình bàn giao hàng loạt (`BulkReassign`, chỉ vụ đang mở) và thư tổng hợp cho người nhận (`MatterReassigned`) |
 | Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
+
+### Tìm tài liệu (làn tl, chủ văn phòng 2026-10-15)
+
+Mục **Tài liệu** trên thanh bên trái (nhóm **Khách hàng & vụ việc**, ngay dưới Vụ việc) liệt kê **mọi tài liệu bạn được phép xem, của mọi vụ việc**, mới
+nhất ở trên. Dùng nó khi nhớ tên tài liệu, mã hồ sơ hay tên khách mà không nhớ vụ nào:
+
+- **Tìm** theo tên tài liệu, mã hồ sơ hoặc tên khách. **Lọc** theo vụ, loại vụ, nhóm (A–D), trạng thái,
+  người tải lên (kể cả "khách hàng nộp qua cổng"), khoảng ngày tải lên, và "Vụ của tôi" (vụ mình phụ
+  trách, hoặc vụ có tên mình trong đội).
+- **Tải về** ngay trên dòng (cùng đường tải, cùng sổ ghi ai tải như nút "Tải tệp" trong vụ), hoặc **Mở vụ**
+  để tới tab Tài liệu của vụ đó. Tải lên, sửa, công bố, rút lại, chuyển nhóm, xoá vẫn **chỉ** làm ở tab
+  Tài liệu của từng vụ.
+- **Ai thấy gì** — đúng luật của tab Tài liệu: quản trị viên thấy mọi vụ; trưởng phòng mọi vụ thường;
+  luật sư và trợ lý vụ có tên mình trong đội; vụ **hạn chế** chỉ luật sư phụ trách và quản trị viên (có
+  tên trong đội cũng không đủ). Nhóm D (nội bộ) chỉ người được đọc nhóm D — trợ lý không. Kế toán và nhân
+  viên kinh doanh không có mục này. Tài liệu đã xoá, tài liệu của vụ đã xoá hay đã ghi quyết định tiêu
+  huỷ không hiện. Tài liệu không được xem thì không có mặt ở đâu trên trang: không trong số đếm, kết quả
+  tìm, hay danh sách chọn vụ của bộ lọc.
+- Trang **Tìm kiếm** vẫn tìm **vụ việc** theo tiêu đề tài liệu (và mã, tên khách, các bên…), cùng luật
+  quyền; trang Tài liệu là nơi tìm **chính tài liệu**.
+- Trang **Kho tài liệu** (chỉ quản trị viên) là trang kỹ thuật: tài liệu đang lưu ở máy chủ hay Google
+  Drive, kho có chạy ổn không, các bước bật Google Drive. Không dùng trang đó để tìm tài liệu.
 
 ---
 
@@ -177,7 +199,7 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 
 | Văn phòng làm gì | Hệ thống đỡ bằng gì | Trạng thái |
 |---|---|---|
-| Chốt một giá trị hợp đồng duy nhất | Tab **Hợp đồng và thanh toán** của vụ: một hợp đồng cho một vụ, giá trị là số khách trả (đã gồm thuế nếu có); bản nháp sửa thẳng được; từ lúc kích hoạt, đổi giá trị hay lịch thu chỉ bằng **Ký phụ lục** (lý do, ngày ký, giá trị cũ và mới được giữ lại, không sửa, không xoá); bản nháp chưa có khoản thu thì xoá được | **[Xong]** M9 |
+| Chốt một giá trị hợp đồng duy nhất | Tab **Hợp đồng và thanh toán** của vụ (luật sư, trưởng phòng, quản trị viên), hoặc trang **Hợp đồng** của kế toán cho hợp đồng giấy đã ký (xem "Kế toán nhập hợp đồng" bên dưới): một hợp đồng cho một vụ, giá trị là số khách trả (đã gồm thuế nếu có); bản nháp sửa thẳng được; từ lúc kích hoạt, đổi giá trị hay lịch thu chỉ bằng **Ký phụ lục** (lý do, ngày ký, giá trị cũ và mới được giữ lại, không sửa, không xoá); bản nháp chưa có khoản thu thì xoá được | **[Xong]** M9 |
 | Chia thành các đợt thu gắn vào tiến độ | Mỗi đợt đến hạn theo một trong ba cách: khi ký hợp đồng, vào một ngày cụ thể, hoặc **khi vụ việc tới một giai đoạn** ("thu đợt hai 15 ngày sau khi nộp đơn khởi kiện") — luật sư chuyển giai đoạn là đợt đó có ngày đến hạn ngay, tính từ ngày giai đoạn thật sự xảy ra; một lượt đối chiếu 07:00 hằng ngày bắt nốt những đợt lỡ | **[Xong]** M9 (Task 4, 6) |
 | Ghi từng khoản tiền thật sự nhận, ai ghi, nhận bằng cách nào | Trang **Công nợ** của kế toán (xem "Kế toán ghi tiền" bên dưới); người ghi, ngày tiền về, cách nhận, mã giao dịch/số biên lai; ghi nhầm thì **huỷ** kèm lý do, khoản đã huỷ vẫn nằm đó | **[Xong]** M9 (Task 5, 8) |
 | Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Hệ thống không TỰ gửi thư đòi nợ quá hạn cho khách — xem "Nhắc lịch thanh toán cho khách" bên dưới | **[Xong]** M9 Task 11 |
@@ -205,7 +227,41 @@ một dòng trong nhật ký hệ thống.
     trên hợp đồng đã huỷ vẫn tính doanh thu (trang Doanh thu, P7) — **không ghi lại** khoản đó trên
     hợp đồng mới, nếu không doanh thu bị tính hai lần. Ngược lại, ghi hợp đồng mới đủ giá trị cũ thì
     cổng khách và trang Công nợ (chỉ đọc hợp đồng hiện hành) báo khách còn nợ nhiều hơn thực tế.
-    Modal **Soạn hợp đồng mới** hiện sẵn số đã thu trên hợp đồng đã huỷ để trừ ra.
+    Modal **Soạn hợp đồng mới** (và **Nhập hợp đồng** ở trang Hợp đồng của kế toán) hiện sẵn số đã thu
+    trên hợp đồng đã huỷ để trừ ra.
+
+### Kế toán nhập hợp đồng (làn kt, chủ văn phòng chọn 2026-10-15)
+
+Hồ sơ vẫn do luật sư hoặc trưởng phòng mở. Khi hồ sơ đã có mà chưa có hợp đồng (khách ký giấy, luật sư
+chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không cần, và không được, mở nội dung hồ sơ.
+
+1. Kế toán mở **Hợp đồng** (menu trái, nhóm **Tài chính**; hoặc nút **Nhập hợp đồng cho hồ sơ** đầu trang Công nợ, hoặc ô
+   "Hồ sơ chưa có hợp đồng" trên trang chủ). Trang mặc định chỉ hiện hồ sơ **chưa có hợp đồng** và hợp
+   đồng **còn nháp**; mỗi dòng có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách, số và trạng
+   thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** có tiêu đề, ghi chú, tài liệu hay các
+   bên. Kế toán không thấy vụ hạn chế ở đây (vụ hạn chế chỉ hiện với quản trị viên và luật sư phụ trách
+   vụ đó). Tìm theo mã hồ sơ hoặc tên khách; lọc theo loại vụ việc, luật sư.
+2. Bấm **Nhập hợp đồng** trên dòng đó, điền đúng như tờ hợp đồng: tổng giá trị (đã gồm thuế nếu có,
+   gõ `50.000.000`), thuế suất, từng đợt (tên, phần trăm **hoặc** số tiền, đến hạn khi ký / vào một ngày /
+   khi vụ tới một giai đoạn). Khung xem trước cho thấy số tiền từng đợt và tổng các đợt so với giá trị.
+   Số hợp đồng `HD-năm-số` do hệ thống cấp.
+   Hồ sơ có hợp đồng **đã huỷ** (lọc trạng thái "Đã huỷ"): hộp thoại hiện sẵn số đã thu trên hợp đồng đã
+   huỷ — chỉ nhập **phần còn phải thu**, không ghi lại khoản đã thu ("Tiền đã thu trên hợp đồng đã huỷ" ngay trên).
+3. Khách **đã ký** và tổng các đợt khớp giá trị: bật **Khách đã ký — kích hoạt luôn**, chọn ngày ký
+   (không ở tương lai), rồi bấm **Lưu và kích hoạt** — hợp đồng đang hiệu lực ngay, đợt "khi ký" có hạn.
+   Lệch tổng một đồng thì không lưu gì, hộp thoại giữ nguyên để sửa. Chưa chắc: để công tắc tắt — nút
+   đổi thành **Lưu nháp**, bấm **Lưu nháp**, rồi **Sửa bản nháp** / **Kích hoạt (đã ký)** / **Xoá bản
+   nháp** trên cùng dòng khi đã rõ.
+4. Luật sư phụ trách nhận một dòng chuông "Kế toán … đã nhập hợp đồng … — anh/chị kiểm tra lại." (luật sư
+   phụ trách đã nghỉ thì các trưởng phòng nhận thay; người nhập không bao giờ nhận chuông của chính mình). Từ lúc
+   kích hoạt, mọi thay đổi điều khoản (phụ lục, huỷ, miễn, dời hạn, thư nhắc khách) là việc của luật sư
+   hoặc trưởng phòng ở tab **Hợp đồng và thanh toán** — kế toán kích hoạt nhầm thì báo luật sư huỷ rồi
+   nhập lại.
+5. Tiền về: nút **Ghi khoản thu** trên dòng của hợp đồng đang hiệu lực mở trang Công nợ lọc sẵn mã hồ sơ
+   (xem "Kế toán ghi tiền" ngay dưới).
+
+Máy chủ đang chạy cần chạy lại `php artisan db:seed --force` sau bản cập nhật này để vai kế toán có quyền
+mới `contract.enter` (docs/CAI-DAT.md, "Nâng cấp lên bản mới").
 
 ### Kế toán ghi tiền
 
@@ -453,7 +509,7 @@ kỳ. Không xếp hạng, như mọi số của M13.
 | Nhật ký hoạt động cho mọi thao tác nhạy cảm | **[Xong]** một phần — trước M6.5 Task 20 trang nhật ký hiện khoá dịch thô và không hiện chi tiết (kể cả lý do ghi đè xung đột); nay đọc được, che số điện thoại/email/địa chỉ và chặn số CCCD. Tab nhật ký riêng của từng vụ việc **[Xong]** M7 Task 8 (`MatterActivityRelationManager`) |
 | Tệp nằm ngoài thư mục web, chỉ tải qua đường ký có hạn năm phút | **[Xong]** |
 | Thương hiệu văn phòng trên mọi màn hình | **[Xong]** |
-| Menu trái gọn theo nhóm, như các CRM chuyên nghiệp: trên cùng là **Bảng điều khiển**, rồi việc hằng ngày — **Công việc** (mọi nhân sự; mỗi người chỉ thấy việc mình giao, mình nhận, hoặc việc trên vụ mình xem được) và **Việc của tôi** (luật sư, trợ lý, trưởng phòng) — và **Tìm kiếm**; bên dưới năm nhóm: **Khách hàng & vụ việc** (Tiếp nhận, Khách hàng, Vụ việc, Tài khoản portal), **Tài chính** (Doanh thu, Công nợ, Nhắc thanh toán cho khách), **Đội ngũ** (Bàn giao hàng loạt, Nhân sự, Theo dõi đội ngũ, Hiệu suất), **Báo cáo** (Báo cáo tiếp nhận), **Hệ thống** (Loại vụ việc, Thông tin văn phòng, Kho tài liệu, Kết nối AI, Kết nối AI của tôi, Thư đã gửi, Nhật ký hệ thống). Nhóm chỉ đổi chỗ đặt, không đổi quyền: ai thấy mục nào vẫn như trước; nhóm nào người xem không có mục nào thì không hiện | **[Xong]** làn rv (2026-10-15) |
+| Menu trái gọn theo nhóm, như các CRM chuyên nghiệp: trên cùng là **Bảng điều khiển**, rồi việc hằng ngày — **Công việc** (mọi nhân sự; mỗi người chỉ thấy việc mình giao, mình nhận, hoặc việc trên vụ mình xem được) và **Việc của tôi** (luật sư, trợ lý, trưởng phòng) — và **Tìm kiếm**; bên dưới năm nhóm: **Khách hàng & vụ việc** (Tiếp nhận, Khách hàng, Vụ việc, Tài liệu, Tài khoản portal), **Tài chính** (Doanh thu, Công nợ, Hợp đồng, Nhắc thanh toán cho khách), **Đội ngũ** (Bàn giao hàng loạt, Nhân sự, Theo dõi đội ngũ, Hiệu suất), **Báo cáo** (Báo cáo tiếp nhận), **Hệ thống** (Cài đặt, Loại vụ việc, Thông tin văn phòng, Kho tài liệu, Kết nối AI, Kết nối AI của tôi, Thư đã gửi, Nhật ký hệ thống). Nhóm chỉ đổi chỗ đặt, không đổi quyền: ai thấy mục nào vẫn như trước; nhóm nào người xem không có mục nào thì không hiện. Ba mục mới khi gộp bốn làn kt, tl, ai, st: **Tài liệu** (mọi nhân sự mở được hồ sơ — không kế toán, không kinh doanh), **Hợp đồng** (kế toán, luật sư, trưởng phòng, quản trị viên), **Cài đặt** (chỉ quản trị viên) | **[Xong]** làn rv (2026-10-15); ba mục mới khi gộp integ-4 (2026-10-16) |
 | Thư đi ra đều có nhật ký để tra khi khách nói không nhận được | **[Xong]** sau M6.5 — bảng `outbound_messages` có từ M6 Task 1 (2026-09-23) nhưng **không có màn hình nào để tra** (`notify/notify-8`, `spec-gap/spec-gap-07`); M6.5 Task 13 thêm trang nhật ký thư, và nút "Thư đã gửi" trên trang vụ việc mở trang đó đã lọc theo vụ (mỗi người chỉ thấy thư của vụ mình được xem; admin thấy mọi dòng). Nút gửi lại một thư thất bại: M6 Task 10 |
 | Giám sát cron: cron chết thì trang chủ nói ra | **[Xong]** 2026-09-23 |
 | Xác thực hai lớp cho toàn bộ tài khoản nội bộ | **[Có kế hoạch]** M8 |
@@ -482,6 +538,85 @@ nhân sự, cách làm việc **không đổi**:
 
 Việc của chủ văn phòng trước khi bật (Workspace, Shared Drive, tài khoản dịch vụ, ý kiến luật sư về hồ
 sơ chuyển dữ liệu ra nước ngoài, máy chủ văn phòng): `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
+
+### Trợ lý AI của nhân sự — trang "Kết nối AI" (M11; trình bày lại 2026-10-15, làn ai)
+
+Nhân sự dùng tài khoản AI của chính mình (Claude, ChatGPT…) để hỏi hồ sơ và soạn nháp; trợ lý AI hành
+động với danh nghĩa và quyền của người đó, chỉ trên vụ việc đã bật "cho phép AI". Mặc định mọi thứ TẮT.
+Luật và giới hạn: `docs/CHINH-SACH-AI.md`; hướng dẫn cho nhân sự: `docs/KET-NOI-AI.md`.
+
+**Quản trị viên — trang "Kết nối AI"**, từ trên xuống:
+
+1. **Thẻ trạng thái**: một câu lớn — "Trợ lý AI đang TẮT cho toàn văn phòng", "Trợ lý AI đang BẬT — chỉ
+   đọc" hay "Trợ lý AI đang BẬT — đọc và ghi" — kèm cảnh báo vàng khi đang bật mà chưa ghi ngày nộp hồ
+   sơ đánh giá tác động, và bốn con số: nhân sự được bật, đã cam kết chính sách, đang có kết nối, lượt
+   gọi (7 ngày) — số này gồm cả lần bị từ chối hay lỗi, dòng nhỏ dưới số tách bao nhiêu thành công.
+2. **"Các bước để bắt đầu dùng"**: sáu bước, mỗi bước tự hiện ✓ theo tình trạng thật (không tích tay),
+   kèm đường làm ngay — việc pháp lý và ngày nộp hồ sơ, bật công tắc, bật cho từng nhân sự, nhân sự cam
+   kết (n/m người), nhân sự nối tài khoản AI, bật "cho phép AI" trên từng vụ việc sau khi khách đồng ý
+   bằng văn bản.
+3. **"Việc pháp lý trước khi dùng trên dữ liệu thật"**: mục thu gọn, mở sẵn tới khi ghi ngày đã nộp hồ
+   sơ (dd/mm/yyyy), đóng lại sau đó; bốn việc của chủ văn phòng vẫn ở bên trong.
+4. **Công tắc**: "Cho phép trợ lý AI đọc dữ liệu" (công tắc chính) và "Cho phép trợ lý AI ghi (tạo
+   nháp, ghi chú…)". Bấm **Lưu công tắc** thì một hộp xác nhận nói rõ hậu quả trước khi lưu (tắt đọc thì
+   mọi trợ lý AI bị từ chối ngay ở lần gọi kế tiếp; không kết nối nào bị thu hồi). Tên khoá kỹ thuật
+   nằm trong "Chi tiết kỹ thuật".
+5. **Bảng nhân sự**: chế độ (Tắt / Chỉ đọc / Đọc và ghi), cam kết chính sách, số kết nối, lần dùng cuối
+   ("2 giờ trước"); bộ lọc nhanh **Đang bật**, **Được bật, chưa cam kết** (đúng những người còn thiếu
+   của con số "đã cam kết"), **Có kết nối**; chọn nhiều người rồi
+   **Đổi chế độ** để đặt một lượt — người không bật được (tài khoản bị vô hiệu hoá, Kế toán) bị bỏ qua và
+   được nêu tên. Nút **Kết nối** ở từng dòng mở danh sách kết nối của người đó, có **Thu hồi** và **Thu
+   hồi tất cả**.
+6. **"Hoạt động của trợ lý AI"** (7 hoặc 30 ngày): lượt gọi theo ngày, theo chức năng, theo người; số
+   lần bị từ chối; số lần ghi của AI chờ người duyệt (nháp dòng tiến độ, nháp trả lời khách, mốc "Tạo
+   qua AI, chưa xác nhận" — trên vụ việc chưa bị xoá). Chỉ con số, không câu hỏi hay nội dung trả về;
+   không mã hay tên vụ việc nào.
+7. **Nhật ký MCP**: 100 dòng gần nhất, lọc theo người và theo chức năng.
+
+**Nhân sự — trang "Kết nối AI của tôi"**: dòng "Tình trạng của tôi" (chưa được bật / máy chủ AI đang
+tắt / chưa cam kết / sẵn sàng / đã kết nối), rồi "Các bước kết nối" có dấu ✓: cam kết chính sách → bấm
+**Sao chép** địa chỉ máy chủ → làm theo thẻ **Claude**, **ChatGPT** hay **Ứng dụng khác** → đăng nhập,
+bấm "Đồng ý". Cuối trang là các kết nối đang có, lần dùng cuối và nút **Thu hồi**.
+
+| Thứ gì | Trạng thái |
+|---|---|
+| Thẻ trạng thái, các bước bắt đầu dùng, hoạt động của trợ lý AI, hướng dẫn từng bước cho nhân sự | **[Xong]** 2026-10-15 (làn ai) — chỉ trình bày và số liệu đọc-chỉ; luật bảo mật của M11 không đổi |
+
+### Cài đặt — một chỗ cho mọi cấu hình (làn st, 2026-10-15)
+
+**Ai vào:** chỉ quản trị viên (quyền `settings.manage`). Mục **"Cài đặt"** (biểu tượng bánh răng, đầu nhóm **Hệ thống** của menu trái) mở một trang
+tổng như các CRM lớn: ô tìm (gõ không dấu cũng được) và các thẻ theo nhóm — Văn phòng, Người dùng & phân
+quyền, Vụ việc & tiếp nhận, Cổng khách hàng & thông báo, Tài chính, Tài liệu & lưu trữ, Trợ lý AI. Mỗi thẻ
+hiện trạng thái đang chạy thật (ví dụ "Nhắc thanh toán: Tắt", "Google Drive: Chưa bật", "2FA: 7/8 nhân sự
+đã cài") và dẫn tới trang của nó. Các trang cài đặt cũ (Thông tin văn phòng, Nhắc thanh toán cho khách,
+Kho tài liệu, Kết nối AI…) vẫn ở chỗ cũ trên menu.
+
+**Chỉnh được gì — "Cài đặt nghiệp vụ"** (mỗi lần lưu ghi vào Nhật ký hệ thống: ai, đổi gì, cũ → mới):
+
+| Cài đặt | Mặc định (chưa đổi gì) | Giới hạn |
+|---|---|---|
+| Số ngày khách còn xem hồ sơ sau khi vụ kết thúc | theo máy chủ (`CLIENT_ACCESS_DAYS`, 90) | 1–730 ngày, tính từ ngày kết thúc; vụ kết thúc từ nay theo số mới; vụ đã kết thúc giữ hạn đang có cho tới khi hồ sơ được đồng bộ lại (chuyển sang giai đoạn kết thúc khác) — khi đó tăng số ngày kéo dài hạn của vụ đó (kể cả vụ đã quá hạn xem), giảm thì không rút ngắn |
+| Gửi thư khi hồ sơ quá 21 ngày chưa cập nhật cho khách | Bật | chuông 14 ngày và cảnh báo trang chủ vẫn còn khi tắt |
+| Thời hạn phản hồi lần đầu một người liên hệ | theo máy chủ (`INTAKE_RESPONSE_HOURS`, 4) | 1–40 giờ làm việc; quá hạn thì người được giao được nhắc, chưa giao ai thì trưởng phòng và quản trị hệ thống |
+| Khách gửi yêu cầu mới trên cổng | Bật | tắt thì cuộc trao đổi đã có vẫn viết tiếp được; trên trang hồ sơ của khách, nút "Gửi yêu cầu cho văn phòng" đổi thành "Xem các cuộc trao đổi" kèm câu tạm không nhận yêu cầu mới, số hotline vẫn hiện; trang "Yêu cầu" của khách đổi tiêu đề thành "Xem và trả lời các cuộc trao đổi" và mọi câu mời "gửi một yêu cầu mới" thành gọi hotline hoặc viết tiếp trong cuộc trao đổi còn mở |
+| Dung lượng tối đa một tệp tải lên | theo máy chủ (`UPLOAD_MAX_MB`, 20) | 1 MB tới trần của máy chủ (chỉ hạ được) |
+| Tự động nhắc khách nộp giấy tờ còn thiếu | Bật | chuông 14 ngày cho luật sư vẫn còn khi tắt |
+
+Chưa đổi thì hệ thống chạy đúng như trước; đã đổi thì giá trị trên giao diện thắng `.env`; nút "Đưa tất cả
+về mặc định" trả về giá trị của máy chủ (và luôn ghi một dòng vào Nhật ký hệ thống khi có giá trị đã đặt bị
+xoá).
+
+**Chỉ xem, không đổi trên giao diện:** "Vai trò & quyền" (bảng sáu vai × quyền; đổi vai của một người ở
+trang Nhân sự), "Bảo mật đăng nhập" (2FA bắt buộc, ai chưa cài, khoá đăng nhập, giới hạn IP, HTTPS/HSTS/CSP,
+quét virus, sao lưu gần nhất — bản cũ hơn 36 giờ hiện đỏ "Quá hạn", đúng như thẻ "Sao lưu" và thư giám sát
+08:00), thời hạn lưu trữ hồ sơ, hạn giữ dữ liệu người liên hệ, các bậc nhắc mốc thời hạn, và **giờ làm việc
+của văn phòng** cùng ngưỡng nhắc việc và hồ sơ chờ nhận (24 giờ làm việc nhắc người nhận, 48 giờ báo người
+giao) — đó là luật hoặc cấu hình của máy chủ (`docs/CAI-DAT.md`). Thẻ **"Giờ làm việc & nhắc việc nội bộ"**
+của trang tổng dẫn tới đúng mục đọc-chỉ đó. Trang tổng còn có thẻ **"Kế toán nhập hợp đồng"** (mở trang
+Hợp đồng, nói bao nhiêu người nhập được) và **"Trang Tài liệu"** (bao nhiêu nhân sự mở được).
+
+**Thư điện tử:** trang nói thư đang đi qua máy chủ nào, từ địa chỉ nào; nút **"Gửi thư thử"** gửi một thư
+tới chính bạn (tối đa 3 lần mỗi 10 phút) — dùng mỗi khi đổi máy chủ thư.
 
 ---
 

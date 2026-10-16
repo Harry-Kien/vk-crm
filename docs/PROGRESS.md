@@ -9195,6 +9195,47 @@ luật sư/lĩnh vực (số sẽ lệch) — ⓘ nói rõ; thư và thông báo
 trỏ tới mục đó); QUY-TRINH dòng menu sửa cho đúng ai thấy gì. Cả bộ `--processes=2` trên cây đã gộp: **9822 passed, 40 skipped, 1 failed** — test M13 còn ghim luật cũ
 "trưởng phòng không có Việc của tôi", sửa theo phán quyết mới (276 test liên quan + tài liệu xanh); pint PASS.
 
+### Bốn tính năng theo yêu cầu 2026-10-15, gộp một lượt qua nhánh integ-4 (làn kt, tl, ai, st)
+
+Chủ văn phòng thử bản xem trước và yêu cầu thêm bốn việc; mỗi làn một task, rà soát task + rà soát lại, rà soát toàn
+làn, rồi một vòng hoàn thiện các minor người dùng sẽ gặp (phán quyết controller: chức năng phải "chuẩn chỉnh như một CRM
+thật sự").
+- **Kế toán nhập hợp đồng (kt)** — chủ văn phòng CHỌN (2026-10-15) "Cho kế toán nhập hợp đồng": quyền mới
+  `contract.enter` cho Kế toán (soạn/sửa/xoá bản nháp, kích hoạt khi đã ký — phụ lục, miễn/dời đợt, huỷ, hoàn tất vẫn là
+  `contract.manage`); trang **"Hợp đồng"** (nhóm Tài chính) với tầm nhìn rút gọn như Công nợ, mặc định lọc **"Cần nhập"**
+  (vụ đang mở chưa có hợp đồng hoặc hợp đồng đã huỷ), nhập-và-kích-hoạt trong một hộp thoại; ô trang chủ kế toán; kế toán
+  vẫn không mở được nội dung hồ sơ, không thấy vụ hạn chế. Ai không phải luật sư phụ trách nhập/kích hoạt thì luật sư phụ
+  trách nhận chuông (có nút mở tab tiền); luật sư phụ trách không nhận được thì người quản lý của vụ nhận; luật sư phụ
+  trách tự nhập hợp đồng vụ mình thì không ai nhận (việc hằng ngày). Hai tab cùng sửa một bản nháp: lời từ chối rõ ràng,
+  không mất chữ đã gõ.
+- **Trang "Tài liệu" chung (tl)** — danh sách mọi tài liệu người xem được phép thấy, xuyên các vụ (nhóm Khách hàng & vụ
+  việc): tìm theo tên/mã hồ sơ/tên khách (không dấu: "Dang" ra "Đặng"), lọc vụ (tìm được mọi vụ), nhóm A–D, trạng thái,
+  người tải, ngày; tải qua route có chữ ký + nhật ký; quyền ở mức truy vấn (nhóm D, vụ hạn chế, đã xoá/tiêu huỷ); Tìm kiếm
+  chung có nhóm "Tài liệu". **Kho tài liệu** (quản trị) viết lại bằng lời thường: dải trạng thái + "cần làm gì tiếp", danh
+  sách các bước bật Google Drive, chi tiết kỹ thuật và hồ sơ pháp lý thu gọn; dải và ô số không bao giờ trái màu nhau.
+- **Kết nối AI (ai)** — thẻ trạng thái tổng, "Các bước để bắt đầu dùng" theo trạng thái thật, hộp pháp lý thu gọn, công
+  tắc lời thường (khoá kỹ thuật vào ⓘ), bảng nhân sự lọc nhanh + đổi chế độ hàng loạt, bảng **Hoạt động AI** 7/30 ngày
+  (lượt gọi, từ chối, nháp chờ người duyệt kể cả mốc hạn AI tạo chưa xác nhận; không lộ vụ hạn chế); "Kết nối AI của tôi"
+  từng bước cho Claude và ChatGPT. Không đổi luật bảo mật nào của M11.
+- **Trung tâm Cài đặt (st)** — trang "Cài đặt" (chỉ quản trị viên, đầu nhóm Hệ thống) với thẻ theo nhóm và trạng thái
+  thật; **thông số chỉnh được trên giao diện, nối thật, mặc định = như trước**: số ngày khách còn vào cổng sau kết thúc
+  vụ, dung lượng tệp tối đa (không vượt trần máy chủ), giờ phản hồi khách liên hệ mới, công tắc thư "hồ sơ đứng im", thư
+  nhắc giấy tờ thiếu, khách gửi yêu cầu mới; mọi lần đổi/đặt lại ghi nhật ký. Đọc-chỉ: mốc nhắc hạn 14/7/3/1, ngưỡng
+  14/21 ngày, thời hạn lưu trữ, giờ làm việc & nhắc việc nội bộ, **Vai trò & quyền** (dựng từ `Role::permissions()`),
+  **Bảo mật đăng nhập**, **Thư điện tử** + "Gửi thư thử". Không đưa ra giao diện điều luật/bảo mật bắt buộc; công tắc thông
+  báo đẩy để sau (kiểm "push khả dụng" đang rải 6 chỗ).
+
+**Gộp vào main (2026-10-16):** bốn làn gộp lần lượt trên nhánh `integ-4` (từ `923ad7e1`), xung đột chữ giữ cả hai phía
+(Receivables `$tableFilters` của rv và kt gộp một khai báo; ResendTargets/ResolveStaffRecipients/lang/QUY-TRINH tk và st
+cùng thêm vào một chỗ). Commit tích hợp: nhóm menu cho ba trang mới (Hợp đồng → Tài chính, Tài liệu → Khách hàng & vụ
+việc, Cài đặt → đầu Hệ thống; `AdminNavigationGroupsTest` cập nhật), `contract.enter` vào bảng quyền, thẻ Cài đặt cho
+giờ làm việc/nhắc việc của làn tk + trang Hợp đồng + Tài liệu, chuông nhập hợp đồng dự phòng sang người quản lý, các minor
+của làn st, tài liệu thống nhất (CAI-DAT: không migration/lịch/`.env` mới; chỉ chạy lại `RolesAndPermissionsSeeder` cho
+`contract.enter`). Cả bộ trên `integ-4` (`da10ecf5`, `--processes=2`): **10189 passed, 41 skipped, 0 failed**; MariaDB 85
+passed trên tệp test đã chạm; pint PASS. Controller sửa thêm khi gộp: luật sư phụ trách tự nhập hợp đồng vụ mình không
+báo ai (bản tích hợp đã cho báo mọi trưởng phòng — tiếng ồn), TDD đỏ trước; 426 test liên quan + tài liệu xanh.
+Để sau (nhỏ): thẻ "Kho tài liệu" trên trang Cài đặt chỉ nêu chế độ lưu, chưa dùng dải đỏ/vàng của trang Kho tài liệu.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9632,9 +9673,9 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
   tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
-- Giao – nhận – xử lý hồ sơ NỘI BỘ: **ĐÃ GỘP** (làn tk). Lỗi luồng nội bộ còn treo: **ĐÃ GỘP** (làn fi). Đang làm (yêu
-  cầu 2026-10-15): kế toán nhập hợp đồng (kt), trang Tài liệu chung (tl), Kết nối AI (ai), trung tâm Cài đặt (st).
-  Trang Doanh thu gọn + nhóm menu: **ĐÃ GỘP** (làn rv). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
+- Giao – nhận – xử lý hồ sơ NỘI BỘ: **ĐÃ GỘP** (làn tk). Lỗi luồng nội bộ còn treo: **ĐÃ GỘP** (làn fi). Yêu cầu 2026-10-15 — kế toán nhập hợp đồng (kt),
+  trang Tài liệu chung (tl), Kết nối AI (ai), trung tâm Cài đặt (st), trang Doanh thu gọn + nhóm menu (rv): **ĐÃ GỘP**.
+  Còn: đợt kiểm tra chuyên sâu luồng nội bộ theo một ngày làm việc thật (7 góc nhìn). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
   (mục "Vai trò nhân viên kinh doanh (làn kd)" phía trên). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch
   thanh toán cho khách (làn nt)" phía trên).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn

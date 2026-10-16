@@ -273,7 +273,8 @@ SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi
     ```
 
     Dòng cuối phải in `upload_max_filesize => 20M => 20M` và `post_max_size => 25M => 25M`. Đặt
-    `UPLOAD_MAX_MB` khác 20 thì đổi hai con số theo.
+    `UPLOAD_MAX_MB` khác 20 thì đổi hai con số theo. Trang **Cài đặt › Cài đặt nghiệp vụ** chỉ HẠ được trần
+    này, không nâng quá `UPLOAD_MAX_MB` hay giới hạn PHP — muốn tệp lớn hơn thì nâng cả ba ở đây.
   - `proc_open` KHÔNG nằm trong `disable_functions` (sao lưu cần nó để gọi `mariadb-dump` và
     `rclone`; preflight kiểm bản của dòng lệnh — cron chạy sao lưu bằng PHP dòng lệnh).
 - **PHP dòng lệnh có `pcntl`, và ba hàm `pcntl_async_signals`, `pcntl_signal`, `pcntl_alarm`
@@ -830,7 +831,8 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
     thông báo" hiện lại trên bản ghi chưa đóng. KHÔNG sửa tệp ngôn ngữ trên máy chủ: lần `git pull`
     sau xung đột hoặc ghi đè chỗ sửa; câu chữ đổi qua kho mã.
   - `INTAKE_RESPONSE_HOURS` — ngưỡng phản hồi lần đầu, tính bằng giờ làm việc, mặc định 4
-    (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4).
+    (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4). Giá trị đặt ở trang **Cài đặt › Cài đặt nghiệp vụ**
+    (1–40 giờ) thắng biến này.
 
 **Bản cập nhật M13 (theo dõi đội ngũ) làm gì trên máy chủ đã có dữ liệu:**
 
@@ -1217,6 +1219,16 @@ cấu hình PHP:
 4. Tạo các nhân sự khác ở màn hình **Nhân sự** (chức danh nào thì vai trò đó). Mỗi người tự cài 2FA
    của mình ở lần đăng nhập đầu.
 5. Kiểm lại bốn thông tin pháp lý (Bước 3) — chúng in ở chân mọi thư gửi khách.
+6. Mở **Cài đặt** (biểu tượng bánh răng, đầu nhóm **Hệ thống** của menu trái, chỉ quản trị viên thấy): một trang tổng với các thẻ theo
+   nhóm, mỗi thẻ một trạng thái thật. Bấm **Thư điện tử → Gửi thư thử** để chắc thư tới được hộp thư
+   của bạn (thư đi ở lượt gửi hàng đợi mỗi phút của dòng cron — Bước 8). Ở **Cài đặt nghiệp vụ**, ba
+   thông số trước đây chỉ đặt được trong `.env` (`CLIENT_ACCESS_DAYS`, `UPLOAD_MAX_MB`,
+   `INTAKE_RESPONSE_HOURS`) và ba công tắc thư/cổng chỉnh được ngay trên giao diện: **chưa đổi thì hệ thống theo `.env` như cũ; đã đổi thì giá
+   trị trên giao diện THẮNG `.env`** (sửa `.env` sau đó không còn tác dụng cho tới khi bấm "Đưa tất cả
+   về mặc định"; `UPLOAD_MAX_MB` lớn hơn giới hạn PHP thì con số đang dùng là trần thật của máy chủ). Thời
+   hạn lưu trữ hồ sơ, hạn giữ dữ liệu người liên hệ, giờ làm việc của văn phòng (`config/vkcrm.php`,
+   `business_hours` — dùng cho hạn phản hồi người liên hệ và lịch nhắc việc `tasks.remind`), 2FA, giới hạn
+   IP, HTTPS/HSTS/CSP, ClamAV, sao lưu vẫn chỉ đặt trên máy chủ — trang chỉ hiện chúng, đọc-chỉ.
 
 ### Bước 10 — Sao lưu, và một lần khôi phục thử
 
@@ -1469,7 +1481,9 @@ sudo -u www-data php artisan up
   (`intake.create`, `intake.viewAny`, `intake.convert`) — không chạy thì menu Tiếp nhận không hiện
   với ai, kể cả quản trị viên; bản M12 không thêm quyền nào; bản M13 thêm quyền `performance.viewAny` —
   không chạy thì trang Theo dõi đội ngũ không hiện với ai; bản M14 không thêm quyền nào (trang "Kho
-  tài liệu" dùng quyền `settings.manage` sẵn có). Từng bản làm gì trên máy chủ đã có dữ liệu:
+  tài liệu" dùng quyền `settings.manage` sẵn có); bản "Kế toán nhập hợp đồng" (làn kt) thêm quyền
+  `contract.enter` cho vai kế toán — không chạy thì kế toán không thấy trang Hợp đồng và không nhập được
+  hợp đồng cho hồ sơ (không migration nào, không tác vụ lịch mới); ba làn lên cùng lần với nó — trang Tài liệu, Kết nối AI, Cài đặt — không thêm quyền nào (bảng một chỗ ở mục "Bản cập nhật gộp bốn làn" dưới). Từng bản làm gì trên máy chủ đã có dữ liệu:
   Bước 5, các đoạn "Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13, "Nhân viên kinh doanh",
   "Nhắc lịch thanh toán cho khách"). Bản nào
   phải làm thêm việc tay TRƯỚC hay SAU chuỗi lệnh này có hướng dẫn riêng — hôm nay là M11
@@ -1582,6 +1596,29 @@ luật sư) trên trang "Kho tài liệu"; `vkcrm:storage:migrate --dry-run`; đ
 --max-minutes=240`, nhiều đêm); `vkcrm:storage:verify --all`. Quay lui: đặt `local`, `optimize` và
 `chmod 600 bootstrap/cache/config.php` TRƯỚC, rồi `vkcrm:storage:rollback` (lệnh từ chối khi công tắc còn `google_drive`). Máy chủ văn phòng
 (bản thứ hai ngoài Google, mã hoá): `docs/SAO-LUU-KHOI-PHUC.md`, Phụ lục D.
+
+### Bản cập nhật gộp bốn làn: Kế toán nhập hợp đồng, trang Tài liệu, Kết nối AI, Cài đặt (kt, tl, ai, st)
+
+Bốn làn này lên máy chủ cùng một lần (gộp 2026-10-16). Mọi việc trên máy chủ của cả bốn, ở một chỗ:
+
+| Làn | Migration mới | Tác vụ lịch mới | Quyền mới — `db:seed --force` (`RolesAndPermissionsSeeder`) | Biến `.env` mới |
+|---|---|---|---|---|
+| kt — Kế toán nhập hợp đồng | không | không | **có**: `contract.enter` cho vai kế toán — **phải chạy lại `RolesAndPermissionsSeeder`** (dòng `db:seed --force` của chuỗi lệnh); không chạy thì kế toán không thấy trang Hợp đồng | không |
+| tl — trang Tài liệu, Kho tài liệu nói tiếng thường | không | không | không (trang Tài liệu dùng `matter.view` sẵn có) | không |
+| ai — trang Kết nối AI | không | không | không | không |
+| st — trung tâm Cài đặt | không | không | không (dùng `settings.manage` sẵn có) | không |
+
+Vậy chuỗi lệnh nâng cấp ở trên, nguyên vẹn, là đủ — miễn là dòng `db:seed --force` có chạy (nó chạy lại
+`RolesAndPermissionsSeeder`, an toàn để chạy lại). Dòng cron giữ nguyên. Sau khi lên bản, với trung tâm
+Cài đặt (làn st):
+
+1. Ba thông số `CLIENT_ACCESS_DAYS`, `UPLOAD_MAX_MB`, `INTAKE_RESPONSE_HOURS` vẫn được đọc từ `.env` cho
+   tới khi quản trị viên lưu một giá trị khác ở **Cài đặt › Cài đặt nghiệp vụ**; từ lúc đó giá trị trên
+   giao diện thắng `.env`. Ba công tắc mới (thư 21 ngày "hồ sơ chưa cập nhật cho khách", thư nhắc khách
+   nộp giấy tờ, khách gửi yêu cầu mới trên cổng) mặc định BẬT — đúng hành vi trước bản này.
+2. Nút **Gửi thư thử** (Cài đặt › Thư điện tử) xếp thư vào hàng đợi thư thường: lượt gửi hàng đợi mỗi
+   phút của dòng cron (Bước 8) đưa nó đi — cron chưa chạy thì thư nằm chờ. Kết quả hiện trên trang và
+   ở "Thư đã gửi".
 
 ### Nâng cấp hỏng: quay lại bản trước
 

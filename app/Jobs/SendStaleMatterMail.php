@@ -12,6 +12,7 @@ use App\Models\OutboundMessage;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\MatterStaleness;
+use App\Support\Settings\BusinessSettings;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -108,14 +109,20 @@ class SendStaleMatterMail implements ShouldQueue
     }
 
     /**
-     * Các bước tính lại của `handle()`, một chỗ: hồ sơ còn tồn tại, còn nằm trong tập đình trệ
-     * (`MatterStaleness::scopeStale()`), còn quá ngưỡng thư, rồi người nhận. `null` khi một bước
+     * Các bước tính lại của `handle()`, một chỗ: công tắc thư còn bật (làn st,
+     * {@see BusinessSettings::staleMatterMailEnabled()} — tắt giữa lúc xếp và lúc chạy thì thư không đi,
+     * và nút "Gửi lại" của nhật ký thư không còn ai để gửi), hồ sơ còn tồn tại, còn nằm trong tập đình
+     * trệ (`MatterStaleness::scopeStale()`), còn quá ngưỡng thư, rồi người nhận. `null` khi một bước
      * nào đó không còn đúng.
      *
      * @return array{0: Matter, 1: Collection<int, User>}|null
      */
     private function context(): ?array
     {
+        if (! BusinessSettings::staleMatterMailEnabled()) {
+            return null;
+        }
+
         /** @var Matter|null $matter */
         $matter = Matter::query()->find($this->matterId);
 

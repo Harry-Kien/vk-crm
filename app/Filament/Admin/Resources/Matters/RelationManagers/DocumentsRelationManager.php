@@ -21,6 +21,7 @@ use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
+use App\Support\Settings\BusinessSettings;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
@@ -1050,12 +1051,13 @@ class DocumentsRelationManager extends RelationManager
         return $item;
     }
 
-    /** Cùng con số mà `FileGuard` đọc (SPEC §6.6 bước 4), lấy từ một chỗ duy nhất. */
+    /**
+     * Cùng con số mà `FileGuard` đọc (SPEC §6.6 bước 4), lấy từ một chỗ duy nhất:
+     * {@see BusinessSettings::uploadMaxMegabytes()} (trang "Cài đặt nghiệp vụ", mặc định `UPLOAD_MAX_MB`).
+     */
     public static function maxUploadMegabytes(): int
     {
-        $configured = config('vkcrm.upload_max_mb');
-
-        return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : 20;
+        return BusinessSettings::uploadMaxMegabytes();
     }
 
     /**

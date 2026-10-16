@@ -119,6 +119,21 @@ return [
          * (`tab.closed_notice`), không mượn câu này.
          */
         'closed_notice' => 'Cuộc trao đổi này đã kết thúc nên không viết thêm được nữa. Nếu còn điều cần hỏi, anh/chị gửi một yêu cầu mới ở ô trên cùng.',
+
+        /*
+         * Làn st, rà soát cuối I1 — bản của các câu trên khi công tắc "khách gửi yêu cầu mới" (trang Cài đặt
+         * nghiệp vụ) đang TẮT. Khi đó ô gửi không có và `OpenClientRequest` từ chối, nên không câu nào được
+         * mời khách "gửi một yêu cầu mới": mỗi câu chỉ hai việc khách làm được — gọi hotline, hoặc viết tiếp
+         * trong một cuộc trao đổi còn mở. Người chọn: `MyRequests` (tiêu đề, câu trạng thái, view) và
+         * `ClientRequestNotOpen::closed()`, cùng hỏi `BusinessSettings::clientRequestsEnabled()`.
+         */
+        'off' => [
+            'heading' => 'Xem và trả lời các cuộc trao đổi',
+            'new_heading' => 'Tạm dừng nhận yêu cầu mới',
+            'history_empty' => 'Chưa có cuộc trao đổi nào về hồ sơ này. Văn phòng tạm không nhận yêu cầu mới qua cổng; khi cần hỏi, anh/chị gọi hotline của văn phòng.',
+            'status_closed' => 'Việc này đã xong. Nếu còn điều cần hỏi, anh/chị gọi hotline của văn phòng hoặc viết tiếp trong một cuộc trao đổi còn mở.',
+            'closed_notice' => 'Cuộc trao đổi này đã kết thúc nên không viết thêm được nữa. Nếu còn điều cần hỏi, anh/chị gọi hotline của văn phòng hoặc viết tiếp trong một cuộc trao đổi còn mở.',
+        ],
     ],
 
     // =====================================================================================

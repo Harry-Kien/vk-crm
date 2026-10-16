@@ -12,6 +12,7 @@ use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Settings\BusinessSettings;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -113,15 +114,21 @@ class SendMissingDocumentsMail implements ShouldQueue
     }
 
     /**
-     * Ba bước tính lại của `handle()`, một chỗ: hồ sơ (kèm cổng §6.9), danh sách đầu mục còn thiếu,
-     * người nhận (R12, rồi vụ còn trên cổng của chính họ). `null` khi hồ sơ không còn trong tập hoặc
-     * không còn gì thiếu. `$matter` là bản ghi ĐẦY ĐỦ (`mattersAwaitingClient()` không chọn cột),
-     * đúng thứ `onPortal()` cần để hỏi `MatterPolicy::view`.
+     * Các bước tính lại của `handle()`, một chỗ: công tắc thư còn bật (làn st,
+     * {@see BusinessSettings::missingDocumentsMailEnabled()} — tắt giữa lúc xếp và lúc chạy thì thư không
+     * đi), hồ sơ (kèm cổng §6.9), danh sách đầu mục còn thiếu, người nhận (R12, rồi vụ còn trên cổng
+     * của chính họ). `null` khi công tắc tắt, hồ sơ không còn trong tập hoặc không còn gì thiếu.
+     * `$matter` là bản ghi ĐẦY ĐỦ (`mattersAwaitingClient()` không chọn cột), đúng thứ `onPortal()` cần
+     * để hỏi `MatterPolicy::view`.
      *
      * @return array{0: Matter, 1: Collection, 2: Collection<int, ClientUser>}|null
      */
     private function context(): ?array
     {
+        if (! BusinessSettings::missingDocumentsMailEnabled()) {
+            return null;
+        }
+
         $matter = ChecklistProgress::mattersAwaitingClient(Matter::query()->whereKey($this->matterId))->first();
 
         if ($matter === null) {

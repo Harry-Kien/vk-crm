@@ -211,6 +211,17 @@ class ResolveStaffRecipients
     }
 
     /**
+     * Như {@see self::qualifies()} nhưng với cổng TIỀN của {@see self::forBilling()} (`is_active`, chưa xoá
+     * mềm, `ContractPolicy::viewAny` của vụ) — gộp integ-4 mục D: `NotifyLeadLawyerOfContractEntry` hỏi
+     * "luật sư phụ trách còn nhận được chuông về tiền của vụ không" để tự chọn người thay, thay vì chuỗi dự
+     * phòng một người của `forBilling()`.
+     */
+    public function qualifiesForBilling(User $user, Matter $matter): bool
+    {
+        return $this->qualify(collect([$user]), $matter, billing: true)->isNotEmpty();
+    }
+
+    /**
      * @param  array<string, mixed>  $mustAllow
      * @return Collection<int, User>
      *
@@ -521,5 +532,23 @@ class ResolveStaffRecipients
     public function assignerName(Task $task): string
     {
         return (string) User::query()->withTrashed()->whereKey($task->assigned_by)->value('name');
+    }
+
+    /**
+     * Người nhận thư thử của nút "Gửi thư thử" (làn st, Cài đặt › Thư điện tử): ĐÚNG người đã bấm, và
+     * chỉ khi LÚC GỬI họ vẫn đang hoạt động, chưa xoá mềm, còn `settings.manage` — người bị hạ quyền
+     * hay vô hiệu hoá giữa lúc bấm và lúc job chạy không nhận gì. Không gắn với vụ việc nào (thư không
+     * mang dữ liệu hồ sơ), nên không có cổng `view` hay chuỗi dự phòng: không ai thay người bấm.
+     *
+     * @return Collection<int, User> rỗng hoặc đúng một người
+     */
+    public function forTestMail(int $userId): Collection
+    {
+        return User::query()
+            ->whereKey($userId)
+            ->where('is_active', true)
+            ->get()
+            ->filter(fn (User $user): bool => Gate::forUser($user)->allows(Permission::SettingsManage->value))
+            ->values();
     }
 }
