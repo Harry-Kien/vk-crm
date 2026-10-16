@@ -2,6 +2,7 @@
 
 use App\Enums\PreflightLevel;
 use App\Enums\Role;
+use App\Filament\Admin\Pages\DocumentLibrary;
 use App\Filament\Admin\Pages\DocumentStorePage;
 use App\Models\Client;
 use App\Models\Document;
@@ -17,6 +18,8 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Field;
+use Filament\Schemas\Components\Section;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Livewire\Livewire;
@@ -345,4 +348,223 @@ it('trang dùng biến màu Filament đã đăng ký, không class viết tay tr
 
     expect(unregisteredColourVariables($markup))->toBe([])
         ->and($markup)->not->toContain('class=');
+});
+
+// ---------------------------------------------------------------------------------------------
+// Làn tl (2026-10-15) — trang nói tiếng thường: dải trạng thái, các bước bật Drive, bốn ô số có màu,
+// "Chi tiết kỹ thuật" thu gọn, hồ sơ pháp lý thu gọn, ô ngày dd/mm/yyyy. Mọi con số và hành vi giữ nguyên.
+// ---------------------------------------------------------------------------------------------
+
+function tlStoreHtml(User $admin): string
+{
+    return test()->actingAs($admin, 'web')->get(DocumentStorePage::getUrl(panel: 'admin'))->assertOk()->getContent();
+}
+
+/** Giá trị thuộc tính `$attribute` trên thẻ mở đầu tiên chứa `$marker`. */
+function tlStoreAttribute(string $html, string $marker, string $attribute): ?string
+{
+    $tag = (string) str($html)->after($marker)->before('>');
+
+    return preg_match('/'.preg_quote($attribute, '/').'="([^"]*)"/', $tag, $m) === 1 ? $m[1] : null;
+}
+
+/** HTML của trang bỏ đi khối "Chi tiết kỹ thuật". */
+function tlStoreWithoutTechnical(string $html): string
+{
+    return (string) preg_replace('/<details data-section="technical".*?<\/details>/s', '', $html);
+}
+
+it('dải trạng thái: một câu cho mỗi tình huống, xanh/vàng/đỏ, kèm "cần làm gì tiếp"', function (Closure $arrange, string $state, string $situation, array $replace) {
+    $this->freezeTime();
+    $arrange();
+
+    $html = html_entity_decode(tlStoreHtml($this->admin), ENT_QUOTES);
+
+    expect(tlStoreAttribute($html, 'data-overview', 'data-state'))->toBe($state)
+        ->and(tlStoreAttribute($html, 'data-overview', 'data-situation'))->toBe($situation)
+        ->and($html)->toContain(__('document_store.page.overview.headline.'.$situation, $replace))
+        ->and($html)->toContain(__('document_store.page.overview.next.'.$situation));
+})->with([
+    'chỉ lưu trên máy chủ' => [fn () => null, 'ok', 'local', []],
+    'chế độ máy chủ mà còn tệp trên Drive' => [function () {
+        Store::remoteMedia();
+        Store::remoteMedia();
+    }, 'warning', 'remote_while_local', ['count' => '2']],
+    'giá trị chế độ lạ' => [fn () => config(['vkcrm.storage.driver' => 'drive']), 'error', 'driver_invalid', []],
+    'đã chọn Drive nhưng chưa bật' => [fn () => config(['vkcrm.storage.driver' => DocumentStore::DRIVER_GOOGLE_DRIVE]), 'warning', 'not_enabled', []],
+    'kiểm tra báo lỗi cấu hình' => [function () {
+        Store::enableRemote(now()->subDay());
+        SystemHealth::current()->forceFill(['document_store_status' => 'misconfigured', 'document_store_checked_at' => now()])->save();
+    }, 'error', 'check_failed', []],
+    'kiểm tra báo không truy cập được' => [function () {
+        Store::enableRemote(now()->subDay());
+        SystemHealth::current()->forceFill(['document_store_status' => 'unavailable', 'document_store_checked_at' => now()])->save();
+    }, 'error', 'check_failed', []],
+    'kiểm tra báo có việc cần xem' => [function () {
+        Store::enableRemote(now()->subDay());
+        SystemHealth::current()->forceFill(['document_store_status' => 'degraded', 'document_store_checked_at' => now()])->save();
+    }, 'warning', 'degraded', []],
+    'chưa có lần kiểm tra nào sau khi bật' => [fn () => Store::enableRemote(now()->subDay()), 'warning', 'not_checked', []],
+    'còn tệp cũ chưa chuyển' => [function () {
+        Store::enableRemote(now()->subDay());
+        Store::media(['created_at' => now()->subDays(30)]);
+        Store::media(['created_at' => now()->subDays(20)]);
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'warning', 'legacy_pending', ['count' => '2']],
+    'Drive chạy ổn, tệp cũ đã chuyển hết' => [function () {
+        Store::enableRemote(now()->subDay());
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'ok', 'remote_ok', []],
+    'quá hạn nộp hồ sơ (production)' => [function () {
+        config(['app.env' => 'production']);
+        Store::enableRemote(now()->subDays(70));
+        Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(63)->toIso8601String());
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_on'], now()->subDays(70)->toDateString());
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_basis'], 'Ý kiến số 12');
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'error', 'dossier_overdue', ['days' => 3]],
+    'quá 60 ngày ngoài production: không có hạn pháp lý nào' => [function () {
+        Store::enableRemote(now()->subDays(70));
+        Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(63)->toIso8601String());
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'ok', 'remote_ok', []],
+    'sắp tới hạn nộp hồ sơ (production)' => [function () {
+        config(['app.env' => 'production']);
+        Store::enableRemote(now()->subDays(60));
+        Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(57)->toIso8601String());
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_on'], now()->subDays(60)->toDateString());
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_basis'], 'Ý kiến số 12');
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'warning', 'dossier_due', ['days' => 3]],
+]);
+
+it('nói ngay đầu trang đây là trang kỹ thuật, và dẫn nhân sự tới trang Tài liệu', function () {
+    $html = tlStoreHtml($this->admin);
+
+    expect(html_entity_decode($html, ENT_QUOTES))->toContain(__('document_store.page.overview.intro'))
+        ->and($html)->toContain('href="'.DocumentLibrary::getUrl(panel: 'admin').'"');
+});
+
+it('các bước bật Google Drive đánh dấu đúng bước đã xong', function (Closure $arrange, array $done) {
+    $this->freezeTime();
+    $arrange();
+
+    $html = tlStoreHtml($this->admin);
+
+    foreach (['server', 'shared_drive', 'dossier', 'enabled_checked', 'migrated'] as $step) {
+        expect(tlStoreAttribute($html, 'data-step="'.$step.'"', 'data-done'))
+            ->toBe(in_array($step, $done, true) ? '1' : '0', "bước {$step}");
+    }
+})->with([
+    'chưa làm gì' => [fn () => null, []],
+    'đã đặt khoá và Shared Drive' => [function () {
+        config([
+            'vkcrm.storage.google_drive.credentials_path' => '/etc/vkcrm/google-drive-key.json',
+            'vkcrm.storage.google_drive.shared_drive_id' => FakeGoogleDrive::DRIVE_ID,
+            'vkcrm.storage.google_drive.root_folder_id' => FakeGoogleDrive::ROOT_FOLDER_ID,
+        ]);
+    }, ['server', 'shared_drive']],
+    'Shared Drive thiếu thư mục gốc thì chưa xong' => [function () {
+        config(['vkcrm.storage.google_drive.shared_drive_id' => FakeGoogleDrive::DRIVE_ID]);
+    }, []],
+    'có ý kiến luật sư cho chuyển trước' => [function () {
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_on'], '2026-09-29');
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_basis'], 'Ý kiến số 12');
+    }, ['dossier']],
+    'có ngày hồ sơ' => [fn () => Store::setting(TransferDossier::KEYS['transfer_dossier_on'], '2026-10-02'), ['dossier']],
+    'đã bật, tệp cũ chuyển hết, nhưng lần kiểm tra chưa đạt' => [function () {
+        Store::enableRemote(now()->subDay());
+        SystemHealth::current()->forceFill(['document_store_status' => 'degraded', 'document_store_checked_at' => now()])->save();
+    }, ['migrated']],
+    'đã bật, kiểm tra đạt, còn tệp cũ' => [function () {
+        Store::enableRemote(now()->subDay());
+        Store::media(['created_at' => now()->subDays(30)]);
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, ['enabled_checked']],
+    'còn mốc bật và kiểm tra đạt mà công tắc đã về máy chủ: chưa bật' => [function () {
+        Store::setting(DocumentStore::REMOTE_ENABLED_AT_KEY, now()->subDay()->toIso8601String());
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, []],
+]);
+
+it('bốn ô số nói tốt hay cần xem bằng màu', function () {
+    $this->freezeTime();
+    config(['vkcrm.storage.google_drive.shared_drive_id' => FakeGoogleDrive::DRIVE_ID]);
+
+    // Chế độ máy chủ: tệp cũ trên máy chủ là bình thường, không phải việc cần làm.
+    Store::media(['created_at' => now()->subDays(30)]);
+    $html = tlStoreHtml($this->admin);
+    expect(tlStoreAttribute($html, 'data-figure="legacy"', 'data-tone'))->toBe('neutral')
+        ->and(tlStoreAttribute($html, 'data-figure="pending_new"', 'data-tone'))->toBe('neutral')
+        ->and(tlStoreAttribute($html, 'data-figure="unreceipted"', 'data-tone'))->toBe('neutral');
+
+    // Drive đã bật: còn tệp cũ là việc cần làm; không tệp mới nào chờ là tốt; tệp trên Drive chưa có
+    // bản ở máy văn phòng là việc cần xem.
+    Store::enableRemote(now()->subDay());
+    Store::remoteMedia();
+    $html = tlStoreHtml($this->admin);
+    expect(tlStoreAttribute($html, 'data-figure="legacy"', 'data-tone'))->toBe('warning')
+        ->and(tlStoreAttribute($html, 'data-figure="pending_new"', 'data-tone'))->toBe('good')
+        ->and(tlStoreAttribute($html, 'data-figure="unreceipted"', 'data-tone'))->toBe('warning')
+        ->and(tlStoreAttribute($html, 'data-figure="local_copies"', 'data-tone'))->toBe('neutral');
+
+    // Tệp mới vừa tạo đang chờ đẩy: bình thường. Chờ quá ngưỡng báo động: xấu.
+    Store::media(['created_at' => now()->subMinute()]);
+    expect(tlStoreAttribute(tlStoreHtml($this->admin), 'data-figure="pending_new"', 'data-tone'))->toBe('neutral');
+
+    Store::media(['created_at' => now()->subMinutes((int) config('vkcrm.storage.push_alert_minutes') + 5)]);
+    expect(tlStoreAttribute(tlStoreHtml($this->admin), 'data-figure="pending_new"', 'data-tone'))->toBe('danger');
+
+    // Mọi tệp trên Drive đã có bản ở máy văn phòng: tốt.
+    DB::table('drive_objects')->update(['office_copied_at' => now()]);
+    expect(tlStoreAttribute(tlStoreHtml($this->admin), 'data-figure="unreceipted"', 'data-tone'))->toBe('good');
+});
+
+it('tên biến môi trường và lệnh artisan chỉ nằm trong mục "Chi tiết kỹ thuật", mặc định đóng', function () {
+    $html = html_entity_decode(tlStoreHtml($this->admin), ENT_QUOTES);
+
+    preg_match('/<details data-section="technical"([^>]*)>(.*?)<\/details>/s', $html, $technical);
+
+    expect($technical)->not->toBeEmpty()
+        ->and($technical[1])->not->toContain('open')
+        ->and($technical[2])->toContain('DOCUMENT_STORAGE')
+        ->and($technical[2])->toContain('php artisan vkcrm:storage:check')
+        ->and($technical[2])->toContain('vkcrm:storage:migrate')
+        ->and($technical[2])->toContain('vkcrm:storage:enable');
+
+    $plain = tlStoreWithoutTechnical($html);
+
+    foreach (['DOCUMENT_STORAGE', 'GOOGLE_DRIVE_', 'vkcrm:storage', 'php artisan', 'Cloud Data Processing Addendum', 'Media trên kho'] as $jargon) {
+        expect($plain)->not->toContain($jargon);
+    }
+});
+
+it('mục hồ sơ chuyển dữ liệu ra nước ngoài thu gọn, chỉ mở sẵn khi đã chọn Drive mà chưa có ngày hồ sơ lẫn ý kiến luật sư', function () {
+    $this->actingAs($this->admin, 'web');
+
+    // Mục hồ sơ là Section DUY NHẤT của form (không đặt `key()`: một khoá trên Section đổi khoá của mọi ô
+    // con thành `<khoá>.<ô>`).
+    $section = fn (): Section => Livewire::test(DocumentStorePage::class)->instance()->form
+        ->getComponent(fn ($component): bool => $component instanceof Section, withHidden: true);
+
+    expect($section()->isCollapsible())->toBeTrue()
+        ->and($section()->isCollapsed())->toBeTrue();
+
+    config(['vkcrm.storage.driver' => DocumentStore::DRIVER_GOOGLE_DRIVE]);
+
+    expect($section()->isCollapsed())->toBeFalse();
+
+    Store::setting(TransferDossier::KEYS['transfer_before_dossier_on'], '2026-09-29');
+
+    expect($section()->isCollapsed())->toBeTrue();
+});
+
+it('ba ô ngày của hồ sơ hiện dd/mm/yyyy như phần còn lại của hệ thống', function () {
+    $this->actingAs($this->admin, 'web');
+
+    $page = Livewire::test(DocumentStorePage::class);
+
+    foreach (['transfer_dossier_on', 'dpa_accepted_on', 'transfer_before_dossier_on'] as $field) {
+        $page->assertFormFieldExists($field, fn (DatePicker $picker): bool => ! $picker->isNative() && $picker->getDisplayFormat() === 'd/m/Y');
+    }
 });

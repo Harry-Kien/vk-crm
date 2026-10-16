@@ -1606,6 +1606,25 @@ hosting.
   `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
   `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
 
+**Đính chính 2026-10-15 (làn tl, yêu cầu của chủ văn phòng: "Kho tài liệu … phải dễ dàng để có thể sử
+dụng được hiệu quả nhất").** Thêm trang **"Tài liệu"** (`App\Filament\Admin\Pages\DocumentLibrary`,
+`/admin/documents`): danh sách mọi tài liệu người xem được thấy, xuyên các vụ, mới nhất trước; tìm theo tên
+tài liệu, mã hồ sơ, tên khách; lọc theo vụ, loại vụ, nhóm, trạng thái, người tải lên, khoảng ngày tải lên,
+"vụ tôi phụ trách / có tên trong đội". Hành động chỉ có **Tải về** và **Mở vụ** (tab Tài liệu): tải lên, sửa,
+công bố, rút, chuyển nhóm, xoá vẫn chỉ ở tab Tài liệu của vụ (§7.2).
+- **Ai thấy gì** — nhánh nhân sự của `DocumentPolicy::view`, nói lại bằng SQL **trước phân trang**
+  (`App\Actions\Document\ListVisibleDocuments`): cần `matter.view` (kế toán, nhân viên kinh doanh: trang trả
+  404); vụ theo `Matter::scopeListableBy()` (vụ `restricted` chỉ luật sư phụ trách và admin); nhóm D chỉ với
+  `document.viewInternal`; tài liệu đã xoá mềm, tài liệu của vụ đã xoá mềm và của vụ đã ghi quyết định tiêu
+  huỷ (`matter_archives.destroyed_at`) không ra. Danh sách chọn vụ của bộ lọc cũng là `listableBy()`; bộ lọc
+  nhóm không có nhóm D với người không đọc được nhóm D. Câu trả lời không đổi theo một phiên cổng khách mở
+  song song (gỡ `ClientPortalScope` như `MatterPolicy::view`).
+- **Tải về** hỏi `DocumentPolicy::download` lúc bấm rồi chuyển tới đúng route ký `documents.download.admin`
+  (5 phút, ký cho người bấm, ghi `document_downloads` — §10.4); không đường tắt nào tới tệp.
+- Trang "Tìm kiếm" ở trên **không đổi**: nó đã tìm *vụ việc* theo tiêu đề tài liệu cùng luật quyền; trang
+  Tài liệu là nơi tìm chính tài liệu (phán quyết của làn: không thêm nhóm kết quả "Tài liệu" thứ hai vào
+  `SearchMatters`, vì cùng một truy vấn sẽ có hai định nghĩa).
+
 ### 6.14 Số liệu đội ngũ và hiệu suất
 
 **Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất; kế hoạch

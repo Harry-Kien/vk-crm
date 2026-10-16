@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Pages;
 
 use App\Actions\Storage\MeasureDocumentStore;
 use App\Actions\Storage\RecordDataTransferDossier;
+use App\Enums\DocumentStoreStatus;
 use App\Enums\Permission;
 use App\Models\SystemHealth;
 use App\Models\User;
@@ -38,6 +39,22 @@ use Illuminate\Validation\ValidationException;
  *    `maxLength()` của hai ô chữ là {@see TransferDossier::REFERENCE_MAX}/{@see TransferDossier::BASIS_MAX},
  *    đúng luật `max:` của Action; ba ô ngày có `maxDate` = hôm nay, đúng luật `before_or_equal:today`
  *    của Action ({@see self::pastDatePicker()}).
+ *
+ * # Làn tl (2026-10-15): cùng con số, cùng hành vi — nói tiếng thường
+ *
+ * Chủ văn phòng xem trang và không hiểu nó nói gì. Không con số nào, không hành vi nào đổi; chỉ đổi cách
+ * trình bày:
+ *
+ *  - **Dải trạng thái** ({@see self::overview()}): MỘT câu nói tài liệu đang ở đâu, màu xanh/vàng/đỏ, và
+ *    một câu "cần làm gì tiếp". Đi theo thứ tự nghiêm trọng: lỗi trước, việc cần làm sau, ổn cuối.
+ *  - **Một câu đầu trang** nói đây là trang kỹ thuật, nhân sự tìm tài liệu ở trang `DocumentLibrary`.
+ *  - **Các bước bật Google Drive** dạng danh sách kiểm, mỗi bước đọc từ đúng dữ liệu đã có (cấu hình,
+ *    `settings`, `system_health`, số tệp cũ) — không lệnh gọi Google nào, nên bước "kiểm tra đạt" đọc
+ *    lần kiểm tra tự động mỗi giờ (chỉ chạy khi công tắc là `google_drive`) cộng mốc bật kho.
+ *  - **Bốn ô số** có sắc độ tốt/xấu ({@see self::tiles()}); tên biến môi trường và lệnh artisan chỉ còn
+ *    trong mục thu gọn "Chi tiết kỹ thuật".
+ *  - **Form hồ sơ** nằm trong một mục thu gọn, mở sẵn đúng khi cần: công tắc đã là `google_drive` mà chưa
+ *    có ngày hồ sơ lẫn ý kiến luật sư ({@see TransferDossier::allowsTransfer()}). Ô ngày dd/mm/yyyy.
  *
  * # Cổng: `settings.manage` (R14: không quyền mới), hỏi ở MỌI request — kể cả request cập nhật Livewire
  *
@@ -92,8 +109,11 @@ class DocumentStorePage extends Page
         return $schema
             ->statePath('data')
             ->components([
-                Section::make(__('document_store.page.sections.dossier'))
+                Section::make(__('document_store.page.dossier_form_heading'))
                     ->description(__('document_store.page.dossier_intro'))
+                    // `collapsed()` tự bật `collapsible()`. Mở sẵn đúng khi việc này đang chặn đường:
+                    // công tắc là `google_drive` mà chưa có ngày hồ sơ lẫn ý kiến luật sư.
+                    ->collapsed(fn (): bool => ! (DocumentStore::usesRemote() && ! TransferDossier::current()->allowsTransfer()))
                     ->schema([
                         $this->pastDatePicker('transfer_dossier_on'),
                         TextInput::make('transfer_dossier_reference')
@@ -119,6 +139,8 @@ class DocumentStorePage extends Page
     {
         return DatePicker::make($field)
             ->label(__("document_store.page.fields.{$field}"))
+            ->native(false)
+            ->displayFormat('d/m/Y')
             ->maxDate(fn (): string => today()->toDateString())
             ->validationMessages(['before_or_equal' => __('document_store.page.validation.not_in_future')]);
     }
@@ -162,7 +184,11 @@ class DocumentStorePage extends Page
      * Mọi con số của trang, đã định dạng để hiện (view `filament.admin.pages.document-store-figures`).
      * Chỉ số đếm, thời điểm và câu trạng thái — không dòng dữ liệu nào.
      *
-     * @return array{sections: array<string, array<string, string>>, detail: ?string}
+     * Làn tl: cùng những con số như trước, xếp lại thành dải trạng thái (`overview`), các bước bật Drive
+     * (`steps`), bốn ô số có sắc độ (`tiles`), các mục chữ (`sections`) và mục thu gọn "Chi tiết kỹ
+     * thuật" (`technical`) — chỉ ở đó mới có tên biến môi trường.
+     *
+     * @return array{overview: array{state: string, situation: string, headline: string, next: string}, steps: array<string, bool>, tiles: array<string, array{value: string, tone: string}>, sections: array<string, array<string, string>>, technical: array<string, string>, detail: ?string}
      */
     public function figures(): array
     {
@@ -171,29 +197,35 @@ class DocumentStorePage extends Page
         $dossier = TransferDossier::current();
         $never = __('document_store.page.values.never');
         $driver = config('vkcrm.storage.driver');
+        $status = $health?->document_store_status;
+
+        $counts = [
+            'pending_new' => $measure->pendingNewFiles(),
+            'backlog' => $measure->pendingNewFiles((int) config('vkcrm.storage.push_alert_minutes')),
+            'legacy' => $measure->legacyFiles(),
+            'local_copies' => $measure->localCopiesKept(),
+            'remote' => $measure->remoteMedia(),
+            'unreceipted' => $measure->remoteWithoutOfficeReceipt(),
+        ];
 
         return [
+            'overview' => $this->overview($status, $dossier, $counts),
+            'steps' => $this->steps($status, $dossier, $counts['legacy']),
+            'tiles' => $this->tiles($counts),
             'sections' => [
                 'status' => [
-                    'mode' => DocumentStore::driverIsValid()
-                        ? __('document_store.page.mode.'.$driver)
-                        : __('document_store.page.mode.invalid', ['value' => var_export($driver, true)]),
                     'enabled_at' => $this->time(DocumentStore::remoteEnabledAt()) ?? __('document_store.page.values.not_enabled'),
-                    'status' => $health?->document_store_status?->label() ?? __('document_store.page.values.not_checked'),
+                    'status' => $status?->label() ?? __('document_store.page.values.not_checked'),
                     'checked_at' => $this->time($health?->document_store_checked_at) ?? $never,
                 ],
                 'files' => [
-                    'pending_new' => $this->number($measure->pendingNewFiles()),
                     'oldest_pending' => $this->time($measure->oldestPendingAt()) ?? $never,
-                    'legacy' => $this->number($measure->legacyFiles()),
-                    'local_copies' => $this->number($measure->localCopiesKept()),
                     'items' => __('document_store.page.values.items', [
                         'count' => $this->number($measure->driveItems()),
                         'limit' => $this->number((int) config('vkcrm.storage.google_drive.item_limit')),
                     ]),
                 ],
                 'office' => [
-                    'unreceipted' => $this->number($measure->remoteWithoutOfficeReceipt()),
                     'last_receipt' => $this->time($health?->last_office_receipt_at) ?? $never,
                     'receipt_error' => filled($health?->last_office_receipt_error) ? $health->last_office_receipt_error : $never,
                 ],
@@ -207,7 +239,125 @@ class DocumentStorePage extends Page
                     },
                 ],
             ],
+            'technical' => [
+                'mode' => DocumentStore::driverIsValid()
+                    ? __('document_store.page.mode.'.$driver)
+                    : __('document_store.page.mode.invalid', ['value' => var_export($driver, true)]),
+            ],
             'detail' => $health?->document_store_detail,
+        ];
+    }
+
+    /**
+     * Dải trạng thái đầu trang: MỘT tình huống — câu chính, câu "cần làm gì tiếp" và một trong ba sắc
+     * độ (`ok` xanh, `warning` vàng, `error` đỏ). Xét theo thứ tự nghiêm trọng, dừng ở điều đầu tiên
+     * đúng:
+     *
+     *  1. công tắc lạ → đỏ (tệp mới ở lại máy chủ trong khi người vận hành có thể tin là đã lên Drive);
+     *  2. lần kiểm tra tự động gần nhất `misconfigured`/`unavailable` → đỏ;
+     *  3. quá hạn 60 ngày nộp hồ sơ (chỉ production — {@see TransferDossier::appliesHere()}) → đỏ;
+     *  4. công tắc là máy chủ: còn tệp trên Drive → vàng (đang quay lui); không → xanh;
+     *  5. công tắc là Drive mà chưa có mốc bật → vàng;
+     *  6. kiểm tra báo `degraded` → vàng;
+     *  7. sắp tới hạn nộp hồ sơ (production, từ ngày 45) → vàng;
+     *  8. chưa có lần kiểm tra nào → vàng;
+     *  9. còn tệp cũ chưa chuyển → vàng;
+     * 10. còn lại → xanh.
+     *
+     * @param  array<string, int>  $counts
+     * @return array{state: string, situation: string, headline: string, next: string}
+     */
+    private function overview(?DocumentStoreStatus $status, TransferDossier $dossier, array $counts): array
+    {
+        $legal = TransferDossier::appliesHere();
+
+        [$state, $situation, $replace] = match (true) {
+            ! DocumentStore::driverIsValid() => ['error', 'driver_invalid', []],
+            in_array($status, [DocumentStoreStatus::Misconfigured, DocumentStoreStatus::Unavailable], true) => ['error', 'check_failed', []],
+            $legal && $dossier->isOverdue() => ['error', 'dossier_overdue', ['days' => $dossier->day() - TransferDossier::DUE_DAYS]],
+            ! DocumentStore::usesRemote() => $counts['remote'] > 0
+                ? ['warning', 'remote_while_local', ['count' => $this->number($counts['remote'])]]
+                : ['ok', 'local', []],
+            DocumentStore::remoteEnabledAt() === null => ['warning', 'not_enabled', []],
+            $status === DocumentStoreStatus::Degraded => ['warning', 'degraded', []],
+            $legal && $dossier->isDueSoon() => ['warning', 'dossier_due', ['days' => $dossier->daysLeft()]],
+            $status === null => ['warning', 'not_checked', []],
+            $counts['legacy'] > 0 => ['warning', 'legacy_pending', ['count' => $this->number($counts['legacy'])]],
+            default => ['ok', 'remote_ok', []],
+        };
+
+        return [
+            'state' => $state,
+            'situation' => $situation,
+            'headline' => __('document_store.page.overview.headline.'.$situation, $replace),
+            'next' => __('document_store.page.overview.next.'.$situation),
+        ];
+    }
+
+    /**
+     * Năm bước bật Google Drive, `true` = đã xong. Mỗi bước đọc đúng dữ liệu đã có, không gọi Google:
+     *
+     *  - `server`: đã cấu hình đường dẫn khoá tài khoản dịch vụ;
+     *  - `shared_drive`: đã cấu hình mã Shared Drive VÀ thư mục gốc (`vkcrm:storage:init` in ra mã thứ hai);
+     *  - `dossier`: có ngày hồ sơ hoặc ý kiến luật sư — đúng điều kiện mở cổng production (R13);
+     *  - `enabled_checked`: tệp mới đang tự lên Drive (công tắc + mốc bật, {@see DocumentStore::pushesNewFiles()})
+     *    VÀ lần kiểm tra tự động gần nhất `ok`. Lần kiểm tra bằng lệnh trước khi bật không để lại dấu vết
+     *    nào trong CSDL; lần kiểm tra mỗi giờ chỉ chạy khi công tắc là `google_drive`;
+     *  - `migrated`: tệp mới đang tự lên Drive VÀ không còn tệp cũ ở máy chủ.
+     *
+     * @return array<string, bool>
+     */
+    private function steps(?DocumentStoreStatus $status, TransferDossier $dossier, int $legacy): array
+    {
+        $pushes = DocumentStore::pushesNewFiles();
+
+        return [
+            'server' => filled(config('vkcrm.storage.google_drive.credentials_path')),
+            'shared_drive' => filled(config('vkcrm.storage.google_drive.shared_drive_id'))
+                && filled(config('vkcrm.storage.google_drive.root_folder_id')),
+            'dossier' => $dossier->allowsTransfer(),
+            'enabled_checked' => $pushes && $status === DocumentStoreStatus::Ok,
+            'migrated' => $pushes && $legacy === 0,
+        ];
+    }
+
+    /**
+     * Bốn ô số và sắc độ của chúng: `good` (xanh), `warning` (vàng), `danger` (đỏ), `neutral` (xám).
+     * Khi Drive chưa bật, tệp cũ trên máy chủ là trạng thái bình thường — không tô vàng.
+     *
+     * @param  array<string, int>  $counts
+     * @return array<string, array{value: string, tone: string}>
+     */
+    private function tiles(array $counts): array
+    {
+        $pushes = DocumentStore::pushesNewFiles();
+
+        return [
+            'pending_new' => [
+                'value' => $this->number($counts['pending_new']),
+                'tone' => match (true) {
+                    ! $pushes => 'neutral',
+                    $counts['backlog'] > 0 => 'danger',
+                    $counts['pending_new'] === 0 => 'good',
+                    default => 'neutral',
+                },
+            ],
+            'legacy' => [
+                'value' => $this->number($counts['legacy']),
+                'tone' => ! $pushes ? 'neutral' : ($counts['legacy'] === 0 ? 'good' : 'warning'),
+            ],
+            'unreceipted' => [
+                'value' => $this->number($counts['unreceipted']),
+                'tone' => match (true) {
+                    $counts['remote'] === 0 => 'neutral',
+                    $counts['unreceipted'] > 0 => 'warning',
+                    default => 'good',
+                },
+            ],
+            'local_copies' => [
+                'value' => $this->number($counts['local_copies']),
+                'tone' => 'neutral',
+            ],
         ];
     }
 
