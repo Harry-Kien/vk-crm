@@ -38,6 +38,7 @@ return [
 
     'filters' => [
         'matter' => 'Vụ việc',
+        'matter_placeholder' => 'Gõ mã hồ sơ hoặc tiêu đề vụ để tìm',
         'matter_type' => 'Loại vụ',
         'group' => 'Nhóm',
         'status' => 'Trạng thái',

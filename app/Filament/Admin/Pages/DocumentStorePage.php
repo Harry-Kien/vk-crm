@@ -13,6 +13,7 @@ use App\Support\Storage\TransferDossier;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -73,6 +74,9 @@ class DocumentStorePage extends Page
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCircleStack;
 
+    /** `id` của thẻ `<form>` hồ sơ trong view — nút "Lưu" ở chân mục nộp đúng form này. */
+    public const FORM_ID = 'document-store-dossier';
+
     /** @var array<string, mixed> */
     public array $data = [];
 
@@ -128,6 +132,15 @@ class DocumentStorePage extends Page
                             ->label(__('document_store.page.fields.transfer_before_dossier_basis'))
                             ->rows(2)
                             ->maxLength(TransferDossier::BASIS_MAX),
+                    ])
+                    // Nút lưu ở CHÂN mục, trong phần thân thu gọn: mục đóng thì nút đóng theo — không còn
+                    // một nút "Lưu" đứng dưới một mục đã đóng, bấm vào chỉ lưu lại đúng giá trị cũ. Nút
+                    // nộp form của view (`id` = {@see self::FORM_ID}, `wire:submit="save"`), nên phím
+                    // Enter trong một ô và cú bấm đi cùng một đường: {@see self::save()}.
+                    ->footerActions([
+                        Action::make('save')
+                            ->label(__('document_store.page.submit'))
+                            ->submit(self::FORM_ID),
                     ]),
             ]);
     }
@@ -265,13 +278,18 @@ class DocumentStorePage extends Page
      *     (`PushDocumentFileToRemote`) và `vkcrm:storage:migrate` đã từ chối, trong khi `system_health`
      *     còn giữ `ok` tới lượt kiểm tra kế tiếp (tối đa 60 phút);
      *  4. quá hạn 60 ngày nộp hồ sơ (chỉ production) → đỏ;
-     *  5. công tắc là máy chủ: còn tệp trên Drive → vàng (đang quay lui); không → xanh;
-     *  6. công tắc là Drive mà chưa có mốc bật → vàng;
-     *  7. kiểm tra báo `degraded` → vàng;
-     *  8. sắp tới hạn nộp hồ sơ (production, từ ngày 45) → vàng;
-     *  9. chưa có lần kiểm tra nào → vàng;
-     * 10. còn tệp cũ chưa chuyển → vàng;
-     * 11. còn lại → xanh.
+     *  5. sắp tới hạn nộp hồ sơ (production, từ ngày 45) → vàng — ở MỌI chế độ, trước nhánh máy chủ: đã
+     *     quay lui về máy chủ mà đồng hồ 60 ngày còn chạy thì hạn pháp lý vẫn còn, lần kiểm tra mỗi giờ
+     *     vẫn báo `degraded` và gửi thư nhắc mỗi ngày, nên dải không được nói "Không cần làm gì";
+     *  6. công tắc là máy chủ: còn tệp trên Drive → vàng (đang quay lui); không → xanh;
+     *  7. công tắc là Drive mà chưa có mốc bật → vàng;
+     *  8. kiểm tra báo `degraded` → vàng;
+     *  9. có tệp mới chờ đẩy quá `push_alert_minutes` (`$counts['backlog']`) → vàng. Từ đây công tắc là
+     *     Drive và đã có mốc bật — đúng điều kiện ô "Tệp chờ đẩy lên Drive" tô đỏ ({@see self::tiles()}),
+     *     nên ô đỏ thì dải không bao giờ xanh, kể cả khi lần kiểm tra mỗi giờ gần nhất còn `ok`;
+     * 10. chưa có lần kiểm tra nào → vàng;
+     * 11. còn tệp cũ chưa chuyển → vàng;
+     * 12. còn lại → xanh.
      *
      * @param  array<string, int>  $counts
      * @return array{state: string, situation: string, headline: string, next: string}
@@ -285,12 +303,16 @@ class DocumentStorePage extends Page
             in_array($status, [DocumentStoreStatus::Misconfigured, DocumentStoreStatus::Unavailable], true) => ['error', 'check_failed', []],
             $legal && DocumentStore::pushesNewFiles() && ! $dossier->allowsTransfer() => ['error', 'transfer_blocked', []],
             $legal && $dossier->isOverdue() => ['error', 'dossier_overdue', ['days' => $dossier->day() - TransferDossier::DUE_DAYS]],
+            $legal && $dossier->isDueSoon() => ['warning', 'dossier_due', ['days' => $dossier->daysLeft()]],
             ! DocumentStore::usesRemote() => $counts['remote'] > 0
                 ? ['warning', 'remote_while_local', ['count' => $this->number($counts['remote'])]]
                 : ['ok', 'local', []],
             DocumentStore::remoteEnabledAt() === null => ['warning', 'not_enabled', []],
             $status === DocumentStoreStatus::Degraded => ['warning', 'degraded', []],
-            $legal && $dossier->isDueSoon() => ['warning', 'dossier_due', ['days' => $dossier->daysLeft()]],
+            $counts['backlog'] > 0 => ['warning', 'push_backlog', [
+                'count' => $this->number($counts['backlog']),
+                'minutes' => (int) config('vkcrm.storage.push_alert_minutes'),
+            ]],
             $status === null => ['warning', 'not_checked', []],
             $counts['legacy'] > 0 => ['warning', 'legacy_pending', ['count' => $this->number($counts['legacy'])]],
             default => ['ok', 'remote_ok', []],

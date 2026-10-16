@@ -566,3 +566,124 @@ it('số truy vấn không đổi khi trang có N dòng hay 3N dòng, kể cả 
 
     expect($queriesFor3N)->toBe($queriesForN);
 })->with(['admin', 'lawyer']);
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa polish 1 (rà soát cuối làn tl, m1 m2 m6 m7)
+// ---------------------------------------------------------------------------------------------
+
+/** Tài liệu `$document` có trong kết quả của trang sau khi tìm `$term` không — qua chính truy vấn của bảng. */
+function tlFinds(string $term, Document $document): bool
+{
+    return Livewire::test(DocumentLibrary::class)
+        ->searchTable($term)
+        ->instance()
+        ->getFilteredTableQuery()
+        ->whereKey($document->getKey())
+        ->exists();
+}
+
+it('m1: tìm theo tên một khách đã xoá mềm ra đúng các dòng mà cột khách đang hiện tên đó, vẫn trong phạm vi được xem', function () {
+    $w = tlWorld();
+    $w->client->delete();
+    Client::query()->whereKey($w->restrictedOther->client_id)->firstOrFail()->delete();
+
+    $this->actingAs($w->lawyer, 'web');
+
+    Livewire::test(DocumentLibrary::class)
+        ->searchTable('TLKHACHTEAM')
+        ->assertCanSeeTableRecords([$w->teamB, $w->teamD])
+        ->assertTableColumnStateSet('matter.client.name', 'Khách TLKHACHTEAM', $w->teamB)
+        ->assertCountTableRecords(2);
+
+    // Cùng tập với cột: khách đã xoá mềm của một vụ hạn chế người xem không mở được vẫn không ra.
+    $this->actingAs($w->manager, 'web');
+
+    $page = Livewire::test(DocumentLibrary::class)
+        ->searchTable('TLKHACHRSOTH')
+        ->assertCountTableRecords(0);
+
+    expect($page->html())->not->toContain('TLDOC-RSOTH-B')
+        ->and($page->html())->not->toContain('TL-RSOTH-0001');
+});
+
+/**
+ * m6 — PHÁN QUYẾT, không đổi hành vi: tên khách so theo collation của cột `clients.name`, ĐÚNG như
+ * trang Tìm kiếm (SPEC §6.13, đính chính 2026-09-28: chỉ tên các bên so trên `name_normalized`; bảng
+ * `clients` không có cột chuẩn hoá). Test ghi lại hành vi thật của từng CSDL, cùng khuôn
+ * `SearchPageTest` "tìm tiếng Việt".
+ */
+it('m6: tên khách so như trang Tìm kiếm (SPEC §6.13) — đúng chữ đúng dấu ra trên mọi CSDL, "đ" khác "d"', function () {
+    $mariadb = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
+    $w = tlWorld();
+    $w->client->forceFill(['name' => 'Ông Đặng Văn Tlwombat'])->save();
+
+    $this->actingAs($w->lawyer, 'web');
+
+    expect(tlFinds('Đặng Văn', $w->teamB))->toBeTrue()
+        ->and(tlFinds('đặng văn', $w->teamB))->toBe($mariadb)
+        ->and(tlFinds('Dang Van', $w->teamB))->toBeFalse()
+        ->and(tlFinds('tlwombat', $w->teamB))->toBeTrue();
+});
+
+it('m2: bộ lọc vụ tìm trên máy chủ — chọn được cả vụ cũ ngoài danh sách mở sẵn, không bao giờ ra vụ hạn chế người xem không thấy', function () {
+    $w = tlWorld();
+    $limit = (new ReflectionClassConstant(DocumentLibrary::class, 'MATTER_OPTIONS_LIMIT'))->getValue();
+    Matter::factory()->count($limit)->create();
+
+    $this->actingAs($w->manager, 'web');
+
+    // Đúng lời gọi ô chọn gửi khi người dùng gõ (`callSchemaComponentMethod` → `getSearchResultsForJs`).
+    $search = function (string $term): array {
+        $results = null;
+
+        Livewire::test(DocumentLibrary::class)
+            ->call('callSchemaComponentMethod', 'tableFiltersForm.matter.value', 'getSearchResultsForJs', ['search' => $term])
+            ->assertReturned(function (mixed $returned) use (&$results): bool {
+                $results = $returned;
+
+                return is_array($returned);
+            });
+
+        return collect($results)->pluck('label', 'value')->all();
+    };
+
+    // Vụ cũ nhất không còn trong danh sách mở sẵn …
+    Livewire::test(DocumentLibrary::class)
+        ->assertTableFilterExists('matter', fn (SelectFilter $filter): bool => ! array_key_exists($w->team->id, $filter->getOptions())
+            && count($filter->getOptions()) === $limit);
+
+    // … nhưng gõ mã hoặc tiêu đề thì tìm ra.
+    expect($search('TL-TEAM'))->toBe([$w->team->id => 'TL-TEAM-0001'])
+        ->and($search('TLVUTEAM'))->toBe([$w->team->id => 'TL-TEAM-0001']);
+
+    // Vụ hạn chế mà trưởng phòng chỉ có tên trong đội: không ra theo mã lẫn tiêu đề.
+    expect($search('TL-RSOTH'))->toBe([])
+        ->and($search('TLVURSOTH'))->toBe([]);
+
+    // Chọn vụ cũ đó: lọc đúng, chỉ báo của bộ lọc mang mã của nó.
+    $page = Livewire::test(DocumentLibrary::class)
+        ->filterTable('matter', $w->team->id)
+        ->assertCanSeeTableRecords([$w->teamB, $w->teamD])
+        ->assertCountTableRecords(2);
+
+    expect(html_entity_decode($page->html(), ENT_QUOTES))->toContain(__('document_library.filters.matter').': TL-TEAM-0001');
+});
+
+it('m2: danh sách chọn vụ nói cho người dùng biết gõ để tìm', function () {
+    $w = tlWorld();
+    $this->actingAs($w->lawyer, 'web');
+
+    Livewire::test(DocumentLibrary::class)
+        ->assertTableFilterExists('matter', fn (SelectFilter $filter): bool => $filter->getPlaceholder() === __('document_library.filters.matter_placeholder'));
+});
+
+it('m7: SPEC §7.2 (tab Tài liệu) và §7.4 trỏ tới trang "Tài liệu" chung', function () {
+    $spec = (string) file_get_contents(base_path('docs/SPEC.md'));
+    $section = fn (string $from, string $to): string => (string) str($spec)->after($from)->before($to);
+
+    foreach ([$section('### 7.2 Resource `Matter`', '### 7.3'), $section('### 7.4 Các resource khác', '### 7.5')] as $text) {
+        expect($text)->toContain('DocumentLibrary')
+            ->and($text)->toContain('/admin/documents')
+            ->and($text)->toContain('§6.13');
+    }
+});

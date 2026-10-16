@@ -462,7 +462,73 @@ it('dải trạng thái: một câu cho mỗi tình huống, xanh/vàng/đỏ, k
         'warning', 'not_enabled', [],
     ],
     'production, chỉ lưu trên máy chủ, chưa có hồ sơ' => [fn () => config(['app.env' => 'production']), 'ok', 'local', []],
+    // Vòng sửa polish 1, m3: quay lui về máy chủ khi đồng hồ 60 ngày còn chạy. Lần kiểm tra mỗi giờ
+    // báo `degraded` và gửi thư nhắc hồ sơ mỗi ngày từ ngày 45 — dải không được nói "Không cần làm gì".
+    'quay lui về máy chủ, đồng hồ 60 ngày ở ngày 50 (production): sắp tới hạn' => [function () {
+        config(['app.env' => 'production']);
+        Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(50)->toIso8601String());
+        SystemHealth::current()->forceFill(['document_store_status' => 'degraded', 'document_store_checked_at' => now()])->save();
+    }, 'warning', 'dossier_due', ['days' => 10]],
+    'như trên, còn tệp trên Drive: hạn hồ sơ trước' => [function () {
+        config(['app.env' => 'production']);
+        Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(50)->toIso8601String());
+        Store::remoteMedia();
+        SystemHealth::current()->forceFill(['document_store_status' => 'degraded', 'document_store_checked_at' => now()])->save();
+    }, 'warning', 'dossier_due', ['days' => 10]],
+    'quay lui về máy chủ, đồng hồ mới ở ngày 30 (production): chỉ lưu trên máy chủ' => [function () {
+        config(['app.env' => 'production']);
+        Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(30)->toIso8601String());
+    }, 'ok', 'local', []],
+    'quay lui về máy chủ, ngày 50 ngoài production: không có hạn pháp lý nào' => [
+        fn () => Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(50)->toIso8601String()),
+        'ok', 'local', [],
+    ],
+    // Vòng sửa polish 1, m4: kiểm tra mỗi giờ còn `ok` nhưng đã có tệp mới chờ đẩy quá ngưỡng (ô số đỏ).
+    'Drive chạy ổn nhưng có tệp mới chờ đẩy quá ngưỡng: vàng' => [function () {
+        Store::enableRemote(now()->subDay());
+        Store::media(['created_at' => now()->subMinutes((int) config('vkcrm.storage.push_alert_minutes') + 5)]);
+        Store::media(['created_at' => now()->subMinutes((int) config('vkcrm.storage.push_alert_minutes') + 9)]);
+        Store::media(['created_at' => now()->subMinute()]);
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'warning', 'push_backlog', ['count' => '2', 'minutes' => '60']],
+    'Drive chạy ổn, tệp mới vừa tải lên còn trong ngưỡng: xanh' => [function () {
+        Store::enableRemote(now()->subDay());
+        Store::media(['created_at' => now()->subMinute()]);
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'ok', 'remote_ok', []],
 ]);
+
+it('m4: ô "Tệp chờ đẩy lên Drive" đỏ thì dải trạng thái không bao giờ xanh', function () {
+    $this->freezeTime();
+    Store::enableRemote(now()->subDay());
+    SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+
+    $html = tlStoreHtml($this->admin);
+    expect(tlStoreAttribute($html, 'data-figure="pending_new"', 'data-tone'))->toBe('good')
+        ->and(tlStoreAttribute($html, 'data-overview', 'data-state'))->toBe('ok');
+
+    Store::media(['created_at' => now()->subMinutes((int) config('vkcrm.storage.push_alert_minutes') + 5)]);
+
+    $html = tlStoreHtml($this->admin);
+    expect(tlStoreAttribute($html, 'data-figure="pending_new"', 'data-tone'))->toBe('danger')
+        ->and(tlStoreAttribute($html, 'data-overview', 'data-state'))->toBe('warning')
+        ->and(html_entity_decode($html, ENT_QUOTES))->not->toContain(__('document_store.page.overview.next.remote_ok'));
+});
+
+it('m5: nút "Lưu" của hồ sơ nằm trong mục thu gọn — mục đóng thì nút đóng theo', function () {
+    $html = html_entity_decode(tlStoreHtml($this->admin), ENT_QUOTES);
+    $submit = __('document_store.page.submit');
+
+    // Phần thân thu gọn của mục (`fi-section-content-ctn`; mặc định đóng nên mang `x-cloak`) chứa nút …
+    $body = (string) str($html)->after('class="fi-section-content-ctn"')->before('</section>');
+    // … và sau mục, tới hết form, không còn nút lưu nào.
+    $afterSection = (string) str($html)->after('class="fi-section-content-ctn"')->after('</section>')->before('</form>');
+
+    expect($html)->toMatch('/x-cloak\s+class="fi-section-content-ctn"/')
+        ->and($body)->toContain($submit)
+        ->and($body)->toContain('type="submit"')
+        ->and($afterSection)->not->toContain($submit);
+});
 
 it('admin xoá cả ngày hồ sơ lẫn ngày ý kiến luật sư trên trang (production, kho đang bật): dải đổi ngay sang ĐỎ "đã dừng chuyển"', function () {
     $this->freezeTime();

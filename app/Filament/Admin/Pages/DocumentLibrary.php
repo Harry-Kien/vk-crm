@@ -48,10 +48,11 @@ use Illuminate\Support\Facades\Gate;
  *
  * Bảng đếm, phân trang và tìm trên truy vấn đã cắt theo quyền — không lọc sau phân trang, không hỏi
  * policy cho từng dòng. Các danh sách chọn của bộ lọc cũng cắt theo cùng luật: bộ lọc "Vụ việc" chỉ
- * liệt kê vụ `Matter::listableBy()` (không mã của vụ hạn chế nào người xem không thấy, kể cả khi ai đó
- * đặt thẳng id của vụ đó vào trạng thái bộ lọc — truy vấn gốc vẫn loại nó, và nhãn chỉ báo của bộ lọc
- * tra từ chính danh sách đã cắt); bộ lọc "Nhóm" không có nhóm D với người không có
- * `document.viewInternal`.
+ * liệt kê và tìm (trên máy chủ, theo mã hoặc tiêu đề — {@see self::matterOptions()}) vụ
+ * `Matter::listableBy()` (không mã của vụ hạn chế nào người xem không thấy, kể cả khi ai đó đặt thẳng id
+ * của vụ đó vào trạng thái bộ lọc — truy vấn gốc vẫn loại nó, và nhãn ô chọn lẫn chỉ báo của bộ lọc tra
+ * trong chính tập `listableBy()`, {@see self::matterCode()}); bộ lọc "Nhóm" không có nhóm D với người
+ * không có `document.viewInternal`.
  *
  * # Cổng: `matter.view`, hỏi ở MỌI request
  *
@@ -89,7 +90,10 @@ class DocumentLibrary extends Page implements HasTable
 
     protected static ?int $navigationSort = 1;
 
-    /** Số vụ tối đa trong danh sách chọn của bộ lọc "Vụ việc" (mới nhất trước) — cùng con số `ActivityLogPage`. */
+    /**
+     * Số vụ tối đa trong danh sách chọn của bộ lọc "Vụ việc" — mở sẵn (mới nhất trước), và mỗi lần
+     * tìm trên máy chủ; cùng con số `ActivityLogPage`.
+     */
     private const MATTER_OPTIONS_LIMIT = 200;
 
     public static function getNavigationLabel(): string
@@ -150,7 +154,7 @@ class DocumentLibrary extends Page implements HasTable
                     ->label(__('document_library.columns.client'))
                     ->wrap()
                     ->placeholder('—')
-                    ->searchable(),
+                    ->searchable(query: fn (Builder $query, string $search): Builder => static::applyClientNameSearch($query, $search)),
                 TextColumn::make('group')
                     ->label(__('document_library.columns.group'))
                     ->badge()
@@ -183,9 +187,15 @@ class DocumentLibrary extends Page implements HasTable
             ->filters([
                 SelectFilter::make('matter')
                     ->label(__('document_library.filters.matter'))
+                    ->placeholder(__('document_library.filters.matter_placeholder'))
                     ->attribute('matter_id')
                     ->options(fn (): array => static::matterOptions())
-                    ->searchable(),
+                    ->searchable()
+                    ->getSearchResultsUsing(fn (?string $search): array => static::matterOptions($search))
+                    ->getOptionLabelUsing(fn (mixed $value): ?string => static::matterCode($value))
+                    ->indicateUsing(fn (array $state): array => filled($code = static::matterCode($state['value'] ?? null))
+                        ? [Indicator::make(__('document_library.filters.matter').': '.$code)]
+                        : []),
                 SelectFilter::make('matter_type')
                     ->label(__('document_library.filters.matter_type'))
                     ->options(fn (): array => MatterType::query()->orderBy('name')->pluck('name', 'id')->all())
@@ -289,12 +299,33 @@ class DocumentLibrary extends Page implements HasTable
     }
 
     /**
+     * Ô tìm "Khách hàng": cùng tập khách mà cột đang hiện tên — KÈM khách đã xoá mềm (xem
+     * {@see self::rowsQuery()}). Tìm quan hệ mặc định của Filament đi qua `whereHas('matter.client')`,
+     * mang `SoftDeletingScope` của `Client`: cột hiện "Khách A" mà gõ "Khách A" ra 0 dòng. Quyền không
+     * đổi: điều kiện này chỉ thu hẹp truy vấn gốc đã cắt theo người xem ({@see ListVisibleDocuments}).
+     * So bằng `LIKE '%x%'` theo collation của `clients.name`, đúng cách tìm mặc định của Filament và
+     * đúng trang Tìm kiếm (SPEC §6.13: chỉ tên các bên so trên `name_normalized`).
+     */
+    private static function applyClientNameSearch(Builder $query, string $search): Builder
+    {
+        return $query->whereHas('matter', fn (Builder $matter): Builder => $matter->whereHas(
+            'client',
+            fn (Builder $client): Builder => $client
+                ->withTrashed()
+                ->where($client->qualifyColumn('name'), 'like', '%'.$search.'%'),
+        ));
+    }
+
+    /**
      * Vụ cho bộ lọc "Vụ việc": đúng `Matter::listableBy()` của người xem (không vụ hạn chế nào họ
-     * không thấy), mới nhất trước, nhãn là mã hồ sơ.
+     * không thấy), mới nhất trước, nhãn là mã hồ sơ. Không chuỗi tìm: {@see self::MATTER_OPTIONS_LIMIT}
+     * vụ mới nhất mở sẵn. Có chuỗi tìm (người dùng gõ vào ô chọn — tìm trên máy chủ): mọi vụ người xem
+     * thấy có mã hồ sơ hoặc tiêu đề chứa chuỗi đó, nên một vụ cũ ngoài danh sách mở sẵn vẫn chọn được.
+     * Tiêu đề là trường người xem trang này được đọc (cổng của trang là `matter.view`).
      *
      * @return array<int, string>
      */
-    private static function matterOptions(): array
+    private static function matterOptions(?string $search = null): array
     {
         $viewer = Auth::user();
 
@@ -302,12 +333,32 @@ class DocumentLibrary extends Page implements HasTable
             return [];
         }
 
+        $search = trim((string) $search);
+
         return Matter::query()
             ->listableBy($viewer)
+            ->when($search !== '', fn (Builder $matters): Builder => $matters->where(fn (Builder $any): Builder => $any
+                ->where($any->qualifyColumn('code'), 'like', '%'.$search.'%')
+                ->orWhere($any->qualifyColumn('title'), 'like', '%'.$search.'%')))
             ->orderByDesc('id')
             ->limit(self::MATTER_OPTIONS_LIMIT)
             ->pluck('code', 'id')
             ->all();
+    }
+
+    /**
+     * Mã hồ sơ của một vụ đã chọn trong bộ lọc (nhãn ô chọn và chỉ báo bộ lọc) — tra trong CHÍNH tập
+     * `listableBy()` của người xem: một id vụ hạn chế đặt thẳng vào trạng thái bộ lọc không ra mã nào.
+     */
+    private static function matterCode(mixed $id): ?string
+    {
+        $viewer = Auth::user();
+
+        if (! $viewer instanceof User || blank($id) || ! is_numeric($id)) {
+            return null;
+        }
+
+        return Matter::query()->listableBy($viewer)->whereKey((int) $id)->value('code');
     }
 
     /** @return array<string, string> bốn nhóm, trừ nhóm D với người không đọc được nhóm D. */

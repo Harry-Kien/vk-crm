@@ -249,6 +249,7 @@ return [
                 'remote_ok' => 'Tài liệu đang lưu trên Google Drive của văn phòng; tệp cũ đã chuyển hết.',
                 'dossier_overdue' => 'Quá hạn nộp hồ sơ chuyển dữ liệu cá nhân ra nước ngoài :days ngày.',
                 'dossier_due' => 'Sắp tới hạn nộp hồ sơ chuyển dữ liệu cá nhân ra nước ngoài: còn :days ngày.',
+                'push_backlog' => 'Có :count tệp mới chờ đẩy lên Google Drive đã quá :minutes phút.',
             ],
             'next' => [
                 'local' => 'Không cần làm gì. Khi văn phòng muốn lưu tài liệu lên Google Drive, làm lần lượt các bước bên dưới.',
@@ -263,6 +264,7 @@ return [
                 'remote_ok' => 'Không cần làm gì.',
                 'dossier_overdue' => 'Báo luật sư của văn phòng ngay; khi đã nộp, ghi ngày hồ sơ ở mục cuối trang.',
                 'dossier_due' => 'Báo luật sư lập và nộp hồ sơ; khi đã nộp, ghi ngày hồ sơ ở mục cuối trang.',
+                'push_backlog' => 'Trong lúc chờ, các tệp đó vẫn an toàn và tải được từ máy chủ CRM. Quay lại trang này sau lần kiểm tra tự động kế tiếp (mỗi giờ); nếu số tệp chưa giảm, đọc dòng "Chi tiết" ở mục Kiểm tra tự động và báo người cài đặt.',
             ],
             'steps_heading' => 'Các bước bật Google Drive',
             'steps_intro' => 'Chỉ cần khi văn phòng muốn lưu tài liệu lên Google Drive. Làm theo thứ tự; trang tự đánh dấu bước đã xong.',
