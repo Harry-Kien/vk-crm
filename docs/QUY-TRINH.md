@@ -152,6 +152,28 @@ một khách hàng khác.
 | Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Xong]** M7: màn hình bàn giao hàng loạt (`BulkReassign`, chỉ vụ đang mở) và thư tổng hợp cho người nhận (`MatterReassigned`) |
 | Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
 
+### Tìm tài liệu (làn tl, chủ văn phòng 2026-10-15)
+
+Mục **Tài liệu** trên thanh bên trái liệt kê **mọi tài liệu bạn được phép xem, của mọi vụ việc**, mới
+nhất ở trên. Dùng nó khi nhớ tên tài liệu, mã hồ sơ hay tên khách mà không nhớ vụ nào:
+
+- **Tìm** theo tên tài liệu, mã hồ sơ hoặc tên khách. **Lọc** theo vụ, loại vụ, nhóm (A–D), trạng thái,
+  người tải lên (kể cả "khách hàng nộp qua cổng"), khoảng ngày tải lên, và "Vụ của tôi" (vụ mình phụ
+  trách, hoặc vụ có tên mình trong đội).
+- **Tải về** ngay trên dòng (cùng đường tải, cùng sổ ghi ai tải như nút "Tải tệp" trong vụ), hoặc **Mở vụ**
+  để tới tab Tài liệu của vụ đó. Tải lên, sửa, công bố, rút lại, chuyển nhóm, xoá vẫn **chỉ** làm ở tab
+  Tài liệu của từng vụ.
+- **Ai thấy gì** — đúng luật của tab Tài liệu: quản trị viên thấy mọi vụ; trưởng phòng mọi vụ thường;
+  luật sư và trợ lý vụ có tên mình trong đội; vụ **hạn chế** chỉ luật sư phụ trách và quản trị viên (có
+  tên trong đội cũng không đủ). Nhóm D (nội bộ) chỉ người được đọc nhóm D — trợ lý không. Kế toán và nhân
+  viên kinh doanh không có mục này. Tài liệu đã xoá, tài liệu của vụ đã xoá hay đã ghi quyết định tiêu
+  huỷ không hiện. Tài liệu không được xem thì không có mặt ở đâu trên trang: không trong số đếm, kết quả
+  tìm, hay danh sách chọn vụ của bộ lọc.
+- Trang **Tìm kiếm** vẫn tìm **vụ việc** theo tiêu đề tài liệu (và mã, tên khách, các bên…), cùng luật
+  quyền; trang Tài liệu là nơi tìm **chính tài liệu**.
+- Trang **Kho tài liệu** (chỉ quản trị viên) là trang kỹ thuật: tài liệu đang lưu ở máy chủ hay Google
+  Drive, kho có chạy ổn không, các bước bật Google Drive. Không dùng trang đó để tìm tài liệu.
+
 ---
 
 ## Giai đoạn 4 — Khách hàng theo dõi

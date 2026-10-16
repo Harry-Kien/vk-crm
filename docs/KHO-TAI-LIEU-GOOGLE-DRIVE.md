@@ -120,7 +120,7 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
 9. Khi có máy văn phòng:
    - lượt kéo đầu tiên có thể mất nhiều đêm; khoá của script ngăn hai lượt chồng nhau;
    - CRM nhập biên nhận lúc 07:00 hằng ngày;
-   - kiểm số "Media trên kho chưa có biên nhận văn phòng" giảm dần trên trang "Kho tài liệu".
+   - kiểm số "Tệp trên Drive chưa có bản sao ở máy văn phòng" giảm dần trên trang "Kho tài liệu".
 10. Vùng đệm trên máy chủ tự dọn **chỉ** cho tệp đã ở kho, quá thời gian ân hạn (24 giờ tệp mới, 30 ngày tệp cũ), và
     có biên nhận văn phòng khớp md5 từ 24 giờ trở lên. Chưa có máy văn phòng thì không dọn gì
     (`document_office_copy` VÀNG nhắc điều đó).

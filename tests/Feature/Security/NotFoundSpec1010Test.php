@@ -134,6 +134,9 @@ function spec1010GatedPages(): array
         'filament.admin.pages.ket-noi-ai-cua-toi' => Role::Accountant,
         // M14 — "Kho tài liệu" (con số của kho, hồ sơ chuyển dữ liệu ra nước ngoài): chỉ `settings.manage`.
         'filament.admin.pages.document-store' => Role::Lawyer,
+        // Làn tl (2026-10-15) — "Tài liệu" (mọi tài liệu người xem được thấy, xuyên các vụ): `matter.view`;
+        // kế toán (chỉ `matter.viewAny`) và nhân viên kinh doanh không có.
+        'filament.admin.pages.documents' => Role::Accountant,
         // Làn nt Task 1 — "Nhắc thanh toán cho khách" (công tắc, thông tin chuyển khoản): chỉ `settings.manage`.
         'filament.admin.pages.client-payment-reminders' => Role::Lawyer,
         // Làn kd (2026-10-14) — hai trang từng ở OPEN ("mọi vai nhân sự") đóng với vai mới "Nhân viên

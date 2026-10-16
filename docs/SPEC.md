@@ -1618,6 +1618,30 @@ hosting.
   `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
   `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
 
+**Đính chính 2026-10-15 (làn tl, yêu cầu của chủ văn phòng: "Kho tài liệu … phải dễ dàng để có thể sử
+dụng được hiệu quả nhất").** Thêm trang **"Tài liệu"** (`App\Filament\Admin\Pages\DocumentLibrary`,
+`/admin/documents`): danh sách mọi tài liệu người xem được thấy, xuyên các vụ, mới nhất trước; tìm theo tên
+tài liệu, mã hồ sơ, tên khách; lọc theo vụ, loại vụ, nhóm, trạng thái, người tải lên, khoảng ngày tải lên,
+"vụ tôi phụ trách / có tên trong đội". Hành động chỉ có **Tải về** và **Mở vụ** (tab Tài liệu): tải lên, sửa,
+công bố, rút, chuyển nhóm, xoá vẫn chỉ ở tab Tài liệu của vụ (§7.2).
+- **Ai thấy gì** — nhánh nhân sự của `DocumentPolicy::view`, nói lại bằng SQL **trước phân trang**
+  (`App\Actions\Document\ListVisibleDocuments`): cần `matter.view` (kế toán, nhân viên kinh doanh: trang trả
+  404); vụ theo `Matter::scopeListableBy()` (vụ `restricted` chỉ luật sư phụ trách và admin); nhóm D chỉ với
+  `document.viewInternal`; tài liệu đã xoá mềm, tài liệu của vụ đã xoá mềm và của vụ đã ghi quyết định tiêu
+  huỷ (`matter_archives.destroyed_at`) không ra. Danh sách chọn vụ của bộ lọc cũng là `listableBy()`; bộ lọc
+  nhóm không có nhóm D với người không đọc được nhóm D. Câu trả lời không đổi theo một phiên cổng khách mở
+  song song (gỡ `ClientPortalScope` như `MatterPolicy::view`).
+- **Tải về** hỏi `DocumentPolicy::download` lúc bấm rồi chuyển tới đúng route ký `documents.download.admin`
+  (5 phút, ký cho người bấm, ghi `document_downloads` — §10.4); không đường tắt nào tới tệp.
+- **Bổ sung 2026-10-16 (vòng sửa polish 1).** Ô tìm tên khách tìm đúng tập khách mà cột "Khách hàng"
+  hiện, kể cả khách đã xoá mềm, và so như trang Tìm kiếm ở trên: theo collation của `clients.name` (bảng
+  `clients` không có cột chuẩn hoá; `đ` khác `d` trên MariaDB). Bộ lọc "Vụ việc" mở sẵn 200 vụ mới nhất
+  và tìm trên máy chủ theo mã hồ sơ hoặc tiêu đề trong cùng tập `listableBy()`, nên mọi vụ người xem thấy
+  đều chọn được.
+- Trang "Tìm kiếm" ở trên **không đổi**: nó đã tìm *vụ việc* theo tiêu đề tài liệu cùng luật quyền; trang
+  Tài liệu là nơi tìm chính tài liệu (phán quyết của làn: không thêm nhóm kết quả "Tài liệu" thứ hai vào
+  `SearchMatters`, vì cùng một truy vấn sẽ có hai định nghĩa).
+
 ### 6.14 Số liệu đội ngũ và hiệu suất
 
 **Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất; kế hoạch
@@ -1931,6 +1955,12 @@ ký — kích hoạt luôn" trong một lần; dòng chỉ mang các cột rút 
 Mỗi dòng tiến độ đã công bố hiển thị nhãn trạng thái đọc: *"Khách đã xem lúc
 21:14 ngày 14/09"* hoặc *"Khách chưa xem"* — nhãn chưa xem quá 5 ngày tô vàng.
 
+**Đính chính 2026-10-16 (làn tl, tham chiếu).** Tab **Tài liệu** vẫn là nơi DUY NHẤT tải lên, sửa,
+công bố, rút, chuyển nhóm, xoá tài liệu của vụ. Để xem và tìm tài liệu XUYÊN các vụ, nhân sự có trang
+**"Tài liệu"** (`App\Filament\Admin\Pages\DocumentLibrary`, `/admin/documents`) — chỉ **Tải về** và
+**Mở vụ** (về đúng tab này), cùng luật quyền của tab ở mức truy vấn. Luật đầy đủ: §6.13, đính chính
+2026-10-15.
+
 ### 7.3 Form chuyển giai đoạn
 
 Đây là màn hình luật sư dùng nhiều nhất trong ngày, thiết kế phải gọn:
@@ -1954,6 +1984,12 @@ công bố.
 `Client`, `ClientUser`, `MatterType` (kèm relation manager cho stages và
 checklist template), `User`, `Role`, và trang xem `ActivityLog`,
 `OutboundMessage`.
+
+**Đính chính 2026-10-16 (làn tl, tham chiếu).** Thêm trang **"Tài liệu"**
+(`App\Filament\Admin\Pages\DocumentLibrary`, `/admin/documents`): mọi tài liệu người xem được thấy, xuyên
+các vụ, cho người có `matter.view` (kế toán, nhân viên kinh doanh: 404). Luật quyền, tìm, lọc và tải về:
+§6.13, đính chính 2026-10-15; thao tác trên tài liệu vẫn ở tab Tài liệu của vụ (§7.2). Trang quản trị
+"Kho tài liệu" (nơi tệp được lưu, Google Drive) là trang kỹ thuật cho admin và dẫn nhân sự về trang này.
 
 **Đính chính 2026-09-28 (M7 Task 10).** Thêm trang **"Thông tin văn phòng"**, chỉ người có
 `settings.manage` (admin) mở được; người khác nhận 404, kể cả ở request cập nhật Livewire. Chủ văn
