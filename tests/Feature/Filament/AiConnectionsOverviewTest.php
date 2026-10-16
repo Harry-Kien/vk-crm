@@ -5,12 +5,16 @@ use App\Actions\Settings\WriteSettings;
 use App\Enums\AiAccessMode;
 use App\Enums\AiOfficeStatus;
 use App\Enums\AiSetupStep;
+use App\Enums\CreatedVia;
 use App\Enums\McpToolOutcome;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Pages\AiConnections;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Models\AiAcknowledgement;
+use App\Models\ClientRequest;
+use App\Models\ClientRequestReplyDraft;
+use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\StageLog;
 use App\Models\StageLogDraft;
@@ -505,10 +509,12 @@ it('bộ lọc nhanh "Đang bật", "Chưa cam kết", "Có kết nối" lọc �
         ->assertCanSeeTableRecords([$connected, $enabledIdle, $notAcknowledged])
         ->assertCanNotSeeTableRecords([$off, $this->admin]);
 
+    // Fix polish 1 (n6): "Chưa cam kết" là người ĐƯỢC BẬT mà chưa cam kết — đúng m − n của thẻ trạng
+    // thái; người ở chế độ "Tắt" (kể cả quản trị viên, trợ lý chưa bật) không cần cam kết nên không ở đây.
     aioPage($this->admin)
         ->filterTable('not_acknowledged')
-        ->assertCanSeeTableRecords([$notAcknowledged, $off, $this->admin])
-        ->assertCanNotSeeTableRecords([$connected, $enabledIdle]);
+        ->assertCanSeeTableRecords([$notAcknowledged])
+        ->assertCanNotSeeTableRecords([$connected, $enabledIdle, $off, $this->admin]);
 
     aioPage($this->admin)
         ->filterTable('connected')
@@ -739,7 +745,7 @@ it('hoạt động: nháp do AI soạn đang chờ người duyệt được đ�
 
     $html = aioPage($this->admin)->html();
 
-    expect(aioAttr($html, 'data-ai-activity-total', 'pending_drafts'))->toBe('2')
+    expect(aioAttr($html, 'data-ai-activity-total', 'awaiting_review'))->toBe('2')
         ->and($html)->not->toContain('Vụ Hạn Chế Bí Mật')
         ->and($html)->not->toContain(e($restricted->code));
 });
@@ -795,4 +801,146 @@ it('cặp dương: quản trị viên mở trang qua HTTP thấy thẻ trạng t
         ->assertSee(AiOfficeStatus::ReadOnly->label())
         ->assertSee(__('ai_connections.setup.heading'))
         ->assertSee(__('ai_connections.activity.heading'));
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task polish, vòng sửa 1 (n1–n6 của rà soát cuối làn ai).
+// ---------------------------------------------------------------------------------------------
+
+/** Biểu thức Alpine mở mục pháp lý trước khi trình duyệt cuộn tới nó (n1). */
+const AIO_OPEN_LEGAL = "x-on:click=\"document.getElementById('viec-phap-ly').open = true\"";
+
+it('n1: hai đường "Mở mục pháp lý" mở thật <details> pháp lý (kể cả khi nó đã đóng), không chỉ cuộn tới', function () {
+    // Đã ghi ngày: mục pháp lý ĐÓNG; đường ở bước 1 vẫn phải mở được nó.
+    aioSwitches(true, filedOn: '2026-10-01');
+    $html = aioPage($this->admin)->html();
+
+    expect(aioTag($html, 'data-transfer-assessment', 'filed'))->not->toMatch('/\sopen[\s>]/')
+        ->and(aioTag($html, 'data-ai-step-link', 'legal'))->toContain('href="#viec-phap-ly"')
+        ->and(aioTag($html, 'data-ai-step-link', 'legal'))->toContain(AIO_OPEN_LEGAL)
+        ->and(aioTag($html, 'data-ai-step-link', 'legal'))->toContain(' x-data')
+        ->and(aioAttr($html, 'data-ai-step-link', 'legal'))->toBe(__('ai_connections.setup.links.legal'));
+
+    // Chưa ghi ngày mà đang bật: đường trong cảnh báo vàng cũng mở mục (người dùng có thể đã tự đóng nó).
+    aioSwitches(true);
+    $html = aioPage($this->admin)->html();
+
+    expect(aioTag($html, 'data-ai-legal-link', 'warning'))->toContain('href="#viec-phap-ly"')
+        ->and(aioTag($html, 'data-ai-legal-link', 'warning'))->toContain(AIO_OPEN_LEGAL)
+        ->and(aioTag($html, 'data-ai-legal-link', 'warning'))->toContain(' x-data');
+});
+
+it('n2: con số lượt gọi trên thẻ trạng thái và trong khối hoạt động cùng MỘT nhãn, và thẻ nói rõ số đó gồm cả lần không thành công', function () {
+    aioSwitches(true);
+    $this->travelTo(now()->setDateTime(2026, 10, 15, 10, 0));
+    $lawyer = aioLawyer();
+    aioToolRow($lawyer, 'search');
+    aioToolRow($lawyer, 'search');
+    aioToolRow($lawyer, 'fetch', McpToolOutcome::Denied);
+    aioToolRow($lawyer, 'fetch', McpToolOutcome::RateLimited);
+    aioToolRow($lawyer, 'get_matter', McpToolOutcome::Error);
+
+    $page = aioPage($this->admin);
+    $html = $page->html();
+    $label = __('ai_connections.activity.calls', ['days' => 7]);
+
+    expect($label)->toBe('Lượt gọi (7 ngày)')
+        ->and(aioAttr($html, 'data-ai-stat', 'calls'))->toBe('5')
+        ->and(aioAttr($html, 'data-ai-stat-label', 'calls'))->toBe($label)
+        ->and(aioAttr($html, 'data-ai-activity-total', 'calls'))->toBe('5')
+        ->and(aioAttr($html, 'data-ai-activity-label', 'calls'))->toBe($label)
+        ->and(aioAttr($html, 'data-ai-stat-breakdown', 'calls'))->toBe(__('ai_connections.status.stats.calls_breakdown', ['ok' => 2, 'other' => 3]))
+        ->and($html)->not->toContain('Lượt dùng 7 ngày qua');
+
+    // Khối hoạt động đổi kỳ thì nhãn của nó theo kỳ; thẻ trạng thái vẫn là 7 ngày.
+    $html = $page->call('showActivity', 30)->html();
+
+    expect(aioAttr($html, 'data-ai-activity-label', 'calls'))->toBe(__('ai_connections.activity.calls', ['days' => 30]))
+        ->and(aioAttr($html, 'data-ai-stat-label', 'calls'))->toBe($label);
+});
+
+it('n3: câu "chỉ đọc" và câu xác nhận bật đọc nêu đủ điều kiện thật: được bật, đã cam kết, đã nối tài khoản AI, vụ cho phép AI không hạn chế', function () {
+    $read = __('ai_connections.status.hints.read');
+    $serverOn = __('ai_connections.admin.switches.confirm.server_on');
+
+    foreach ([$read, $serverOn] as $sentence) {
+        expect($sentence)->toContain('cam kết')
+            ->toContain('nối tài khoản AI')
+            ->toContain('"cho phép AI"')
+            ->toContain('hạn chế');
+    }
+
+    aioSwitches(true);
+    aioPage($this->admin)->assertSee($read);
+});
+
+it('n5: "chờ người duyệt" đếm mọi lần ghi của AI còn chờ người: nháp tiến độ, nháp trả lời, mốc AI tạo chưa xác nhận — không đếm thứ trên vụ đã xoá', function () {
+    $lawyer = aioLawyer();
+    $matter = Matter::factory()->create();
+    $deleted = Matter::factory()->create();
+
+    // Đếm: 1 nháp tiến độ + 1 nháp trả lời + 1 mốc AI chưa xác nhận trên vụ còn đó.
+    StageLogDraft::factory()->create(['matter_id' => $matter->getKey(), 'created_by' => $lawyer->getKey()]);
+    ClientRequestReplyDraft::factory()->create([
+        'request_id' => ClientRequest::factory()->create(['matter_id' => $matter->getKey()])->getKey(),
+        'created_by' => $lawyer->getKey(),
+    ]);
+    Deadline::factory()->for($matter)->create(['created_via' => CreatedVia::Mcp]);
+
+    // Không đếm: mốc AI đã xác nhận, mốc nhập tay, mốc AI đã xoá, nháp trả lời đã bỏ.
+    Deadline::factory()->for($matter)->create(['created_via' => CreatedVia::Mcp, 'confirmed_at' => now(), 'confirmed_by' => $this->admin->getKey()]);
+    Deadline::factory()->for($matter)->create(['created_via' => CreatedVia::Web]);
+    Deadline::factory()->for($matter)->create(['created_via' => CreatedVia::Mcp])->delete();
+    ClientRequestReplyDraft::factory()->discarded($this->admin, 'Không dùng')->create([
+        'request_id' => ClientRequest::factory()->create(['matter_id' => $matter->getKey()])->getKey(),
+        'created_by' => $lawyer->getKey(),
+    ]);
+
+    // Không đếm: mọi thứ trên vụ đã xoá mềm (không ai mở được trang của nó để duyệt).
+    StageLogDraft::factory()->create(['matter_id' => $deleted->getKey(), 'created_by' => $lawyer->getKey()]);
+    ClientRequestReplyDraft::factory()->create([
+        'request_id' => ClientRequest::factory()->create(['matter_id' => $deleted->getKey()])->getKey(),
+        'created_by' => $lawyer->getKey(),
+    ]);
+    Deadline::factory()->for($deleted)->create(['created_via' => CreatedVia::Mcp]);
+    $deleted->delete();
+
+    $html = aioPage($this->admin)->html();
+
+    expect(aioAttr($html, 'data-ai-activity-total', 'awaiting_review'))->toBe('3')
+        ->and($html)->toContain(e(__('ai_connections.activity.awaiting_review')))
+        ->and($html)->toContain(e(__('ai_connections.activity.awaiting_review_hint')));
+});
+
+it('n5: nháp trả lời trên yêu cầu đã xoá mềm không đếm', function () {
+    $lawyer = aioLawyer();
+    $request = ClientRequest::factory()->create();
+    ClientRequestReplyDraft::factory()->create(['request_id' => $request->getKey(), 'created_by' => $lawyer->getKey()]);
+
+    expect(aioAttr(aioPage($this->admin)->html(), 'data-ai-activity-total', 'awaiting_review'))->toBe('1');
+
+    $request->delete();
+
+    expect(aioAttr(aioPage($this->admin)->html(), 'data-ai-activity-total', 'awaiting_review'))->toBe('0');
+});
+
+it('n6: bộ lọc "Chưa cam kết" ra đúng m − n người của thẻ trạng thái (chỉ người được bật), nhãn nói vậy', function () {
+    aioSwitches(true);
+    aioLawyer();
+    $notAcknowledged = aioLawyer();
+    AiAcknowledgement::query()->where('user_id', $notAcknowledged->getKey())->delete();
+    $offNotAcknowledged = aioLawyer(AiAccessMode::Off);
+    AiAcknowledgement::query()->where('user_id', $offNotAcknowledged->getKey())->delete();
+    $disabled = aioLawyer(attributes: ['is_active' => false]);
+    AiAcknowledgement::query()->where('user_id', $disabled->getKey())->delete();
+
+    $page = aioPage($this->admin);
+    expect(aioAttr($page->html(), 'data-ai-stat', 'acknowledged'))->toBe('1/2');
+
+    $page->filterTable('not_acknowledged')
+        ->assertCountTableRecords(1)
+        ->assertCanSeeTableRecords([$notAcknowledged])
+        ->assertCanNotSeeTableRecords([$offNotAcknowledged, $disabled, $this->admin]);
+
+    expect(__('ai_connections.staff.filters.not_acknowledged'))->toBe('Được bật, chưa cam kết');
 });

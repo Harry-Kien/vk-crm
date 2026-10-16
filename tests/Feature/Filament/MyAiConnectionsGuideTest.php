@@ -239,3 +239,21 @@ it('ma trận vai: trang mở cho đúng các vai có matter.view, 404 cho các 
         ? $response->assertOk()->assertSee(__('ai_connections.guide.steps_heading'))
         : $response->assertNotFound()->assertDontSee(__('ai_connections.guide.steps_heading'));
 })->with(Role::cases());
+
+it('n4 (task polish vòng sửa 1): "Sẵn sàng" chỉ đúng các bước còn lại của trang (Bước 2 tới bước cuối), cùng chữ với docs/KET-NOI-AI.md', function () {
+    $user = myguideLawyer();
+    $html = myguideHtml($user);
+
+    $steps = array_keys(myguideSteps($html));
+    $remaining = 'Bước '.implode(', ', range(2, count($steps)));
+
+    expect($steps)->toHaveCount(4)
+        ->and($html)->toContain('data-my-ai-status="'.MyAiConnectionStatus::NotConnected->value.'"')
+        ->and(MyAiConnectionStatus::NotConnected->label())->toContain($remaining)
+        ->and($html)->toContain(e(MyAiConnectionStatus::NotConnected->label()));
+
+    $guide = (string) file_get_contents(base_path('docs/KET-NOI-AI.md'));
+    preg_match('/^\| Sẵn sàng[^\n]*$/mu', $guide, $row);
+
+    expect($row[0] ?? '')->toContain($remaining);
+});

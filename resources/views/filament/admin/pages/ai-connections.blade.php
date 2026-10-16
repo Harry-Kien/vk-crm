@@ -10,6 +10,9 @@
     thành ngữ `bulk-reassign.blade.php`. Không script nội tuyến (CSP của M8). Hai `<details>` mang
     `wire:ignore.self` để một lần vẽ lại của Livewire (lọc bảng, chọn kỳ) không đóng/mở thay người
     dùng; `wire:key` của mục pháp lý đổi theo trạng thái nên ghi hay xoá ngày vẫn đổi mặc định mở/đóng.
+    Hai đường "Mở mục pháp lý" mở `<details>` đó bằng một biểu thức Alpine (`$openLegal`) rồi để trình
+    duyệt cuộn tới `#viec-phap-ly`: điều hướng tới một phân đoạn chỉ cuộn, không mở `<details>` đã đóng
+    (task polish vòng sửa 1, n1). `x-data` trên chính thẻ `<a>` để Alpine khởi tạo nó.
 --}}
 @php
     $card = 'border-radius:0.75rem;padding:1rem;border:1px solid color-mix(in srgb, var(--gray-500) 30%, transparent);';
@@ -46,6 +49,7 @@
         'staff_connected' => __('ai_connections.setup.progress.ratio', ['done' => $summary->staffConnected, 'total' => $summary->staffEnabled]),
         'matters' => __('ai_connections.setup.progress.matters', ['count' => $summary->mattersAllowed]),
     ];
+    $openLegal = "x-data x-on:click=\"document.getElementById('viec-phap-ly').open = true\"";
     $stepLinks = [
         'legal' => '#viec-phap-ly',
         'server' => '#cong-tac',
@@ -66,7 +70,7 @@
         @if ($summary->needsAssessment())
             <p style="{{ $warning }}margin-top:0.75rem;padding:0.625rem 0.75rem;font-weight:600;">
                 {{ __('ai_connections.status.assessment_missing') }}
-                <a href="#viec-phap-ly" style="{{ $link }}">{{ __('ai_connections.setup.links.legal') }}</a>
+                <a href="#viec-phap-ly" style="{{ $link }}" data-ai-legal-link="warning" {!! $openLegal !!}>{{ __('ai_connections.setup.links.legal') }}</a>
             </p>
         @endif
 
@@ -75,13 +79,18 @@
                 'enabled' => (string) $summary->staffEnabled,
                 'acknowledged' => $ratio($summary->staffAcknowledged),
                 'connected' => $ratio($summary->staffConnected),
-                'calls' => (string) $summary->callsLastWeek,
             ] as $key => $value)
                 <div style="{{ $stat }}">
                     <span style="{{ $statValue }}" data-ai-stat="{{ $key }}">{{ $value }}</span>
                     <span style="{{ $muted }}font-size:0.875rem;">{{ __('ai_connections.status.stats.'.$key) }}</span>
                 </div>
             @endforeach
+            {{-- Cùng nhãn với khối "Hoạt động" (n2): số này gồm mọi kết cục, nên ghi rõ bao nhiêu không thành công. --}}
+            <div style="{{ $stat }}">
+                <span style="{{ $statValue }}" data-ai-stat="calls">{{ $summary->callsLastWeek }}</span>
+                <span style="{{ $muted }}font-size:0.875rem;" data-ai-stat-label="calls">{{ __('ai_connections.activity.calls', ['days' => 7]) }}</span>
+                <span style="display:block;{{ $muted }}font-size:0.75rem;margin-top:0.125rem;" data-ai-stat-breakdown="calls">{{ __('ai_connections.status.stats.calls_breakdown', ['ok' => $summary->callsOkLastWeek, 'other' => $summary->callsLastWeek - $summary->callsOkLastWeek]) }}</span>
+            </div>
         </div>
     </section>
 
@@ -104,7 +113,7 @@
                         @endif
                     </span>
                     @if (isset($stepLinks[$step->value]))
-                        <a href="{{ $stepLinks[$step->value] }}" style="{{ $link }}" data-ai-step-link="{{ $step->value }}">{{ __('ai_connections.setup.links.'.$step->value) }}</a>
+                        <a href="{{ $stepLinks[$step->value] }}" style="{{ $link }}" data-ai-step-link="{{ $step->value }}" @if ($step === \App\Enums\AiSetupStep::Legal) {!! $openLegal !!} @endif>{{ __('ai_connections.setup.links.'.$step->value) }}</a>
                     @endif
                 </li>
             @endforeach
@@ -231,7 +240,7 @@
         <div style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-top:0.75rem;">
             <div style="{{ $stat }}">
                 <span style="{{ $statValue }}" data-ai-activity-total="calls">{{ $activity->calls }}</span>
-                <span style="{{ $muted }}font-size:0.875rem;">{{ __('ai_connections.activity.calls') }}</span>
+                <span style="{{ $muted }}font-size:0.875rem;" data-ai-activity-label="calls">{{ __('ai_connections.activity.calls', ['days' => $activity->days]) }}</span>
             </div>
             @foreach (\App\Enums\McpToolOutcome::cases() as $outcome)
                 <div style="{{ $stat }}">
@@ -240,12 +249,12 @@
                 </div>
             @endforeach
             <div style="{{ $stat }}">
-                <span style="{{ $statValue }}" data-ai-activity-total="pending_drafts">{{ $activity->pendingDrafts }}</span>
-                <span style="{{ $muted }}font-size:0.875rem;">{{ __('ai_connections.activity.pending_drafts') }}</span>
+                <span style="{{ $statValue }}" data-ai-activity-total="awaiting_review">{{ $activity->awaitingReview }}</span>
+                <span style="{{ $muted }}font-size:0.875rem;">{{ __('ai_connections.activity.awaiting_review') }}</span>
             </div>
         </div>
         <p style="{{ $muted }}font-size:0.875rem;margin-top:0.5rem;">{{ __('ai_connections.activity.refused_hint') }}</p>
-        <p style="{{ $muted }}font-size:0.875rem;margin-top:0.25rem;">{{ __('ai_connections.activity.pending_drafts_hint') }}</p>
+        <p style="{{ $muted }}font-size:0.875rem;margin-top:0.25rem;">{{ __('ai_connections.activity.awaiting_review_hint') }}</p>
 
         @if ($activity->calls === 0)
             <p style="{{ $muted }}margin-top:0.75rem;">{{ __('ai_connections.activity.empty', ['days' => $activity->days]) }}</p>

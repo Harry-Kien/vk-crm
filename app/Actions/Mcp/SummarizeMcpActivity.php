@@ -2,8 +2,10 @@
 
 namespace App\Actions\Mcp;
 
+use App\Enums\CreatedVia;
 use App\Enums\McpToolOutcome;
 use App\Models\ClientRequestReplyDraft;
+use App\Models\Deadline;
 use App\Models\StageLogDraft;
 use App\Models\User;
 use App\Support\ActivityPeople;
@@ -16,7 +18,7 @@ use Spatie\Activitylog\Models\Activity;
 /**
  * Khối "Hoạt động của trợ lý AI" của trang "Kết nối AI" (làn ai, 2026-10-15): trợ lý AI đã được dùng
  * bao nhiêu trong 7 hay 30 ngày qua — theo ngày, theo chức năng (tool), theo người — bao nhiêu lần bị
- * từ chối, và bao nhiêu nháp do AI soạn đang chờ người duyệt. Chỉ ĐỌC, trả DTO
+ * từ chối, và bao nhiêu lần ghi của AI đang chờ người duyệt. Chỉ ĐỌC, trả DTO
  * ({@see McpActivityReport}); trang không truy vấn `activity_log` trực tiếp.
  *
  * # Nguồn
@@ -33,15 +35,16 @@ use Spatie\Activitylog\Models\Activity;
  *
  * Ba câu `GROUP BY` trên `activity_log` (ngày × kết cục, tool × kết cục, người × kết cục), đều lọc
  * `event` + `created_at` — đúng index `activity_log(event, created_at)` của M13 Task 8; một câu nạp tên
- * người (kể cả nhân sự đã nghỉ việc, {@see ActivityPeople}); hai câu đếm nháp đang chờ. Số câu không
- * đổi theo số người hay số tool — không N+1, không nạp dòng nhật ký nào lên PHP.
+ * người (kể cả nhân sự đã nghỉ việc, {@see ActivityPeople}); ba câu đếm lần ghi chờ duyệt
+ * ({@see self::awaitingReview()}). Số câu không đổi theo số người hay số tool — không N+1, không nạp
+ * dòng nhật ký nào lên PHP.
  *
  * # Quyền và dữ liệu
  *
  * `viewAny` trên `User` (`settings.manage`, chỉ admin), hỏi `Gate::forUser($actor)` ngay đầu — cùng
  * cổng với trang. Kết quả chỉ có SỐ, tên tool (tên ĐÃ KHAI trên máy chủ — tên lạ chỉ còn độ dài, Task
- * 8) và tên nhân sự; không có mã, tiêu đề hay khách hàng của vụ nào, kể cả vụ `restricted`: số nháp
- * đang chờ chỉ là một con số.
+ * 8) và tên nhân sự; không có mã, tiêu đề hay khách hàng của vụ nào, kể cả vụ `restricted`: số lần
+ * ghi chờ duyệt chỉ là một con số.
  */
 final class SummarizeMcpActivity
 {
@@ -102,8 +105,34 @@ final class SummarizeMcpActivity
             byDay: $this->byDay($daily, $from, $days),
             byTool: $this->byTool($tools),
             byPerson: $this->byPerson($people),
-            pendingDrafts: StageLogDraft::query()->pending()->count() + ClientRequestReplyDraft::query()->pending()->count(),
+            awaitingReview: $this->awaitingReview(),
         );
+    }
+
+    /**
+     * "Lần ghi của AI chờ người duyệt" (brief mục 6; task polish vòng sửa 1, n5): mọi thứ một tool ghi
+     * của M11 để lại mà còn chờ một người trong `/admin` quyết —
+     *
+     *  - nháp dòng tiến độ ({@see StageLogDraft}) và nháp trả lời khách ({@see ClientRequestReplyDraft})
+     *    còn đang chờ (`pending()`: chưa dùng, chưa bỏ);
+     *  - mốc tạo qua AI chưa xác nhận: `created_via = mcp` ∧ `confirmed_at` rỗng — đúng điều kiện
+     *    hiện nút "Xác nhận" và nhãn "Tạo qua AI, chưa xác nhận" ở tab mốc của vụ; mốc đã xoá mềm thì
+     *    không (scope mặc định của {@see Deadline}).
+     *
+     * Chỉ trên vụ việc chưa xoá mềm (và với nháp trả lời, yêu cầu của khách chưa xoá mềm): `whereHas`
+     * mang scope mặc định của `Matter` / `ClientRequest`, nên thứ nằm trên một trang không còn ai mở
+     * được để duyệt không đếm. Nhật ký liên lạc AI ghi (`log_communication`) là bản ghi nội bộ xong
+     * ngay, không chờ duyệt, nên không ở đây.
+     */
+    private function awaitingReview(): int
+    {
+        return StageLogDraft::query()->pending()->whereHas('matter')->count()
+            + ClientRequestReplyDraft::query()->pending()->whereHas('request.matter')->count()
+            + Deadline::query()
+                ->where('created_via', CreatedVia::Mcp->value)
+                ->whereNull('confirmed_at')
+                ->whereHas('matter')
+                ->count();
     }
 
     /** Các dòng `mcp_tool_called` từ `$from`, ở tầng query builder (không model, không cast). */

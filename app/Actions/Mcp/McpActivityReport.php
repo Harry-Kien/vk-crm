@@ -13,7 +13,8 @@ use Carbon\CarbonImmutable;
  *  - `outcomes`: giá trị {@see McpToolOutcome} → số lần, đủ mọi kết cục (0 khi không có);
  *  - `byDay`: đủ từng ngày của kỳ, cũ trước, kể cả ngày không có lần gọi nào;
  *  - `byTool`, `byPerson`: nhiều lần gọi nhất trước;
- *  - `pendingDrafts`: số nháp do AI soạn đang chờ người dùng hay bỏ (mọi lúc, không theo kỳ).
+ *  - `awaitingReview`: số lần ghi của AI còn chờ một người trong `/admin` (mọi lúc, không theo kỳ) —
+ *    định nghĩa ở {@see SummarizeMcpActivity::awaitingReview()}.
  */
 final readonly class McpActivityReport
 {
@@ -31,7 +32,7 @@ final readonly class McpActivityReport
         public array $byDay,
         public array $byTool,
         public array $byPerson,
-        public int $pendingDrafts,
+        public int $awaitingReview,
     ) {}
 
     /** Số lần gọi lớn nhất của một ngày trong kỳ — để vẽ thanh theo tỉ lệ; ít nhất 1. */

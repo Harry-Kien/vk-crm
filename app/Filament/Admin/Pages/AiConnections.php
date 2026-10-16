@@ -392,7 +392,8 @@ class AiConnections extends Page implements HasTable
                 Filter::make('not_acknowledged')
                     ->label(__('ai_connections.staff.filters.not_acknowledged'))
                     ->toggle()
-                    ->query(fn (Builder $query): Builder => SummarizeAiSetup::whereNotAcknowledgedCurrent($query)),
+                    // n6: người ĐƯỢC BẬT chưa cam kết — đúng m − n của thẻ "Đã cam kết chính sách n/m".
+                    ->query(fn (Builder $query): Builder => SummarizeAiSetup::whereNotAcknowledgedCurrent(SummarizeAiSetup::whereEnabled($query))),
                 Filter::make('connected')
                     ->label(__('ai_connections.staff.filters.connected'))
                     ->toggle()

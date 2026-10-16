@@ -15,7 +15,9 @@ use Carbon\CarbonImmutable;
  *  - `staffEnabled`: nhân sự đang hoạt động có chế độ khác "Tắt";
  *  - `staffAcknowledged`, `staffConnected`: trong số đó, người đã cam kết đúng phiên bản chính sách
  *    hiện hành / người đang có ít nhất một kết nối;
- *  - `callsLastWeek`: số lần gọi tool trong 7 ngày (cùng kỳ với khối "Hoạt động", {@see SummarizeMcpActivity});
+ *  - `callsLastWeek`: số lần gọi tool trong 7 ngày, MỌI kết cục (cùng kỳ và cùng nhãn "Lượt gọi" với khối
+ *    "Hoạt động", {@see SummarizeMcpActivity}); `callsOkLastWeek`: trong số đó, lần kết cục `ok` — thẻ
+ *    ghi "x thành công, y không thành công" để con số không đọc như số lần dùng được việc (n2);
  *  - `mattersAllowed`: số vụ việc AI thấy được về mặt vụ — mang cờ "cho phép AI" (R9) và không phải
  *    vụ hạn chế (cùng mệnh đề 2 của {@see McpMatterScope}).
  */
@@ -28,6 +30,7 @@ final readonly class AiSetupSummary
         public int $staffAcknowledged,
         public int $staffConnected,
         public int $callsLastWeek,
+        public int $callsOkLastWeek,
         public int $mattersAllowed,
     ) {}
 

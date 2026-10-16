@@ -68,7 +68,7 @@ return [
                 'heading' => 'Lưu công tắc trợ lý AI?',
                 'submit' => 'Lưu',
                 'server_off' => 'Tắt đọc: mọi trợ lý AI của mọi nhân sự bị từ chối ngay ở lần gọi kế tiếp. Không kết nối nào bị thu hồi, nên bật lại thì kết nối cũ dùng tiếp được (có ứng dụng AI vẫn có thể đòi kết nối lại).',
-                'server_on' => 'Bật đọc: nhân sự đã được bật chế độ và đã cam kết chính sách dùng được trợ lý AI ngay, trên các vụ việc đã bật "cho phép AI".',
+                'server_on' => 'Bật đọc: nhân sự đã được bật chế độ, đã cam kết chính sách và đã nối tài khoản AI của mình hỏi được trợ lý AI ngay, trên các vụ việc đã bật "cho phép AI" (vụ hạn chế không bao giờ hiện với AI).',
                 'write_on' => 'Bật ghi: người ở chế độ "Đọc và ghi" tạo được nháp dòng tiến độ, nháp trả lời khách, mốc nội bộ và nhật ký liên lạc qua AI. Nháp không bao giờ tự tới khách.',
                 'write_off' => 'Tắt ghi: không ai ghi được gì qua AI, kể cả người ở chế độ "Đọc và ghi". Đọc vẫn như cũ.',
                 'write_without_server' => 'Công tắc ghi được lưu bật nhưng chưa có tác dụng, vì công tắc đọc đang tắt.',
@@ -186,7 +186,7 @@ return [
         'read_write' => 'Trợ lý AI đang BẬT — đọc và ghi',
         'hints' => [
             'off' => 'Không nhân sự nào dùng được trợ lý AI cho tới khi bật "Cho phép trợ lý AI đọc dữ liệu" ở mục Công tắc.',
-            'read' => 'Nhân sự được bật hỏi được hồ sơ qua trợ lý AI của mình; không ai ghi được gì qua AI.',
+            'read' => 'Nhân sự được bật, đã cam kết chính sách và đã nối tài khoản AI của mình hỏi được các vụ việc đã bật "cho phép AI" (vụ hạn chế không bao giờ hiện với AI); không ai ghi được gì qua AI.',
             'read_write' => 'Người ở chế độ "Đọc và ghi" tạo được nháp và ghi chép nội bộ qua AI; nháp không tự tới khách.',
         ],
         'assessment_missing' => 'Chưa ghi ngày nộp hồ sơ đánh giá tác động chuyển dữ liệu ra nước ngoài. Xem mục "Việc pháp lý trước khi dùng trên dữ liệu thật" bên dưới.',
@@ -194,7 +194,8 @@ return [
             'enabled' => 'Nhân sự được bật',
             'acknowledged' => 'Đã cam kết chính sách',
             'connected' => 'Đang có kết nối',
-            'calls' => 'Lượt dùng 7 ngày qua',
+            // Nhãn của con số lượt gọi là `activity.calls` (cùng chữ với khối "Hoạt động", n2); đây là dòng nhỏ dưới số.
+            'calls_breakdown' => ':ok thành công, :other không thành công (bị từ chối, lỗi…)',
         ],
     ],
 
@@ -232,7 +233,7 @@ return [
     'staff' => [
         'filters' => [
             'enabled' => 'Đang bật',
-            'not_acknowledged' => 'Chưa cam kết',
+            'not_acknowledged' => 'Được bật, chưa cam kết',
             'connected' => 'Có kết nối',
         ],
         'bulk' => [
@@ -248,10 +249,10 @@ return [
         'heading' => 'Hoạt động của trợ lý AI',
         'intro' => 'Đếm từ nhật ký MCP: mỗi lần trợ lý AI dùng một chức năng (tool) của hệ thống, kể cả lần bị từ chối. Không có câu hỏi hay nội dung trả về.',
         'period' => ':days ngày qua',
-        'calls' => 'Lượt gọi',
+        'calls' => 'Lượt gọi (:days ngày)',
         'refused_hint' => '"Bị từ chối" gồm: không đủ quyền, chế độ "Chỉ đọc" gọi chức năng ghi, công tắc đang tắt, chưa cam kết chính sách (cùng là "Bị từ chối" trong nhật ký), và vượt giới hạn tần suất.',
-        'pending_drafts' => 'Nháp chờ người duyệt',
-        'pending_drafts_hint' => 'Nháp do AI soạn nằm trên trang vụ việc, chờ người phụ trách dùng hay bỏ. Không gì tới khách nếu chưa có người duyệt.',
+        'awaiting_review' => 'Lần ghi của AI chờ người duyệt',
+        'awaiting_review_hint' => 'Gồm nháp dòng tiến độ và nháp trả lời khách do AI soạn (chờ người dùng hay bỏ) và mốc "Tạo qua AI, chưa xác nhận", trên vụ việc chưa bị xoá. Không gì tới khách nếu chưa có người duyệt.',
         'by_day' => 'Theo ngày',
         'by_tool' => 'Theo chức năng',
         'by_person' => 'Theo người',
@@ -273,7 +274,7 @@ return [
             'not_enabled' => 'Chưa được bật — liên hệ quản trị viên nếu anh/chị cần dùng trợ lý AI.',
             'server_off' => 'Trợ lý AI của văn phòng đang tắt — quản trị viên bật lại thì anh/chị dùng được.',
             'not_acknowledged' => 'Chưa cam kết chính sách dùng AI — làm Bước 1 bên dưới.',
-            'not_connected' => 'Sẵn sàng — anh/chị chưa nối ứng dụng AI nào. Làm Bước 2 và 3 bên dưới.',
+            'not_connected' => 'Sẵn sàng — anh/chị chưa nối ứng dụng AI nào. Làm Bước 2, 3, 4 bên dưới.',
             'connected' => 'Đã kết nối — trợ lý AI của anh/chị đang dùng được.',
         ],
         'connected_count' => ':count kết nối đang sống.',
