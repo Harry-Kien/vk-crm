@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -188,6 +189,12 @@ final class BuildTeamWorkload
      */
     public static function countPer(Builder $query, string $person): array
     {
+        // `$person` được chèn thẳng vào SQL thô (không bind được tên cột) nên chỉ nhận đúng các biểu thức
+        // mà code đã duyệt — xem tests/Fixtures/Security/raw-sql-baseline.php.
+        if (! in_array($person, self::personExpressions(), true)) {
+            throw new InvalidArgumentException('Biểu thức quy người không nằm trong danh sách đã duyệt: '.$person);
+        }
+
         return $query
             ->select(DB::raw("{$person} as person_id"))
             ->selectRaw('COUNT(*) as aggregate')
@@ -196,6 +203,26 @@ final class BuildTeamWorkload
             ->get()
             ->mapWithKeys(fn (object $row): array => [(int) $row->person_id => (int) $row->aggregate])
             ->all();
+    }
+
+    /**
+     * Các biểu thức quy người mà {@see self::countPer()} được phép chèn vào SQL: tên cột có bí danh do code
+     * viết, và `ClientRequest::holderIdSql()` (một biểu thức COALESCE hằng).
+     *
+     * @return list<string>
+     */
+    public static function personExpressions(): array
+    {
+        return [
+            'matters.lead_lawyer_id',
+            'supporting_seat.user_id',
+            'deadlines.responsible_user_id',
+            'review_matter.lead_lawyer_id',
+            'tasks.assignee_id',
+            'tasks.assigned_by',
+            'matter_user.user_id',
+            ClientRequest::holderIdSql(),
+        ];
     }
 
     /**
