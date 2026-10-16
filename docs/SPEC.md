@@ -1875,6 +1875,21 @@ trạng thái, trừ "Đã gộp") rồi danh sách **"Lead đến hẹn liên h
 hôm nay hoặc đã qua, hẹn sớm nhất trước); hai widget có số thứ tự riêng, không trùng widget nào họ thấy. Widget "Liên hệ chưa ai gọi lại" hiện với họ như mọi người có `intake.create`.
 Trang chủ các vai khác không đổi.
 
+**Đính chính 2026-10-15 (làn kt — kế toán nhập hợp đồng, §5 bổ sung 2026-10-15, §7.2).** Thêm một hàng
+hai ô số **"Hợp đồng cần nhập"** (`ContractsToEnterWidget`). **Ai thấy:** người có `contract.enter` VÀ mở
+được trang "Hợp đồng" (`billing.view` và `contract.enter` hoặc `contract.manage`) — tức kế toán và quản
+trị viên. Luật sư và trưởng phòng (chỉ `contract.manage`) soạn hợp đồng ở tab "Hợp đồng và thanh toán"
+của vụ, trang chủ của họ không đổi; người khác mount thẳng widget nhận 404. **Đứng ở đâu:** đứng cuối
+trang chủ, sau mọi widget đang có (số thứ tự 3, sau "Thống kê nhanh" — mục 6); dải "Tình trạng hệ thống"
+vẫn trên cùng. Đây là phần tóm tắt dẫn tới việc phải làm, không phải danh sách, nên không đẩy danh sách
+nào xuống. **Đếm gì** — trên đúng tập dòng của trang "Hợp đồng", `Matter::listableBy` của người xem (vụ
+chưa xoá mềm; kế toán không có vụ hạn chế, quản trị viên đếm cả vụ hạn chế): "Hồ sơ chưa có hợp đồng" là
+vụ chưa từng có hợp đồng nào (`whereDoesntHave('contracts')` — vụ đã đóng mà chưa từng có hợp đồng, như
+vụ không thu phí, vẫn được đếm); "Hợp đồng còn nháp" là vụ có hợp đồng hiện hành còn nháp
+(`Matter::contract`, bản mới nhất). Vụ có hợp đồng hiện hành đã huỷ không vào ô nào — trang lọc "Đã huỷ"
+để nhập lại phần còn phải thu (QUY-TRINH, "Kế toán nhập hợp đồng"). Hai ô chỉ đếm: không mã hồ sơ, không
+tên khách; mỗi ô là một liên kết tới trang "Hợp đồng" lọc sẵn đúng trạng thái đó.
+
 ### 7.2 Resource `Matter`
 
 Bảng danh sách: mã hồ sơ, khách hàng, loại, tiêu đề, giai đoạn (badge màu),

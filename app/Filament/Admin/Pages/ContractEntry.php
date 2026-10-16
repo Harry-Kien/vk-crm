@@ -54,9 +54,11 @@ use Livewire\Attributes\Url;
  * # Tập dòng — đúng tầm nhìn của trang Công nợ
  *
  * `Matter::listableBy($user)` (vụ chưa xoá mềm — vụ đã huỷ không có ở đây), cùng định nghĩa "ai thấy
- * tiền của vụ nào" của `ChecksBillingAccess`: kế toán và trưởng phòng không thấy vụ `restricted`, quản
- * trị viên thấy mọi vụ, luật sư thấy vụ trong đội. Mặc định lọc "Chưa có hợp đồng" + "Nháp" — đúng
- * những hồ sơ còn việc phải nhập.
+ * tiền của vụ nào" của `ChecksBillingAccess`: quản trị viên thấy mọi vụ, luật sư thấy vụ trong đội; vụ
+ * `restricted` chỉ hiện với quản trị viên và luật sư phụ trách vụ đó (còn `matter.view`) — kế toán không
+ * bao giờ thấy, trưởng phòng chỉ thấy vụ hạn chế mình phụ trách. Lời dẫn `contract_entry.scope_note` nói
+ * đúng điều này cho mọi người mở trang. Mặc định lọc "Chưa có hợp đồng" + "Nháp" — đúng những hồ sơ còn
+ * việc phải nhập.
  *
  * # Dữ liệu chỉ đi qua {@see AccountantContractRow}
  *
@@ -389,6 +391,12 @@ class ContractEntry extends Page implements HasTable
             // mới" ở tab — luật tiền đã thu kèm SỐ đã thu trên hợp đồng đã huỷ, để chỉ nhập phần còn phải thu.
             ->modalDescription(fn (Matter $record): string => trim(__('contract_entry.actions.enter_description')
                 .' '.ContractScheduleForm::redraftCollectedRule($record)))
+            // Rà soát cuối F1: nút gửi nói đúng việc nó làm theo công tắc `activate_now` (ô `live()`, đọc
+            // từ dữ liệu thô của hộp thoại đang mở) — "Lưu nháp" khi tắt, "Lưu và kích hoạt" khi bật —
+            // thay nhãn mặc định "Gửi"; lời dẫn đầu trang và QUY-TRINH gọi đúng hai nhãn này.
+            ->modalSubmitActionLabel(fn (Action $action): string => ($action->getRawData()['activate_now'] ?? false)
+                ? __('contract_entry.actions.submit_activate')
+                : __('contract_entry.actions.submit_draft'))
             ->modalWidth('4xl')
             ->visible(fn (Matter $record): bool => $record->contract === null || $record->contract->status === ContractStatus::Cancelled)
             ->authorize(fn (Matter $record): bool => Gate::allows('create', [Contract::class, $record]))

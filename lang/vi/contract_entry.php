@@ -5,7 +5,7 @@
 return [
     'navigation_label' => 'Hợp đồng',
     'title' => 'Hợp đồng của hồ sơ',
-    'scope_note' => 'Nhập hợp đồng giấy đã ký cho hồ sơ có sẵn: bấm "Nhập hợp đồng", điền giá trị và các đợt thu, rồi "Lưu và kích hoạt" (khách đã ký) hoặc "Lưu nháp". Trang chỉ có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách và các con số; hồ sơ hạn chế không có ở đây. Hồ sơ mới vẫn do luật sư hoặc trưởng phòng mở.',
+    'scope_note' => 'Nhập hợp đồng giấy đã ký cho hồ sơ có sẵn: bấm "Nhập hợp đồng", điền giá trị và các đợt thu; khách đã ký thì bật "Khách đã ký — kích hoạt luôn" rồi bấm "Lưu và kích hoạt", chưa chắc thì để tắt và bấm "Lưu nháp". Trang chỉ có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách và các con số. Hồ sơ hạn chế chỉ hiện với quản trị viên và luật sư phụ trách hồ sơ đó — kế toán không thấy. Hồ sơ mới vẫn do luật sư hoặc trưởng phòng mở.',
     'empty_heading' => 'Không có hồ sơ nào khớp bộ lọc',
 
     'columns' => [
@@ -36,6 +36,9 @@ return [
         'enter_description' => 'Số hợp đồng (HD-năm-số) do hệ thống cấp khi lưu. Tổng các đợt phải bằng đúng giá trị hợp đồng thì mới kích hoạt được.',
         'save_and_activate' => 'Khách đã ký — kích hoạt luôn',
         'save_and_activate_help' => 'Bật: lưu và kích hoạt trong một lần (cần ngày ký, tổng các đợt khớp giá trị). Tắt: chỉ lưu nháp, kích hoạt sau.',
+        // Nút gửi của hộp thoại "Nhập hợp đồng" đổi theo công tắc trên (rà soát cuối F1).
+        'submit_activate' => 'Lưu và kích hoạt',
+        'submit_draft' => 'Lưu nháp',
         'enter_success' => 'Đã lưu bản nháp hợp đồng',
         'enter_activated_success' => 'Đã nhập và kích hoạt hợp đồng',
         'update_draft' => 'Sửa bản nháp',

@@ -384,6 +384,68 @@ it('asks for the signing date only when activating in one go', function () {
     expect(Contract::query()->where('matter_id', $this->empty->id)->exists())->toBeFalse();
 });
 
+/**
+ * Rà soát cuối F1 (a): nút gửi của hộp thoại "Nhập hợp đồng" nói đúng việc nó làm theo công tắc
+ * "Khách đã ký — kích hoạt luôn" — "Lưu nháp" khi tắt, "Lưu và kích hoạt" khi bật — chứ không phải nhãn
+ * mặc định "Gửi" của Filament; lời dẫn đầu trang và QUY-TRINH gọi đúng hai nhãn này.
+ */
+it('labels the dialog submit button after the switch: save as draft while off, save and activate when on', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $submitLabel = fn ($page): string => (string) $page->instance()->getMountedAction()->getModalSubmitAction()->getLabel();
+
+    $page = contractPage()->mountAction(TestAction::make('enterContract')->table($this->empty));
+
+    expect($submitLabel($page))->toBe(__('contract_entry.actions.submit_draft'))
+        ->and(__('contract_entry.actions.submit_draft'))->toBe('Lưu nháp');
+    $page->assertMountedActionModalSee(__('contract_entry.actions.submit_draft'))
+        ->assertMountedActionModalDontSee(__('contract_entry.actions.submit_activate'));
+
+    $page->fillForm(['activate_now' => true]);
+
+    expect($submitLabel($page))->toBe(__('contract_entry.actions.submit_activate'))
+        ->and(__('contract_entry.actions.submit_activate'))->toBe('Lưu và kích hoạt');
+    $page->assertMountedActionModalSee(__('contract_entry.actions.submit_activate'));
+
+    $page->fillForm(['activate_now' => false]);
+
+    expect($submitLabel($page))->toBe(__('contract_entry.actions.submit_draft'));
+});
+
+/**
+ * Rà soát cuối F1: lời dẫn đầu trang, ai mở trang cũng đọc — chỉ gọi những nút có thật trên màn hình,
+ * và nói đúng ai thấy hồ sơ hạn chế: quản trị viên và luật sư phụ trách hồ sơ đó có (test "shows the
+ * restricted matter to the admin"), kế toán không.
+ */
+it('tells every reader of the page only what the screen really does, naming the real buttons and who sees a restricted matter', function () {
+    $note = __('contract_entry.scope_note');
+
+    foreach ([$this->accountant, $this->admin] as $user) {
+        $this->actingAs($user, 'web')->get(ContractEntry::getUrl(panel: 'admin'))->assertOk()->assertSee($note);
+    }
+
+    expect($note)->toContain('"'.__('contract_entry.actions.enter').'"')
+        ->and($note)->toContain('"'.__('contract_entry.actions.save_and_activate').'"')
+        ->and($note)->toContain('"'.__('contract_entry.actions.submit_activate').'"')
+        ->and($note)->toContain('"'.__('contract_entry.actions.submit_draft').'"')
+        ->and($note)->toContain('kế toán không thấy')
+        ->and($note)->toContain('quản trị viên và luật sư phụ trách')
+        ->and($note)->not->toContain('hồ sơ hạn chế không có ở đây');
+
+    // Mọi nhãn trong ngoặc kép của lời dẫn là nhãn của một nút hay công tắc có trên trang.
+    preg_match_all('/"([^"]+)"/u', $note, $quoted);
+    $labels = [
+        __('contract_entry.actions.enter'),
+        __('contract_entry.actions.save_and_activate'),
+        __('contract_entry.actions.submit_activate'),
+        __('contract_entry.actions.submit_draft'),
+    ];
+
+    foreach ($quoted[1] as $label) {
+        expect($labels)->toContain($label);
+    }
+});
+
 it('offers the stages of the matter type, but not its first stage, for a stage-triggered instalment', function () {
     $this->actingAs($this->accountant, 'web');
 
