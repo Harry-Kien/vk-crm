@@ -31,6 +31,7 @@ use App\Support\Performance\PerformanceCache;
 use App\Support\Performance\TaskWorkloadRow;
 use App\Support\Performance\TeamRoster;
 use App\Support\Performance\TeamWorkloadRow;
+use App\Support\Tasks\SeatInbox;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
@@ -163,6 +164,12 @@ class TeamMember extends Page implements HasTable
     /** "Việc của tôi". Không trùng icon nào đã dùng trong `app/` (`OutlinedUserCircle` là icon của hành động "Đổi người phụ trách" trên tab Mốc thời hạn). */
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBriefcase;
 
+    /**
+     * "Việc của tôi" ở khu không nhóm trên cùng, ngay sau "Công việc" (`TaskResource`, `-1`): việc
+     * hằng ngày đứng đầu (gộp làn rv vào main, phán quyết controller). Không gán nhóm.
+     */
+    protected static ?int $navigationSort = 0;
+
     #[Locked]
     public int $subjectId;
 
@@ -210,8 +217,10 @@ class TeamMember extends Page implements HasTable
     }
 
     /**
-     * Mục "Việc của tôi" chỉ cho người KHÔNG có `performance.viewAny` (họ đã có "Theo dõi đội ngũ")
-     * và chỉ khi trang của chính họ mở được — không bao giờ một liên kết dẫn tới 404.
+     * Mục "Việc của tôi" cho mọi người mở được trang của chính mình — đúng tập {@see SeatInbox::onMyWork()}
+     * (luật sư, trợ lý, trưởng phòng), nên chuông và thư "nhận hồ sơ ở mục Việc của tôi" luôn trỏ tới một mục
+     * có thật trên menu (rà soát gộp làn rv, 2026-10-16: trưởng phòng trước đó không có mục này). Không bao giờ
+     * một liên kết dẫn tới 404.
      */
     public static function shouldRegisterNavigation(): bool
     {
@@ -221,10 +230,7 @@ class TeamMember extends Page implements HasTable
             return false;
         }
 
-        $gate = Gate::forUser($user);
-
-        return ! $gate->allows(Permission::PerformanceViewAny->value)
-            && $gate->allows('viewPerformance', $user);
+        return SeatInbox::onMyWork($user);
     }
 
     /**

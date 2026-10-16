@@ -298,7 +298,7 @@ enum PushTopic: string
             $this === self::StaffHandoverReady => self::matterTab($matterId, DocumentsRelationManager::class),
             // Cùng luật `InstalmentOverdue::link()` — xem docblock lớp, mục deep link.
             $this === self::StaffInstalmentOverdue => $recipient instanceof User && Receivables::canBeOpenedBy($recipient)
-                ? Receivables::getUrl(panel: 'admin')
+                ? Receivables::overdueListUrl()
                 : self::matterTab($matterId, BillingRelationManager::class),
         };
 

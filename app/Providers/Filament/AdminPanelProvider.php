@@ -196,6 +196,8 @@ class AdminPanelProvider extends PanelProvider
             // M12 R2 — manifest, theme-color, apple-touch-icon: hook THỨ HAI cùng tên, không gộp vào
             // `brand.theme`. Nội dung và lý do: `resources/views/pwa/head.blade.php`.
             ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('pwa.head'))
+            // Làn rv — trục tiền "60 tr" / tooltip "60.000.000 ₫" cho biểu đồ (App\Support\Charts\MoneyChart).
+            ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('charts.head'))
             // M12 R8 — dải mời "Bật thông báo trên máy này?" (ẩn; `register.js` quyết khi nào hiện).
             ->renderHook(PanelsRenderHook::CONTENT_START, fn () => view('pwa.push-invite'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE, fn () => view('brand.login-tagline'))

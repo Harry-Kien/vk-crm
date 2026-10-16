@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers;
 
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\ClientUsers\Pages\CreateClientUser;
@@ -20,6 +21,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Auth;
+use UnitEnum;
 
 /**
  * Cùng lý do như ClientResource: ClientUserPolicy::view chạy exists() cho mỗi bản ghi, nên
@@ -50,6 +52,10 @@ class ClientUserResource extends Resource
     // Mỗi resource một hình riêng (tài khoản ĐĂNG NHẬP portal, không phải bản thân khách hàng): năm mục cùng một biểu
     // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedKey;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Clients;
+
+    protected static ?int $navigationSort = 40;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

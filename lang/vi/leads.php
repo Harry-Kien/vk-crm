@@ -108,7 +108,9 @@ return [
     'report' => [
         'by_owner' => [
             'heading' => 'Lead theo người phụ trách',
-            'description' => 'Số lead nhận trong :range và số đã thành vụ việc, theo người phụ trách lead (người được giao; chưa giao ai thì người đã ghi). Không tính bản trùng đã gộp.',
+            // làn rv (2026-10-15): một dòng phụ; cách tính ở `explanation` — chữ của nút ⓘ cạnh tiêu đề.
+            'description' => 'Nhận :range',
+            'explanation' => 'Số lead nhận trong :range và số đã thành vụ việc, theo người phụ trách lead (người được giao; chưa giao ai thì người đã ghi). Không tính bản trùng đã gộp.',
             'series_total' => 'Số lead',
             'series_won' => 'Thành vụ việc',
             'row' => ':won/:total (:rate)',

@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Pages;
 
 use App\Actions\Performance\BuildPerformanceReport;
 use App\Actions\Performance\BuildTaskPerformance;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Models\User;
 use App\Support\Audit;
@@ -33,6 +34,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use UnitEnum;
 
 /**
  * Trang "Hiệu suất theo kỳ" (`/performance`, M13 R1): TRONG một kỳ, mỗi người đã làm đúng hạn tới
@@ -105,6 +107,10 @@ class Performance extends Page implements HasTable
     protected static ?string $slug = 'performance';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPresentationChartLine;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Team;
+
+    protected static ?int $navigationSort = 40;
 
     /** Báo cáo của request này, theo (kỳ, công tắc) — trang đọc nó nhiều lần trong một lần vẽ. */
     private ?string $reportKey = null;

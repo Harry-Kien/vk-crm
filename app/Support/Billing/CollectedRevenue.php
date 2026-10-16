@@ -40,4 +40,25 @@ final class CollectedRevenue
             ->whereBetween('paid_on', $bounds)
             ->whereHas('instalment.contract.matter', fn (Builder $matters): Builder => $matters->listableBy($viewer));
     }
+
+    /**
+     * {@see self::query()} cộng HAI bộ lọc của trang Doanh thu — luật sư theo `attributed_lawyer_id`
+     * ("luật sư phụ trách LÚC THU", P2 của M9) và lĩnh vực của vụ — trong khoảng `$bounds` (kỳ đang xem,
+     * hay kỳ so sánh của {@see RevenueFilters::previousPeriod()}). MỘT chỗ cho biểu đồ "Doanh thu theo
+     * tháng" (`RevenueOverTimeWidget`) và ô "Đã thu" đầu trang (`RevenueKpiWidget`, làn rv) — trước làn rv
+     * hai điều kiện này nằm trong widget; tách nguyên văn ra đây để ô số không viết lại chúng.
+     *
+     * Một khoản thu thuộc đúng một vụ, nên `whereHas` lĩnh vực thứ hai tương đương với điều kiện nằm trong
+     * cùng closure `listableBy`.
+     *
+     * @param  array{0: string, 1: string}  $bounds
+     * @return Builder<Payment>
+     */
+    public static function filtered(User $viewer, RevenueFilters $filters, array $bounds): Builder
+    {
+        return self::query($viewer, $bounds)
+            ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('attributed_lawyer_id', $v))
+            ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q
+                ->whereHas('instalment.contract.matter', fn (Builder $mq) => $mq->where('matter_type_id', $v)));
+    }
 }

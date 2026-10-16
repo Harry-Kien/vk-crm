@@ -58,9 +58,22 @@ class IntakeResponseTimeWidget extends ChartWidget
         return __('intake_report.response_time.heading');
     }
 
+    /** Một dòng phụ: khoảng ngày và trung vị toàn bộ (làn rv). Cách tính nằm ở {@see self::getExplanation()}. */
     public function getDescription(): string|Htmlable|null
     {
         return __('intake_report.response_time.description', [
+            'range' => $this->reportFilters()->rangeLabel(),
+            'median' => $this->formatMedian($this->minutes()['all']),
+        ]);
+    }
+
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề; dưới tiêu đề giờ chỉ còn một dòng phụ ngắn. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
+        return __('intake_report.response_time.explanation', [
             'range' => $this->reportFilters()->rangeLabel(),
             'median' => $this->formatMedian($this->minutes()['all']),
             'clock_note' => __('intake_report.response_time.clock_note'),

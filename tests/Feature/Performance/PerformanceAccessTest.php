@@ -299,13 +299,13 @@ it('writes no performance_viewed line for someone turned away', function () {
     expect(Activity::query()->where('event', 'performance_viewed')->count())->toBe(0);
 });
 
-it('shows the team overview and the period page in the navigation of a performance.viewAny holder', function () {
+it('shows the team overview, the period page and (rà soát gộp làn rv, 2026-10-16) "my work" in the navigation of a manager', function () {
     $html = m13Get(m13Staff(Role::Manager), m13PeriodUrl())->assertOk()->getContent();
 
     expect($html)->toContain('href="'.e(m13OverviewUrl()).'"')
         ->and($html)->toContain('href="'.e(m13PeriodUrl()).'"')
         ->and($html)->toContain(e(__('performance.pages.team_overview.navigation_label')))
-        ->and($html)->not->toContain(e(__('performance.pages.team_member.navigation_label')));
+        ->and($html)->toContain(e(__('performance.pages.team_member.navigation_label')));
 });
 
 it('shows "my work" pointing at the viewer\'s own page and the period page to lawyers and assistants', function (Role $role) {

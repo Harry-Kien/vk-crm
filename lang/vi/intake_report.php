@@ -26,16 +26,20 @@ return [
         'receiver_help' => 'Nhân sự đã ghi bản ghi tiếp nhận (không phải người được giao xử lý).',
     ],
 
+    // làn rv (2026-10-15): mỗi biểu đồ một tiêu đề ngắn, MỘT dòng phụ (`description`); cách tính chuyển
+    // sang `explanation` — chữ của nút ⓘ cạnh tiêu đề (khung chung `chart-with-table`).
     'by_source' => [
-        'heading' => 'Số liên hệ theo nguồn',
-        'description' => 'Liên hệ nhận trong kỳ (:range). Mỗi bản ghi tiếp nhận là một người liên hệ; bản trùng đã gộp vào bản ghi khác không tính lại. Gồm cả bản ghi đã ẩn danh.',
+        'heading' => 'Liên hệ theo nguồn',
+        'description' => 'Nhận :range',
+        'explanation' => 'Liên hệ nhận trong kỳ (:range). Mỗi bản ghi tiếp nhận là một người liên hệ; bản trùng đã gộp vào bản ghi khác không tính lại. Gồm cả bản ghi đã ẩn danh.',
         'series' => 'Số liên hệ',
         'total' => 'Tổng',
     ],
 
     'conversion' => [
-        'heading' => 'Tỉ lệ chuyển thành vụ việc',
-        'description' => 'Trong các liên hệ nhận trong kỳ (:range), trừ bản trùng đã gộp, số đã chuyển thành vụ việc: :overall. Bản ghi còn đang xử lý vẫn tính ở mẫu số, nên một kỳ vừa qua trông thấp hơn khi việc chưa ngã ngũ.',
+        'heading' => 'Tỉ lệ thành vụ việc',
+        'description' => 'Nhận :range · :overall',
+        'explanation' => 'Trong các liên hệ nhận trong kỳ (:range), trừ bản trùng đã gộp, số đã chuyển thành vụ việc: :overall. Bản ghi còn đang xử lý vẫn tính ở mẫu số, nên một kỳ vừa qua trông thấp hơn khi việc chưa ngã ngũ.',
         'series' => 'Tỉ lệ chuyển thành vụ việc (%)',
         'row' => ':won/:total (:rate)',
         'rate' => ':rate %',
@@ -44,8 +48,9 @@ return [
     ],
 
     'response_time' => [
-        'heading' => 'Thời gian phản hồi lần đầu (trung vị)',
-        'description' => 'Từ lúc nhận liên hệ tới lần đầu bản ghi rời trạng thái "Mới", với các liên hệ nhận trong kỳ (:range), trừ bản trùng đã gộp. :clock_note Trung vị toàn bộ: :median.',
+        'heading' => 'Phản hồi lần đầu',
+        'description' => 'Nhận :range · trung vị :median',
+        'explanation' => 'Trung vị thời gian từ lúc nhận liên hệ tới lần đầu bản ghi rời trạng thái "Mới", với các liên hệ nhận trong kỳ (:range), trừ bản trùng đã gộp. :clock_note Trung vị toàn bộ: :median.',
         'clock_note' => 'Tính theo giờ đồng hồ, kể cả đêm và cuối tuần — khác ngưỡng nhắc việc, vốn tính theo giờ làm việc.',
         'series' => 'Trung vị (giờ)',
         'overall' => 'Trung vị toàn bộ',
@@ -61,8 +66,9 @@ return [
     ],
 
     'outcomes' => [
-        'heading' => 'Lý do không thành vụ việc, theo nhóm',
-        'description' => 'Liên hệ nhận trong kỳ (:range) đã kết thúc mà không thành vụ việc, kể cả bản trùng đã gộp. Chỉ đếm theo nhóm; lý do ghi bằng chữ không hiện ở đây.',
+        'heading' => 'Lý do không thành vụ',
+        'description' => 'Nhận :range',
+        'explanation' => 'Liên hệ nhận trong kỳ (:range) đã kết thúc mà không thành vụ việc, kể cả bản trùng đã gộp. Chỉ đếm theo nhóm; lý do ghi bằng chữ không hiện ở đây.',
         'series' => 'Số bản ghi',
         'groups' => [
             'declined_conflict' => 'Văn phòng từ chối — xung đột lợi ích',

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Tasks;
 
+use App\Enums\NavigationGroup;
 use App\Filament\Admin\Resources\Tasks\Pages\ListTasks;
 use App\Models\Task;
 use App\Models\User;
@@ -33,6 +34,13 @@ class TaskResource extends Resource
 
     // Mỗi resource một hình riêng (NavigationIconsTest) — tấm bảng có dấu tích: việc cần làm.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentCheck;
+
+    /**
+     * Khu không nhóm trên cùng của menu, ngay dưới Bảng điều khiển (`-2`): việc hằng ngày đứng đầu, như
+     * "My tasks" của các CRM chuyên nghiệp (gộp làn rv vào main, phán quyết controller). Không gán
+     * nhóm — xem docblock {@see NavigationGroup}.
+     */
+    protected static ?int $navigationSort = -1;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

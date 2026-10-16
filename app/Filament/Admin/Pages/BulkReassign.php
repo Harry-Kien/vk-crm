@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Pages;
 
 use App\Actions\Matter\BulkReassignMatterResult;
 use App\Actions\Matter\ReassignMatters;
+use App\Enums\NavigationGroup;
 use App\Enums\Role as StaffRole;
 use App\Models\Matter;
 use App\Models\User;
@@ -23,6 +24,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use UnitEnum;
 
 /**
  * Bàn giao HÀNG LOẠT nhiều vụ việc của MỘT luật sư đang phụ trách sang MỘT lead mới (SPEC §6.11;
@@ -79,6 +81,10 @@ class BulkReassign extends Page
     protected string $view = 'filament.admin.pages.bulk-reassign';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowsRightLeft;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Team;
+
+    protected static ?int $navigationSort = 10;
 
     /** @var array<string, mixed> */
     public array $data = [];

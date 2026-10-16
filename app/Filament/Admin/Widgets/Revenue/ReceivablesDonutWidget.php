@@ -14,7 +14,10 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
+use App\Support\Billing\OpenReceivables;
+use App\Support\Billing\RevenueColours;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Charts\MoneyChart;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -66,14 +69,14 @@ use Illuminate\Support\Facades\Auth;
  *
  * **"Đã thu" lọc theo `payments.attributed_lawyer_id`** (luật sư phụ trách LÚC THU) — KHÔNG theo
  * `matters.lead_lawyer_id` như bản trước. **"Còn phải thu"/"quá hạn" lọc theo
- * `matters.lead_lawyer_id`** (luật sư phụ trách HIỆN TẠI). Khi có bộ lọc luật sư, `getDescription()`
- * in RÕ cả hai nghĩa. Dòng đối chiếu tổng ("ba lát cộng đúng…") chỉ hiện khi KHÔNG lọc luật sư —
+ * `matters.lead_lawyer_id`** (luật sư phụ trách HIỆN TẠI). Khi có bộ lọc luật sư, `getExplanation()`
+ * (nút ⓘ cạnh tiêu đề, làn rv — trước đó in ở `getDescription()`) nói RÕ cả hai nghĩa. Dòng đối chiếu tổng ("ba lát cộng đúng…") chỉ hiện khi KHÔNG lọc luật sư —
  * khi lọc, hai lát dùng hai tập vụ việc khác nhau (một theo ai đã ghi khoản thu, một theo ai đang
  * phụ trách hôm nay), nên tổng không còn là "giá trị đã ký của MỘT tập vụ việc" nữa, và một dòng
  * đối chiếu lúc đó sẽ so sánh hai thứ không cùng bản chất.
  *
  * Bộ ba màu đã kiểm chứng máy (kế hoạch M9): đã thu `#0ca30c`, còn phải thu chưa tới hạn `#4a73bd`,
- * quá hạn `#d03b3b`.
+ * quá hạn `#d03b3b` — từ làn rv đọc từ `App\Support\Billing\RevenueColours`, chung với ô số đầu trang.
  */
 class ReceivablesDonutWidget extends ChartWidget
 {
@@ -94,16 +97,28 @@ class ReceivablesDonutWidget extends ChartWidget
         return __('widgets.revenue_dashboard.donut.heading');
     }
 
+    /** Một dòng phụ: khoảng ngày ký (làn rv). Cách tính nằm ở {@see self::getExplanation()}. */
     public function getDescription(): string|Htmlable|null
     {
+        return __('widgets.revenue_dashboard.donut.description', [
+            'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
+        ]);
+    }
+
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
         $filters = RevenueFilters::fromPageFilters($this->pageFilters);
-        $description = __('widgets.revenue_dashboard.donut.description', ['range' => $filters->rangeLabel()]);
+        $explanation = __('widgets.revenue_dashboard.donut.explanation', ['range' => $filters->rangeLabel()]);
 
         if ($filters->lawyerId !== null) {
-            $description .= ' '.__('widgets.revenue_dashboard.donut.description_lawyer_filtered');
+            $explanation .= ' '.__('widgets.revenue_dashboard.donut.description_lawyer_filtered');
         }
 
-        return $description;
+        return $explanation;
     }
 
     /** Dạng gốc là "tròn" (vẽ bằng doughnut, xem pieChartType()); cột và đường là hai dạng thay thế. */
@@ -145,14 +160,15 @@ class ReceivablesDonutWidget extends ChartWidget
 
         return [
             'labels' => [
-                __('widgets.revenue_dashboard.donut.slices.collected', ['amount' => Money::format($amounts['collected'])]),
-                __('widgets.revenue_dashboard.donut.slices.not_yet_due', ['amount' => Money::format($amounts['not_yet_due'])]),
-                __('widgets.revenue_dashboard.donut.slices.overdue', ['amount' => Money::format($amounts['overdue'])]),
+                // Làn rv: chú giải chỉ còn tên lát; số tiền đủ chữ số ở tooltip (MoneyChart), bảng số và ô số đầu trang.
+                __('widgets.revenue_dashboard.donut.slices.collected'),
+                __('widgets.revenue_dashboard.donut.slices.not_yet_due'),
+                __('widgets.revenue_dashboard.donut.slices.overdue'),
             ],
             'datasets' => [
                 [
                     'data' => [$amounts['collected'], $amounts['not_yet_due'], $amounts['overdue']],
-                    'backgroundColor' => ['#0ca30c', '#4a73bd', '#d03b3b'],
+                    'backgroundColor' => [RevenueColours::COLLECTED, RevenueColours::OUTSTANDING, RevenueColours::OVERDUE],
                     'borderWidth' => 2,
                 ],
             ],
@@ -164,6 +180,7 @@ class ReceivablesDonutWidget extends ChartWidget
         return [
             'plugins' => [
                 'legend' => ['display' => true, 'position' => 'bottom'],
+                ...MoneyChart::pluginOptions(),
             ],
         ];
     }
@@ -194,10 +211,6 @@ class ReceivablesDonutWidget extends ChartWidget
         $baseMatterScope = fn (Builder $q): Builder => $q
             ->listableBy($user)
             ->when($filters->practiceAreaId, fn (Builder $q2, int $v) => $q2->where('matter_type_id', $v));
-
-        // "Còn phải thu"/"quá hạn": luật sư phụ trách HIỆN TẠI của vụ.
-        $outstandingMatterScope = fn (Builder $q): Builder => $baseMatterScope($q)
-            ->when($filters->lawyerId, fn (Builder $q2, int $v) => $q2->where('lead_lawyer_id', $v));
 
         $contractPeriodScope = fn (Builder $q): Builder => $q
             ->withoutGlobalScope(ClientPortalScope::class)
@@ -242,9 +255,9 @@ class ReceivablesDonutWidget extends ChartWidget
         // C1: còn phải thu — CHỈ từ BillingSummary::pendingInstalmentsQuery() (chỉ hợp đồng
         // `active`, đúng MỘT công thức toàn dự án), cộng trong CSDL qua
         // BillingSummary::sumOutstanding() (Fix round 2, minor: không nạp hết các đợt về PHP chỉ
-        // để cộng một cột).
-        $pendingInScope = fn (): Builder => BillingSummary::pendingInstalmentsQuery()
-            ->whereHas('contract', fn (Builder $q) => $contractPeriodScope($q)->whereHas('matter', $outstandingMatterScope));
+        // để cộng một cột). Phạm vi (người xem, luật sư HIỆN TẠI, lĩnh vực, hợp đồng ký trong kỳ) gắn
+        // qua OpenReceivables — cùng truy vấn với hai ô "Còn phải thu"/"Quá hạn" đầu trang (làn rv).
+        $pendingInScope = fn (): Builder => OpenReceivables::query($user, $filters, [$from, $to]);
 
         $outstanding = BillingSummary::sumOutstanding($pendingInScope());
 

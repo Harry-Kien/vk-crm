@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Pages;
 use App\Actions\Matter\SeatsNeedingReassignment;
 use App\Actions\Performance\BuildTaskWorkload;
 use App\Actions\Performance\BuildTeamWorkload;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Tasks\TaskResource;
 use App\Models\MatterUser;
@@ -26,6 +27,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
+use UnitEnum;
 
 /**
  * Trang "Theo dõi đội ngũ" (`/team`, M13 R1): BÂY GIỜ ai đang giữ gì, cái gì đang nguy hiểm — hàng
@@ -127,6 +129,10 @@ class TeamOverview extends Page implements HasTable
     protected static ?string $slug = 'team';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUserGroup;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Team;
+
+    protected static ?int $navigationSort = 30;
 
     public static function getNavigationLabel(): string
     {

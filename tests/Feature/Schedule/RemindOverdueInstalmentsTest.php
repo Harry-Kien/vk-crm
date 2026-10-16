@@ -525,13 +525,14 @@ it('writes the ledger row of the mail against the instalment, keyed by the due d
 // Liên kết: trang Công nợ cho người vào được nó, tab tiền của vụ cho người còn lại
 // =================================================================================================
 
-it('links an accountant to the receivables page', function () {
+it('links an accountant to the receivables page already filtered to overdue instalments', function () {
     overdueInstalment(['lead_lawyer_id' => $this->lead->id]);
 
     runOverdueReminders();
 
     $email = overdueEmailTo($this->accountant);
-    $url = Receivables::getUrl(panel: 'admin');
+    // Rà soát gộp làn rv (2026-10-16): thư "quá hạn" mở đúng danh sách quá hạn, như ô "Quá hạn" của trang Doanh thu.
+    $url = Receivables::overdueListUrl();
     expect($email->getHtmlBody())->toContain($url)
         ->and($email->getTextBody())->toContain($url);
 });
@@ -556,7 +557,7 @@ it('links an admin to the receivables page even on a restricted matter', functio
 
     runOverdueReminders();
 
-    expect(overdueEmailTo($this->admin)->getTextBody())->toContain(Receivables::getUrl(panel: 'admin'));
+    expect(overdueEmailTo($this->admin)->getTextBody())->toContain(Receivables::overdueListUrl());
 });
 
 /**
