@@ -3,6 +3,7 @@
 namespace App\Filament\Portal\Pages;
 
 use App\Actions\Document\ChecklistProgress;
+use App\Actions\Portal\OpenClientRequest;
 use App\Actions\Portal\RecordStageLogView;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
@@ -20,6 +21,7 @@ use App\Support\Billing\ClientBillingStatement;
 use App\Support\Billing\ClientPaymentPlan;
 use App\Support\Billing\ClientPaymentSettings;
 use App\Support\ClientRequestActivity;
+use App\Support\Settings\BusinessSettings;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Panel;
@@ -1162,6 +1164,17 @@ class MatterProgress extends Page
     public function requestEntryPoint(): string
     {
         return MyRequests::getUrl(['record' => $this->matter()->getKey()]);
+    }
+
+    /**
+     * Khối 7 còn mời "Gửi yêu cầu cho văn phòng" không — công tắc "khách gửi yêu cầu mới" của trang
+     * "Cài đặt nghiệp vụ" (làn st, mặc định bật). Tắt thì khối 7 đổi nhãn nút thành lối xem các cuộc
+     * trao đổi đã có (cùng đích {@see self::requestEntryPoint()}) và nói văn phòng tạm không nhận yêu
+     * cầu mới. Không phải cổng thật: {@see OpenClientRequest} hỏi lại công tắc.
+     */
+    public function acceptsNewRequests(): bool
+    {
+        return BusinessSettings::clientRequestsEnabled();
     }
 
     /**

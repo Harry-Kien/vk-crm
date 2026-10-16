@@ -18,9 +18,10 @@ use Illuminate\Validation\ValidationException;
 /**
  * Gia hạn khách tra cứu một vụ đã kết thúc (làn fm, mục A5 của kiểm tra nghiệp vụ 2026-10-09).
  *
- * `client_access_until` được `SyncMatterArchive` tính bằng `closed_at` + `vkcrm.client_access_days`
- * (SPEC §6.12 bước 5). Khi luật sư công bố gói bàn giao muộn, hay khách gọi xin thêm thời gian, cách
- * duy nhất trước Action này là quản trị viên mở lại vụ bằng đường bỏ qua — làm sai lịch sử giai đoạn.
+ * `client_access_until` được `SyncMatterArchive` tính bằng `closed_at` + số ngày của
+ * `App\Support\Settings\BusinessSettings::clientAccessDays()` (SPEC §6.12 bước 5; chỉnh trên trang
+ * "Cài đặt nghiệp vụ", mặc định `CLIENT_ACCESS_DAYS`). Khi luật sư công bố gói bàn giao muộn, hay khách
+ * gọi xin thêm thời gian, cách duy nhất trước Action này là quản trị viên mở lại vụ bằng đường bỏ qua — làm sai lịch sử giai đoạn.
  * Đây là đường thẳng: đổi đúng một cột của dòng lưu trữ, có lý do và nhật ký.
  *
  * Luật:

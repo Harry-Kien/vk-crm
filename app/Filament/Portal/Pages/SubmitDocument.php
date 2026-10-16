@@ -9,6 +9,7 @@ use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\OfficeProfile;
+use App\Support\Settings\BusinessSettings;
 use App\Support\UploadThrottle;
 use DomainException;
 use Filament\Facades\Filament;
@@ -678,15 +679,14 @@ class SubmitDocument extends Page
     }
 
     /**
-     * SPEC §6.6 bước 4, cấu hình qua `.env`. Cùng giá trị mà `FileGuard` đọc, và cùng bước lùi
-     * khi cấu hình thiếu hoặc không phải số dương — `(int) null === 0` thì fail-closed nhưng vô
-     * nghĩa: mọi tệp đều "vượt quá 0 MB" và không ai hiểu nổi câu đó.
+     * SPEC §6.6 bước 4 — {@see BusinessSettings::uploadMaxMegabytes()} (trang "Cài đặt nghiệp vụ",
+     * mặc định `UPLOAD_MAX_MB` của `.env`). Cùng giá trị mà `FileGuard` đọc, và cùng bước lùi khi cấu
+     * hình thiếu hoặc không phải số dương — `(int) null === 0` thì fail-closed nhưng vô nghĩa: mọi tệp
+     * đều "vượt quá 0 MB" và không ai hiểu nổi câu đó.
      */
     private static function maxMegabytes(): int
     {
-        $configured = config('vkcrm.upload_max_mb');
-
-        return is_numeric($configured) && (int) $configured > 0 ? (int) $configured : 20;
+        return BusinessSettings::uploadMaxMegabytes();
     }
 
     // -------------------------------------------------------------------------------------

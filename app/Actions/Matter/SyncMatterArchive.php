@@ -7,6 +7,7 @@ use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use App\Support\Settings\BusinessSettings;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -35,10 +36,10 @@ use Illuminate\Support\Facades\DB;
  *    câu "lần cuối dòng này được đồng bộ là khi nào", không phải "lần đầu vụ này đóng là khi
  *    nào" (câu đó đã có sẵn ở `matters.closed_at`, chỗ DUY NHẤT trong `app/` ghi cột đó — xem
  *    `TransitionMatterStage`). `client_access_until`/`retention_until` LUÔN được tính lại từ
- *    `closed_at` cộng cấu hình hiện hành (`config('vkcrm.client_access_days')`,
- *    `config('vkcrm.retention_years')`) — không đọc số cứng, và vì cả hai chỉ phụ thuộc
- *    `closed_at` (một giá trị `matters.closed_at` không đổi khi chuyển từ một giai đoạn terminal
- *    sang một giai đoạn terminal khác — xem docblock `TransitionMatterStage`), hai lần gọi liên
+ *    `closed_at` cộng cấu hình hiện hành ({@see BusinessSettings::clientAccessDays()} — trang
+ *    "Cài đặt nghiệp vụ", mặc định `CLIENT_ACCESS_DAYS` — và `config('vkcrm.retention_years')`) —
+ *    không đọc số cứng, và vì cả hai chỉ phụ thuộc `closed_at` (một giá trị `matters.closed_at`
+ *    không đổi khi chuyển từ một giai đoạn terminal sang một giai đoạn terminal khác — xem docblock `TransitionMatterStage`), hai lần gọi liên
  *    tiếp với cùng `closed_at` luôn tính ra CÙNG hai ngày này.
  *  - `closed_at === null` (đường bỏ qua của admin vừa mở lại vụ): CHỈ xoá `client_access_until`
  *    về `null`, giữ nguyên phần còn lại của dòng — không có gì để "mở lại" thêm, vì `archived_at`
@@ -109,7 +110,7 @@ class SyncMatterArchive
             'archived_at' => now(),
             'archived_by' => $actor?->getKey(),
             'client_access_until' => $closedAt->copy()
-                ->addDays((int) config('vkcrm.client_access_days'))
+                ->addDays(BusinessSettings::clientAccessDays())
                 ->toDateString(),
             'retention_until' => $closedAt->copy()
                 ->addYears((int) config('vkcrm.retention_years'))

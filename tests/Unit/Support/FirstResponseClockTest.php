@@ -5,6 +5,10 @@ use App\Support\Intake\FirstResponseClock;
 /*
  * M10 Task 5 (R5) — cách thư, thông báo và widget "Liên hệ chưa ai gọi lại" nói một khoảng chờ: không
  * bao giờ "0 giờ 35 phút" hay "4 giờ 0 phút".
+ *
+ * Ngưỡng giờ làm việc (`FirstResponseClock::fromConfig()`) nay đọc trang "Cài đặt nghiệp vụ" trước rồi mới
+ * rơi về `vkcrm.intake_response_hours` (làn st) — tức đọc bảng `settings`, nên test của nó chuyển sang
+ * `tests/Feature/Settings/BusinessSettingsWiringTest.php` (bộ Unit không có CSDL).
  */
 it('says a waiting time in hours and minutes, dropping a zero part', function (int $minutes, string $expected) {
     expect(FirstResponseClock::formatMinutes($minutes))->toBe($expected);
@@ -14,9 +18,3 @@ it('says a waiting time in hours and minutes, dropping a zero part', function (i
     'giờ và phút' => [260, '4 giờ 20 phút'],
     'chưa tới một phút' => [0, '0 phút'],
 ]);
-
-it('reads the threshold of working hours from the configuration', function () {
-    config(['vkcrm.intake_response_hours' => 6]);
-
-    expect(FirstResponseClock::fromConfig()->thresholdHours)->toBe(6);
-});

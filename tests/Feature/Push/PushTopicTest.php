@@ -485,6 +485,9 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.document_store_alert.unavailable',
         'staff.intake_unanswered',
         'staff.matter_reassigned',
+        // làn st: thư thử của nút "Gửi thư thử" (Cài đặt › Thư điện tử) — chỉ để kiểm tra máy chủ thư, tới
+        // chính người bấm; không về hồ sơ nào, cố ý không đẩy.
+        'staff.test_mail',
         'staff.stale_matter',
         // Làn tk, Task 1 vòng sửa 1 (I2): `staff.task.assigned` NAY đẩy (người được giao cần biết ngay, kể
         // cả khi không ngồi máy). Ba thư báo người giao — đã nhận, trả lại, hoàn thành — cố ý không đẩy:

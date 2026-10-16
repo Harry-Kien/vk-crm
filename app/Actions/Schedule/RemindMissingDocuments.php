@@ -13,6 +13,7 @@ use App\Models\Matter;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use App\Notifications\Staff\MissingDocumentsStuckAlert;
+use App\Support\Settings\BusinessSettings;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,10 @@ use Throwable;
  * khoản khách đủ điều kiện (R12); và nếu tình trạng thiếu kéo dài quá
  * {@see ChecklistProgress::STUCK_AFTER_DAYS} ngày thì luật sư phụ trách được báo TRONG HỆ THỐNG để
  * gọi điện cho khách, tính trên MỌI đầu mục bắt buộc còn thiếu.
+ *
+ * Thư cho khách đi sau công tắc {@see BusinessSettings::missingDocumentsMailEnabled()} (làn st, trang
+ * "Cài đặt nghiệp vụ", mặc định BẬT): tắt thì không xếp job thư nào, và job đã xếp tự hỏi lại lúc gửi
+ * (`SendMissingDocumentsMail::context()`). Thông báo 14 ngày cho luật sư KHÔNG theo công tắc.
  *
  * # MỘT nguồn sự thật về "còn thiếu" — {@see ChecklistProgress}
  *
@@ -184,7 +189,8 @@ class RemindMissingDocuments
 
             // Thư chỉ đi khi còn đầu mục ĐƯỢC ĐÒI khách (`itemsToRemindClientOf()` — không đòi bản hợp
             // đồng đã ký khi hợp đồng còn nháp); thông báo 14 ngày ở trên vẫn đọc mọi đầu mục còn thiếu.
-            if (ChecklistProgress::itemsToRemindClientOf($matter)->isNotEmpty()
+            if (BusinessSettings::missingDocumentsMailEnabled()
+                && ChecklistProgress::itemsToRemindClientOf($matter)->isNotEmpty()
                 && $accounts->contains(fn (ClientUser $account): bool => ! self::alreadyDelivered($matter, $account))) {
                 // `->afterCommit()`: Laravel hoãn việc đẩy job tới khi transaction NÀY thật sự commit.
                 // Job tự đọc lại hồ sơ, danh sách còn thiếu VÀ người nhận lúc nó thật sự chạy — không

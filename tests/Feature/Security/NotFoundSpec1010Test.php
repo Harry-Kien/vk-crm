@@ -139,6 +139,12 @@ function spec1010GatedPages(): array
         'filament.admin.pages.documents' => Role::Accountant,
         // Làn nt Task 1 — "Nhắc thanh toán cho khách" (công tắc, thông tin chuyển khoản): chỉ `settings.manage`.
         'filament.admin.pages.client-payment-reminders' => Role::Lawyer,
+        // làn st — trang tổng "Cài đặt" và bốn trang con: chỉ `settings.manage` (admin).
+        'filament.admin.pages.settings' => Role::Manager,
+        'filament.admin.pages.settings.business' => Role::Lawyer,
+        'filament.admin.pages.settings.roles' => Role::Assistant,
+        'filament.admin.pages.settings.security' => Role::Accountant,
+        'filament.admin.pages.settings.mail' => Role::Lawyer,
         // Làn kd (2026-10-14) — hai trang từng ở OPEN ("mọi vai nhân sự") đóng với vai mới "Nhân viên
         // kinh doanh", người không có `matter.view` lẫn `matter.viewAny`: danh sách vụ việc và trang Tìm
         // kiếm (cổng của nó là `viewAny` của vụ việc). Mọi vai KHÁC vẫn mở được hai trang này — test

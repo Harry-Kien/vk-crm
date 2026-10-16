@@ -37,7 +37,18 @@
 
         {{-- GỬI MỘT YÊU CẦU MỚI ---------------------------------------------------------- --}}
         <section data-portal-block="new-request" style="{{ $card }}background-color:color-mix(in srgb, var(--primary-500) 10%, transparent);">
-            <h2 style="{{ $blockHeading }}">{{ __('requests.portal.new.heading') }}</h2>
+            {{-- Làn st: công tắc "khách gửi yêu cầu mới" của trang Cài đặt nghiệp vụ. Tắt thì không có ô
+                 gửi, và không câu nào trên trang mời "gửi một yêu cầu mới" (tiêu đề khối này, câu dưới
+                 cuộc trao đổi đã đóng, câu khi chưa có gì — `requests.portal.off.*`, rà soát cuối I1);
+                 OpenClientRequest vẫn hỏi lại công tắc, không tin màn hình. --}}
+            <h2 style="{{ $blockHeading }}">{{ $this->acceptsNewRequests() ? __('requests.portal.new.heading') : __('requests.portal.off.new_heading') }}</h2>
+
+            @if (! $this->acceptsNewRequests())
+                <p data-portal-requests="closed" style="margin-bottom:0.25rem;">{{ __('settings.business.portal_requests_off') }}</p>
+                @if (filled($hotline = $this->officeHotline()))
+                    <p style="font-weight:600;">{{ __('settings.business.portal_requests_off_hotline', ['hotline' => $hotline]) }}</p>
+                @endif
+            @else
             <p style="margin-bottom:0.75rem;{{ $muted }}">{{ __('requests.portal.new.lead') }}</p>
 
             <form wire:submit="submitRequest" style="display:flex;flex-direction:column;gap:0.75rem;">
@@ -73,6 +84,7 @@
                     {{ __('requests.portal.new.submit') }}
                 </button>
             </form>
+            @endif
         </section>
 
         {{-- LỊCH SỬ TRAO ĐỔI ------------------------------------------------------------- --}}
@@ -150,14 +162,14 @@
                         {{-- Cuộc trao đổi đã kết thúc: nói ra việc tiếp theo, không để một khoảng
                              trắng. Ô viết tiếp BIẾN MẤT thay vì hiện ra rồi từ chối khi bấm. --}}
                         <p data-portal-closed="{{ $thread->getKey() }}" style="margin-top:0.75rem;{{ $muted }}">
-                            {{ __('requests.portal.closed_notice') }}
+                            {{ $this->acceptsNewRequests() ? __('requests.portal.closed_notice') : __('requests.portal.off.closed_notice') }}
                         </p>
                     @endif
                 </article>
             @empty
                 {{-- Trạng thái rỗng KÈM hướng dẫn bước tiếp theo (toolchain §4): không bao giờ
                      một khoảng trắng, và không bao giờ một bảng rỗng. --}}
-                <p style="{{ $muted }}">{{ __('requests.portal.history.empty') }}</p>
+                <p style="{{ $muted }}">{{ $this->acceptsNewRequests() ? __('requests.portal.history.empty') : __('requests.portal.off.history_empty') }}</p>
             @endforelse
         </section>
 
