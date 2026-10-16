@@ -49,13 +49,31 @@ return [
 
         'switches' => [
             'heading' => 'Công tắc toàn hệ thống',
-            'description' => 'Tắt "Máy chủ AI" thì mọi trợ lý AI của mọi nhân sự bị từ chối ngay ở lần gọi kế tiếp; tắt không thu hồi kết nối nào, nên bật lại thì kết nối cũ dùng tiếp được (có ứng dụng AI vẫn có thể đòi kết nối lại). Tắt "Cho phép ghi" thì không ai ghi được gì qua AI, kể cả người ở chế độ "Đọc và ghi".',
-            'enabled' => 'Máy chủ AI (mcp.enabled)',
-            'write_enabled' => 'Cho phép ghi qua AI (mcp.write_enabled)',
+            // Làn ai (2026-10-15): đoạn dài này nay nằm trong "Chi tiết kỹ thuật", gọi công tắc theo nhãn mới.
+            'description' => 'Tắt "Cho phép trợ lý AI đọc dữ liệu" (máy chủ AI) thì mọi trợ lý AI của mọi nhân sự bị từ chối ngay ở lần gọi kế tiếp; tắt không thu hồi kết nối nào, nên bật lại thì kết nối cũ dùng tiếp được (có ứng dụng AI vẫn có thể đòi kết nối lại). Tắt "Cho phép trợ lý AI ghi" thì không ai ghi được gì qua AI, kể cả người ở chế độ "Đọc và ghi".',
+            // Làn ai: nhãn tiếng thường; tên khoá kỹ thuật chỉ còn trong "Chi tiết kỹ thuật".
+            'enabled' => 'Cho phép trợ lý AI đọc dữ liệu',
+            'write_enabled' => 'Cho phép trợ lý AI ghi (tạo nháp, ghi chú…)',
             'write_needs_enabled' => 'Quyền ghi chỉ có tác dụng khi máy chủ AI cũng bật.',
             'save' => 'Lưu công tắc',
             'saved' => 'Đã lưu công tắc.',
             'unchanged' => 'Không có gì thay đổi.',
+
+            // làn ai
+            'enabled_help' => 'Công tắc chính (máy chủ AI). Tắt thì mọi trợ lý AI của mọi nhân sự bị từ chối ngay.',
+            'write_help' => 'Chỉ cho người ở chế độ "Đọc và ghi", và chỉ khi công tắc đọc cũng bật. Nháp không tự tới khách.',
+            'technical' => 'Chi tiết kỹ thuật',
+            'technical_keys' => 'Hai công tắc lưu trong bảng cấu hình với tên khoá :enabled (đọc — máy chủ AI) và :write (ghi). Mặc định của hệ thống: cả hai TẮT.',
+            'confirm' => [
+                'heading' => 'Lưu công tắc trợ lý AI?',
+                'submit' => 'Lưu',
+                'server_off' => 'Tắt đọc: mọi trợ lý AI của mọi nhân sự bị từ chối ngay ở lần gọi kế tiếp. Không kết nối nào bị thu hồi, nên bật lại thì kết nối cũ dùng tiếp được (có ứng dụng AI vẫn có thể đòi kết nối lại).',
+                'server_on' => 'Bật đọc: nhân sự đã được bật chế độ, đã cam kết chính sách và đã nối tài khoản AI của mình hỏi được trợ lý AI ngay, trên các vụ việc đã bật "cho phép AI" (vụ hạn chế không bao giờ hiện với AI).',
+                'write_on' => 'Bật ghi: người ở chế độ "Đọc và ghi" tạo được nháp dòng tiến độ, nháp trả lời khách, mốc nội bộ và nhật ký liên lạc qua AI. Nháp không bao giờ tự tới khách.',
+                'write_off' => 'Tắt ghi: không ai ghi được gì qua AI, kể cả người ở chế độ "Đọc và ghi". Đọc vẫn như cũ.',
+                'write_without_server' => 'Công tắc ghi được lưu bật nhưng chưa có tác dụng, vì công tắc đọc đang tắt.',
+                'unchanged' => 'Không có gì thay đổi.',
+            ],
         ],
 
         'audit' => [
@@ -152,5 +170,149 @@ return [
     'validation' => [
         'filed_on_format' => 'Ngày nộp hồ sơ phải có dạng năm-tháng-ngày.',
         'filed_on_future' => 'Ngày nộp hồ sơ không được ở tương lai.',
+    ],
+
+    // ---------------------------------------------------------------------------------------------
+    // làn ai (2026-10-15) — hai trang "Kết nối AI" dễ hiểu như CRM quốc tế: thẻ trạng thái tổng, các
+    // bước bắt đầu dùng, mục pháp lý thu gọn, bảng nhân sự, hoạt động của trợ lý AI, và hướng dẫn từng
+    // bước của "Kết nối AI của tôi". Các bước trong ứng dụng AI (`guide.claude`, `guide.chatgpt`) lấy
+    // đúng từ docs/KET-NOI-AI.md; đường menu đặt trong «…» được test đối chiếu nguyên văn với tài liệu.
+    // ---------------------------------------------------------------------------------------------
+
+    'status' => [
+        'heading' => 'Tình trạng trợ lý AI',
+        'off' => 'Trợ lý AI đang TẮT cho toàn văn phòng',
+        'read' => 'Trợ lý AI đang BẬT — chỉ đọc',
+        'read_write' => 'Trợ lý AI đang BẬT — đọc và ghi',
+        'hints' => [
+            'off' => 'Không nhân sự nào dùng được trợ lý AI cho tới khi bật "Cho phép trợ lý AI đọc dữ liệu" ở mục Công tắc.',
+            'read' => 'Nhân sự được bật, đã cam kết chính sách và đã nối tài khoản AI của mình hỏi được các vụ việc đã bật "cho phép AI" (vụ hạn chế không bao giờ hiện với AI); không ai ghi được gì qua AI.',
+            'read_write' => 'Người ở chế độ "Đọc và ghi" tạo được nháp và ghi chép nội bộ qua AI; nháp không tự tới khách.',
+        ],
+        'assessment_missing' => 'Chưa ghi ngày nộp hồ sơ đánh giá tác động chuyển dữ liệu ra nước ngoài. Xem mục "Việc pháp lý trước khi dùng trên dữ liệu thật" bên dưới.',
+        'stats' => [
+            'enabled' => 'Nhân sự được bật',
+            'acknowledged' => 'Đã cam kết chính sách',
+            'connected' => 'Đang có kết nối',
+            // Nhãn của con số lượt gọi là `activity.calls` (cùng chữ với khối "Hoạt động", n2); đây là dòng nhỏ dưới số.
+            'calls_breakdown' => ':ok thành công, :other không thành công (bị từ chối, lỗi…)',
+        ],
+    ],
+
+    'setup' => [
+        'heading' => 'Các bước để bắt đầu dùng',
+        'intro' => 'Mỗi bước tự đánh dấu ✓ theo tình trạng thật của hệ thống, không cần tích tay.',
+        'done' => 'Đã xong',
+        'todo' => 'Chưa xong',
+        'steps' => [
+            'legal' => 'Chủ văn phòng làm các việc pháp lý và ghi ngày nộp hồ sơ đánh giá tác động',
+            'server' => 'Bật trợ lý AI cho văn phòng (công tắc "Cho phép trợ lý AI đọc dữ liệu")',
+            'staff_enabled' => 'Bật AI cho từng nhân sự cần dùng (nút "Đổi chế độ" ở bảng nhân sự)',
+            'staff_acknowledged' => 'Nhân sự được bật đọc và cam kết chính sách dùng AI (trên trang "Kết nối AI của tôi" của họ)',
+            'staff_connected' => 'Nhân sự nối tài khoản AI của mình (Claude, ChatGPT…) theo trang "Kết nối AI của tôi"',
+            'matters' => 'Bật "cho phép AI" trên từng vụ việc cần dùng, sau khi khách đồng ý bằng văn bản (docs/CHINH-SACH-AI.md). Vụ hạn chế không bao giờ hiện với AI nên không được đếm',
+        ],
+        'progress' => [
+            'filed' => 'Đã nộp ngày :date',
+            'people' => ':count người',
+            'ratio' => ':done/:total người',
+            'matters' => ':count vụ việc',
+        ],
+        'links' => [
+            'legal' => 'Mở mục pháp lý',
+            'server' => 'Tới công tắc',
+            'staff_enabled' => 'Tới bảng nhân sự',
+            'matters' => 'Mở danh sách vụ việc',
+        ],
+    ],
+
+    'legal' => [
+        'summary' => 'Việc pháp lý trước khi dùng trên dữ liệu thật',
+    ],
+
+    'staff' => [
+        'filters' => [
+            'enabled' => 'Đang bật',
+            'not_acknowledged' => 'Được bật, chưa cam kết',
+            'connected' => 'Có kết nối',
+        ],
+        'bulk' => [
+            'label' => 'Đổi chế độ',
+            'heading' => 'Đổi chế độ truy cập qua AI cho những người đã chọn',
+            'hint' => 'Mỗi người được đặt riêng, như bấm "Đổi chế độ" từng dòng. Người không bật được (tài khoản bị vô hiệu hoá, hay không có quyền xem nội dung vụ việc như Kế toán) bị bỏ qua. Hạ về "Tắt" thì mọi kết nối AI của người đó bị thu hồi ngay.',
+            'done' => 'Đã đặt chế độ cho :count người.',
+            'skipped' => 'Bỏ qua :count người không bật được: :names.',
+        ],
+    ],
+
+    'activity' => [
+        'heading' => 'Hoạt động của trợ lý AI',
+        'intro' => 'Đếm từ nhật ký MCP: mỗi lần trợ lý AI dùng một chức năng (tool) của hệ thống, kể cả lần bị từ chối. Không có câu hỏi hay nội dung trả về.',
+        'period' => ':days ngày qua',
+        'calls' => 'Lượt gọi (:days ngày)',
+        'refused_hint' => '"Bị từ chối" gồm: không đủ quyền, chế độ "Chỉ đọc" gọi chức năng ghi, công tắc đang tắt, chưa cam kết chính sách (cùng là "Bị từ chối" trong nhật ký), và vượt giới hạn tần suất.',
+        'awaiting_review' => 'Lần ghi của AI chờ người duyệt',
+        'awaiting_review_hint' => 'Gồm nháp dòng tiến độ và nháp trả lời khách do AI soạn (chờ người dùng hay bỏ) và mốc "Tạo qua AI, chưa xác nhận", trên vụ việc chưa bị xoá. Không gì tới khách nếu chưa có người duyệt.',
+        'by_day' => 'Theo ngày',
+        'by_tool' => 'Theo chức năng',
+        'by_person' => 'Theo người',
+        'columns' => [
+            'day' => 'Ngày',
+            'tool' => 'Chức năng',
+            'person' => 'Người',
+            'calls' => 'Lượt gọi',
+            'refused' => 'Bị từ chối',
+            'last' => 'Lần gần nhất',
+        ],
+        'unknown_tool' => '(chức năng không có trên máy chủ)',
+        'empty' => 'Chưa có lượt gọi nào trong :days ngày qua.',
+    ],
+
+    'guide' => [
+        'status_heading' => 'Tình trạng của tôi',
+        'status' => [
+            'not_enabled' => 'Chưa được bật — liên hệ quản trị viên nếu anh/chị cần dùng trợ lý AI.',
+            'server_off' => 'Trợ lý AI của văn phòng đang tắt — quản trị viên bật lại thì anh/chị dùng được.',
+            'not_acknowledged' => 'Chưa cam kết chính sách dùng AI — làm Bước 1 bên dưới.',
+            'not_connected' => 'Sẵn sàng — anh/chị chưa nối ứng dụng AI nào. Làm Bước 2, 3, 4 bên dưới.',
+            'connected' => 'Đã kết nối — trợ lý AI của anh/chị đang dùng được.',
+        ],
+        'connected_count' => ':count kết nối đang sống.',
+        'steps_heading' => 'Các bước kết nối',
+        'steps' => [
+            'policy' => 'Đọc và cam kết chính sách dùng AI',
+            'url' => 'Sao chép địa chỉ máy chủ',
+            'app' => 'Thêm kết nối trong ứng dụng AI',
+            'consent' => 'Đăng nhập, bấm "Đồng ý" — xong',
+        ],
+        'policy_hint' => 'Mục "Chính sách dùng AI" ngay dưới các bước. Chính sách đổi phiên bản thì phải cam kết lại.',
+        'copy' => 'Sao chép',
+        'copied' => 'Đã sao chép',
+        'tabs' => [
+            'claude' => 'Claude',
+            'chatgpt' => 'ChatGPT',
+            'other' => 'Ứng dụng khác',
+        ],
+        'claude' => [
+            'steps' => [
+                'Trong Claude: «Customize → Connectors → Add custom connector».',
+                'Dán địa chỉ máy chủ ở Bước 2. Để Claude tự đăng ký: không điền client ID hay secret.',
+                'Claude mở trang đăng nhập của văn phòng: đăng nhập, nhập mã hai lớp, bấm "Đồng ý".',
+                'Đặt bốn chức năng ghi ở «Needs approval» (hỏi trước khi chạy).',
+            ],
+            'note' => 'Gói Free chỉ được 1 custom connector. Gói Team, Enterprise: chỉ Owner của tổ chức thêm connector; sau đó từng người tự bấm Connect và đăng nhập bằng tài khoản của chính mình.',
+        ],
+        'chatgpt' => [
+            'steps' => [
+                'Bật «Settings → Security and login → Developer mode» (giao diện ChatGPT đổi thường xuyên).',
+                'Tạo app ở «chatgpt.com/plugins», dán địa chỉ máy chủ ở Bước 2, chọn xác thực OAuth.',
+                'ChatGPT mở trang đăng nhập của văn phòng: đăng nhập, nhập mã hai lớp, bấm "Đồng ý".',
+                'Khi ChatGPT hỏi duyệt một chức năng ghi, không chọn ghi nhớ lựa chọn.',
+            ],
+            'note' => 'Developer mode có cho Plus, Pro, Business, Enterprise, Edu; không có cho Free. Trang đồng ý ghi tên miền chatgpt.com. Sau khi quản trị đổi chế độ của anh/chị, vào trang chi tiết của app và bấm Refresh.',
+            'write_note' => 'Ghi qua ChatGPT (tạo nháp…): theo tài liệu "Kết nối trợ lý AI", chỉ gói Business, Enterprise, Edu ghi được; gói Pro chỉ đọc; với Plus các nguồn nói khác nhau. Dùng ChatGPT cá nhân thì coi như chỉ đọc.',
+        ],
+        'other' => 'Claude Code, VS Code (GitHub Copilot), Cursor, Antigravity: làm theo tài liệu "Kết nối trợ lý AI" (docs/KET-NOI-AI.md) mà quản trị gửi kèm — chọn kiểu kết nối HTTP và để ứng dụng tự đăng ký.',
+        'consent_hint' => 'Trang đồng ý ghi tên miền sẽ nhận mã đăng nhập (ví dụ claude.ai với Claude, localhost với ứng dụng chạy trên máy anh/chị), không ghi cái tên ứng dụng tự khai. Không đúng ứng dụng đang nối thì bấm "Từ chối" và báo quản trị viên.',
     ],
 ];

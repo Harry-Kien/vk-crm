@@ -7,6 +7,7 @@ use App\Actions\Mcp\AiConnection;
 use App\Actions\Mcp\DisconnectAiConnections;
 use App\Actions\Mcp\ListAiConnections;
 use App\Enums\McpAccessRefusal;
+use App\Enums\MyAiConnectionStatus;
 use App\Enums\NavigationGroup;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\AiAcknowledgement;
@@ -22,6 +23,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 use UnitEnum;
 
 /**
@@ -29,17 +31,26 @@ use UnitEnum;
  * hoạch gọi nó `KetNoiAiCuaToi` — khoảng lệch D9); slug là {@see McpEndpoint::MY_AI_CONNECTIONS_SLUG},
  * đúng đường dẫn mà màn hình đồng ý OAuth (Task 4) trỏ tới từ trước khi trang này có.
  *
- * Bốn khối, đều về CHÍNH người đang đăng nhập — trang không bao giờ nhận id người dùng từ trình duyệt:
+ * Mọi thứ trên trang đều về CHÍNH người đang đăng nhập — trang không bao giờ nhận id người dùng từ
+ * trình duyệt. Từ trên xuống (làn ai, 2026-10-15):
  *
- *  1. Chế độ của tôi (`users.ai_access`) và, khi chưa dùng được, lý do đầu tiên theo R2
- *     ({@see McpAccess::refusal()}, cùng câu với màn hình đồng ý).
- *  2. Chính sách dùng AI phiên bản hiện hành và ô cam kết KHÔNG đánh dấu sẵn ({@see AcknowledgeAiPolicy},
- *     IP và user agent đọc từ request của chính lần bấm). Đã cam kết đúng phiên bản thì ô biến mất,
- *     thay bằng ngày đã cam kết; chính sách đổi phiên bản thì ô hiện lại.
- *  3. URL MCP để dán vào client ({@see McpEndpoint::resource()}) và đường tới hướng dẫn (Task 16).
- *  4. Kết nối của tôi ({@see ListAiConnections::forUser()} với actor = target = chính mình) kèm nút tự
- *     thu hồi từng dòng [DC:144] ({@see DisconnectAiConnections}: chỉ token của chính người bấm cho
- *     client đó — gửi id client của người khác lên đây không chạm được gì của người đó).
+ *  - Dòng trạng thái lớn ({@see MyAiConnectionStatus}).
+ *  - "Các bước kết nối" có dấu ✓/○ theo trạng thái thật: (1) cam kết chính sách; (2) sao chép địa chỉ
+ *    máy chủ MCP ({@see McpEndpoint::resource()}), có nút sao chép — trước làn ai đây là một khối
+ *    riêng "URL MCP và hướng dẫn"; (3) các bước trong ứng dụng AI, chia thẻ Claude / ChatGPT / ứng
+ *    dụng khác, chữ lấy từ `docs/KET-NOI-AI.md` (thay cho đường tới hướng dẫn của Task 16);
+ *    (4) màn hình đồng ý.
+ *  - Ba khối của M11 (view đánh số 1–3):
+ *     1. Chế độ của tôi (`users.ai_access`) và, khi chưa dùng được, lý do đầu tiên theo R2
+ *        ({@see McpAccess::refusal()}, cùng câu với màn hình đồng ý).
+ *     2. Chính sách dùng AI phiên bản hiện hành và ô cam kết KHÔNG đánh dấu sẵn
+ *        ({@see AcknowledgeAiPolicy}, IP và user agent đọc từ request của chính lần bấm). Đã cam kết
+ *        đúng phiên bản thì ô biến mất, thay bằng ngày đã cam kết; chính sách đổi phiên bản thì ô hiện lại.
+ *     3. Kết nối của tôi ({@see ListAiConnections::forUser()} với actor = target = chính mình) kèm nút
+ *        tự thu hồi từng dòng [DC:144] ({@see DisconnectAiConnections}: chỉ token của chính người bấm
+ *        cho client đó — gửi id client của người khác lên đây không chạm được gì của người đó).
+ *
+ * Làn ai chỉ đổi trình bày: luật của ba khối và của địa chỉ MCP giữ nguyên như M11.
  *
  * # Cổng: nhân sự đang hoạt động có `matter.view`, hỏi ở MỌI request
  *
@@ -63,6 +74,27 @@ class MyAiConnections extends Page
 
     /** @var array<string, mixed> trạng thái form cam kết */
     public array $acknowledgement = [];
+
+    /** Ba thẻ ứng dụng ở bước "Thêm kết nối trong ứng dụng AI" (làn ai). */
+    public const APP_TABS = ['claude', 'chatgpt', 'other'];
+
+    /**
+     * Thẻ ứng dụng đang mở (làn ai). Vẽ ở máy chủ, chỉ thẻ đang mở: trang không mang chữ của ứng dụng
+     * khác (ví dụ tên miền `chatgpt.com`) khi người xem đang đọc thẻ Claude. `#[Locked]` — chỉ
+     * {@see self::showApp()} đổi, và chỉ sang một giá trị của {@see self::APP_TABS}.
+     */
+    #[Locked]
+    public string $appTab = 'claude';
+
+    /** Mở một thẻ ứng dụng; giá trị lạ bị bỏ qua. Hỏi lại cổng như mọi hành động thật. */
+    public function showApp(string $app): void
+    {
+        $this->guard();
+
+        if (in_array($app, self::APP_TABS, true)) {
+            $this->appTab = $app;
+        }
+    }
 
     public static function getNavigationLabel(): string
     {
@@ -175,23 +207,40 @@ class MyAiConnections extends Page
      * Dữ liệu của view, tính ở mỗi lần render — mọi hàm đọc là `protected`, không gọi được từ trình
      * duyệt, và chỉ đọc về chính người đang đăng nhập.
      *
-     * @return array{user: User, refusal: ?McpAccessRefusal, policyVersion: ?string, currentAcknowledgement: ?AiAcknowledgement, mcpUrl: string, connections: list<AiConnection>}
+     * Làn ai (2026-10-15): thêm dòng trạng thái lớn ({@see MyAiConnectionStatus::for()}, suy từ đúng lý
+     * do của {@see McpAccess::refusal()} và số kết nối đang sống) và bốn bước ✓/○: "cam kết" xong khi
+     * có lời cam kết đúng phiên bản; "sao chép địa chỉ", "thêm kết nối trong ứng dụng AI" và "đồng ý"
+     * xong khi đã có ít nhất một kết nối (hệ thống không biết anh/chị đã sao chép hay chưa — chỉ biết
+     * kết nối đã thành).
+     *
+     * @return array{user: User, refusal: ?McpAccessRefusal, policyVersion: ?string, currentAcknowledgement: ?AiAcknowledgement, mcpUrl: string, connections: list<AiConnection>, status: MyAiConnectionStatus, steps: array<string, bool>}
      */
     protected function getViewData(): array
     {
         $user = $this->user();
         $version = McpAccess::policyVersion();
+        $refusal = McpAccess::refusal($user);
+        $connections = app(ListAiConnections::class)->forUser($user, $user);
+        $acknowledgement = $version === null ? null : AiAcknowledgement::query()
+            ->where('user_id', $user->getKey())
+            ->where('policy_version', $version)
+            ->first();
+        $connected = $connections !== [];
 
         return [
             'user' => $user,
-            'refusal' => McpAccess::refusal($user),
+            'refusal' => $refusal,
             'policyVersion' => $version,
-            'currentAcknowledgement' => $version === null ? null : AiAcknowledgement::query()
-                ->where('user_id', $user->getKey())
-                ->where('policy_version', $version)
-                ->first(),
+            'currentAcknowledgement' => $acknowledgement,
             'mcpUrl' => McpEndpoint::resource(),
-            'connections' => app(ListAiConnections::class)->forUser($user, $user),
+            'connections' => $connections,
+            'status' => MyAiConnectionStatus::for($refusal, count($connections)),
+            'steps' => [
+                'policy' => $acknowledgement !== null,
+                'url' => $connected,
+                'app' => $connected,
+                'consent' => $connected,
+            ],
         ];
     }
 

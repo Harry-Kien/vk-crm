@@ -538,6 +538,49 @@ nhân sự, cách làm việc **không đổi**:
 Việc của chủ văn phòng trước khi bật (Workspace, Shared Drive, tài khoản dịch vụ, ý kiến luật sư về hồ
 sơ chuyển dữ liệu ra nước ngoài, máy chủ văn phòng): `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
 
+### Trợ lý AI của nhân sự — trang "Kết nối AI" (M11; trình bày lại 2026-10-15, làn ai)
+
+Nhân sự dùng tài khoản AI của chính mình (Claude, ChatGPT…) để hỏi hồ sơ và soạn nháp; trợ lý AI hành
+động với danh nghĩa và quyền của người đó, chỉ trên vụ việc đã bật "cho phép AI". Mặc định mọi thứ TẮT.
+Luật và giới hạn: `docs/CHINH-SACH-AI.md`; hướng dẫn cho nhân sự: `docs/KET-NOI-AI.md`.
+
+**Quản trị viên — trang "Kết nối AI"**, từ trên xuống:
+
+1. **Thẻ trạng thái**: một câu lớn — "Trợ lý AI đang TẮT cho toàn văn phòng", "Trợ lý AI đang BẬT — chỉ
+   đọc" hay "Trợ lý AI đang BẬT — đọc và ghi" — kèm cảnh báo vàng khi đang bật mà chưa ghi ngày nộp hồ
+   sơ đánh giá tác động, và bốn con số: nhân sự được bật, đã cam kết chính sách, đang có kết nối, lượt
+   gọi (7 ngày) — số này gồm cả lần bị từ chối hay lỗi, dòng nhỏ dưới số tách bao nhiêu thành công.
+2. **"Các bước để bắt đầu dùng"**: sáu bước, mỗi bước tự hiện ✓ theo tình trạng thật (không tích tay),
+   kèm đường làm ngay — việc pháp lý và ngày nộp hồ sơ, bật công tắc, bật cho từng nhân sự, nhân sự cam
+   kết (n/m người), nhân sự nối tài khoản AI, bật "cho phép AI" trên từng vụ việc sau khi khách đồng ý
+   bằng văn bản.
+3. **"Việc pháp lý trước khi dùng trên dữ liệu thật"**: mục thu gọn, mở sẵn tới khi ghi ngày đã nộp hồ
+   sơ (dd/mm/yyyy), đóng lại sau đó; bốn việc của chủ văn phòng vẫn ở bên trong.
+4. **Công tắc**: "Cho phép trợ lý AI đọc dữ liệu" (công tắc chính) và "Cho phép trợ lý AI ghi (tạo
+   nháp, ghi chú…)". Bấm **Lưu công tắc** thì một hộp xác nhận nói rõ hậu quả trước khi lưu (tắt đọc thì
+   mọi trợ lý AI bị từ chối ngay ở lần gọi kế tiếp; không kết nối nào bị thu hồi). Tên khoá kỹ thuật
+   nằm trong "Chi tiết kỹ thuật".
+5. **Bảng nhân sự**: chế độ (Tắt / Chỉ đọc / Đọc và ghi), cam kết chính sách, số kết nối, lần dùng cuối
+   ("2 giờ trước"); bộ lọc nhanh **Đang bật**, **Được bật, chưa cam kết** (đúng những người còn thiếu
+   của con số "đã cam kết"), **Có kết nối**; chọn nhiều người rồi
+   **Đổi chế độ** để đặt một lượt — người không bật được (tài khoản bị vô hiệu hoá, Kế toán) bị bỏ qua và
+   được nêu tên. Nút **Kết nối** ở từng dòng mở danh sách kết nối của người đó, có **Thu hồi** và **Thu
+   hồi tất cả**.
+6. **"Hoạt động của trợ lý AI"** (7 hoặc 30 ngày): lượt gọi theo ngày, theo chức năng, theo người; số
+   lần bị từ chối; số lần ghi của AI chờ người duyệt (nháp dòng tiến độ, nháp trả lời khách, mốc "Tạo
+   qua AI, chưa xác nhận" — trên vụ việc chưa bị xoá). Chỉ con số, không câu hỏi hay nội dung trả về;
+   không mã hay tên vụ việc nào.
+7. **Nhật ký MCP**: 100 dòng gần nhất, lọc theo người và theo chức năng.
+
+**Nhân sự — trang "Kết nối AI của tôi"**: dòng "Tình trạng của tôi" (chưa được bật / máy chủ AI đang
+tắt / chưa cam kết / sẵn sàng / đã kết nối), rồi "Các bước kết nối" có dấu ✓: cam kết chính sách → bấm
+**Sao chép** địa chỉ máy chủ → làm theo thẻ **Claude**, **ChatGPT** hay **Ứng dụng khác** → đăng nhập,
+bấm "Đồng ý". Cuối trang là các kết nối đang có, lần dùng cuối và nút **Thu hồi**.
+
+| Thứ gì | Trạng thái |
+|---|---|
+| Thẻ trạng thái, các bước bắt đầu dùng, hoạt động của trợ lý AI, hướng dẫn từng bước cho nhân sự | **[Xong]** 2026-10-15 (làn ai) — chỉ trình bày và số liệu đọc-chỉ; luật bảo mật của M11 không đổi |
+
 ---
 
 ## Chưa có chủ — cần chủ văn phòng quyết
