@@ -14,13 +14,17 @@ use App\Models\Task;
 use App\Models\User;
 use App\Notifications\Staff\MatterAssignmentAlert;
 use App\Notifications\Staff\TaskReminderAlert;
+use App\Support\Audit;
 use App\Support\Intake\FirstResponseClock;
 use App\Support\Scopes\ClientPortalScope;
 use App\Support\Tasks\AcceptanceClock;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Spatie\Activitylog\Models\Activity;
+use Throwable;
 
 /**
  * MỘT lời nhắc của lịch {@see RemindPendingWork} (làn tk, Task 2) cho MỘT người: chuông rồi thư — với một
@@ -33,7 +37,10 @@ use Illuminate\Support\Facades\Mail;
  * đã xong hay đã dời hạn, vụ có thể đã kết thúc hay bị siết hạn chế. Ba lần lọc:
  *  1. việc/ghế còn, và lời nhắc còn ĐÚNG với khoá của nó — {@see RemindPendingWork::taskReminderHolds()} /
  *     {@see RemindPendingWork::seatReminderHolds()}, MỘT định nghĩa với lượt chọn;
- *  2. người nhận: việc qua `ResolveStaffRecipients::forTask()` (còn xem được việc), hồ sơ qua
+ *  2. người nhận: việc qua `ResolveStaffRecipients::forTask()` (còn xem được việc) VÀ còn đúng là người
+ *     lời nhắc nói tới ({@see RemindPendingWork::stillAddressedTo()} — vòng sửa polish 1, rà soát Task 2
+ *     m6 + n2: người đang giữ việc với ba loại nhắc người nhận, người trong `forTaskAssigner()` với hai loại
+ *     báo người giao; không còn thì bỏ, ghi một dòng log chỉ mang id), hồ sơ qua
  *     `ResolveStaffRecipients::qualifies()` (còn xem được vụ);
  *  3. chống trùng: chuông đã có `viewData.reminder_key`/`seat_key` = {@see self::fullKey()} thì không gửi
  *     lại; thư đã có dòng sổ thư `sent` cùng mẫu, cùng người, cùng bản ghi, cùng `payload.tier` thì không
@@ -46,6 +53,14 @@ use Illuminate\Support\Facades\Mail;
  *
  * `ShouldBeUnique` theo (đối tượng, loại, người, khoá): hai lượt lịch liền nhau không xếp hai job cho cùng
  * một lời nhắc khi job đầu còn chờ hàng.
+ *
+ * # Hỏng hẳn (vòng sửa polish 1 — rà soát Task 2, m7)
+ *
+ * Hết `$tries`: {@see self::failed()} ghi một dòng nhật ký `work_reminder_failed` (chỉ id: đối tượng, loại,
+ * người nhận — không tiêu đề, không địa chỉ; lý do lỗi đã nằm ở `outbound_messages.error`), và lịch hỏi
+ * {@see self::failedForGoodToday()} trước khi xếp lại — tối đa MỘT chuỗi thử hỏng cho mỗi (người nhận, việc
+ * hay hồ sơ) mỗi ngày; lượt đầu hôm sau thử lại. Cùng cơ chế `SendUnansweredIntakeReminderMail`. Chuông đã
+ * đi trước thư nên người nhận vẫn được báo.
  */
 class SendWorkReminder implements ShouldBeUnique, ShouldQueue
 {
@@ -53,8 +68,11 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 5;
 
-    /** Khoá duy nhất giữ tối đa một giờ — sau đó sổ thư là lưới chống trùng. */
-    public int $uniqueFor = 3600;
+    /**
+     * Khoá duy nhất giữ tối đa hai giờ — dài hơn trọn chuỗi thử lại của `backoff()` (~81 phút), cùng lý do
+     * `SendUnansweredIntakeReminderMail`; sau đó sổ thư là lưới chống trùng.
+     */
+    public int $uniqueFor = 7200;
 
     public function __construct(
         public readonly string $subject,
@@ -94,21 +112,73 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
         return "{$subject}:{$subjectId}:{$kind}:{$key}";
     }
 
-    /** Thư của lời nhắc này (mẫu theo đối tượng và loại, khoá `$key`) đã gửi thành công tới `$recipient` chưa. */
-    public static function alreadyMailed(Task|Matter $related, User $recipient, string $subject, string $kind, string $key): bool
+    /**
+     * Thư của lời nhắc này (mẫu theo đối tượng và loại, khoá `$key`) đã gửi thành công tới `$recipient` chưa.
+     *
+     * Hồ sơ (vòng sửa polish 1): có `$seatId` thì một thư GỘP nhiều hồ sơ cũng tính — thư đó mang khoá
+     * {@see SendSeatReminderDigest::ledgerKey()} (`|<khoá đầy đủ của từng ghế>|…`) trên dòng sổ thư của hồ sơ
+     * đầu, nên tìm khoá đầy đủ của ghế này trong đó.
+     */
+    public static function alreadyMailed(Task|Matter $related, User $recipient, string $subject, string $kind, string $key, ?int $seatId = null): bool
     {
         $template = $subject === RemindPendingWork::SUBJECT_SEAT
             ? MatterAssignmentNotice::TEMPLATE_PREFIX.$kind
             : TaskReminder::TEMPLATE_PREFIX.$kind;
 
-        return OutboundMessage::query()
+        $sent = fn () => OutboundMessage::query()
             ->withoutGlobalScopes()
-            ->where('related_type', $related->getMorphClass())
-            ->where('related_id', $related->getKey())
             ->where('template', $template)
             ->where('recipient', $recipient->email)
+            ->where('status', OutboundStatus::Sent);
+
+        if ($sent()
+            ->where('related_type', $related->getMorphClass())
+            ->where('related_id', $related->getKey())
             ->where('payload->tier', $key)
-            ->where('status', OutboundStatus::Sent)
+            ->exists()) {
+            return true;
+        }
+
+        return $subject === RemindPendingWork::SUBJECT_SEAT && $seatId !== null
+            && $sent()->where('payload->tier', 'like', '%|'.self::fullKey($subject, $seatId, $kind, $key).'|%')->exists();
+    }
+
+    /**
+     * Chạy đúng một lần, khi mọi lượt thử đều hỏng — xem docblock lớp, mục "Hỏng hẳn". Chủ thể là việc (hay
+     * vụ của ghế), để dòng nằm ở đúng chỗ người xem được việc/vụ đó đọc nhật ký; thuộc tính chỉ mang id.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        $related = $this->subject === RemindPendingWork::SUBJECT_SEAT
+            ? Matter::query()->withoutGlobalScope(ClientPortalScope::class)->withTrashed()
+                ->find(MatterUser::query()->withoutGlobalScope(ClientPortalScope::class)->whereKey($this->subjectId)->value('matter_id'))
+            : Task::query()->withoutGlobalScope(ClientPortalScope::class)->withTrashed()->find($this->subjectId);
+
+        $matterId = $related instanceof Task ? $related->matter_id : $related?->getKey();
+
+        Audit::record('work_reminder_failed', $related, [
+            // Cùng khoá `matter_id` của mọi dòng việc nội bộ: dòng quy về vụ, theo luật xem nhật ký của vụ.
+            ...($matterId !== null ? ['matter_id' => $matterId] : []),
+            'subject' => $this->subject,
+            'subject_id' => $this->subjectId,
+            'kind' => $this->kind,
+            'recipient_id' => $this->recipientId,
+        ]);
+    }
+
+    /**
+     * Thư nhắc của `$subject` #`$subjectId` cho người `$recipientId` đã hỏng HẲN trong ngày hôm nay chưa — đọc
+     * dòng `work_reminder_failed` mà {@see self::failed()} ghi. Lịch `RemindPendingWork` hỏi câu này trước khi
+     * xếp: không có nó, một hộp thư hỏng cả ngày sinh một chuỗi thử mới mỗi 30 phút.
+     */
+    public static function failedForGoodToday(string $subject, int $subjectId, int $recipientId): bool
+    {
+        return Activity::query()
+            ->where('event', 'work_reminder_failed')
+            ->where('properties->subject', $subject)
+            ->where('properties->subject_id', $subjectId)
+            ->where('properties->recipient_id', $recipientId)
+            ->where('created_at', '>=', today()->startOfDay())
             ->exists();
     }
 
@@ -125,6 +195,17 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
         $user = $recipients->forTask($task, [$recipient])->first();
 
         if ($user === null) {
+            return;
+        }
+
+        // Xem docblock lớp, bước 2: còn là người nhận / người giao (hay người nhận thay) lúc gửi.
+        if (! RemindPendingWork::stillAddressedTo($task, $this->kind, $user)) {
+            Log::info('tasks.remind: bỏ một lời nhắc — người nhận không còn là người lời nhắc nói tới.', [
+                'task_id' => $task->getKey(),
+                'kind' => $this->kind,
+                'recipient_id' => $user->getKey(),
+            ]);
+
             return;
         }
 
@@ -180,7 +261,7 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
             ));
         }
 
-        if (self::alreadyMailed($matter, $recipient, $this->subject, $this->kind, $this->key)) {
+        if (self::alreadyMailed($matter, $recipient, $this->subject, $this->kind, $this->key, $this->subjectId)) {
             return;
         }
 

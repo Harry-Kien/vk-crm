@@ -60,6 +60,9 @@ class TaskAlert extends Notification
      * @param  int  $eventId  id dòng nhật ký của lần chuyển — khoá chống trùng của job
      * @param  string|null  $onBehalfOf  tên người giao khi người nhận chuông nhận THAY họ (chỉ loại
      *                                   {@see self::DECLINED} — xem docblock lớp); `null`: người nhận là người giao
+     * @param  string|null  $reason  lý do của CHÍNH lần trả lại / huỷ, đọc từ dòng nhật ký của lần đó lúc job
+     *                               chạy (vòng sửa polish 1): một lần "Giao lại" trước khi job chạy đã xoá
+     *                               `decline_reason` trên dòng việc; `null`: đọc cột của việc
      */
     public function __construct(
         private readonly Task $task,
@@ -67,6 +70,7 @@ class TaskAlert extends Notification
         private readonly string $actorName,
         private readonly int $eventId,
         private readonly ?string $onBehalfOf = null,
+        private readonly ?string $reason = null,
     ) {}
 
     /** Tab "Công việc" của vụ của `$task` — nơi người nhận thay người giao thấy việc đó (docblock lớp). */
@@ -105,7 +109,7 @@ class TaskAlert extends Notification
                 : __($lang.'.body', [
                     'title' => e($this->task->title),
                     'who' => e($this->actorName),
-                    'reason' => e((string) ($this->kind === self::CANCELLED ? $this->task->cancel_reason : $this->task->decline_reason)),
+                    'reason' => e((string) ($this->reason ?? ($this->kind === self::CANCELLED ? $this->task->cancel_reason : $this->task->decline_reason))),
                     'assigner' => e((string) $this->onBehalfOf),
                 ])).($code === null ? '' : ' '.__('tasks.alert.on_matter', ['code' => e($code)])),
             'color' => $warning ? 'warning' : 'info',

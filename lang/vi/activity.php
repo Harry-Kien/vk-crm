@@ -297,6 +297,9 @@ return [
         'matter_assignment_declined' => 'Trả lại hồ sơ được giao',
         // Làn tk, Task 2, vòng sửa 1: App\Actions\Task\MoveTasksOnHandover::transferAssigner().
         'task_assigner_changed' => 'Đổi người giao việc khi bàn giao vụ',
+        // Làn tk, vòng sửa polish 1: App\Jobs\SendWorkReminder::failed() — thư nhắc việc / nhắc nhận hồ sơ
+        // hỏng hẳn sau hết lượt thử lại (chỉ id: đối tượng, loại nhắc, người nhận).
+        'work_reminder_failed' => 'Gửi thư nhắc việc nội bộ thất bại hẳn',
         // --- Hết khối làn tk ----------------------------------------------------------------
     ],
 

@@ -30,7 +30,7 @@ use Illuminate\Support\Facades\Gate;
  * `GROUP BY` cột quy người (`tasks.assignee_id` cho việc người đó giữ, `tasks.assigned_by` cho việc họ
  * giao bị trả lại, `matter_user.user_id` cho ghế) qua {@see BuildTeamWorkload::countPer()}, không lọc tập
  * người trong SQL — số truy vấn không đổi theo số người. Mọi tập là một scope có tên ở lớp giữ luật
- * (`Task::held()`/`pendingAcceptance()`/`inProgress()`/`returned()`/`overdue()`, `MatterUser::
+ * (`Task::held()`/`pendingAcceptance()`/`inProgress()`/`returned()`/`overdueToHandle()`/`needsReassignment()`, `MatterUser::
  * awaitingAcceptance()`/`returned()`) — tệp này không viết điều kiện nghiệp vụ nào (`NoSecondDefinitionTest`).
  *
  * # Phòng thủ
@@ -63,7 +63,7 @@ final class BuildTaskWorkload
 
         $inProgress = BuildTeamWorkload::countPer($tasks()->inProgress(), 'tasks.assignee_id');
         $awaiting = BuildTeamWorkload::countPer($tasks()->pendingAcceptance(), 'tasks.assignee_id');
-        $overdue = BuildTeamWorkload::countPer($tasks()->overdue()->held(), 'tasks.assignee_id');
+        $overdue = BuildTeamWorkload::countPer($tasks()->overdueToHandle(), 'tasks.assignee_id');
         $returned = BuildTeamWorkload::countPer($tasks()->returned(), 'tasks.assigned_by');
         $seatsAwaiting = BuildTeamWorkload::countPer($seats()->awaitingAcceptance(), 'matter_user.user_id');
         $seatsReturned = BuildTeamWorkload::countPer($seats()->returned(), 'matter_user.user_id');
@@ -85,5 +85,24 @@ final class BuildTaskWorkload
         }
 
         return $rows;
+    }
+
+    /**
+     * "Việc cần giao lại: n" của Theo dõi đội ngũ (vòng sửa polish 1 — brief Task 1 §3: "vô hiệu một nhân sự
+     * thì việc đang mở của họ hiện ở Theo dõi đội ngũ là cần giao lại"): số việc `Task::needsReassignment()`
+     * trong `Task::visibleTo($viewer)` — ĐÚNG tập dòng của trang Công việc, tab "Tất cả", bộ lọc "Cần giao lại"
+     * mà con số trỏ tới. Gồm việc của người đã bị vô hiệu hoá hay xoá (vế `inactive`), dù dòng của họ ẩn khỏi
+     * bảng theo mặc định. Vụ hạn chế người xem không mở được không vào số.
+     *
+     * `null` khi `$viewer` không giao lại được mọi việc họ thấy — chỉ quản lý/quản trị (`Task::isSupervisor()`,
+     * `TaskPolicy::reassign`); trang không in con số cho người khác.
+     */
+    public function needsReassignment(User $viewer): ?int
+    {
+        if (! Task::isSupervisor($viewer)) {
+            return null;
+        }
+
+        return Task::query()->visibleTo($viewer)->needsReassignment()->count();
     }
 }

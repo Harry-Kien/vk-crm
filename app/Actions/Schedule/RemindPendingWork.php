@@ -2,9 +2,11 @@
 
 namespace App\Actions\Schedule;
 
+use App\Actions\Matter\SeatsNeedingReassignment;
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\MatterAssignmentStatus;
 use App\Enums\TaskStatus;
+use App\Jobs\SendSeatReminderDigest;
 use App\Jobs\SendWorkReminder;
 use App\Models\Matter;
 use App\Models\MatterUser;
@@ -54,7 +56,22 @@ use Throwable;
  * ({@see self::taskReminderHolds()}, {@see self::seatReminderHolds()} — MỘT định nghĩa cho cả hai) và chống
  * trùng bằng chuông đã có cùng khoá và sổ thư (`outbound_messages`, `payload.tier` = khoá, M6 R3). Lượt này
  * bỏ qua người đã có thư `sent` cùng khoá ({@see SendWorkReminder::alreadyMailed()}), nên chạy lại cả ngày
- * không xếp lại. `withoutOverlapping(30)` ở lịch. Mỗi việc/hồ sơ một `try`: một lỗi không dừng lượt nhắc.
+ * không xếp lại; và bỏ qua (người, việc hay hồ sơ) mà thư nhắc đã hỏng HẲN hôm nay
+ * ({@see SendWorkReminder::failedForGoodToday()} — vòng sửa polish 1, rà soát Task 2 m7: cùng cơ chế
+ * `SendUnansweredIntakeReminderMail`), nên một hộp thư hỏng chỉ có một chuỗi thử mỗi ngày, lượt đầu hôm sau
+ * thử lại. `withoutOverlapping(30)` ở lịch. Mỗi việc/hồ sơ một `try`: một lỗi không dừng lượt nhắc.
+ *
+ * # Lời nhắc hồ sơ gộp theo người (vòng sửa polish 1 — phán quyết controller (3))
+ *
+ * Một lô bàn giao hàng loạt N hồ sơ chạm ngưỡng cùng một lượt. Lời nhắc HỒ SƠ không xếp từng ghế: lượt gom
+ * theo (loại nhắc, người nhận) ({@see self::queueSeat()}, {@see self::dispatchSeatReminders()}). Một hồ sơ
+ * thì một {@see SendWorkReminder} như cũ; nhiều hồ sơ thì MỘT {@see SendSeatReminderDigest} — một chuông
+ * và một thư liệt kê các hồ sơ, cho người được giao ("chờ anh/chị nhận") và cho từng người giao hay quản
+ * lý ("chưa được nhận"). Lời nhắc việc không gộp (mỗi việc một tiêu đề, một hạn riêng).
+ *
+ * Ghế mà người được giao không còn nhận được hồ sơ (đã nghỉ việc, không còn mở được vụ) không nhắc ai:
+ * không "hãy nhận" cho người đã nghỉ, không "X chưa nhận" cho người giao —
+ * {@see SeatsNeedingReassignment} hiện ghế đó là "Cần phân công lại" thay vào đó.
  */
 class RemindPendingWork
 {
@@ -71,6 +88,14 @@ class RemindPendingWork
     public const OVERDUE = 'reminder.overdue';
 
     public const OVERDUE_ASSIGNER = 'reminder.overdue_assigner';
+
+    /**
+     * Lời nhắc hồ sơ của lượt này, gom trước khi xếp: `[loại][id người nhận][id ghế] = khoá nhắc` — xem
+     * docblock lớp, mục "Lời nhắc hồ sơ gộp theo người".
+     *
+     * @var array<string, array<int, array<int, string>>>
+     */
+    private array $seatReminders = [];
 
     public function __invoke(): array
     {
@@ -92,9 +117,13 @@ class RemindPendingWork
             $queued += $this->guarded(fn (): int => $this->remindAwaitingTask($task, $clock));
         }
 
+        $this->seatReminders = [];
+
         foreach ($this->awaitingSeats($clock) as $seat) {
-            $queued += $this->guarded(fn (): int => $this->remindAwaitingSeat($seat, $clock));
+            $queued += $this->guarded(fn (): int => $this->remindAwaitingSeat($seat));
         }
+
+        $this->dispatchSeatReminders();
 
         $dueSoon = self::activeTasks()
             ->whereDate('tasks.due_date', '>=', today()->toDateString())
@@ -104,7 +133,8 @@ class RemindPendingWork
             $queued += $this->guarded(fn (): int => $this->queueForTask($task, self::DUE_SOON, self::dueSoonKey($task), [$task->assignee]));
         }
 
-        foreach (self::activeTasks()->overdue()->get() as $task) {
+        // `Task::scopeOverdueToHandle()`: CÙNG định nghĩa "quá hạn" với ô của bảng điều khiển và Theo dõi đội ngũ.
+        foreach (self::liveTasks()->overdueToHandle()->get() as $task) {
             $queued += $this->guarded(fn (): int => $this->queueForTask($task, self::OVERDUE, self::overdueKey(), [$task->assignee])
                 + $this->queueForTask($task, self::OVERDUE_ASSIGNER, self::overdueKey(), $this->taskAssignerAudience($task)));
         }
@@ -120,7 +150,7 @@ class RemindPendingWork
     {
         $now = CarbonImmutable::instance($now ?? now());
 
-        if ($task->trashed() || ! self::onLiveMatter($task)) {
+        if ($task->trashed() || ! $task->isOnLiveMatter()) {
             return false;
         }
 
@@ -140,14 +170,38 @@ class RemindPendingWork
         };
     }
 
-    /** Như {@see self::taskReminderHolds()}, cho một ghế trong đội ngũ vụ (chỉ hai loại chờ nhận). */
+    /**
+     * `$recipient` còn đúng là người lời nhắc `$kind` của `$task` nói tới (vòng sửa polish 1 — rà soát Task 2,
+     * m6 + n2): ba loại nhắc người nhận (chờ nhận, sắp đến hạn, quá hạn) chỉ tới người ĐANG giữ việc; hai loại
+     * báo người giao chỉ tới người đang ở trong {@see self::taskAssignerAudience()} (người giao, hay luật sư
+     * phụ trách nhận thay). Lượt chọn xếp đúng những người này; job hỏi lại lúc gửi — giữa hai lúc, việc có
+     * thể đã được giao lại, hay bàn giao vụ đã đổi người giao.
+     */
+    public static function stillAddressedTo(Task $task, string $kind, User $recipient): bool
+    {
+        if (self::isAssignerKind($kind)) {
+            return app(ResolveStaffRecipients::class)->forTaskAssigner($task)
+                ->contains(fn (User $user): bool => $user->is($recipient));
+        }
+
+        return $task->assignee_id === $recipient->getKey();
+    }
+
+    /**
+     * Như {@see self::taskReminderHolds()}, cho một ghế trong đội ngũ vụ (chỉ hai loại chờ nhận). Người ngồi
+     * ghế phải còn NHẬN ĐƯỢC hồ sơ — đang hoạt động, chưa xoá, còn mở được vụ
+     * ({@see SeatsNeedingReassignment::memberCanAccept()}; vòng sửa polish 1): một người đã nghỉ không được
+     * nhắc "hãy nhận", và người giao không bị báo "X chưa nhận" về một người không còn bấm nhận được — ghế đó
+     * hiện "Cần phân công lại" (gỡ ghế, hay bàn giao vụ).
+     */
     public static function seatReminderHolds(MatterUser $seat, string $kind, string $key, ?CarbonInterface $now = null): bool
     {
         return in_array($kind, [self::AWAITING, self::UNACCEPTED], true)
             && $seat->assignmentStatus() === MatterAssignmentStatus::Pending
             && $seat->assigned_at !== null
             && $key === self::awaitingKey($seat->assigned_at)
-            && AcceptanceClock::fromConfig()->reached($seat->assigned_at, self::thresholdFor($kind), $now);
+            && AcceptanceClock::fromConfig()->reached($seat->assigned_at, self::thresholdFor($kind), $now)
+            && SeatsNeedingReassignment::memberCanAccept($seat->user, $seat->matter);
     }
 
     public static function awaitingKey(CarbonInterface $assignedAt): string
@@ -229,24 +283,66 @@ class RemindPendingWork
             ->filter(fn (MatterUser $seat): bool => $clock->reached($seat->assigned_at, AcceptanceClock::REMIND_AFTER_HOURS));
     }
 
-    private function remindAwaitingSeat(MatterUser $seat, AcceptanceClock $clock): int
+    private function remindAwaitingSeat(MatterUser $seat): int
     {
-        $resolver = app(ResolveStaffRecipients::class);
         $matter = $seat->matter;
         $key = self::awaitingKey($seat->assigned_at);
         $queued = 0;
 
-        if ($seat->user !== null && $resolver->qualifies($seat->user, $matter)) {
-            $queued += $this->queue(self::SUBJECT_SEAT, (int) $seat->getKey(), self::AWAITING, $key, $seat->user, $matter);
+        if (self::seatReminderHolds($seat, self::AWAITING, $key)) {
+            $queued += $this->queueSeat($seat, self::AWAITING, $key, $seat->user, $matter);
         }
 
-        if ($clock->reached($seat->assigned_at, AcceptanceClock::ESCALATE_AFTER_HOURS)) {
+        if (self::seatReminderHolds($seat, self::UNACCEPTED, $key)) {
             foreach ($this->seatAssignerAudience($seat) as $user) {
-                $queued += $this->queue(self::SUBJECT_SEAT, (int) $seat->getKey(), self::UNACCEPTED, $key, $user, $matter);
+                $queued += $this->queueSeat($seat, self::UNACCEPTED, $key, $user, $matter);
             }
         }
 
         return $queued;
+    }
+
+    /**
+     * Ghi một lời nhắc hồ sơ vào {@see self::$seatReminders} (chưa xếp job) — cùng hai lần bỏ qua của
+     * {@see self::queue()}: thư đã gửi (kể cả trong một thư gộp — `SendWorkReminder::alreadyMailed()` nhận id
+     * ghế), thư đã hỏng hẳn hôm nay.
+     */
+    private function queueSeat(MatterUser $seat, string $kind, string $key, User $recipient, Matter $matter): int
+    {
+        $seatId = (int) $seat->getKey();
+
+        if (SendWorkReminder::alreadyMailed($matter, $recipient, self::SUBJECT_SEAT, $kind, $key, $seatId)
+            || SendWorkReminder::failedForGoodToday(self::SUBJECT_SEAT, $seatId, $recipient->getKey())) {
+            return 0;
+        }
+
+        $this->seatReminders[$kind][$recipient->getKey()][$seatId] = $key;
+
+        return 1;
+    }
+
+    /**
+     * Xếp các lời nhắc hồ sơ đã gom — một hồ sơ: {@see SendWorkReminder} như mọi lời nhắc; nhiều hồ sơ cho
+     * cùng (loại, người nhận): MỘT {@see SendSeatReminderDigest}. Xem docblock lớp, mục "Lời nhắc hồ sơ gộp
+     * theo người".
+     */
+    private function dispatchSeatReminders(): void
+    {
+        foreach ($this->seatReminders as $kind => $byRecipient) {
+            foreach ($byRecipient as $recipientId => $seats) {
+                $this->guarded(function () use ($kind, $recipientId, $seats): int {
+                    if (count($seats) === 1) {
+                        SendWorkReminder::dispatch(self::SUBJECT_SEAT, (int) array_key_first($seats), $kind, $recipientId, (string) reset($seats))->afterCommit();
+                    } else {
+                        SendSeatReminderDigest::dispatch($kind, $recipientId, $seats)->afterCommit();
+                    }
+
+                    return 0;
+                });
+            }
+        }
+
+        $this->seatReminders = [];
     }
 
     /**
@@ -286,7 +382,8 @@ class RemindPendingWork
 
     private function queue(string $subject, int $subjectId, string $kind, string $key, User $recipient, Task|Matter $related): int
     {
-        if (SendWorkReminder::alreadyMailed($related, $recipient, $subject, $kind, $key)) {
+        if (SendWorkReminder::alreadyMailed($related, $recipient, $subject, $kind, $key)
+            || SendWorkReminder::failedForGoodToday($subject, $subjectId, $recipient->getKey())) {
             return 0;
         }
 
@@ -312,9 +409,7 @@ class RemindPendingWork
     {
         return Task::query()
             ->withoutGlobalScope(ClientPortalScope::class)
-            ->where(fn (Builder $live): Builder => $live
-                ->whereNull('tasks.matter_id')
-                ->orWhereHas('matter', fn (Builder $matter): Builder => $matter->withoutGlobalScope(ClientPortalScope::class)->open()))
+            ->onLiveMatter()
             ->with(['matter.leadLawyer', 'assignee', 'assigner'])
             ->orderBy('tasks.id');
     }
@@ -328,17 +423,5 @@ class RemindPendingWork
     private static function isActive(Task $task): bool
     {
         return in_array($task->status, [TaskStatus::Pending, TaskStatus::Accepted], true);
-    }
-
-    /** Việc chung, hay việc của một vụ chưa huỷ, chưa kết thúc. */
-    private static function onLiveMatter(Task $task): bool
-    {
-        if ($task->matter_id === null) {
-            return true;
-        }
-
-        $matter = Matter::query()->withoutGlobalScope(ClientPortalScope::class)->find($task->matter_id);
-
-        return $matter !== null && $matter->isOpen();
     }
 }

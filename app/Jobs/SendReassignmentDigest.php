@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\ClientRequestStatus;
+use App\Enums\MatterRole;
 use App\Enums\TaskStatus;
 use App\Mail\Staff\MatterReassigned;
 use App\Models\ClientRequest;
@@ -12,11 +13,14 @@ use App\Models\Matter;
 use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
+use App\Notifications\Staff\MatterAssignmentAlert;
+use App\Support\ActivityPeople;
 use App\Support\Audit;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Mail;
+use Spatie\Activitylog\Models\Activity;
 use Throwable;
 
 /**
@@ -83,6 +87,18 @@ use Throwable;
  * người nhận (không phải `ResolveStaffRecipients::supervisorsFor()` — đây không phải một sự cố
  * của MỘT vụ việc cụ thể để mà hỏi "ai giám sát vụ này", mà là thư của chính người nhận không
  * tới tay chính họ; phán quyết controller Task 1 nói thẳng "cho người nhận").
+ *
+ * # Chuông "được bàn giao" của bàn giao hàng loạt gộp vào đây (làn tk, vòng sửa polish 1 — phán quyết
+ * controller (3))
+ *
+ * Bàn giao MỘT vụ rung chuông "được giao hồ sơ" riêng (`ReassignMatter` → `SendMatterAssignmentNotice`).
+ * Bàn giao hàng loạt KHÔNG rung từng vụ: `ReassignMatters` truyền `$seatEvents` (`matter_id => id dòng
+ * matter_reassigned` của các vụ mà ghế luật sư phụ trách mới chờ nhận) và CHÍNH job này rung MỘT chuông
+ * cho cả lô ngay trước thư — một lời báo cho mỗi người, liệt kê các hồ sơ. Chỉ những khối còn qua lọc ở
+ * trên VÀ ghế còn chờ nhận lúc gửi (`seat_pending`) vào chuông; còn một hồ sơ thì chuông như bàn giao một
+ * vụ ({@see MatterAssignmentAlert::ASSIGNED}), nhiều hơn thì {@see MatterAssignmentAlert::ASSIGNED_BATCH}
+ * (số hồ sơ + mã). Chống trùng khi thử lại: khoá {@see self::seatsBellKey()} trong `viewData.seat_key`
+ * ({@see SendMatterAssignmentNotice::alreadyAlerted()}). Chuông đi TRƯỚC thư: thư hỏng không làm mất chuông.
  */
 class SendReassignmentDigest implements ShouldQueue
 {
@@ -103,10 +119,13 @@ class SendReassignmentDigest implements ShouldQueue
      * mới, còn mở (chờ nhận, đang làm, bị trả lại).
      *
      * @param  array<int, array{deadline_ids: array<int, int>, client_request_ids: array<int, int>, task_ids?: array<int, int>, followed_task_ids?: array<int, int>, reason: string}>  $matters
+     * @param  array<int, int>  $seatEvents  chỉ bàn giao hàng loạt: `matter_id => id dòng matter_reassigned` của các
+     *                                       vụ mà ghế lead mới chờ nhận — xem docblock lớp, mục "Chuông được bàn giao"
      */
     public function __construct(
         public readonly int $newLeadId,
         public readonly array $matters,
+        public readonly array $seatEvents = [],
     ) {}
 
     /** @return array<int, int> */
@@ -197,7 +216,52 @@ class SendReassignmentDigest implements ShouldQueue
             return;
         }
 
+        $this->ringSeatsBell($newLead, $blocks);
+
         Mail::to($newLead->email)->send(new MatterReassigned($newLead, $blocks));
+    }
+
+    /** @param  array<int, int>  $seatEvents */
+    public static function seatsBellKey(array $seatEvents): string
+    {
+        return 'handover@'.min($seatEvents);
+    }
+
+    /**
+     * Xem docblock lớp, mục "Chuông được bàn giao của bàn giao hàng loạt gộp vào đây".
+     *
+     * @param  list<array{matter: Matter, seat_pending: bool}>  $blocks
+     */
+    private function ringSeatsBell(User $newLead, array $blocks): void
+    {
+        if ($this->seatEvents === []) {
+            return;
+        }
+
+        $matters = collect($blocks)
+            ->filter(fn (array $block): bool => $block['seat_pending'] && array_key_exists($block['matter']->getKey(), $this->seatEvents))
+            ->map(fn (array $block): Matter => $block['matter'])
+            ->sortBy('code')
+            ->values();
+
+        $key = self::seatsBellKey($this->seatEvents);
+
+        if ($matters->isEmpty() || SendMatterAssignmentNotice::alreadyAlerted($newLead, $key)) {
+            return;
+        }
+
+        $event = Activity::query()->find(min($this->seatEvents));
+
+        $newLead->notify(new MatterAssignmentAlert(
+            $matters->first(),
+            $matters->count() === 1 ? MatterAssignmentAlert::ASSIGNED : MatterAssignmentAlert::ASSIGNED_BATCH,
+            (string) $newLead->name,
+            ActivityPeople::name($event?->causer) ?? '',
+            MatterRole::Lead->label(),
+            null,
+            $key,
+            batchCodes: $matters->pluck('code')->all(),
+        ));
     }
 
     /**

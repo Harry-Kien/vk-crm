@@ -289,6 +289,11 @@ return [
         'waiting_since' => 'Chờ nhận từ :since',
         'declined_note' => 'Lý do: :reason — cần phân công lại.',
         'declined_note_short' => 'Cần phân công lại.',
+        // Vòng sửa polish 1 (phán quyết controller (3)): ghế chờ nhận mà người được giao không còn nhận được hồ
+        // sơ (đã nghỉ việc, không còn mở được hồ sơ — App\Actions\Matter\SeatsNeedingReassignment). Không là một
+        // tình trạng của ghế (enum), chỉ là cách hiện.
+        'needs_reassignment' => 'Cần phân công lại',
+        'needs_reassignment_note' => 'Người được giao không còn nhận được hồ sơ (đã nghỉ việc hoặc không còn mở được hồ sơ) — gỡ khỏi đội ngũ, hay bàn giao vụ nếu là luật sư phụ trách.',
         'my' => [
             'heading' => 'Hồ sơ chờ tôi nhận',
             'description' => 'Anh/chị vừa được giao vào đội ngũ các hồ sơ này. Bấm "Đã nhận hồ sơ", hoặc "Trả lại" kèm lý do nếu không nhận được (quá tải, xung đột lợi ích…).',
@@ -326,6 +331,12 @@ return [
                 'title' => 'Anh/chị được giao hồ sơ :code',
                 'body' => ':who đã giao anh/chị vào đội ngũ hồ sơ :code với vai :role. Bấm "Đã nhận hồ sơ" hoặc "Trả lại" :where.',
             ],
+            // Vòng sửa polish 1: một chuông cho cả lô bàn giao hàng loạt, rung bởi thư tổng hợp của lô
+            // (App\Jobs\SendReassignmentDigest). :codes là danh sách mã đã escape (tối đa 10, còn lại "…").
+            'assigned_batch' => [
+                'title' => 'Anh/chị được bàn giao :count hồ sơ',
+                'body' => ':who đã bàn giao cho anh/chị :count hồ sơ với vai :role: :codes. Bấm "Đã nhận hồ sơ" hoặc "Trả lại" cho từng hồ sơ :where.',
+            ],
             'accepted' => [
                 'title' => 'Hồ sơ :code đã được nhận',
                 'body' => ':member đã nhận hồ sơ :code (vai :role).',
@@ -342,6 +353,17 @@ return [
                 'title' => 'Hồ sơ :code chưa được nhận',
                 'body' => ':member chưa nhận hồ sơ :code (vai :role) sau :since (tính theo giờ làm việc). Hãy trao đổi với họ hoặc phân công người khác.',
             ],
+            // Vòng sửa polish 1 (phán quyết controller (3)): hai lời nhắc trên GỘP cho nhiều hồ sơ của một người
+            // trong một lượt lịch (App\Jobs\SendSeatReminderDigest). :codes đã escape (tối đa 10 dòng, còn lại "…");
+            // ở lời báo người giao mỗi dòng là "mã (người được giao)".
+            'reminder_awaiting_batch' => [
+                'title' => ':count hồ sơ đang chờ anh/chị nhận',
+                'body' => ':count hồ sơ đã chờ anh/chị nhận quá :since làm việc: :codes. Bấm "Đã nhận hồ sơ" hoặc "Trả lại" cho từng hồ sơ :where.',
+            ],
+            'reminder_unaccepted_batch' => [
+                'title' => ':count hồ sơ chưa được nhận',
+                'body' => ':count hồ sơ được giao chưa được nhận sau :since làm việc: :codes. Hãy trao đổi với người được giao hoặc phân công người khác.',
+            ],
         ],
         // Thư (App\Mail\Staff\MatterAssignmentNotice). Tiêu đề thư không mang mã hồ sơ.
         'email' => [
@@ -350,6 +372,9 @@ return [
                 'reminder' => [
                     'awaiting' => 'Một hồ sơ đang chờ anh/chị nhận',
                     'unaccepted' => ':name chưa nhận một hồ sơ được giao',
+                    // Vòng sửa polish 1: thư gộp nhiều hồ sơ (App\Jobs\SendSeatReminderDigest).
+                    'awaiting_batch' => ':count hồ sơ đang chờ anh/chị nhận',
+                    'unaccepted_batch' => ':count hồ sơ được giao chưa được nhận',
                 ],
             ],
             'headline' => [
@@ -357,6 +382,8 @@ return [
                 'reminder' => [
                     'awaiting' => 'Một hồ sơ đã chờ anh/chị nhận :since (tính theo giờ làm việc).',
                     'unaccepted' => ':name chưa nhận hồ sơ được giao sau :since (tính theo giờ làm việc).',
+                    'awaiting_batch' => ':count hồ sơ đã chờ anh/chị nhận quá :since làm việc:',
+                    'unaccepted_batch' => ':count hồ sơ được giao chưa được nhận sau :since làm việc — hãy trao đổi với người được giao hoặc phân công người khác:',
                 ],
             ],
             'fields' => [
@@ -465,6 +492,14 @@ return [
     // "Theo dõi đội ngũ" và trang của một người (App\Actions\Performance\BuildTaskWorkload).
     'workload' => [
         'heading' => 'Giao – nhận nội bộ',
+        // Vòng sửa polish 1: dòng trên bảng Theo dõi đội ngũ (App\Filament\Admin\Pages\TeamOverview::needsReassignment()),
+        // chỉ cho quản lý/quản trị; trỏ trang Công việc, tab "Tất cả", bộ lọc "Cần giao lại".
+        'needs_reassignment' => 'Việc cần giao lại: :count',
+        'needs_reassignment_hint' => 'việc còn mở mà người đang giữ không làm được nữa (đã nghỉ việc, rời đội ngũ, trả lại hồ sơ, không còn mở được hồ sơ), hay việc bị trả lại mà người giao không còn theo dõi. Bấm để mở danh sách và giao lại.',
+        // Vòng sửa polish 1 (phán quyết controller (3)): ghế chờ nhận của người không còn nhận được hồ sơ
+        // (App\Actions\Matter\SeatsNeedingReassignment) — mỗi mã mở tab "Đội ngũ" của hồ sơ đó.
+        'seats_needing_reassignment' => 'Hồ sơ cần phân công lại: :count',
+        'seats_needing_reassignment_hint' => 'hồ sơ còn chờ một người bấm "Đã nhận hồ sơ" mà người đó đã nghỉ việc hay không còn mở được hồ sơ — gỡ họ khỏi đội ngũ ở tab "Đội ngũ", hay bàn giao vụ.',
         'columns' => [
             'tasksInProgress' => 'Việc đang làm',
             'tasksAwaiting' => 'Việc chờ nhận',
@@ -476,7 +511,7 @@ return [
         'explain' => [
             'tasksInProgress' => 'Số việc giao nội bộ người này đã bấm "Đã nhận", chưa hoàn thành — trong các việc anh/chị được xem.',
             'tasksAwaiting' => 'Số việc giao cho người này chưa bấm "Đã nhận" hay "Trả lại".',
-            'tasksOverdue' => 'Số việc người này đang giữ (chờ nhận hoặc đang làm) đã qua hạn.',
+            'tasksOverdue' => 'Số việc người này đang giữ (chờ nhận hoặc đang làm) đã qua hạn — việc chung hay việc của hồ sơ còn mở; việc của hồ sơ đã kết thúc không tính (chỉ còn huỷ được, và không được nhắc).',
             'tasksReturned' => 'Số việc NGƯỜI NÀY ĐÃ GIAO bị người nhận trả lại, đang chờ người này giao lại hoặc huỷ.',
             'seatsAwaiting' => 'Số hồ sơ đang mở người này vừa được giao vào đội ngũ (hay nhận bàn giao làm luật sư phụ trách) mà chưa bấm "Đã nhận hồ sơ".',
             'seatsReturned' => 'Số hồ sơ đang mở người này đã trả lại kèm lý do — cần quản lý hoặc luật sư phụ trách phân công lại (gỡ khỏi đội ngũ, hay bàn giao vụ cho người khác).',
@@ -497,7 +532,7 @@ return [
         'awaiting' => 'Việc chờ tôi nhận',
         'awaiting_hint' => 'Bấm "Đã nhận" hoặc "Trả lại"',
         'overdue' => 'Việc của tôi đã quá hạn',
-        'overdue_hint' => 'Việc tôi đang giữ đã qua hạn',
+        'overdue_hint' => 'Việc tôi đang giữ đã qua hạn, trên hồ sơ còn mở',
         'seats' => 'Hồ sơ chờ tôi nhận',
         'seats_hint' => 'Bấm "Đã nhận hồ sơ" hoặc "Trả lại"',
         'returned' => 'Việc tôi giao bị trả lại',

@@ -85,7 +85,8 @@ class TaskResource extends Resource
     {
         $user = Auth::user();
 
-        abort_unless($user instanceof User, 403);
+        // SPEC §10.10: từ chối là 404, không 403 — cùng mã với một bản ghi không có.
+        abort_unless($user instanceof User, 404);
 
         return parent::getEloquentQuery()->visibleTo($user);
     }

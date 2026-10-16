@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Matter\AddTeamMember;
 use App\Actions\Matter\RemoveTeamMember;
+use App\Actions\Matter\SeatsNeedingReassignment;
 use App\Enums\Confidentiality;
 use App\Enums\MatterAssignmentStatus;
 use App\Enums\MatterRole;
@@ -87,15 +88,23 @@ class TeamRelationManager extends RelationManager
                     ->label(__('team.tab.columns.joined_at'))
                     ->date('d/m/Y'),
                 // Làn tk, Task 2 — ai trong đội chưa nhận / đã trả lại hồ sơ (`MatterUser::assignmentStatus()`).
+                // Vòng sửa polish 1 (phán quyết controller (3)): ghế chờ nhận của người không còn nhận được hồ sơ
+                // hiện "Cần phân công lại" (`SeatsNeedingReassignment::stuck()` — cùng luật lịch nhắc dùng để thôi nhắc).
                 TextColumn::make('assignment')
                     ->label(__('tasks.seat.columns.status'))
                     ->badge()
-                    ->state(fn (User $record): string => $record->pivot->assignmentStatus()->label())
-                    ->color(fn (User $record): string => $record->pivot->assignmentStatus()->color())
-                    ->description(fn (User $record): ?string => self::seatNote(
-                        $record->pivot,
-                        showReason: $record->is(Auth::user()) || Gate::allows('manageTeam', $matter),
-                    ))
+                    ->state(fn (User $record): string => SeatsNeedingReassignment::stuck($record->pivot, $record, $matter)
+                        ? __('tasks.seat.needs_reassignment')
+                        : $record->pivot->assignmentStatus()->label())
+                    ->color(fn (User $record): string => SeatsNeedingReassignment::stuck($record->pivot, $record, $matter)
+                        ? 'danger'
+                        : $record->pivot->assignmentStatus()->color())
+                    ->description(fn (User $record): ?string => SeatsNeedingReassignment::stuck($record->pivot, $record, $matter)
+                        ? __('tasks.seat.needs_reassignment_note')
+                        : self::seatNote(
+                            $record->pivot,
+                            showReason: $record->is(Auth::user()) || Gate::allows('manageTeam', $matter),
+                        ))
                     ->wrap(),
             ])
             ->headerActions([

@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Task\TaskAssignees;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -21,7 +22,8 @@ use App\Policies\Concerns\ChecksMatterAccess;
  * Tài khoản cổng khách: `false` ở mọi khả năng.
  *
  * Policy KHÔNG hỏi `is_active`: tài khoản bị vô hiệu không vào được panel, và mọi Action tự hỏi lại
- * (`ChecksAccountActive`) dưới khoá dòng.
+ * (`ChecksAccountActive`) dưới khoá dòng. Lần hỏi "còn giữ được việc" của `accept`/`complete` vì vậy dùng
+ * `TaskAssignees::holdsSeat()` — vế "của vụ" của luật người nhận, không vế `is_active`.
  */
 class TaskPolicy
 {
@@ -93,24 +95,34 @@ class TaskPolicy
                 ->exists();
     }
 
-    /** "Đã nhận": chỉ người nhận, chỉ khi việc đang chờ nhận. */
+    /**
+     * "Đã nhận": chỉ người nhận, chỉ khi việc đang chờ nhận, và chỉ khi họ còn GIỮ ĐƯỢC việc
+     * ({@see self::stillHolds()}).
+     */
     public function accept(User|ClientUser $user, Task $task): bool
     {
-        return $this->isAssignee($user, $task) && $task->status === TaskStatus::Pending;
+        return $this->isAssignee($user, $task) && $task->status === TaskStatus::Pending && $this->stillHolds($user, $task);
     }
 
-    /** "Trả lại" (kèm lý do): người nhận, khi việc chờ nhận hoặc đang làm. */
+    /**
+     * "Trả lại" (kèm lý do): người nhận, khi việc chờ nhận hoặc đang làm — kể cả người không còn giữ được
+     * việc (đã sang "người theo dõi"…): trả việc về cho người giao là đúng việc họ nên làm.
+     */
     public function decline(User|ClientUser $user, Task $task): bool
     {
         return $this->isAssignee($user, $task)
             && in_array($task->status, [TaskStatus::Pending, TaskStatus::Accepted], true);
     }
 
-    /** "Hoàn thành": người nhận, khi việc chờ nhận (nhận và xong một lượt) hoặc đang làm. */
+    /**
+     * "Hoàn thành": người nhận, khi việc chờ nhận (nhận và xong một lượt) hoặc đang làm, và còn GIỮ ĐƯỢC
+     * việc ({@see self::stillHolds()}).
+     */
     public function complete(User|ClientUser $user, Task $task): bool
     {
         return $this->isAssignee($user, $task)
-            && in_array($task->status, [TaskStatus::Pending, TaskStatus::Accepted], true);
+            && in_array($task->status, [TaskStatus::Pending, TaskStatus::Accepted], true)
+            && $this->stillHolds($user, $task);
     }
 
     /**
@@ -167,6 +179,21 @@ class TaskPolicy
         return $user instanceof User
             && $task->assignee_id === $user->getKey()
             && $this->view($user, $task);
+    }
+
+    /**
+     * Người nhận còn GIỮ ĐƯỢC việc này (làn tk, vòng sửa polish 1 — rà soát Task 1, m5): cùng luật "ai nhận
+     * được việc" của `TaskAssignees` ({@see TaskAssignees::holdsSeat()} — vế của vụ, không `is_active`, xem
+     * docblock lớp): việc của một vụ chỉ cho người ngồi ghế giữ việc (không "người theo dõi"), chưa trả lại
+     * ghế, còn mở được vụ; việc chung không có vế này. Người không còn đạt (việc đó hiện "Cần giao lại" —
+     * `Task::scopeNeedsReassignment()`, vế `off_team` / `seat_declined` / `off_access`) không bấm "Đã nhận" hay
+     * "Hoàn thành" được nữa; họ vẫn "Trả lại" được. Quan hệ `matter` là bản `OpensTask` vừa khoá khi hỏi dưới
+     * khoá.
+     */
+    private function stillHolds(User $user, Task $task): bool
+    {
+        return $task->matter_id === null
+            || ($task->matter !== null && app(TaskAssignees::class)->holdsSeat($user, $task->matter));
     }
 
     private function involved(User $user, Task $task): bool

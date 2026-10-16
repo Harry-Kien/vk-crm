@@ -32,6 +32,9 @@ use Illuminate\Mail\Mailables\Envelope;
  * tại khi người giao đã rời vụ hay nghỉ việc mang `$onBehalfOf` = tên người giao — tiêu đề, câu mở đầu và
  * nút theo bộ chữ `*.declined_on_behalf`, thêm dòng "Người giao", và đường dẫn về tab "Công việc" của vụ
  * (`TaskAlert::onBehalfUrl()`) thay vì "Tôi đã giao". Cùng mẫu `staff.task.declined`, cùng khoá sổ thư.
+ *
+ * `$reason` (vòng sửa polish 1): lý do của CHÍNH lần trả lại, đọc từ dòng nhật ký của lần đó (`SendTaskNotice`)
+ * — một lần "Giao lại" trước khi thư đi đã xoá `decline_reason` trên dòng việc. `null`: đọc cột của việc.
  */
 class TaskNotice extends BrandedMailable
 {
@@ -52,6 +55,7 @@ class TaskNotice extends BrandedMailable
         public string $actorName,
         public int $eventId,
         public ?string $onBehalfOf = null,
+        public ?string $reason = null,
     ) {}
 
     public static function ledgerKey(int $eventId): string
@@ -130,7 +134,7 @@ class TaskNotice extends BrandedMailable
             $this->onBehalf() ? $line('assigner', (string) $this->onBehalfOf) : null,
             $line('due_date', $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date')),
             $line('priority', $task->priority->label()),
-            $this->kind === self::KIND_DECLINED ? $line('reason', (string) $task->decline_reason) : null,
+            $this->kind === self::KIND_DECLINED ? $line('reason', (string) ($this->reason ?? $task->decline_reason)) : null,
             $this->kind === self::KIND_COMPLETED && filled($task->completion_note) ? $line('note', (string) $task->completion_note) : null,
         ]));
     }

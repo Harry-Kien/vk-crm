@@ -2,13 +2,17 @@
 
 namespace App\Filament\Admin\Pages;
 
+use App\Actions\Matter\SeatsNeedingReassignment;
 use App\Actions\Performance\BuildTaskWorkload;
 use App\Actions\Performance\BuildTeamWorkload;
 use App\Enums\Permission;
+use App\Filament\Admin\Resources\Tasks\TaskResource;
+use App\Models\MatterUser;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Performance\TeamRoster;
 use App\Support\Performance\TeamWorkloadRow;
+use App\Support\Tasks\SeatInbox;
 use BackedEnum;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -71,6 +75,13 @@ use Illuminate\Support\HtmlString;
  * xem, cùng tập người. Không sắp xếp được (danh sách cột sắp xếp của M13 giữ nguyên); việc quá hạn và hồ sơ
  * trả lại > 0 tô `var(--danger-600)`. Câu giải thích ở `tasks.workload.explain.*`, in cùng khối "Cách tính".
  *
+ * Trên bảng, một dòng "Việc cần giao lại: n" ({@see self::needsReassignment()}, vòng sửa polish 1 — brief
+ * Task 1 §3) cho người giao lại được mọi việc họ thấy (quản lý, quản trị): đếm ĐÚNG tập của trang Công việc,
+ * tab "Tất cả", bộ lọc "Cần giao lại" mà nó trỏ tới — kể cả việc của người đã bị vô hiệu hoá, dù dòng của
+ * họ ẩn khỏi bảng khi công tắc "Gồm người đã nghỉ" tắt. > 0 tô `var(--danger-600)`. Cạnh nó, cùng người
+ * xem, "Hồ sơ cần phân công lại: n" ({@see self::seatsNeedingReassignment()} — phán quyết controller (3)):
+ * ghế chờ nhận của người không còn nhận được hồ sơ, mỗi mã mở tab "Đội ngũ" của hồ sơ.
+ *
  * # Nhật ký (R14)
  *
  * {@see self::mount()} ghi MỘT dòng `performance_viewed` (chủ thể rỗng, `page = team_overview`):
@@ -81,6 +92,9 @@ use Illuminate\Support\HtmlString;
 class TeamOverview extends Page implements HasTable
 {
     use InteractsWithTable;
+
+    /** Số mã hồ sơ in cạnh "Hồ sơ cần phân công lại"; còn lại là "…". */
+    public const SEAT_CODES_SHOWN = 10;
 
     /**
      * Cột đếm việc đang tồn — những cột duy nhất (ngoài tên) sắp xếp được (R8), theo thứ tự cột.
@@ -216,6 +230,47 @@ class TeamOverview extends Page implements HasTable
                 'sentence' => __("performance.explain.{$code}"),
             ], self::EXPLAINED_CODES),
             ...self::taskExplanations(),
+        ];
+    }
+
+    /**
+     * "Hồ sơ cần phân công lại: n" — xem docblock lớp. Lịch nhắc không còn báo ai về những ghế này, nên chúng
+     * hiện ở đây; mỗi mã (tối đa {@see self::SEAT_CODES_SHOWN}) mở tab "Đội ngũ" của hồ sơ đó. `null` với người
+     * không phân công lại được ({@see SeatsNeedingReassignment::handle()}): view không in gì.
+     *
+     * @return array{count: int, items: list<array{code: string, url: string}>}|null
+     */
+    public function seatsNeedingReassignment(): ?array
+    {
+        /** @var User $viewer */
+        $viewer = Auth::user();
+        $seats = app(SeatsNeedingReassignment::class)->handle($viewer);
+
+        return $seats === null ? null : [
+            'count' => $seats->count(),
+            'items' => $seats->take(self::SEAT_CODES_SHOWN)
+                ->map(fn (MatterUser $seat): array => [
+                    'code' => (string) $seat->matter?->code,
+                    'url' => SeatInbox::teamTabUrl((int) $seat->matter_id),
+                ])->all(),
+        ];
+    }
+
+    /**
+     * "Việc cần giao lại: n" và đường dẫn tới danh sách lọc sẵn — xem docblock lớp, mục "Giao – nhận nội bộ".
+     * `null` với người không giao lại được (`BuildTaskWorkload::needsReassignment()`): view không in gì.
+     *
+     * @return array{count: int, url: string}|null
+     */
+    public function needsReassignment(): ?array
+    {
+        /** @var User $viewer */
+        $viewer = Auth::user();
+        $count = app(BuildTaskWorkload::class)->needsReassignment($viewer);
+
+        return $count === null ? null : [
+            'count' => $count,
+            'url' => TaskResource::getUrl('index', ['tab' => 'all', 'filters' => ['needs_reassignment' => ['isActive' => true]]], panel: 'admin'),
         ];
     }
 

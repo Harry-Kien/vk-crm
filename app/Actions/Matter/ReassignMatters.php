@@ -88,6 +88,15 @@ use Throwable;
  * `SendReassignmentDigest` (Task 1), áp dụng ở tầng gọi thay vì dispatch một job rồi để job đó tự
  * phát hiện payload rỗng.
  *
+ * # Một lời báo cho cả lô (làn tk, vòng sửa polish 1 — phán quyết controller (3))
+ *
+ * Ghế luật sư phụ trách mới chờ người nhận bấm "Đã nhận hồ sơ" (làn tk, Task 2). Bàn giao MỘT vụ rung một
+ * chuông "được giao hồ sơ"; ở đây `ReassignMatter` (`sendDigest: false`) không rung từng vụ mà trả id dòng
+ * nhật ký ({@see ReassignMatterResult::$seatEventId}), và lô truyền chúng vào CHÍNH thư tổng hợp
+ * ({@see SendReassignmentDigest}, tham số `$seatEvents`): job đó rung MỘT chuông cho cả lô ngay trước thư —
+ * một lô 20 vụ là một chuông và một thư, không phải 20 chuông. Lời nhắc chờ nhận và lời báo lên người giao
+ * sau đó cũng gộp theo người (`RemindPendingWork`, `SendSeatReminderDigest`). Cùng `finally` dưới đây.
+ *
  * # Dispatch nằm trong `finally` bọc CẢ vòng lặp (fix round 1, finding 3)
  *
  * Bản trước dispatch digest SAU vòng lặp — chỉ đúng chừng nào không có exception nào thoát khỏi
@@ -123,6 +132,9 @@ class ReassignMatters
     {
         $results = [];
         $digestMatters = [];
+        // Làn tk, vòng sửa polish 1: `matter_id => id dòng matter_reassigned` của các vụ mà ghế lead mới chờ
+        // nhận — MỘT chuông cho cả lô, trong thư tổng hợp (docblock lớp, mục "Một lời báo cho cả lô").
+        $seatEvents = [];
 
         try {
             foreach ($matterIds as $matterId) {
@@ -165,6 +177,10 @@ class ReassignMatters
                         'followed_task_ids' => $result->followedTaskIds,
                         'reason' => $reason,
                     ];
+
+                    if ($result->seatEventId !== null) {
+                        $seatEvents[$matter->getKey()] = $result->seatEventId;
+                    }
 
                     $results[] = new BulkReassignMatterResult(
                         matterId: $matter->getKey(),
@@ -218,7 +234,8 @@ class ReassignMatters
             // Xem docblock lớp, mục "Dispatch nằm trong finally" — chạy dù foreach có thoát bằng
             // một exception không được catch() nào ở trên bắt kịp hay không.
             if ($digestMatters !== []) {
-                SendReassignmentDigest::dispatch($newLead->getKey(), $digestMatters)->afterCommit();
+                // Phán quyết controller (3): chuông "được bàn giao" của cả lô đi cùng thư này (docblock lớp).
+                SendReassignmentDigest::dispatch($newLead->getKey(), $digestMatters, $seatEvents)->afterCommit();
             }
         }
 

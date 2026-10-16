@@ -83,16 +83,23 @@ class TaskAssignees
             return false;
         }
 
-        if ($matter === null) {
-            return true;
-        }
+        return $matter === null || $this->holdsSeat($candidate, $matter);
+    }
 
+    /**
+     * Vế "của vụ" của {@see self::qualifies()}, không hỏi `is_active`: `$member` ngồi một ghế giữ việc của
+     * `$matter`, chưa trả lại ghế đó, và mở được vụ. `TaskPolicy` (nút "Đã nhận" / "Hoàn thành" — vòng sửa
+     * polish 1) hỏi đúng vế này: policy không đọc `is_active` (tài khoản bị vô hiệu thì Action từ chối dưới
+     * khoá, bằng một câu tiếng Việt).
+     */
+    public function holdsSeat(User $member, Matter $matter): bool
+    {
         return $matter->team()
-            ->whereKey($candidate->getKey())
+            ->whereKey($member->getKey())
             ->wherePivotIn('role_in_matter', self::workingSeats())
             ->where(fn (Builder $seat): Builder => self::notDeclined($seat))
             ->exists()
-            && Gate::forUser($candidate)->allows('view', $matter);
+            && Gate::forUser($member)->allows('view', $matter);
     }
 
     /** Ghế chưa "Trả lại" — phủ định của `MatterUser::scopeReturned()` trên bảng `matter_user` của quan hệ `team`. */

@@ -56,6 +56,12 @@ use Spatie\Activitylog\Models\Activity;
  * nhật ký thư `sent` cùng mẫu, cùng người, cùng `payload.tier` = {@see TaskNotice::ledgerKey()} thì không
  * gửi lại. Chuông đi TRƯỚC thư: thư hỏng không làm mất chuông.
  *
+ * # Lý do của lần đó (vòng sửa polish 1)
+ *
+ * Lời "bị trả lại" và lời "huỷ" mang lý do của CHÍNH lần chuyển đó — đọc từ dòng nhật ký `$eventId`
+ * (`properties.reason`, `DeclineTask`/`CancelTask` ghi), không từ dòng việc lúc job chạy: người giao có thể
+ * đã bấm "Giao lại" trước khi job chạy, và `ReassignTask` xoá `decline_reason` trên dòng việc.
+ *
  * # Thông báo đẩy (vòng sửa 1, I2 — M12 R10)
  *
  * Chỉ lời "được giao" đẩy lên điện thoại (`PushTopic::StaffTaskAssigned`, một câu chung — không tiêu đề
@@ -111,15 +117,20 @@ class SendTaskNotice implements ShouldQueue
             ? $recipients->assignerName($task)
             : null;
 
+        // Xem docblock lớp, mục "Lý do của lần đó".
+        $reason = in_array($this->kind, [TaskAlert::DECLINED, TaskAlert::CANCELLED], true)
+            ? (string) $event->getExtraProperty('reason', '')
+            : null;
+
         if (! $this->alreadyAlerted($user)) {
-            $user->notify(new TaskAlert($task, $this->kind, $actorName, $this->eventId, $onBehalfOf));
+            $user->notify(new TaskAlert($task, $this->kind, $actorName, $this->eventId, $onBehalfOf, $reason));
         }
 
         if (in_array($this->kind, [TaskAlert::CANCELLED, TaskAlert::REASSIGNED_AWAY], true) || $this->alreadyDelivered($task, $user)) {
             return;
         }
 
-        Mail::to($user->email)->send(new TaskNotice($task, $this->kind, $user, $actorName, $this->eventId, $onBehalfOf));
+        Mail::to($user->email)->send(new TaskNotice($task, $this->kind, $user, $actorName, $this->eventId, $onBehalfOf, $reason));
 
         // Xem docblock lớp, mục "Thông báo đẩy".
         if ($this->kind === TaskAlert::ASSIGNED) {

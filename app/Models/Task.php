@@ -11,6 +11,7 @@ use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Policies\TaskPolicy;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Factories\TaskFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -245,6 +246,60 @@ class Task extends Model
         return $query->open()
             ->whereNotNull($this->qualifyColumn('due_date'))
             ->whereDate($this->qualifyColumn('due_date'), '<', today()->toDateString());
+    }
+
+    /**
+     * Việc QUÁ HẠN ĐƯỢC TÍNH (làn tk, vòng sửa polish 1 — rà soát Task 2, m8): người nhận còn giữ
+     * ({@see self::scopeHeld()}), đã qua hạn ({@see self::scopeOverdue()}), và là việc chung hay việc của một
+     * vụ còn mở ({@see self::scopeOnLiveMatter()}). MỘT định nghĩa cho mọi con số "quá hạn" (ô "Việc của tôi
+     * đã quá hạn" của bảng điều khiển, cột "Việc quá hạn" của Theo dõi đội ngũ và trang của một người), cho
+     * bộ lọc "Chỉ việc quá hạn" của trang Công việc mà ô đó mở ra, và cho lịch nhắc quá hạn
+     * (`RemindPendingWork`): việc của một vụ đã kết thúc hay đã huỷ không vào số và không được nhắc — trên vụ
+     * đã kết thúc việc chỉ còn huỷ (`TaskPolicy::update`), không còn gì để làm cho kịp hạn.
+     */
+    public function scopeOverdueToHandle(Builder $query): Builder
+    {
+        return $query->held()->overdue()->onLiveMatter();
+    }
+
+    /**
+     * Việc chung, hay việc của một vụ chưa huỷ (chưa xoá mềm) và chưa kết thúc (`Matter::scopeOpen()`). Bản
+     * trong bộ nhớ: {@see self::isOnLiveMatter()}.
+     */
+    public function scopeOnLiveMatter(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $live): Builder => $live
+            ->whereNull($this->qualifyColumn('matter_id'))
+            ->orWhereHas('matter', fn (Builder $matter): Builder => $matter->withoutGlobalScope(ClientPortalScope::class)->open()));
+    }
+
+    /** {@see self::scopeOnLiveMatter()} trong bộ nhớ — đọc lại dòng vụ (vụ đã huỷ hay không còn: `false`). */
+    public function isOnLiveMatter(): bool
+    {
+        if ($this->matter_id === null) {
+            return true;
+        }
+
+        $matter = Matter::query()->withoutGlobalScope(ClientPortalScope::class)->find($this->matter_id);
+
+        return $matter !== null && $matter->isOpen();
+    }
+
+    /**
+     * Thứ tự của mọi danh sách việc (làn tk, vòng sửa polish 1 — rà soát Task 1, m8): việc còn mở trước
+     * (chờ nhận, đang làm, bị trả lại), việc đã đóng (hoàn thành, huỷ) sau; trong mỗi nhóm theo hạn, việc
+     * không hạn cuối nhóm, rồi việc mới giao trước. Tab "Công việc" của vụ và cả bốn tab của trang Công việc
+     * dùng chung — một việc đã xong không chen giữa những việc còn phải làm.
+     */
+    public function scopeOrderedForWork(Builder $query): Builder
+    {
+        $open = TaskStatus::openValues();
+
+        return $query
+            ->orderByRaw('CASE WHEN tasks.status IN ('.implode(', ', array_fill(0, count($open), '?')).') THEN 0 ELSE 1 END', $open)
+            ->orderByRaw('CASE WHEN tasks.due_date IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('tasks.due_date')
+            ->orderByDesc('tasks.id');
     }
 
     /**

@@ -206,7 +206,10 @@ class ReassignMatter
      * @param  bool  $sendDigest  Mặc định `true`: bàn giao MỘT vụ tự xếp thư tổng hợp cho lead
      *                            mới (SPEC §6.11 bước 3). `false` dành cho M7 Task 2 (bàn giao
      *                            hàng loạt) — xem docblock lớp, mục "Thư tổng hợp mốc hạn cho
-     *                            lead mới".
+     *                            lead mới". Làn tk, vòng sửa polish 1: `false` cũng không xếp
+     *                            chuông "được giao hồ sơ" của vụ này — id dòng `matter_reassigned`
+     *                            vào {@see ReassignMatterResult::$seatEventId} và thư tổng hợp của
+     *                            `ReassignMatters` rung MỘT chuông cho cả lô.
      * @param  int|null  $expectedLeadId  Fix round 1, finding 1. Mặc định `null` (không hỏi).
      *                                    M7 Task 2 truyền lead đang được chọn trên màn hình hàng
      *                                    loạt — xem docblock lớp, mục "$expectedLeadId".
@@ -453,8 +456,14 @@ class ReassignMatter
             ], $actor);
 
             // Làn tk, Task 2: lead mới được báo bằng chuông là có hồ sơ chờ nhận (sau commit; job lọc lại).
-            if (Matter::seatAwaitsAcceptance($lockedNewLead, MatterRole::Lead, $actor) && $reassigned !== null) {
-                SendMatterAssignmentNotice::dispatch($locked->getKey(), $lockedNewLead->getKey(), MatterAssignmentAlert::ASSIGNED, $lockedNewLead->getKey(), $reassigned->getKey())->afterCommit();
+            // Vòng sửa polish 1: bàn giao hàng loạt (`$sendDigest = false`) không chuông từng vụ — trả id dòng
+            // nhật ký về cho `ReassignMatters`, nơi thư tổng hợp của lô rung MỘT chuông (`SendReassignmentDigest`).
+            $seatEventId = Matter::seatAwaitsAcceptance($lockedNewLead, MatterRole::Lead, $actor) && $reassigned !== null
+                ? (int) $reassigned->getKey()
+                : null;
+
+            if ($seatEventId !== null && $sendDigest) {
+                SendMatterAssignmentNotice::dispatch($locked->getKey(), $lockedNewLead->getKey(), MatterAssignmentAlert::ASSIGNED, $lockedNewLead->getKey(), $seatEventId)->afterCommit();
             }
 
             // SPEC §6.11 bước 3 (M7 Task 1) — thư tổng hợp cho lead mới, chỉ những gì LẦN BÀN
@@ -473,7 +482,14 @@ class ReassignMatter
                 ])->afterCommit();
             }
 
-            return new ReassignMatterResult($stageLog, $movedDeadlineIds->all(), $movedRequestIds->all(), $movedTaskIds, $followedTaskIds);
+            return new ReassignMatterResult(
+                $stageLog,
+                $movedDeadlineIds->all(),
+                $movedRequestIds->all(),
+                $movedTaskIds,
+                $followedTaskIds,
+                $sendDigest ? null : $seatEventId,
+            );
         });
     }
 }

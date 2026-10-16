@@ -38,6 +38,11 @@ use Illuminate\Support\Facades\Gate;
  *  - "Tất cả": mọi việc tôi được thấy — với quản lý/quản trị là danh sách theo dõi toàn văn phòng (trong
  *    phạm vi vụ họ xem được), có bộ lọc vụ việc, người nhận, người giao, quá hạn, cần giao lại (`Task::scopeNeedsReassignment()`).
  *
+ * Mọi tab cùng một thứ tự (`Task::scopeOrderedForWork()`): việc còn mở trước theo hạn, việc đã đóng sau.
+ * Bộ lọc "Chỉ việc quá hạn" là việc còn mở đã qua hạn trên vụ còn mở hay việc chung (`overdue()` +
+ * `onLiveMatter()`) — cùng định nghĩa với ô quá hạn của bảng điều khiển và lịch nhắc
+ * (`Task::scopeOverdueToHandle()`): việc của vụ đã kết thúc chỉ còn huỷ, không còn "quá hạn" để đuổi theo.
+ *
  * Bộ lọc "Vụ việc" chỉ bày mã của những vụ có ít nhất một việc người xem THẤY ĐƯỢC
  * ({@see self::matterOptions()}): mã một vụ `restricted` không bao giờ vào ô chọn của người không xem
  * được nó; một id gửi tay lên bộ lọc vẫn chỉ lọc bên trong `visibleTo()`, nên không ra dòng nào.
@@ -79,10 +84,7 @@ class ListTasks extends ListRecords
     {
         return $table
             ->columns(TaskColumns::make())
-            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query)
-                ->orderByRaw('CASE WHEN tasks.due_date IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('tasks.due_date')
-                ->orderByDesc('tasks.id'))
+            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query)->orderedForWork())
             ->filters([
                 SelectFilter::make('status')
                     ->label(__('tasks.filters.status'))
@@ -106,7 +108,7 @@ class ListTasks extends ListRecords
                 Filter::make('overdue')
                     ->label(__('tasks.filters.overdue'))
                     ->toggle()
-                    ->query(fn (Builder $query): Builder => $query->overdue()),
+                    ->query(fn (Builder $query): Builder => $query->overdue()->onLiveMatter()),
                 Filter::make('needs_reassignment')
                     ->label(__('tasks.filters.needs_reassignment'))
                     ->toggle()

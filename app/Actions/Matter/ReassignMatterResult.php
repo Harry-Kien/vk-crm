@@ -36,6 +36,12 @@ final readonly class ReassignMatterResult
      * @param  list<int>  $followedTaskIds  Làn tk, Task 2, vòng sửa 1 — id các việc còn mở lead cũ đã giao
      *                                      cho người khác trên vụ, vừa đổi người giao sang lead mới
      *                                      (`MoveTasksOnHandover::transferAssigner()`); cùng luật ảnh chụp.
+     * @param  int|null  $seatEventId  Làn tk, vòng sửa polish 1 — chỉ khi gọi với `sendDigest: false` (bàn
+     *                                 giao hàng loạt) VÀ ghế luật sư phụ trách mới chờ người nhận bấm "Đã nhận
+     *                                 hồ sơ": id dòng `matter_reassigned` của lần này, để thư tổng hợp của
+     *                                 `ReassignMatters` rung MỘT chuông "được bàn giao" cho cả lô thay vì một
+     *                                 chuông mỗi vụ.
+     *                                 `null` trong mọi trường hợp khác.
      */
     public function __construct(
         public StageLog $stageLog,
@@ -43,5 +49,6 @@ final readonly class ReassignMatterResult
         public array $movedRequestIds,
         public array $movedTaskIds = [],
         public array $followedTaskIds = [],
+        public ?int $seatEventId = null,
     ) {}
 }

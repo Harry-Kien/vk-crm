@@ -77,11 +77,7 @@ class TasksRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('title')
             ->columns(TaskColumns::make(withMatter: false))
-            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query->visibleTo($this->taskActor()))
-                ->orderByRaw('CASE WHEN tasks.status IN (?, ?, ?) THEN 0 ELSE 1 END', TaskStatus::openValues())
-                ->orderByRaw('CASE WHEN tasks.due_date IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('tasks.due_date')
-                ->orderByDesc('tasks.id'))
+            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query->visibleTo($this->taskActor()))->orderedForWork())
             ->filters([
                 SelectFilter::make('status')
                     ->label(__('tasks.filters.status'))
