@@ -12,6 +12,7 @@ use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\StageLog;
 use App\Models\User;
+use App\Notifications\Staff\MatterAssignmentAlert;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
@@ -90,7 +91,10 @@ it('reassigns the lead through the header action: lead changes, unfinished deadl
             && collect($mail->blocks[0]['deadlines'])->pluck('id')->contains($unfinished->id);
     });
     Mail::assertNotSent(StageUpdate::class);
-    NotificationFacade::assertNothingSent();
+    // Làn tk, Task 2: lời báo DUY NHẤT là chuông "anh/chị được giao hồ sơ" cho lead mới (ghế chờ nhận) —
+    // không lời báo nào cho khách hay ai khác.
+    NotificationFacade::assertSentTo($newLead, MatterAssignmentAlert::class);
+    NotificationFacade::assertCount(1);
 });
 
 /**

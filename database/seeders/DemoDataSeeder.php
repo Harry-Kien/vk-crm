@@ -64,5 +64,9 @@ class DemoDataSeeder extends Seeder
 
         // Làn nt Task 2: một đợt sắp đến hạn cho khách demo (dời hạn qua RescheduleInstalment) — công tắc vẫn TẮT.
         $this->call(ClientPaymentReminderDemoSeeder::class);
+
+        // Làn tk, Task 1 — việc giao nội bộ mẫu: SAU mọi seeder trên (đọc đội ngũ vụ của `MatterSeeder`, vụ
+        // `restricted` và luật sư đã nghỉ việc của `TeamPerformanceSeeder`). Dòng riêng, như dòng trên.
+        $this->call(TaskSeeder::class);
     }
 }

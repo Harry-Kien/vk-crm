@@ -78,6 +78,10 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *    chặn (`App\Support\Billing\ClientPaymentReminders::alreadyDelivered()`); thư nhắc quá hạn là một
  *    quyết định của người quản lý hợp đồng, có xem trước và ghi sổ liên lạc — gửi lại thì bấm lại nút đó
  *    (mỗi đợt một lần mỗi ngày), không gửi tay từ sổ thư.
+ *  - `staff.task.*` (làn tk, Task 1; hậu tố là loại lời báo — giao, nhận, trả lại, hoàn thành): thư báo
+ *    MỘT lần chuyển trạng thái đã qua của một việc nội bộ. Chuông trong hệ thống đi trước thư và không
+ *    phụ thuộc thư (`SendTaskNotice`), và trạng thái HIỆN TẠI của việc luôn ở trang "Công việc" — gửi lại
+ *    một lời báo cũ (ví dụ "được giao" cho một việc đã giao lại cho người khác) chỉ làm rối.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -110,6 +114,7 @@ final class ResendTargets
         'client.payment_received',
         // Làn nt Task 2 — lý do ở docblock lớp.
         'client.payment_reminder.*',
+        'staff.task.*',
         'undeclared',
     ];
 

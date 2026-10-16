@@ -2,15 +2,18 @@
 
 namespace App\Actions\Matter;
 
+use App\Actions\Task\MoveTasksOnHandover;
 use App\Enums\ClientRequestStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Jobs\SendMatterAssignmentNotice;
 use App\Jobs\SendReassignmentDigest;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\StageLog;
 use App\Models\User;
+use App\Notifications\Staff\MatterAssignmentAlert;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -29,6 +32,18 @@ use Illuminate\Validation\ValidationException;
  *  4. Chuyển mọi `client_requests` CHƯA ĐÓNG mà lead cũ đang được giao, trên CHÍNH vụ việc này, và
  *     ghi một dòng `client_request_assigned` cho MỖI luồng đã chuyển (M13).
  *  5. Ghi audit `matter_reassigned`.
+ *
+ * # Giao – nhận nội bộ (làn tk, Task 2)
+ *
+ *  - Ghế luật sư phụ trách mới CHỜ người nhận bấm "Đã nhận hồ sơ" (`Matter::seatAssignment()`, người giao
+ *    là `$actor`; tự bàn giao cho chính mình thì coi như đã nhận), kèm một chuông
+ *    `MatterAssignmentAlert::ASSIGNED` sau commit. Lead cũ ở lại làm luật sư cộng sự giữ nguyên mốc nhận.
+ *  - Lead cũ rời đội ngũ thì việc nội bộ đang mở của họ trên vụ này chuyển sang lead mới
+ *    ({@see MoveTasksOnHandover}, trong CÙNG transaction, sau khoá dòng vụ); id các việc đó vào
+ *    {@see ReassignMatterResult::$movedTaskIds} và vào thư tổng hợp (`task_ids`), cùng luật ảnh chụp
+ *    của mốc và luồng. Việc còn mở lead cũ ĐÃ GIAO cho người khác trên vụ đổi người giao sang lead mới
+ *    (`MoveTasksOnHandover::transferAssigner()`, vòng sửa 1 của Task 2 — I1); id vào
+ *    {@see ReassignMatterResult::$followedTaskIds} và thư tổng hợp (`followed_task_ids`).
  *
  * # Lịch sử người giữ việc: một dòng cho mỗi mốc, mỗi luồng (M13 Task 3, R9 và R18)
  *
@@ -191,7 +206,10 @@ class ReassignMatter
      * @param  bool  $sendDigest  Mặc định `true`: bàn giao MỘT vụ tự xếp thư tổng hợp cho lead
      *                            mới (SPEC §6.11 bước 3). `false` dành cho M7 Task 2 (bàn giao
      *                            hàng loạt) — xem docblock lớp, mục "Thư tổng hợp mốc hạn cho
-     *                            lead mới".
+     *                            lead mới". Làn tk, vòng sửa polish 1: `false` cũng không xếp
+     *                            chuông "được giao hồ sơ" của vụ này — id dòng `matter_reassigned`
+     *                            vào {@see ReassignMatterResult::$seatEventId} và thư tổng hợp của
+     *                            `ReassignMatters` rung MỘT chuông cho cả lô.
      * @param  int|null  $expectedLeadId  Fix round 1, finding 1. Mặc định `null` (không hỏi).
      *                                    M7 Task 2 truyền lead đang được chọn trên màn hình hàng
      *                                    loạt — xem docblock lớp, mục "$expectedLeadId".
@@ -308,8 +326,13 @@ class ReassignMatter
             // Bước 1: lead mới vào đội với vai `lead` — `syncWithoutDetaching` (upsert) chứ không
             // `attach()`: một lời gọi lặp/đồng thời sẽ để lộ UNIQUE constraint thô nếu lead mới
             // vô tình đã có mặt trong đội với vai khác (associate/assistant/observer).
+            // Làn tk, Task 2 — "Nhận hồ sơ": ghế luật sư phụ trách vừa bàn giao chờ người nhận bấm "Đã
+            // nhận hồ sơ" (trừ khi người bàn giao tự nhận vụ về mình) — `Matter::seatAssignment()`.
             $locked->team()->syncWithoutDetaching([
-                $lockedNewLead->getKey() => ['role_in_matter' => MatterRole::Lead->value],
+                $lockedNewLead->getKey() => [
+                    'role_in_matter' => MatterRole::Lead->value,
+                    ...Matter::seatAssignment($lockedNewLead, MatterRole::Lead, $actor),
+                ],
             ]);
 
             $locked->lead_lawyer_id = $lockedNewLead->getKey();
@@ -336,8 +359,14 @@ class ReassignMatter
                 // `old_lead_kept_as_associate: true` dù KHÔNG có gì được ghi, một dòng nhật ký
                 // nói dối. `syncWithoutDetaching()` — cùng cách Bước 1 thêm lead mới — luôn ghi
                 // đúng, dù hàng cũ có tồn tại hay không.
+                // Làn tk, Task 2: lead cũ ở lại không phải xác nhận lại — ghế còn thì giữ nguyên mốc
+                // nhận của nó; ghế đã mất (gỡ ở tab khác) thì ghi lại như một ghế đã nhận.
+                $keptSeat = $locked->team()->whereKey($oldLead->getKey())->exists()
+                    ? []
+                    : Matter::seatAssignment($oldLead, MatterRole::Associate, null);
+
                 $locked->team()->syncWithoutDetaching([
-                    $oldLead->getKey() => ['role_in_matter' => MatterRole::Associate->value],
+                    $oldLead->getKey() => ['role_in_matter' => MatterRole::Associate->value, ...$keptSeat],
                 ]);
 
                 $oldLeadKeptAsAssociate = true;
@@ -405,16 +434,37 @@ class ReassignMatter
                     ], causer: $actor));
             }
 
+            // Làn tk, Task 2: việc nội bộ đang mở của lead cũ trên vụ này sang lead mới (chờ nhận) khi
+            // lead cũ rời đội ngũ — xem docblock `MoveTasksOnHandover`.
+            $movedTaskIds = $oldLeadKeptAsAssociate
+                ? []
+                : app(MoveTasksOnHandover::class)->handle($locked, $oldLead, $lockedNewLead, $actor);
+            $followedTaskIds = $oldLeadKeptAsAssociate
+                ? []
+                : app(MoveTasksOnHandover::class)->transferAssigner($locked, $oldLead, $lockedNewLead, $actor);
+
             // Bước 5.
-            Audit::record('matter_reassigned', $locked, [
+            $reassigned = Audit::record('matter_reassigned', $locked, [
                 'from_user_id' => $oldLead->id,
                 'to_user_id' => $lockedNewLead->id,
                 'reason' => $reason,
                 'old_lead_kept_as_associate' => $oldLeadKeptAsAssociate,
                 'deadlines_moved' => $movedDeadlineIds->count(),
                 'client_requests_moved' => $movedRequestIds->count(),
+                'tasks_moved' => count($movedTaskIds),
                 'stage_log_id' => $stageLog->id,
             ], $actor);
+
+            // Làn tk, Task 2: lead mới được báo bằng chuông là có hồ sơ chờ nhận (sau commit; job lọc lại).
+            // Vòng sửa polish 1: bàn giao hàng loạt (`$sendDigest = false`) không chuông từng vụ — trả id dòng
+            // nhật ký về cho `ReassignMatters`, nơi thư tổng hợp của lô rung MỘT chuông (`SendReassignmentDigest`).
+            $seatEventId = Matter::seatAwaitsAcceptance($lockedNewLead, MatterRole::Lead, $actor) && $reassigned !== null
+                ? (int) $reassigned->getKey()
+                : null;
+
+            if ($seatEventId !== null && $sendDigest) {
+                SendMatterAssignmentNotice::dispatch($locked->getKey(), $lockedNewLead->getKey(), MatterAssignmentAlert::ASSIGNED, $lockedNewLead->getKey(), $seatEventId)->afterCommit();
+            }
 
             // SPEC §6.11 bước 3 (M7 Task 1) — thư tổng hợp cho lead mới, chỉ những gì LẦN BÀN
             // GIAO NÀY thực sự chuyển (không phải mọi mốc lead mới đang giữ). Payload chỉ mang
@@ -425,12 +475,21 @@ class ReassignMatter
                     $locked->getKey() => [
                         'deadline_ids' => $movedDeadlineIds->all(),
                         'client_request_ids' => $movedRequestIds->all(),
+                        'task_ids' => $movedTaskIds,
+                        'followed_task_ids' => $followedTaskIds,
                         'reason' => $reason,
                     ],
                 ])->afterCommit();
             }
 
-            return new ReassignMatterResult($stageLog, $movedDeadlineIds->all(), $movedRequestIds->all());
+            return new ReassignMatterResult(
+                $stageLog,
+                $movedDeadlineIds->all(),
+                $movedRequestIds->all(),
+                $movedTaskIds,
+                $followedTaskIds,
+                $sendDigest ? null : $seatEventId,
+            );
         });
     }
 }

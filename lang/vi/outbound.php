@@ -87,6 +87,20 @@ return [
         // Làn nt Task 2: App\Mail\Client\PaymentReminder — báo trước hạn (lịch 08:15) và nhắc đợt quá hạn (nút "Gửi thư nhắc").
         'client.payment_reminder.due_soon' => 'Báo khách đợt thanh toán sắp đến hạn',
         'client.payment_reminder.overdue' => 'Nhắc khách đợt thanh toán đã quá hạn',
+        // Làn tk, Task 1: App\Mail\Staff\TaskNotice — hậu tố là loại lời báo của việc giao nội bộ.
+        'staff.task.assigned' => 'Báo nhân sự được giao một việc',
+        'staff.task.accepted' => 'Báo người giao việc đã được nhận',
+        'staff.task.declined' => 'Báo người giao việc bị trả lại',
+        'staff.task.completed' => 'Báo người giao việc đã hoàn thành',
+        // Làn tk, Task 2: App\Mail\Staff\TaskReminder (lịch `tasks.remind`) và MatterAssignmentNotice (nhận hồ sơ).
+        'staff.task.reminder.awaiting' => 'Nhắc nhân sự nhận việc đang chờ',
+        'staff.task.reminder.unaccepted' => 'Báo người giao việc chưa được nhận',
+        'staff.task.reminder.due_soon' => 'Nhắc nhân sự việc sắp đến hạn',
+        'staff.task.reminder.overdue' => 'Nhắc nhân sự việc đã quá hạn',
+        'staff.task.reminder.overdue_assigner' => 'Báo người giao việc đã quá hạn',
+        'staff.task.matter.declined' => 'Báo người giao hồ sơ bị trả lại',
+        'staff.task.matter.reminder.awaiting' => 'Nhắc nhân sự nhận hồ sơ đang chờ',
+        'staff.task.matter.reminder.unaccepted' => 'Báo người giao hồ sơ chưa được nhận',
     ],
 
     'matter_tab' => [
@@ -128,6 +142,8 @@ return [
                 'client.payment_received' => 'thư xác nhận đã nhận tiền gắn với vụ việc chứ không với khoản thu, nên không dựng lại được; hệ thống tự thử lại nhiều lần, thử hết mà vẫn lỗi thì luật sư phụ trách nhận chuông báo. Thư chỉ đi tới tài khoản mà cổng khách còn cho xem vụ. Hãy báo khách bằng kênh khác nếu cần.',
                 // Làn nt Task 2 (lý do ở docblock `ResendTargets`).
                 'client.payment_reminder.*' => 'thư báo trước hạn tự được gửi lại ở lượt 08:15 kế tiếp khi đợt vẫn sắp đến hạn, vì chỉ thư đã gửi thành công mới chặn thư mới; thư nhắc đợt quá hạn thì người quản lý hợp đồng bấm lại "Gửi thư nhắc" trên dòng đợt đó ở tab "Hợp đồng và thanh toán" (mỗi đợt một lần mỗi ngày), có xem trước nội dung và ghi vào sổ liên lạc của vụ.',
+                // Làn tk, Task 1 (lý do ở docblock `ResendTargets`).
+                'staff.task.*' => 'thư này báo một lần giao, nhận, trả lại hay hoàn thành việc đã qua — gửi lại là báo một sự kiện cũ. Chuông trong hệ thống đã báo cùng lúc, và trạng thái hiện tại của việc luôn ở trang "Công việc".',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],

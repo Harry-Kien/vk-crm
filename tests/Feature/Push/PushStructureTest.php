@@ -50,6 +50,9 @@ function pushAlertCallersAllowed(): array
         'app/Jobs/SendInstalmentOverdueMail.php' => 'staff.instalment_overdue',
         // Vòng sửa cuối I5 (M7 Task 4, nối lúc gộp `main` vào nhánh): job thư báo gói bàn giao đã sinh.
         'app/Jobs/SendHandoverPackageReady.php' => 'staff.handover_ready',
+        // Làn tk, Task 1 vòng sửa 1 (I2): job lời báo việc giao nội bộ — chỉ loại "được giao", sau thư.
+        // Test đồng nhất người nhận: `tests/Feature/Tasks/TaskPushTest.php`.
+        'app/Jobs/SendTaskNotice.php' => 'staff.task.assigned',
         // Câu hỏi tiếp của khách (REQ-2) không có thư: đẩy cùng chủ đề yêu cầu mới, cho đúng người
         // nhận thông báo trong hệ thống `ClientRequestFollowUpAlert`.
         'app/Actions/Portal/ReplyToClientRequest.php' => 'staff.new_client_request (khách hỏi tiếp)',

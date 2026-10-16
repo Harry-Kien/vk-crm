@@ -15,6 +15,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManag
 use App\Filament\Admin\Resources\Matters\RelationManagers\MatterActivityRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\TasksRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterForm;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterInfolist;
@@ -41,7 +42,7 @@ use Illuminate\Support\Facades\Auth;
  * UpdateMatterDetails`, chỉ sửa năm cột SPEC §4.6 cho phép, không đụng `client_id`/
  * `matter_type_id`/`lead_lawyer_id`. Trang chi tiết (`ViewMatter`) có tab Tổng quan (infolist
  * dưới đây) và các tab của `getRelations()` — Đội ngũ, Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên,
- * Yêu cầu từ khách, Mốc thời hạn, Liên lạc (M7 Task 8), Hợp đồng và thanh toán (M9) và Nhật ký
+ * Yêu cầu từ khách, Mốc thời hạn, Công việc (làn tk), Liên lạc (M7 Task 8), Hợp đồng và thanh toán (M9) và Nhật ký
  * (M7 Task 8, luôn cuối cùng).
  */
 class MatterResource extends Resource
@@ -124,6 +125,9 @@ class MatterResource extends Resource
             // quyết định `CheckDeadlines` (Task 6) có dữ liệu ở văn phòng hay chỉ xanh trên máy
             // của lập trình viên.
             DeadlinesRelationManager::class,
+            // Tab "Công việc" (làn tk, Task 1) — việc giao nội bộ của vụ: ngay sau "Mốc thời hạn", cùng
+            // loại "việc phải làm trước ngày nào", trước các tab liên lạc và tiền.
+            TasksRelationManager::class,
             // Tab "Liên lạc" (SPEC §7.2), M7 Task 8 — ghi một cuộc gọi trong dưới 15 giây.
             CommunicationLogsRelationManager::class,
             // Tab "Hợp đồng và thanh toán" (SPEC §7.2 đính chính M9 Task 3), M9 Task 7 — đứng

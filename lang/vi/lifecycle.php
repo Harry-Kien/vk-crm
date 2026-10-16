@@ -11,6 +11,9 @@ return [
         'more_deadlines' => 'Và :count mốc thời hạn chưa xong khác',
         'client_requests' => ':count yêu cầu của khách chưa đóng',
         'checklist_pending' => ':count giấy tờ khách đã nộp đang chờ duyệt',
+        // Làn tk (vòng sửa cuối 1, F1): App\Support\MatterOpenWork::closingLines().
+        'tasks' => ':count việc giao nội bộ còn mở (chờ nhận, đang làm hay bị trả lại) — sau khi kết thúc, người giao không sửa hay giao lại được nữa, chỉ còn huỷ',
+        'seats_pending' => ':count người trong đội ngũ chưa bấm "Đã nhận hồ sơ" — sau khi kết thúc, hồ sơ không còn chờ họ nhận',
         'balance' => 'Còn phải thu :amount trên hợp đồng đang hiệu lực',
         'documents' => ':count tài liệu trong hồ sơ',
         'on_portal' => 'Vụ đang được công bố trên cổng khách hàng: khách sẽ không còn thấy vụ này',

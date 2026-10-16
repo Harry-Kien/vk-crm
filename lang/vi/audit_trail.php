@@ -38,6 +38,8 @@ return [
         'intake_party' => 'Bên đối lập (tiếp nhận)',
         'communication_log' => 'Nhật ký liên lạc',
         'performance_snapshot' => 'Ảnh chụp số liệu hiệu suất',
+        // Làn tk, Task 1.
+        'task' => 'Việc giao nội bộ',
     ],
 
     'log_names' => [

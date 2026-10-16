@@ -4,10 +4,14 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Matter\AddTeamMember;
 use App\Actions\Matter\RemoveTeamMember;
+use App\Actions\Matter\SeatsNeedingReassignment;
 use App\Enums\Confidentiality;
+use App\Enums\MatterAssignmentStatus;
 use App\Enums\MatterRole;
+use App\Filament\Admin\Concerns\ProvidesSeatActions;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Matter;
+use App\Models\MatterUser;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
@@ -41,6 +45,7 @@ use Illuminate\Support\Facades\Gate;
  */
 class TeamRelationManager extends RelationManager
 {
+    use ProvidesSeatActions;
     use ReportsActionFailures;
 
     protected static string $relationship = 'team';
@@ -82,13 +87,54 @@ class TeamRelationManager extends RelationManager
                 TextColumn::make('pivot.created_at')
                     ->label(__('team.tab.columns.joined_at'))
                     ->date('d/m/Y'),
+                // Làn tk, Task 2 — ai trong đội chưa nhận / đã trả lại hồ sơ (`MatterUser::assignmentStatus()`).
+                // Vòng sửa polish 1 (phán quyết controller (3)): ghế chờ nhận của người không còn nhận được hồ sơ
+                // hiện "Cần phân công lại" (`SeatsNeedingReassignment::stuck()` — cùng luật lịch nhắc dùng để thôi nhắc).
+                TextColumn::make('assignment')
+                    ->label(__('tasks.seat.columns.status'))
+                    ->badge()
+                    ->state(fn (User $record): string => SeatsNeedingReassignment::stuck($record->pivot, $record, $matter)
+                        ? __('tasks.seat.needs_reassignment')
+                        : $record->pivot->assignmentStatus()->label())
+                    ->color(fn (User $record): string => SeatsNeedingReassignment::stuck($record->pivot, $record, $matter)
+                        ? 'danger'
+                        : $record->pivot->assignmentStatus()->color())
+                    ->description(fn (User $record): ?string => SeatsNeedingReassignment::stuck($record->pivot, $record, $matter)
+                        ? __('tasks.seat.needs_reassignment_note')
+                        : self::seatNote(
+                            $record->pivot,
+                            showReason: $record->is(Auth::user()) || Gate::allows('manageTeam', $matter),
+                        ))
+                    ->wrap(),
             ])
             ->headerActions([
                 $this->addMemberAction($matter),
             ])
             ->recordActions([
+                // Làn tk, Task 2: chỉ hiện trên dòng của CHÍNH người xem khi ghế đang chờ nhận.
+                $this->acceptSeatAction(fn (User $record): MatterUser => $record->pivot, fn (): Matter => $matter),
+                $this->declineSeatAction(fn (User $record): MatterUser => $record->pivot, fn (): Matter => $matter),
                 $this->removeMemberAction($matter),
             ]);
+    }
+
+    /**
+     * Dòng phụ của cột "Nhận hồ sơ" (làn tk, Task 2): ghế chờ nhận thì giao từ lúc nào; ghế trả lại thì
+     * lời nhắc phân công lại (bằng "Gỡ" hay "Bàn giao" sẵn có — trả lại không tự gỡ ai), kèm LÝ DO chỉ
+     * cho người quản lý được đội ngũ và chính người trả lại (`$showReason`): lý do có thể là một xung đột
+     * lợi ích, không phải điều mọi thành viên khác của đội cần đọc.
+     */
+    private static function seatNote(MatterUser $seat, bool $showReason): ?string
+    {
+        return match ($seat->assignmentStatus()) {
+            MatterAssignmentStatus::Pending => $seat->assigned_at === null
+                ? null
+                : __('tasks.seat.waiting_since', ['since' => $seat->assigned_at->format('H:i d/m/Y')]),
+            MatterAssignmentStatus::Declined => $showReason
+                ? __('tasks.seat.declined_note', ['reason' => (string) $seat->decline_reason])
+                : __('tasks.seat.declined_note_short'),
+            MatterAssignmentStatus::Accepted => null,
+        };
     }
 
     /**

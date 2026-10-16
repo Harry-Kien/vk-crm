@@ -8,6 +8,8 @@ use App\Enums\Permission;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterUser;
+use App\Models\Task;
 use App\Models\User;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
@@ -31,7 +33,8 @@ final class MatterOpenWork
 
     /**
      * Các dòng việc còn dở khi ĐÓNG vụ: mốc chưa xong (kèm tên và ngày), yêu cầu của khách chưa
-     * đóng, đầu mục danh mục hồ sơ chờ duyệt, dư nợ.
+     * đóng, đầu mục danh mục hồ sơ chờ duyệt, việc giao nội bộ còn mở và ghế chưa nhận hồ sơ (làn tk),
+     * dư nợ.
      *
      * @return list<string>
      */
@@ -55,6 +58,31 @@ final class MatterOpenWork
 
         if ($pendingReview > 0) {
             $lines[] = __('lifecycle.open_work.checklist_pending', ['count' => $pendingReview]);
+        }
+
+        // Làn tk (vòng sửa cuối 1, F1): việc giao nội bộ còn mở (chờ nhận, đang làm, bị trả lại) — sau khi
+        // kết thúc, người giao chỉ còn huỷ được chúng (`TaskPolicy::update/reassign`), nên người bấm đóng cần
+        // thấy chúng trước. Chỉ số đếm: người gọi đã mở được vụ, nhưng không cần đọc tiêu đề việc ở đây.
+        $openTasks = Task::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $matter->getKey())
+            ->open()
+            ->count();
+
+        if ($openTasks > 0) {
+            $lines[] = __('lifecycle.open_work.tasks', ['count' => $openTasks]);
+        }
+
+        // Và ghế trong đội ngũ chưa ai bấm "Đã nhận hồ sơ": vụ đã kết thúc không còn hiện ở "Hồ sơ chờ tôi
+        // nhận" (`MatterUser::scopeOnOpenMattersListableBy()`), nên lời giao đó thôi chờ.
+        $pendingSeats = MatterUser::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_user.matter_id', $matter->getKey())
+            ->awaitingAcceptance()
+            ->count();
+
+        if ($pendingSeats > 0) {
+            $lines[] = __('lifecycle.open_work.seats_pending', ['count' => $pendingSeats]);
         }
 
         $balance = self::balanceLine($matter, $viewer);

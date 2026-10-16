@@ -12,6 +12,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManag
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
+use App\Filament\Admin\Resources\Tasks\TaskResource;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\MyRequests;
 use App\Filament\Portal\Pages\PushDevices as PortalPushDevices;
@@ -24,7 +25,9 @@ use App\Models\Document;
 use App\Models\Instalment;
 use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
+use App\Models\Task;
 use App\Models\User;
+use App\Notifications\Staff\TaskAlert;
 use App\Support\Push\VkWebPushMessage;
 use App\Support\Pwa\AppIcons;
 use App\Support\Pwa\PwaPanels;
@@ -89,6 +92,8 @@ use InvalidArgumentException;
  *    việc), không thì tab "Hợp đồng và thanh toán" (`BillingRelationManager`) của vụ;
  *  - gói bàn giao đã sinh: trang vụ việc, tab "Tài liệu" (`DocumentsRelationManager`), nơi luật sư xem
  *    lại và công bố gói — cùng chỗ thư `staff.handover_ready` và chuông trong hệ thống chỉ tới;
+ *  - việc được giao (làn tk): trang "Công việc", tab "Chờ tôi nhận" — cùng chỗ chuông "được giao" mở
+ *    ({@see TaskAlert::tabFor()}); URL không mang id vụ (việc chung không có vụ);
  *  - "Gửi thử": trang "Thông báo trên điện thoại" của panel người nhận.
  * Trang đích tự hỏi quyền như mọi request (SPEC §10.10): người không xem được vụ nhận 404.
  *
@@ -106,6 +111,12 @@ use InvalidArgumentException;
  * `normal`, TTL 72 giờ, một câu chung không mã hồ sơ. Hai thư nhân sự khác của M7/M10
  * (`staff.matter_reassigned`, `staff.intake_unanswered`) cố ý KHÔNG có case — `PushTopicTest` ghim, và
  * buộc mọi mẫu thư về sau phải được xếp vào một trong hai bên.
+ *
+ * `staff.task.assigned` (làn tk, Task 1 vòng sửa 1, I2) là chủ đề thứ mười: nơi gửi là job lời báo
+ * `App\Jobs\SendTaskNotice`, chỉ loại "được giao", cho đúng người lượt chạy đó vừa gửi thư được; bản ghi là
+ * chính việc (`TaskNotice::relatedRecord()`); `normal`, TTL 72 giờ, một câu chung — không tiêu đề việc,
+ * không mã vụ, không tên người giao. Ba thư báo người giao (`staff.task.accepted`, `.declined`,
+ * `.completed`) cố ý KHÔNG có case.
  */
 enum PushTopic: string
 {
@@ -118,6 +129,7 @@ enum PushTopic: string
     case StaffNewClientDocument = 'staff.new_client_document';
     case StaffInstalmentOverdue = 'staff.instalment_overdue';
     case StaffHandoverReady = 'staff.handover_ready';
+    case StaffTaskAssigned = 'staff.task.assigned';
 
     /** Nút "Gửi thử" của trang "Thông báo trên điện thoại" (`App\Actions\Push\SendTestPush`). */
     case Test = 'push.test';
@@ -149,7 +161,7 @@ enum PushTopic: string
     {
         return match ($this) {
             self::ClientStageUpdate, self::ClientDocumentPublished, self::ClientDocumentRejected, self::ClientRequestAnswered => 'portal',
-            self::StaffDeadlineReminder, self::StaffNewClientRequest, self::StaffNewClientDocument, self::StaffInstalmentOverdue, self::StaffHandoverReady => 'admin',
+            self::StaffDeadlineReminder, self::StaffNewClientRequest, self::StaffNewClientDocument, self::StaffInstalmentOverdue, self::StaffHandoverReady, self::StaffTaskAssigned => 'admin',
             self::Test => null,
         };
     }
@@ -159,7 +171,7 @@ enum PushTopic: string
      * mailable: `StageUpdate` → dòng tiến độ, `DocumentPublished` → tài liệu, `DocumentRejected` → đầu
      * mục danh mục, `RequestAnswered` → câu trả lời, `DeadlineReminder` → mốc hạn, `NewClientRequest` →
      * yêu cầu, `NewClientDocument` → tài liệu đầu tiên của lượt nộp, `InstalmentOverdue` → đợt thu,
-     * `HandoverPackageReady` → tài liệu gói bàn giao).
+     * `HandoverPackageReady` → tài liệu gói bàn giao, `TaskNotice` → chính việc được giao).
      * Câu hỏi tiếp của khách (`REQ-2`) không có thư: bản ghi là chính luồng yêu cầu, như thư của yêu
      * cầu mới. `null` = không có ("Gửi thử").
      *
@@ -175,6 +187,7 @@ enum PushTopic: string
             self::StaffDeadlineReminder => Deadline::class,
             self::StaffNewClientRequest => ClientRequest::class,
             self::StaffInstalmentOverdue => Instalment::class,
+            self::StaffTaskAssigned => Task::class,
             self::Test => null,
         };
     }
@@ -271,6 +284,8 @@ enum PushTopic: string
             $this === self::Test => $panel === 'admin'
                 ? AdminPushDevices::getUrl(panel: 'admin')
                 : PortalPushDevices::getUrl(panel: 'portal'),
+            // Trước nhánh "mồ côi": việc chung không có vụ, và trang đích không mang id vụ nào.
+            $this === self::StaffTaskAssigned => TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor(TaskAlert::ASSIGNED)], panel: 'admin'),
             // Bản ghi mồ côi (vụ việc đã bị xoá cứng): về trang chính của app — trang chính tự hỏi quyền.
             $matterId === null => PwaPanels::path($panel),
             $this === self::ClientStageUpdate => MatterProgress::getUrl(['record' => $matterId], panel: 'portal'),

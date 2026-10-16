@@ -9141,6 +9141,37 @@ sau (nhỏ, đưa vào đợt kiểm tra luồng nội bộ): mốc hạn/yêu c
 đó sau khi khôi phục; gộp từ bản "Đỏ chờ" không gửi `IntakeRedPending` cho bản đích; danh sách tiếp nhận chưa có bộ
 lọc "Luật sư tư vấn"; gộp mang sang lần chăm sóc trước ngày nhận của bản đích.
 
+### Giao – nhận – xử lý việc và hồ sơ nội bộ (làn tk)
+
+Theo yêu cầu chủ văn phòng (2026-10-10, phạm vi: chỉ NỘI BỘ) và chỉ đạo 2026-10-15 ("luồng nội bộ là quan trọng nhất…
+phải chuẩn nhất, chuẩn luồng nhất"). Không trao đổi/chat (chủ văn phòng: đề xuất sau).
+- **Task 1 — Công việc:** giao việc trong vụ hoặc việc chung cho luật sư/chuyên viên/trợ lý (chỉ người xem được vụ; vụ
+  hạn chế không lộ), hạn, ưu tiên; người nhận **Nhận** hoặc **Trả lại kèm lý do**, rồi **Hoàn thành**; người giao
+  **Giao lại**, **Huỷ**; trang "Công việc" (tab Chờ tôi nhận / Đang làm / Tôi đã giao / Tất cả), tab "Công việc" trong
+  vụ, ô trang chủ; chuông + thư + thông báo đẩy; nhật ký hoạt động; khoá dòng theo quy ước (matters trước).
+- **Task 2 — Nhận hồ sơ + nhắc việc:** người được thêm vào đội vụ hay được bàn giao vụ bấm **Nhận** hoặc **Từ chối kèm
+  lý do** (không rút ai khỏi vụ); lịch `tasks.remind` mỗi 30 phút trong giờ làm việc nhắc việc chờ nhận, hồ sơ chờ nhận
+  (48 giờ thì báo quản lý), việc quá hạn; bàn giao vụ mang việc đang mở theo (người giao đổi sang luật sư mới); Theo dõi
+  đội ngũ / Hiệu suất có số việc đang giữ, chờ nhận, quá hạn, thời gian nhận.
+- **Rà soát toàn làn (7 quan trọng) → vòng sửa cuối 1:** gộp main vào nhánh làn; đường dẫn thông báo không 404 với quản
+  trị/kế toán; người đã từ chối hồ sơ không được giao việc mới trong vụ và việc đang giữ hiện "Cần giao lại"; việc của
+  người không còn mở được vụ (vụ thành hạn chế, đổi vai) hiện "Cần giao lại"; câu chữ khớp hành vi; hai ô trang chủ tự
+  hỏi quyền; CAI-DAT mục nâng cấp (hai migration, lịch `tasks.remind`).
+- **Vòng hoàn thiện (9 minor, theo phán quyết controller — chức năng chủ văn phòng dặn "chuẩn nhất"):** người theo dõi
+  không nhận/hoàn thành được việc; tab xếp việc mở trước; nhắc kiểm lại người nhận lúc gửi; thư hỏng hẳn không xếp lại
+  mỗi 30 phút; một định nghĩa "quá hạn" cho số và nhắc (bỏ vụ đã đóng/huỷ); 404 thay 403; lời báo "trả lại" mang lý do
+  lúc xếp hàng; Theo dõi đội ngũ có "Việc cần giao lại: n"; **bàn giao hàng loạt không spam** (mỗi người một thông báo
+  gộp, nhắc/leo thang một thư mỗi người mỗi lượt, không "X chưa nhận" khi X đã nghỉ).
+- **Phán quyết controller:** việc nội bộ không vào gói bàn giao cho khách (chỉ thư bàn giao nội bộ); mọi quản lý được báo
+  khi một ghế bị từ chối; hồ sơ chưa ai nhận sau 48 giờ báo quản lý.
+
+**Gộp vào main (2026-10-16):** nhánh làn đã chứa main `b7013415` nên cây gộp TRÙNG cây làn `720dee7f`. Sửa thêm trong
+lần gộp (hai minor của rà soát lại vòng hoàn thiện, TDD đỏ trước): ô "Việc chờ tôi" ở trang chủ không còn 404 khi số về 0
+giữa lúc trang vẽ và lúc ô tải trễ (404 hiện hộp báo lỗi Livewire) — cổng của lần dựng là quyền, hết việc thì các ô số 0;
+lời báo "bị trả lại" khi người giao đã đi VÀ người trả lại chính là luật sư phụ trách nay tới người quản lý của vụ
+(trưởng phòng; quản trị viên với vụ hạn chế) thay vì không ai. Cả bộ `--processes=2` trên cây đã gộp (kèm hai sửa đó): **9760 passed, 40 skipped, 0 failed**; 279 test giao việc xanh; pint
+PASS.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9578,7 +9609,9 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
   tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
-- Giao – nhận – xử lý hồ sơ NỘI BỘ (làn feat-tk, đang làm). Lỗi luồng nội bộ còn treo: **ĐÃ GỘP** (làn fi). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
+- Giao – nhận – xử lý hồ sơ NỘI BỘ: **ĐÃ GỘP** (làn tk). Lỗi luồng nội bộ còn treo: **ĐÃ GỘP** (làn fi). Đang làm (yêu
+  cầu 2026-10-15): kế toán nhập hợp đồng (kt), trang Doanh thu gọn + nhóm menu (rv), trang Tài liệu chung (tl), Kết nối AI
+  (ai), trung tâm Cài đặt (st). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
   (mục "Vai trò nhân viên kinh doanh (làn kd)" phía trên). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch
   thanh toán cho khách (làn nt)" phía trên).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn

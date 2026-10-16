@@ -284,6 +284,23 @@ return [
         // A5: app/Actions/Matter/ExtendClientAccess.php — chủ thể là vụ việc, `from`/`to`/`reason`.
         'client_access_extended' => 'Gia hạn tra cứu cho khách',
         // --- hết khối làn fm ---
+        // --- Làn tk, Task 1: giao việc nội bộ (app/Actions/Task) ------------------------------
+        'task_assigned' => 'Giao việc nội bộ',
+        'task_accepted' => 'Nhận việc được giao',
+        'task_declined' => 'Trả lại việc được giao',
+        'task_completed' => 'Hoàn thành việc được giao',
+        'task_updated' => 'Sửa việc đã giao',
+        'task_reassigned' => 'Giao lại việc cho người khác',
+        'task_cancelled' => 'Huỷ việc đã giao',
+        // Làn tk, Task 2: App\Actions\Matter\AcceptMatterAssignment / DeclineMatterAssignment.
+        'matter_assignment_accepted' => 'Nhận hồ sơ được giao',
+        'matter_assignment_declined' => 'Trả lại hồ sơ được giao',
+        // Làn tk, Task 2, vòng sửa 1: App\Actions\Task\MoveTasksOnHandover::transferAssigner().
+        'task_assigner_changed' => 'Đổi người giao việc khi bàn giao vụ',
+        // Làn tk, vòng sửa polish 1: App\Jobs\SendWorkReminder::failed() — thư nhắc việc / nhắc nhận hồ sơ
+        // hỏng hẳn sau hết lượt thử lại (chỉ id: đối tượng, loại nhắc, người nhận).
+        'work_reminder_failed' => 'Gửi thư nhắc việc nội bộ thất bại hẳn',
+        // --- Hết khối làn tk ----------------------------------------------------------------
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
@@ -341,6 +358,14 @@ return [
             'office' => 'Văn phòng gỡ theo yêu cầu của khách (mất hoặc đổi máy)',
             // Làn fb, mục A5: ForgetPushDevice::REASON_STAFF_SUSPENDED.
             'staff_suspended' => 'Khoá truy cập ngay: gỡ mọi máy của nhân sự',
+        ],
+        // Làn tk, Task 2: MoveTasksOnHandover::HANDOVER_REASON — việc nội bộ của lead cũ chuyển khi bàn giao vụ.
+        'task_reassigned' => [
+            'matter_reassigned' => 'Bàn giao vụ việc: việc đang mở của luật sư cũ chuyển sang luật sư phụ trách mới (chờ nhận)',
+        ],
+        // Làn tk, Task 2, vòng sửa 1: cùng hằng số, sự kiện task_assigner_changed.
+        'task_assigner_changed' => [
+            'matter_reassigned' => 'Bàn giao vụ việc: việc luật sư cũ đã giao trên vụ nay do luật sư phụ trách mới theo dõi',
         ],
     ],
 ];

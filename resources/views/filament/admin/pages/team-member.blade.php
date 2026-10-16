@@ -48,6 +48,19 @@
         </dl>
     </section>
 
+    {{-- Làn tk, Task 2: giao – nhận nội bộ (`App\Actions\Performance\BuildTaskWorkload`). --}}
+    <section data-vk-member-tasks style="{{ $cardStyle }}">
+        <h2 style="{{ $headingStyle }}">{{ __('tasks.workload.heading') }}</h2>
+        <dl style="display:grid;grid-template-columns:repeat(auto-fill, minmax(12rem, 1fr));gap:0.75rem;margin:0.75rem 0 0;">
+            @foreach ($taskMetrics as $metric)
+                <div data-vk-task-metric="{{ $metric['key'] }}" style="padding:0.5rem 0.75rem;border-radius:0.5rem;background:color-mix(in srgb, var(--gray-500) 8%, transparent);">
+                    <dt style="font-size:0.875rem;{{ $mutedStyle }}">{{ $metric['label'] }}</dt>
+                    <dd style="margin:0.25rem 0 0;font-size:1.125rem;font-weight:600;">{{ $metric['value'] }}</dd>
+                </div>
+            @endforeach
+        </dl>
+    </section>
+
     <section data-vk-member-mix style="{{ $cardStyle }}">
         <h2 style="{{ $headingStyle }}">{{ $mix->byLead ? __('performance.team_member.mix.heading_lead') : __('performance.team_member.mix.heading_supporting') }}</h2>
         @if ($mix->rows === [])

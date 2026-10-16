@@ -353,6 +353,8 @@ it('names every staff push topic in the lead of the internal page, as it depends
         PushTopic::StaffNewClientDocument->value => 'giấy tờ',
         PushTopic::StaffInstalmentOverdue->value => 'khoản thu quá hạn',
         PushTopic::StaffHandoverReady->value => 'gói bàn giao',
+        // Làn tk, Task 1 vòng sửa 1 (I2).
+        PushTopic::StaffTaskAssigned->value => 'được giao việc mới',
     ];
     $staffTopics = array_values(array_map(fn (PushTopic $topic): string => $topic->value, array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => $topic->panel() === 'admin')));
 

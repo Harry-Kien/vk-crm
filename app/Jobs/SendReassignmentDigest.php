@@ -4,16 +4,23 @@ namespace App\Jobs;
 
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\ClientRequestStatus;
+use App\Enums\MatterRole;
+use App\Enums\TaskStatus;
 use App\Mail\Staff\MatterReassigned;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\MatterUser;
+use App\Models\Task;
 use App\Models\User;
+use App\Notifications\Staff\MatterAssignmentAlert;
+use App\Support\ActivityPeople;
 use App\Support\Audit;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Mail;
+use Spatie\Activitylog\Models\Activity;
 use Throwable;
 
 /**
@@ -80,6 +87,18 @@ use Throwable;
  * người nhận (không phải `ResolveStaffRecipients::supervisorsFor()` — đây không phải một sự cố
  * của MỘT vụ việc cụ thể để mà hỏi "ai giám sát vụ này", mà là thư của chính người nhận không
  * tới tay chính họ; phán quyết controller Task 1 nói thẳng "cho người nhận").
+ *
+ * # Chuông "được bàn giao" của bàn giao hàng loạt gộp vào đây (làn tk, vòng sửa polish 1 — phán quyết
+ * controller (3))
+ *
+ * Bàn giao MỘT vụ rung chuông "được giao hồ sơ" riêng (`ReassignMatter` → `SendMatterAssignmentNotice`).
+ * Bàn giao hàng loạt KHÔNG rung từng vụ: `ReassignMatters` truyền `$seatEvents` (`matter_id => id dòng
+ * matter_reassigned` của các vụ mà ghế luật sư phụ trách mới chờ nhận) và CHÍNH job này rung MỘT chuông
+ * cho cả lô ngay trước thư — một lời báo cho mỗi người, liệt kê các hồ sơ. Chỉ những khối còn qua lọc ở
+ * trên VÀ ghế còn chờ nhận lúc gửi (`seat_pending`) vào chuông; còn một hồ sơ thì chuông như bàn giao một
+ * vụ ({@see MatterAssignmentAlert::ASSIGNED}), nhiều hơn thì {@see MatterAssignmentAlert::ASSIGNED_BATCH}
+ * (số hồ sơ + mã). Chống trùng khi thử lại: khoá {@see self::seatsBellKey()} trong `viewData.seat_key`
+ * ({@see SendMatterAssignmentNotice::alreadyAlerted()}). Chuông đi TRƯỚC thư: thư hỏng không làm mất chuông.
  */
 class SendReassignmentDigest implements ShouldQueue
 {
@@ -89,17 +108,24 @@ class SendReassignmentDigest implements ShouldQueue
     public int $tries = 5;
 
     /**
-     * @param  array<int, array{deadline_ids: array<int, int>, client_request_ids: array<int, int>, reason: string}>  $matters
-     *                                                                                                                          Keyed theo `matter_id`. `deadline_ids`/`client_request_ids` là những id
-     *                                                                                                                          CÓ THỂ còn liên quan lúc bàn giao — `handle()` hỏi lại CSDL, không tin
-     *                                                                                                                          chúng còn đúng lúc job chạy (xem docblock lớp). `reason` là lý do bàn
-     *                                                                                                                          giao của CHÍNH lần này (một chuỗi cố định, không cần dựng lại — khác
-     *                                                                                                                          hẳn mốc/yêu cầu khách, không có khái niệm "còn hợp lệ hay không" cho
-     *                                                                                                                          một chuỗi lịch sử).
+     * Keyed theo `matter_id`. `deadline_ids`/`client_request_ids` là những id CÓ THỂ còn liên quan lúc bàn
+     * giao — `handle()` hỏi lại CSDL, không tin chúng còn đúng lúc job chạy (xem docblock lớp). `reason` là
+     * lý do bàn giao của CHÍNH lần này (một chuỗi cố định, không cần dựng lại — khác hẳn mốc/yêu cầu
+     * khách, không có khái niệm "còn hợp lệ hay không" cho một chuỗi lịch sử). Làn tk, Task 2: mỗi phần tử
+     * có thể mang thêm `task_ids` — việc nội bộ vừa chuyển sang lead mới, cùng luật "dựng lại lúc gửi" (chỉ
+     * việc còn của vụ đó, còn do lead mới giữ, còn chờ nhận hay đang làm). Vòng sửa 1 (I1): và
+     * `followed_task_ids` — việc lead cũ đã giao trên vụ, nay lead mới là người giao
+     * (`MoveTasksOnHandover::transferAssigner()`), cùng luật: chỉ việc còn của vụ đó, người giao còn là lead
+     * mới, còn mở (chờ nhận, đang làm, bị trả lại).
+     *
+     * @param  array<int, array{deadline_ids: array<int, int>, client_request_ids: array<int, int>, task_ids?: array<int, int>, followed_task_ids?: array<int, int>, reason: string}>  $matters
+     * @param  array<int, int>  $seatEvents  chỉ bàn giao hàng loạt: `matter_id => id dòng matter_reassigned` của các
+     *                                       vụ mà ghế lead mới chờ nhận — xem docblock lớp, mục "Chuông được bàn giao"
      */
     public function __construct(
         public readonly int $newLeadId,
         public readonly array $matters,
+        public readonly array $seatEvents = [],
     ) {}
 
     /** @return array<int, int> */
@@ -142,10 +168,45 @@ class SendReassignmentDigest implements ShouldQueue
                 ->where('status', '!=', ClientRequestStatus::Closed->value)
                 ->count();
 
+            // Làn tk, Task 2: việc nội bộ vừa chuyển sang lead mới (`MoveTasksOnHandover`) — cùng luật
+            // "dựng lại lúc gửi": còn của vụ này, còn do lead mới giữ, còn chờ nhận hay đang làm.
+            $tasks = Task::query()
+                ->whereKey($ids['task_ids'] ?? [])
+                ->where('matter_id', $matter->getKey())
+                ->where('assignee_id', $newLead->getKey())
+                ->whereIn('status', [TaskStatus::Pending->value, TaskStatus::Accepted->value])
+                ->orderByRaw('CASE WHEN due_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('due_date')
+                ->orderBy('id')
+                ->get();
+
+            // Vòng sửa 1 (I1): việc lead cũ đã giao trên vụ, nay lead mới là người giao — cùng luật dựng lại.
+            $followed = Task::query()
+                ->whereKey($ids['followed_task_ids'] ?? [])
+                ->where('matter_id', $matter->getKey())
+                ->where('assigned_by', $newLead->getKey())
+                ->open()
+                ->with(['assignee' => fn ($assignee) => $assignee->withTrashed()])
+                ->orderByRaw('CASE WHEN due_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('due_date')
+                ->orderBy('id')
+                ->get();
+
+            // Vòng sửa cuối 1 (F5): ghế luật sư phụ trách của lead mới còn chờ họ bấm "Đã nhận hồ sơ" LÚC GỬI —
+            // tự bàn giao cho chính mình (ghế nhận ngay) hay đã bấm nhận trước khi job chạy thì không.
+            $seatPending = MatterUser::query()
+                ->where('matter_user.matter_id', $matter->getKey())
+                ->where('matter_user.user_id', $newLead->getKey())
+                ->awaitingAcceptance()
+                ->exists();
+
             $blocks[] = [
                 'matter' => $matter,
                 'deadlines' => $deadlines,
                 'client_requests_moved' => $clientRequestsMoved,
+                'tasks' => $tasks,
+                'followed_tasks' => $followed,
+                'seat_pending' => $seatPending,
                 'reason' => $ids['reason'] ?? '',
             ];
         }
@@ -155,7 +216,52 @@ class SendReassignmentDigest implements ShouldQueue
             return;
         }
 
+        $this->ringSeatsBell($newLead, $blocks);
+
         Mail::to($newLead->email)->send(new MatterReassigned($newLead, $blocks));
+    }
+
+    /** @param  array<int, int>  $seatEvents */
+    public static function seatsBellKey(array $seatEvents): string
+    {
+        return 'handover@'.min($seatEvents);
+    }
+
+    /**
+     * Xem docblock lớp, mục "Chuông được bàn giao của bàn giao hàng loạt gộp vào đây".
+     *
+     * @param  list<array{matter: Matter, seat_pending: bool}>  $blocks
+     */
+    private function ringSeatsBell(User $newLead, array $blocks): void
+    {
+        if ($this->seatEvents === []) {
+            return;
+        }
+
+        $matters = collect($blocks)
+            ->filter(fn (array $block): bool => $block['seat_pending'] && array_key_exists($block['matter']->getKey(), $this->seatEvents))
+            ->map(fn (array $block): Matter => $block['matter'])
+            ->sortBy('code')
+            ->values();
+
+        $key = self::seatsBellKey($this->seatEvents);
+
+        if ($matters->isEmpty() || SendMatterAssignmentNotice::alreadyAlerted($newLead, $key)) {
+            return;
+        }
+
+        $event = Activity::query()->find(min($this->seatEvents));
+
+        $newLead->notify(new MatterAssignmentAlert(
+            $matters->first(),
+            $matters->count() === 1 ? MatterAssignmentAlert::ASSIGNED : MatterAssignmentAlert::ASSIGNED_BATCH,
+            (string) $newLead->name,
+            ActivityPeople::name($event?->causer) ?? '',
+            MatterRole::Lead->label(),
+            null,
+            $key,
+            batchCodes: $matters->pluck('code')->all(),
+        ));
     }
 
     /**

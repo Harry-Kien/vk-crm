@@ -4,6 +4,7 @@ use App\Actions\Document\ReviewChecklistItem;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Role;
+use App\Enums\TaskStatus;
 use App\Filament\Admin\Pages\Performance;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
@@ -15,6 +16,7 @@ use App\Models\MatterChecklistItem;
 use App\Models\MatterType;
 use App\Models\Payment;
 use App\Models\StageLog;
+use App\Models\Task;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Performance\PerformanceRow;
@@ -52,10 +54,15 @@ beforeEach(function () {
 /** @return list<string> tên mọi thuộc tính của `PerformanceRow` */
 function m13bLsFields(): array
 {
-    return array_map(
-        fn (ReflectionParameter $parameter): string => $parameter->getName(),
-        (new ReflectionClass(PerformanceRow::class))->getConstructor()->getParameters(),
-    );
+    return [
+        ...array_map(
+            fn (ReflectionParameter $parameter): string => $parameter->getName(),
+            (new ReflectionClass(PerformanceRow::class))->getConstructor()->getParameters(),
+        ),
+        // Làn tk, Task 2: hai cột việc giao nội bộ (`BuildTaskPerformance`), cùng vòng quét.
+        'taskOnTime',
+        'tasksDeclined',
+    ];
 }
 
 /** Mọi việc của một kỳ trên một vụ, như các Action ghi (một bản ghi cho mỗi chỉ số). */
@@ -84,6 +91,13 @@ function m13bLsWork(Matter $matter, User $lead): void
     $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Accepted)->create();
     test()->travelTo(Carbon::parse('2026-09-15 10:00:00'));
     Audit::record(ReviewChecklistItem::AUDIT_EVENT, $item, ['matter_id' => $matter->id, 'status' => 'accepted'], causer: $lead);
+
+    // Làn tk, Task 2: một việc giao nội bộ có hạn đã hoàn thành trong kỳ và một lần trả lại việc (nhật ký).
+    Task::factory()->forMatter($matter)->status(TaskStatus::Completed)->create([
+        'assignee_id' => $lead->id, 'due_date' => '2026-09-16', 'completed_at' => '2026-09-15 10:00:00',
+    ]);
+    $declined = Task::factory()->forMatter($matter)->status(TaskStatus::Declined)->create(['assignee_id' => $lead->id]);
+    Audit::record('task_declined', $declined, ['matter_id' => $matter->id, 'reason' => 'Bận'], causer: $lead);
 
     $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 7_000_000, 'signed_at' => '2026-08-01']);
     $instalment = Instalment::factory()->for($contract)->create(['amount' => 7_000_000, 'due_date' => '2026-09-15']);

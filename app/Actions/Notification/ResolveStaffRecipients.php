@@ -8,6 +8,7 @@ use App\Enums\Role;
 use App\Models\Contract;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -413,5 +414,112 @@ class ResolveStaffRecipients
             ->orderBy('id')
             ->get()
             ->values();
+    }
+
+    /**
+     * Làn tk, Task 1 — người nhận chuông/thư về MỘT VIỆC GIAO NỘI BỘ (`App\Jobs\SendTaskNotice`): đúng
+     * những người trong `$preferred` (người nhận việc, hay người giao) đang hoạt động, chưa xoá mềm, VÀ
+     * còn xem được chính việc đó (`TaskPolicy::view` — gồm "xem được vụ" của `MatterPolicy::view`, nên
+     * một việc của vụ `restricted` không bao giờ tới ai ngoài luật sư phụ trách và admin).
+     *
+     * KHÔNG có chuỗi dự phòng của {@see self::handle()}: lời báo này nói với ĐÚNG một người về việc của
+     * chính họ ("anh/chị được giao", "việc anh/chị giao đã xong") — gửi nó cho luật sư phụ trách hay một
+     * quản lý thay người đã nghỉ là gửi sai người. Việc của người đã nghỉ hiện ở danh sách "Công việc"
+     * của quản lý, nơi họ giao lại. Rỗng là câu trả lời đúng khi người đó không còn hợp lệ.
+     *
+     * @param  array<int, User|null>  $preferred
+     * @return Collection<int, User>
+     */
+    public function forTask(Task $task, array $preferred): Collection
+    {
+        return collect($preferred)
+            ->filter(fn (?User $user): bool => $user instanceof User)
+            ->unique(fn (User $user): int|string => $user->getKey())
+            ->filter(fn (User $user): bool => $user->is_active && ! $user->trashed())
+            ->filter(fn (User $user): bool => Gate::forUser($user)->allows('view', $task))
+            ->values();
+    }
+
+    /**
+     * Làn tk, Task 1, vòng sửa 1 (I1) — người nhận chuông "việc anh/chị đang giữ đã được giao cho người
+     * khác" (`App\Notifications\Staff\TaskAlert::REASSIGNED_AWAY`): đúng những người trong `$preferred`
+     * (người VỪA giữ việc) đang hoạt động và chưa xoá mềm.
+     *
+     * KHÔNG hỏi `TaskPolicy::view` như {@see self::forTask()}: sau khi giao lại, chỉ người nhận HIỆN TẠI xem
+     * được việc, nên cổng đó luôn bỏ người cũ — đúng người cần được báo nhất. Chuông này vì vậy không mang
+     * gì của việc (không tiêu đề, không mã vụ, không lý do): chỉ tên người giao lại, nên không cần "còn
+     * xem được vụ". Không chuỗi dự phòng, cùng lý do của `forTask()`.
+     *
+     * @param  array<int, User|null>  $preferred
+     * @return Collection<int, User>
+     */
+    public function forFormerTaskHolder(array $preferred): Collection
+    {
+        return collect($preferred)
+            ->filter(fn (?User $user): bool => $user instanceof User)
+            ->unique(fn (User $user): int|string => $user->getKey())
+            ->filter(fn (User $user): bool => $user->is_active && ! $user->trashed())
+            ->values();
+    }
+
+    /**
+     * Làn tk, Task 2 — người nhận lời báo CẦN NGƯỜI GIAO LÀM GÌ ĐÓ về một việc: việc bị trả lại
+     * (`staff.task.declined`), việc chưa ai nhận quá lâu, việc quá hạn (lịch `RemindPendingWork`). Người giao
+     * nếu còn hợp lệ ({@see self::forTask()}); không thì — việc của một vụ — luật sư phụ trách HIỆN TẠI của vụ
+     * (qua cùng `forTask()`), khi họ không phải chính người đang giữ việc; còn không nữa thì người quản lý
+     * của vụ ({@see self::supervisorsFor()}, gộp làn tk 2026-10-16). Lý do: người giao rời vụ (bàn giao
+     * sang người khác), nghỉ việc, hay bị vô hiệu — lời báo cần một người quyết định, và luật sư phụ trách
+     * thấy mọi việc của vụ mình (`TaskPolicy::view`) và giao lại được (`TaskPolicy::reassign`).
+     *
+     * Khác {@see self::forTask()} có chủ ý: lời báo "đã nhận", "đã hoàn thành" chỉ là tin cho chính người
+     * giao — chúng không qua đây. Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì
+     * rỗng (việc hiện ở danh sách "Công việc" của quản lý, và "Cần giao lại" khi việc đã bị trả lại —
+     * `Task::scopeNeedsReassignment()`).
+     *
+     * Người nhận thay KHÔNG phải người giao (vòng sửa 1 của Task 2, I1): người gửi so người nhận với
+     * `assigned_by` và dùng câu chữ "do :assigner giao" ({@see self::assignerName()}), đường dẫn về tab
+     * "Công việc" của vụ — không "việc anh/chị giao", không tab "Tôi đã giao". Bàn giao vụ không đi đường này:
+     * `MoveTasksOnHandover` đổi người giao sang lead mới, nên lead mới LÀ người giao.
+     *
+     * @return Collection<int, User>
+     */
+    public function forTaskAssigner(Task $task): Collection
+    {
+        $assigner = $this->forTask($task, [$task->assigner]);
+
+        if ($assigner->isNotEmpty() || $task->matter_id === null) {
+            return $assigner;
+        }
+
+        $matter = $task->matter;
+        $lead = $matter?->leadLawyer;
+
+        if ($lead !== null && $lead->getKey() !== $task->assignee_id) {
+            $standIn = $this->forTask($task, [$lead]);
+
+            if ($standIn->isNotEmpty()) {
+                return $standIn;
+            }
+        }
+
+        // Gộp làn tk (2026-10-16): không còn người giao, và luật sư phụ trách chính là người đang giữ (trả lại)
+        // việc hay không còn hợp lệ — người quản lý của vụ ({@see self::supervisorsFor()}: trưởng phòng; quản trị
+        // viên với vụ hạn chế) nhận lời báo, qua cùng cổng `forTask()`. Không ai quyết định thì việc nằm im.
+        if ($matter === null) {
+            return collect();
+        }
+
+        return $this->forTask($task, $this->supervisorsFor($matter)
+            ->reject(fn (User $user): bool => $user->getKey() === $task->assignee_id)
+            ->all());
+    }
+
+    /**
+     * Tên người giao của `$task` cho lời báo của người nhận thay ({@see self::forTaskAssigner()}) — kể cả
+     * người đã xoá mềm (quan hệ `assigner` bỏ họ). Chỉ tên một đồng nghiệp: không dữ liệu hồ sơ.
+     */
+    public function assignerName(Task $task): string
+    {
+        return (string) User::query()->withTrashed()->whereKey($task->assigned_by)->value('name');
     }
 }

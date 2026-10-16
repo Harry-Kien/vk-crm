@@ -85,10 +85,12 @@ class Matter extends Model
             $matter->ai_access ??= MatterAiAccess::defaultForNewMatter();
         });
 
-        // Luật sư phụ trách luôn có mặt trong đội ngũ với vai lead.
+        // Luật sư phụ trách luôn có mặt trong đội ngũ với vai lead. Làn tk, Task 2: ghế của lúc mở vụ
+        // coi như đã nhận — chỉ THÊM vào đội ngũ và BÀN GIAO mới chờ người nhận xác nhận
+        // (`MatterUser::assignmentStatus()`).
         static::created(function (Matter $matter): void {
             $matter->team()->syncWithoutDetaching([
-                $matter->lead_lawyer_id => ['role_in_matter' => MatterRole::Lead->value],
+                $matter->lead_lawyer_id => ['role_in_matter' => MatterRole::Lead->value, 'assigned_at' => now(), 'accepted_at' => now()],
             ]);
         });
 
@@ -130,9 +132,45 @@ class Matter extends Model
         return CodeSequence::format("{$prefix}-{$year}-{$type->code}-", CodeSequence::next("matter:{$year}:{$type->code}"));
     }
 
-    public function addTeamMember(User $user, MatterRole $role): void
+    /**
+     * Ghi một ghế vào đội ngũ. Làn tk, Task 2 — "Nhận hồ sơ": `$assignedBy` là người GIAO ghế này
+     * (`App\Actions\Matter\AddTeamMember`) — xem {@see self::seatAssignment()}. Lời gọi không có người
+     * giao (dữ liệu mẫu, test) ghi một ghế đã nhận.
+     */
+    public function addTeamMember(User $user, MatterRole $role, ?User $assignedBy = null): void
     {
-        $this->team()->attach($user->id, ['role_in_matter' => $role->value]);
+        $this->team()->attach($user->id, [
+            'role_in_matter' => $role->value,
+            ...self::seatAssignment($user, $role, $assignedBy),
+        ]);
+    }
+
+    /**
+     * Mốc giao/nhận của một ghế vừa giao cho `$member` với vai `$role` bởi `$assignedBy` (làn tk, Task 2).
+     * Có người giao, vai không phải "người theo dõi", và người giao không tự giao cho chính mình thì ghế
+     * CHỜ người nhận bấm "Đã nhận hồ sơ" (`accepted_at` rỗng — `MatterUser::assignmentStatus()`); mọi
+     * trường hợp khác ghế coi như đã nhận. Mốc trả lại cũ (nếu ghế được giao lại) xoá. Dùng chung với
+     * `ReassignMatter` (ghế luật sư phụ trách mới).
+     *
+     * @return array<string, mixed>
+     */
+    public static function seatAssignment(User $member, MatterRole $role, ?User $assignedBy): array
+    {
+        $awaits = self::seatAwaitsAcceptance($member, $role, $assignedBy);
+
+        return [
+            'assigned_by' => $assignedBy?->getKey(),
+            'assigned_at' => now(),
+            'accepted_at' => $awaits ? null : now(),
+            'declined_at' => null,
+            'decline_reason' => null,
+        ];
+    }
+
+    /** Ghế giao cho `$member` với vai `$role` bởi `$assignedBy` có chờ người nhận xác nhận không — xem {@see self::seatAssignment()}. */
+    public static function seatAwaitsAcceptance(User $member, MatterRole $role, ?User $assignedBy): bool
+    {
+        return $assignedBy !== null && $role !== MatterRole::Observer && ! $assignedBy->is($member);
     }
 
     /**
@@ -552,7 +590,8 @@ class Matter extends Model
     {
         return $this->belongsToMany(User::class, 'matter_user')
             ->using(MatterUser::class)
-            ->withPivot('role_in_matter')
+            // Làn tk, Task 2: mốc "Nhận hồ sơ" của ghế (`MatterUser::assignmentStatus()`).
+            ->withPivot('role_in_matter', 'assigned_by', 'assigned_at', 'accepted_at', 'declined_at', 'decline_reason')
             ->withTimestamps();
     }
 
@@ -653,6 +692,15 @@ class Matter extends Model
     public function stageLogDrafts(): HasMany
     {
         return $this->hasMany(StageLogDraft::class);
+    }
+
+    /**
+     * Việc giao nội bộ của vụ (làn tk, Task 1) — MỌI việc, kể cả đã xong/đã huỷ. Không phải luật xem:
+     * ai thấy việc nào vẫn là `Task::scopeVisibleTo()` (tab "Công việc" ghép nó lên quan hệ này).
+     */
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(Task::class);
     }
 
     /** SPEC §4.6: description_internal không bao giờ ra portal. */
