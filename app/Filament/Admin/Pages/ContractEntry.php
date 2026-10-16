@@ -8,6 +8,7 @@ use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\EnterSignedContract;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Enums\ContractStatus;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Support\ContractScheduleForm;
@@ -36,6 +37,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Url;
+use UnitEnum;
 
 /**
  * Trang "Hợp đồng" (làn kt, 2026-10-15; SPEC §5 "Bổ sung 2026-10-15"). Chủ văn phòng đăng nhập kế
@@ -118,6 +120,14 @@ class ContractEntry extends Page implements HasTable
     protected static ?string $slug = 'contract-entry';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
+
+    /**
+     * Gộp integ-4 (phán quyết controller): nhóm "Tài chính", giữa "Công nợ" (20) và "Nhắc thanh toán cho
+     * khách" (30) — các trang tiền của kế toán đứng cạnh nhau. `tests/Feature/Filament/AdminNavigationGroupsTest.php`.
+     */
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Finance;
+
+    protected static ?int $navigationSort = 25;
 
     /**
      * Bộ lọc của bảng đọc được từ query string `filters` — hai ô của {@see ContractsToEnterWidget} trên

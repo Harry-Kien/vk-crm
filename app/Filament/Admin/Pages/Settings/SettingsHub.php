@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Pages\Settings;
 
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Support\Settings\SettingsCard;
 use App\Support\Settings\SettingsCatalog;
@@ -10,6 +11,7 @@ use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use UnitEnum;
 
 /**
  * Trang tổng "Cài đặt" (làn st, chủ văn phòng 2026-10-15: "thêm phần cài đặt trong admin… như các hệ
@@ -31,8 +33,14 @@ class SettingsHub extends Page
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCog6Tooth;
 
-    /** Cuối menu, như mục "Cài đặt" của các CRM. */
-    protected static ?int $navigationSort = 1000;
+    /**
+     * Mục ĐẦU của nhóm "Hệ thống" (gộp integ-4, phán quyết controller): cửa vào chung của mọi cấu hình đứng
+     * trên các trang cài đặt riêng (Loại vụ việc 10, Thông tin văn phòng 20…), và Hệ thống là nhóm cuối menu
+     * — như mục "Cài đặt" của các CRM. `tests/Feature/Filament/AdminNavigationGroupsTest.php`.
+     */
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 0;
 
     /** Ô tìm — lọc thẻ theo tên, mô tả, trạng thái ({@see SettingsCard::matches()}). */
     public string $search = '';

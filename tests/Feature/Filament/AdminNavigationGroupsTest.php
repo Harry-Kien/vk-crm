@@ -54,15 +54,18 @@ function rvExpectedGroup(string $label): ?string
         'Tiếp nhận' => NavigationGroup::Clients,
         'Khách hàng' => NavigationGroup::Clients,
         'Vụ việc' => NavigationGroup::Clients,
+        'Tài liệu' => NavigationGroup::Clients,
         'Tài khoản portal' => NavigationGroup::Clients,
         'Doanh thu' => NavigationGroup::Finance,
         'Công nợ' => NavigationGroup::Finance,
+        'Hợp đồng' => NavigationGroup::Finance,
         'Nhắc thanh toán cho khách' => NavigationGroup::Finance,
         'Bàn giao hàng loạt' => NavigationGroup::Team,
         'Nhân sự' => NavigationGroup::Team,
         'Hiệu suất' => NavigationGroup::Team,
         'Theo dõi đội ngũ' => NavigationGroup::Team,
         'Báo cáo tiếp nhận' => NavigationGroup::Reports,
+        'Cài đặt' => NavigationGroup::System,
         'Loại vụ việc' => NavigationGroup::System,
         'Thông tin văn phòng' => NavigationGroup::System,
         'Kho tài liệu' => NavigationGroup::System,
@@ -77,10 +80,18 @@ function rvExpectedGroup(string $label): ?string
     return $groups[$label]?->label();
 }
 
-it('keeps exactly the menu items each role saw before the grouping, and puts each in its group', function (Role $role, array $before) {
+/**
+ * Gộp integ-4 (làn kt, tl, st; phán quyết controller): mỗi vai được thêm ĐÚNG những mục của ba trang mới
+ * mà vai đó mở được — "Hợp đồng" (`ContractEntry`: `billing.view` + `contract.enter` hoặc
+ * `contract.manage`), "Tài liệu" (`DocumentLibrary`: `matter.view`), "Cài đặt" (`SettingsHub`:
+ * `settings.manage`) — và không mất mục nào: cột thứ hai vẫn là tập của `main` 923ad7e1, cột thứ ba là phần
+ * thêm, test so tập của menu với hợp của hai cột và kiểm phần thêm không trùng tập cũ.
+ */
+it('keeps exactly the menu items each role saw before the grouping, and puts each in its group', function (Role $role, array $before, array $added) {
     $menu = rvNavigationFor(User::factory()->withRole($role)->create());
 
-    expect(array_keys($menu))->toEqualCanonicalizing($before);
+    expect(array_intersect($added, $before))->toBe([])
+        ->and(array_keys($menu))->toEqualCanonicalizing([...$before, ...$added]);
 
     foreach ($menu as $label => $group) {
         expect($group)->toBe(rvExpectedGroup($label), "Mục \"{$label}\" của vai {$role->value}");
@@ -90,22 +101,22 @@ it('keeps exactly the menu items each role saw before the grouping, and puts eac
         'Bảng điều khiển', 'Công việc', 'Tìm kiếm', 'Tiếp nhận', 'Khách hàng', 'Vụ việc', 'Tài khoản portal', 'Doanh thu', 'Công nợ',
         'Nhắc thanh toán cho khách', 'Bàn giao hàng loạt', 'Nhân sự', 'Hiệu suất', 'Theo dõi đội ngũ', 'Báo cáo tiếp nhận',
         'Loại vụ việc', 'Thông tin văn phòng', 'Kho tài liệu', 'Kết nối AI', 'Kết nối AI của tôi', 'Thư đã gửi', 'Nhật ký hệ thống',
-    ]],
+    ], ['Hợp đồng', 'Tài liệu', 'Cài đặt']],
     'quản lý' => [Role::Manager, [
         'Bảng điều khiển', 'Công việc', 'Tìm kiếm', 'Tiếp nhận', 'Khách hàng', 'Vụ việc', 'Tài khoản portal', 'Doanh thu', 'Công nợ',
         'Bàn giao hàng loạt', 'Hiệu suất', 'Theo dõi đội ngũ', 'Việc của tôi', 'Báo cáo tiếp nhận', 'Loại vụ việc',
         'Kết nối AI của tôi', 'Thư đã gửi', 'Nhật ký hệ thống',
-    ]],
+    ], ['Hợp đồng', 'Tài liệu']],
     'luật sư' => [Role::Lawyer, [
         'Bảng điều khiển', 'Công việc', 'Tìm kiếm', 'Tiếp nhận', 'Khách hàng', 'Vụ việc', 'Tài khoản portal', 'Doanh thu', 'Hiệu suất',
         'Việc của tôi', 'Loại vụ việc', 'Kết nối AI của tôi', 'Thư đã gửi',
-    ]],
+    ], ['Hợp đồng', 'Tài liệu']],
     'trợ lý' => [Role::Assistant, [
         'Bảng điều khiển', 'Công việc', 'Tìm kiếm', 'Tiếp nhận', 'Khách hàng', 'Vụ việc', 'Tài khoản portal', 'Hiệu suất', 'Việc của tôi',
         'Loại vụ việc', 'Kết nối AI của tôi', 'Thư đã gửi',
-    ]],
-    'kế toán' => [Role::Accountant, ['Bảng điều khiển', 'Công việc', 'Tìm kiếm', 'Vụ việc', 'Doanh thu', 'Công nợ', 'Loại vụ việc']],
-    'kinh doanh' => [Role::Sales, ['Bảng điều khiển', 'Công việc', 'Tiếp nhận', 'Loại vụ việc']],
+    ], ['Tài liệu']],
+    'kế toán' => [Role::Accountant, ['Bảng điều khiển', 'Công việc', 'Tìm kiếm', 'Vụ việc', 'Doanh thu', 'Công nợ', 'Loại vụ việc'], ['Hợp đồng']],
+    'kinh doanh' => [Role::Sales, ['Bảng điều khiển', 'Công việc', 'Tiếp nhận', 'Loại vụ việc'], []],
 ]);
 
 it('orders the groups as the enum declares them, and the items inside each group by their own sort', function () {
@@ -124,12 +135,14 @@ it('orders the groups as the enum declares them, and the items inside each group
 
     expect(array_key_first($groups))->toBe('—')
         ->and($grouped)->toBe(array_map(fn (NavigationGroup $group): string => $group->label(), NavigationGroup::cases()))
-        ->and($groups[NavigationGroup::Clients->label()])->toBe(['Tiếp nhận', 'Khách hàng', 'Vụ việc', 'Tài khoản portal'])
-        ->and($groups[NavigationGroup::Finance->label()])->toBe(['Doanh thu', 'Công nợ', 'Nhắc thanh toán cho khách'])
+        // integ-4: "Tài liệu" ngay sau "Vụ việc", "Hợp đồng" giữa "Công nợ" và "Nhắc thanh toán cho khách",
+        // "Cài đặt" đầu nhóm Hệ thống.
+        ->and($groups[NavigationGroup::Clients->label()])->toBe(['Tiếp nhận', 'Khách hàng', 'Vụ việc', 'Tài liệu', 'Tài khoản portal'])
+        ->and($groups[NavigationGroup::Finance->label()])->toBe(['Doanh thu', 'Công nợ', 'Hợp đồng', 'Nhắc thanh toán cho khách'])
         ->and($groups[NavigationGroup::Team->label()])->toBe(['Bàn giao hàng loạt', 'Nhân sự', 'Theo dõi đội ngũ', 'Hiệu suất'])
         ->and($groups[NavigationGroup::Reports->label()])->toBe(['Báo cáo tiếp nhận'])
         ->and($groups[NavigationGroup::System->label()])->toBe([
-            'Loại vụ việc', 'Thông tin văn phòng', 'Kho tài liệu', 'Kết nối AI', 'Kết nối AI của tôi', 'Thư đã gửi', 'Nhật ký hệ thống',
+            'Cài đặt', 'Loại vụ việc', 'Thông tin văn phòng', 'Kho tài liệu', 'Kết nối AI', 'Kết nối AI của tôi', 'Thư đã gửi', 'Nhật ký hệ thống',
         ])
         // Khu không nhóm: Bảng điều khiển (`Dashboard::$navigationSort = -2`), việc hằng ngày (Công việc -1),
         // rồi Tìm kiếm (10). Quản trị viên có "Theo dõi đội ngũ" nên không có mục "Việc của tôi".

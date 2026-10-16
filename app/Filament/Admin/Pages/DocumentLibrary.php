@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Pages;
 use App\Actions\Document\ListVisibleDocuments;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Models\ClientUser;
@@ -31,6 +32,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use UnitEnum;
 
 /**
  * Làn tl (2026-10-15) — trang "Tài liệu": mọi tài liệu người xem được phép thấy, XUYÊN các vụ, mới
@@ -74,9 +76,8 @@ use Illuminate\Support\Facades\Gate;
  * Cái giá: trợ lý thấy nút trên dòng gói bàn giao mang tiền, và bấm thì nhận một câu từ chối thay vì
  * không thấy nút.
  *
- * Trang chưa có nhóm menu: làn feat-rv tạo `App\Enums\NavigationGroup` song song; controller gán trang
- * này vào nhóm "Khách hàng & vụ việc" khi gộp. {@see self::$navigationSort} = 1 đặt nó sau các mục
- * không có số thứ tự (Filament coi là -1) của cùng nhóm — tức sau "Khách hàng", "Vụ việc".
+ * Menu (gộp integ-4, phán quyết controller): nhóm "Khách hàng & vụ việc", {@see self::$navigationSort} = 35
+ * — ngay sau "Vụ việc" (30), trước "Tài khoản portal" (40). `tests/Feature/Filament/AdminNavigationGroupsTest.php`.
  */
 class DocumentLibrary extends Page implements HasTable
 {
@@ -88,7 +89,9 @@ class DocumentLibrary extends Page implements HasTable
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
 
-    protected static ?int $navigationSort = 1;
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Clients;
+
+    protected static ?int $navigationSort = 35;
 
     /**
      * Số vụ tối đa trong danh sách chọn của bộ lọc "Vụ việc" — mở sẵn (mới nhất trước), và mỗi lần

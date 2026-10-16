@@ -154,7 +154,7 @@ một khách hàng khác.
 
 ### Tìm tài liệu (làn tl, chủ văn phòng 2026-10-15)
 
-Mục **Tài liệu** trên thanh bên trái liệt kê **mọi tài liệu bạn được phép xem, của mọi vụ việc**, mới
+Mục **Tài liệu** trên thanh bên trái (nhóm **Khách hàng & vụ việc**, ngay dưới Vụ việc) liệt kê **mọi tài liệu bạn được phép xem, của mọi vụ việc**, mới
 nhất ở trên. Dùng nó khi nhớ tên tài liệu, mã hồ sơ hay tên khách mà không nhớ vụ nào:
 
 - **Tìm** theo tên tài liệu, mã hồ sơ hoặc tên khách. **Lọc** theo vụ, loại vụ, nhóm (A–D), trạng thái,
@@ -235,7 +235,7 @@ một dòng trong nhật ký hệ thống.
 Hồ sơ vẫn do luật sư hoặc trưởng phòng mở. Khi hồ sơ đã có mà chưa có hợp đồng (khách ký giấy, luật sư
 chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không cần, và không được, mở nội dung hồ sơ.
 
-1. Kế toán mở **Hợp đồng** (menu trái; hoặc nút **Nhập hợp đồng cho hồ sơ** đầu trang Công nợ, hoặc ô
+1. Kế toán mở **Hợp đồng** (menu trái, nhóm **Tài chính**; hoặc nút **Nhập hợp đồng cho hồ sơ** đầu trang Công nợ, hoặc ô
    "Hồ sơ chưa có hợp đồng" trên trang chủ). Trang mặc định chỉ hiện hồ sơ **chưa có hợp đồng** và hợp
    đồng **còn nháp**; mỗi dòng có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách, số và trạng
    thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** có tiêu đề, ghi chú, tài liệu hay các
@@ -508,7 +508,7 @@ kỳ. Không xếp hạng, như mọi số của M13.
 | Nhật ký hoạt động cho mọi thao tác nhạy cảm | **[Xong]** một phần — trước M6.5 Task 20 trang nhật ký hiện khoá dịch thô và không hiện chi tiết (kể cả lý do ghi đè xung đột); nay đọc được, che số điện thoại/email/địa chỉ và chặn số CCCD. Tab nhật ký riêng của từng vụ việc **[Xong]** M7 Task 8 (`MatterActivityRelationManager`) |
 | Tệp nằm ngoài thư mục web, chỉ tải qua đường ký có hạn năm phút | **[Xong]** |
 | Thương hiệu văn phòng trên mọi màn hình | **[Xong]** |
-| Menu trái gọn theo nhóm, như các CRM chuyên nghiệp: trên cùng là **Bảng điều khiển**, rồi việc hằng ngày — **Công việc** (mọi nhân sự; mỗi người chỉ thấy việc mình giao, mình nhận, hoặc việc trên vụ mình xem được) và **Việc của tôi** (luật sư, trợ lý, trưởng phòng) — và **Tìm kiếm**; bên dưới năm nhóm: **Khách hàng & vụ việc** (Tiếp nhận, Khách hàng, Vụ việc, Tài khoản portal), **Tài chính** (Doanh thu, Công nợ, Nhắc thanh toán cho khách), **Đội ngũ** (Bàn giao hàng loạt, Nhân sự, Theo dõi đội ngũ, Hiệu suất), **Báo cáo** (Báo cáo tiếp nhận), **Hệ thống** (Loại vụ việc, Thông tin văn phòng, Kho tài liệu, Kết nối AI, Kết nối AI của tôi, Thư đã gửi, Nhật ký hệ thống). Nhóm chỉ đổi chỗ đặt, không đổi quyền: ai thấy mục nào vẫn như trước; nhóm nào người xem không có mục nào thì không hiện | **[Xong]** làn rv (2026-10-15) |
+| Menu trái gọn theo nhóm, như các CRM chuyên nghiệp: trên cùng là **Bảng điều khiển**, rồi việc hằng ngày — **Công việc** (mọi nhân sự; mỗi người chỉ thấy việc mình giao, mình nhận, hoặc việc trên vụ mình xem được) và **Việc của tôi** (luật sư, trợ lý, trưởng phòng) — và **Tìm kiếm**; bên dưới năm nhóm: **Khách hàng & vụ việc** (Tiếp nhận, Khách hàng, Vụ việc, Tài liệu, Tài khoản portal), **Tài chính** (Doanh thu, Công nợ, Hợp đồng, Nhắc thanh toán cho khách), **Đội ngũ** (Bàn giao hàng loạt, Nhân sự, Theo dõi đội ngũ, Hiệu suất), **Báo cáo** (Báo cáo tiếp nhận), **Hệ thống** (Cài đặt, Loại vụ việc, Thông tin văn phòng, Kho tài liệu, Kết nối AI, Kết nối AI của tôi, Thư đã gửi, Nhật ký hệ thống). Nhóm chỉ đổi chỗ đặt, không đổi quyền: ai thấy mục nào vẫn như trước; nhóm nào người xem không có mục nào thì không hiện. Ba mục mới khi gộp bốn làn kt, tl, ai, st: **Tài liệu** (mọi nhân sự mở được hồ sơ — không kế toán, không kinh doanh), **Hợp đồng** (kế toán, luật sư, trưởng phòng, quản trị viên), **Cài đặt** (chỉ quản trị viên) | **[Xong]** làn rv (2026-10-15); ba mục mới khi gộp integ-4 (2026-10-16) |
 | Thư đi ra đều có nhật ký để tra khi khách nói không nhận được | **[Xong]** sau M6.5 — bảng `outbound_messages` có từ M6 Task 1 (2026-09-23) nhưng **không có màn hình nào để tra** (`notify/notify-8`, `spec-gap/spec-gap-07`); M6.5 Task 13 thêm trang nhật ký thư, và nút "Thư đã gửi" trên trang vụ việc mở trang đó đã lọc theo vụ (mỗi người chỉ thấy thư của vụ mình được xem; admin thấy mọi dòng). Nút gửi lại một thư thất bại: M6 Task 10 |
 | Giám sát cron: cron chết thì trang chủ nói ra | **[Xong]** 2026-09-23 |
 | Xác thực hai lớp cho toàn bộ tài khoản nội bộ | **[Có kế hoạch]** M8 |
@@ -583,7 +583,7 @@ bấm "Đồng ý". Cuối trang là các kết nối đang có, lần dùng cu�
 
 ### Cài đặt — một chỗ cho mọi cấu hình (làn st, 2026-10-15)
 
-**Ai vào:** chỉ quản trị viên (quyền `settings.manage`). Mục **"Cài đặt"** (biểu tượng bánh răng) trên menu trái mở một trang
+**Ai vào:** chỉ quản trị viên (quyền `settings.manage`). Mục **"Cài đặt"** (biểu tượng bánh răng, đầu nhóm **Hệ thống** của menu trái) mở một trang
 tổng như các CRM lớn: ô tìm (gõ không dấu cũng được) và các thẻ theo nhóm — Văn phòng, Người dùng & phân
 quyền, Vụ việc & tiếp nhận, Cổng khách hàng & thông báo, Tài chính, Tài liệu & lưu trữ, Trợ lý AI. Mỗi thẻ
 hiện trạng thái đang chạy thật (ví dụ "Nhắc thanh toán: Tắt", "Google Drive: Chưa bật", "2FA: 7/8 nhân sự

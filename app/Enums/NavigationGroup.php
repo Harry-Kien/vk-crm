@@ -26,10 +26,10 @@ use Filament\Support\Contracts\HasLabel;
  */
 enum NavigationGroup: string implements HasLabel
 {
-    /** Tiếp nhận, Khách hàng, Vụ việc, Tài khoản portal. */
+    /** Tiếp nhận, Khách hàng, Vụ việc, Tài liệu (integ-4), Tài khoản portal. */
     case Clients = 'clients';
 
-    /** Doanh thu, Công nợ, Nhắc thanh toán cho khách. */
+    /** Doanh thu, Công nợ, Hợp đồng (integ-4), Nhắc thanh toán cho khách. */
     case Finance = 'finance';
 
     /** Bàn giao hàng loạt, Nhân sự, Theo dõi đội ngũ, Hiệu suất. */
@@ -38,7 +38,7 @@ enum NavigationGroup: string implements HasLabel
     /** Báo cáo tiếp nhận và các trang báo cáo khác. */
     case Reports = 'reports';
 
-    /** Cấu hình và vận hành: loại vụ việc, văn phòng, kho tài liệu, kết nối AI, thư đã gửi, nhật ký. */
+    /** Cấu hình và vận hành: Cài đặt (trang tổng, integ-4), loại vụ việc, văn phòng, kho tài liệu, kết nối AI, thư đã gửi, nhật ký. */
     case System = 'system';
 
     public function label(): string
