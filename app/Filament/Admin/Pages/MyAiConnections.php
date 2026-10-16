@@ -29,22 +29,26 @@ use Livewire\Attributes\Locked;
  * hoạch gọi nó `KetNoiAiCuaToi` — khoảng lệch D9); slug là {@see McpEndpoint::MY_AI_CONNECTIONS_SLUG},
  * đúng đường dẫn mà màn hình đồng ý OAuth (Task 4) trỏ tới từ trước khi trang này có.
  *
- * Bốn khối, đều về CHÍNH người đang đăng nhập — trang không bao giờ nhận id người dùng từ trình duyệt:
+ * Mọi thứ trên trang đều về CHÍNH người đang đăng nhập — trang không bao giờ nhận id người dùng từ
+ * trình duyệt. Từ trên xuống (làn ai, 2026-10-15):
  *
- *  1. Chế độ của tôi (`users.ai_access`) và, khi chưa dùng được, lý do đầu tiên theo R2
- *     ({@see McpAccess::refusal()}, cùng câu với màn hình đồng ý).
- *  2. Chính sách dùng AI phiên bản hiện hành và ô cam kết KHÔNG đánh dấu sẵn ({@see AcknowledgeAiPolicy},
- *     IP và user agent đọc từ request của chính lần bấm). Đã cam kết đúng phiên bản thì ô biến mất,
- *     thay bằng ngày đã cam kết; chính sách đổi phiên bản thì ô hiện lại.
- *  3. URL MCP để dán vào client ({@see McpEndpoint::resource()}) và đường tới hướng dẫn (Task 16).
- *  4. Kết nối của tôi ({@see ListAiConnections::forUser()} với actor = target = chính mình) kèm nút tự
- *     thu hồi từng dòng [DC:144] ({@see DisconnectAiConnections}: chỉ token của chính người bấm cho
- *     client đó — gửi id client của người khác lên đây không chạm được gì của người đó).
+ *  - Dòng trạng thái lớn ({@see MyAiConnectionStatus}).
+ *  - "Các bước kết nối" có dấu ✓/○ theo trạng thái thật: (1) cam kết chính sách; (2) sao chép địa chỉ
+ *    máy chủ MCP ({@see McpEndpoint::resource()}), có nút sao chép — trước làn ai đây là một khối
+ *    riêng "URL MCP và hướng dẫn"; (3) các bước trong ứng dụng AI, chia thẻ Claude / ChatGPT / ứng
+ *    dụng khác, chữ lấy từ `docs/KET-NOI-AI.md` (thay cho đường tới hướng dẫn của Task 16);
+ *    (4) màn hình đồng ý.
+ *  - Ba khối của M11 (view đánh số 1–3):
+ *     1. Chế độ của tôi (`users.ai_access`) và, khi chưa dùng được, lý do đầu tiên theo R2
+ *        ({@see McpAccess::refusal()}, cùng câu với màn hình đồng ý).
+ *     2. Chính sách dùng AI phiên bản hiện hành và ô cam kết KHÔNG đánh dấu sẵn
+ *        ({@see AcknowledgeAiPolicy}, IP và user agent đọc từ request của chính lần bấm). Đã cam kết
+ *        đúng phiên bản thì ô biến mất, thay bằng ngày đã cam kết; chính sách đổi phiên bản thì ô hiện lại.
+ *     3. Kết nối của tôi ({@see ListAiConnections::forUser()} với actor = target = chính mình) kèm nút
+ *        tự thu hồi từng dòng [DC:144] ({@see DisconnectAiConnections}: chỉ token của chính người bấm
+ *        cho client đó — gửi id client của người khác lên đây không chạm được gì của người đó).
  *
- * Làn ai (2026-10-15) đặt lên đầu một dòng trạng thái lớn ({@see MyAiConnectionStatus}) và "Các bước
- * kết nối" có dấu ✓ (cam kết → sao chép địa chỉ, có nút sao chép → các bước trong ứng dụng AI, chia
- * thẻ Claude / ChatGPT / ứng dụng khác, chữ lấy từ `docs/KET-NOI-AI.md` → màn hình đồng ý). Bốn khối
- * trên giữ nguyên luật; chỉ là trình bày.
+ * Làn ai chỉ đổi trình bày: luật của ba khối và của địa chỉ MCP giữ nguyên như M11.
  *
  * # Cổng: nhân sự đang hoạt động có `matter.view`, hỏi ở MỌI request
  *

@@ -16,7 +16,8 @@ use Carbon\CarbonImmutable;
  *  - `staffAcknowledged`, `staffConnected`: trong số đó, người đã cam kết đúng phiên bản chính sách
  *    hiện hành / người đang có ít nhất một kết nối;
  *  - `callsLastWeek`: số lần gọi tool trong 7 ngày (cùng kỳ với khối "Hoạt động", {@see SummarizeMcpActivity});
- *  - `mattersAllowed`: số vụ việc mang cờ "cho phép AI" (R9).
+ *  - `mattersAllowed`: số vụ việc AI thấy được về mặt vụ — mang cờ "cho phép AI" (R9) và không phải
+ *    vụ hạn chế (cùng mệnh đề 2 của {@see McpMatterScope}).
  */
 final readonly class AiSetupSummary
 {

@@ -2,8 +2,10 @@
 
 namespace App\Actions\Mcp;
 
+use App\Actions\Matter\SetMatterAiAccess;
 use App\Enums\AiAccessMode;
 use App\Enums\AiOfficeStatus;
+use App\Enums\Confidentiality;
 use App\Enums\MatterAiAccess;
 use App\Models\Matter;
 use App\Models\User;
@@ -30,7 +32,10 @@ use Spatie\Activitylog\Models\Activity;
  *    `null`) thì không ai đã cam kết;
  *  - **đang có kết nối**: {@see ListAiConnections::whereConnected()};
  *  - **lượt dùng 7 ngày**: dòng `mcp_tool_called` từ {@see SummarizeMcpActivity::windowStart()}(7);
- *  - **vụ việc bật cho AI**: `matters.ai_access = allowed`, vụ chưa xoá mềm — chỉ một con số.
+ *  - **vụ việc bật cho AI**: `matters.ai_access = allowed` ∧ `confidentiality = normal`, vụ chưa xoá
+ *    mềm — chỉ một con số. Vế `= normal` là đúng mệnh đề 2 của {@see McpMatterScope}: vụ hạn chế
+ *    vắng mặt khỏi mọi tool với MỌI người (kể cả admin), mà {@see SetMatterAiAccess} không chặn bật
+ *    cờ trên nó — đếm nó thì bước "vụ việc" ✓ trong khi AI không thấy vụ nào (fix round 1, I1).
  *
  * # Quyền
  *
@@ -54,7 +59,10 @@ final class SummarizeAiSetup
                 ->where('event', 'mcp_tool_called')
                 ->where('created_at', '>=', SummarizeMcpActivity::windowStart(7))
                 ->count(),
-            mattersAllowed: Matter::query()->where('ai_access', MatterAiAccess::Allowed->value)->count(),
+            mattersAllowed: Matter::query()
+                ->where('confidentiality', Confidentiality::Normal->value)
+                ->where('ai_access', MatterAiAccess::Allowed->value)
+                ->count(),
         );
     }
 

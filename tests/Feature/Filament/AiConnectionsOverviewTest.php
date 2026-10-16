@@ -271,7 +271,19 @@ it('mỗi bước phản ánh đúng một điều kiện thật: bỏ điều k
     'pháp lý: xoá ngày nộp hồ sơ' => ['legal', fn () => app(WriteSettings::class)->handle([McpSwitches::TRANSFER_ASSESSMENT_FILED_ON => null], null)],
     'máy chủ: tắt công tắc đọc' => ['server', fn () => aioSwitches(false, filedOn: '2026-10-01')],
     'vụ việc: không vụ nào bật cho AI' => ['matters', fn (array $world) => Matter::query()->whereKey($world['matter']->getKey())->update(['ai_access' => 'denied'])],
+    'vụ việc: vụ duy nhất bật cho AI là vụ hạn chế' => ['matters', fn (array $world) => Matter::query()->whereKey($world['matter']->getKey())->update(['confidentiality' => 'restricted'])],
 ]);
+
+it('bước vụ việc chỉ đếm vụ AI thấy được: vụ hạn chế mang cờ "cho phép AI" không tính (cùng luật McpMatterScope)', function () {
+    Matter::factory()->aiAccessAllowed()->create();
+    Matter::factory()->aiAccessAllowed()->restricted()->create(['title' => 'Vụ Hạn Chế Bật Cờ']);
+    Matter::factory()->create();
+
+    $html = aioPage($this->admin)->assertDontSee('Vụ Hạn Chế Bật Cờ')->html();
+
+    expect(aioAttr($html, 'data-ai-step-progress', 'matters'))->toBe(__('ai_connections.setup.progress.matters', ['count' => 1]))
+        ->and(aioSteps($html)['matters'])->toBeTrue();
+});
 
 it('bước cam kết chỉ ✓ khi MỌI nhân sự được bật đã cam kết đúng phiên bản; hiện n/m', function () {
     aioFullSetup($this);
@@ -341,6 +353,15 @@ it('mục pháp lý: đã ghi ngày thì ĐÓNG, bốn điều vẫn còn bên t
 
     expect(aioTag($html, 'data-transfer-assessment', 'filed'))->not->toBeNull()
         ->and(aioTag($html, 'data-transfer-assessment', 'filed'))->not->toMatch('/\sopen[\s>]/');
+});
+
+it('ô ngày nộp hồ sơ hiện dd/mm/yyyy bất kể ngôn ngữ trình duyệt: ô chọn ngày của Filament, không phải input date gốc', function () {
+    $html = aioPage($this->admin)->assertSee(__('ai_connections.assessment.filed_on'))->html();
+
+    // Input date gốc hiện theo locale trình duyệt (mm/dd/yyyy trên en-US); ô của Filament nhận
+    // displayFormat đã đổi sang dạng day.js (`DD/MM/YYYY`, dấu `/` có thể được thoát thành `\/`).
+    expect($html)->not->toContain('type="date"')
+        ->and(str_replace('\/', '/', $html))->toContain('DD/MM/YYYY');
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -548,6 +569,27 @@ it('đổi chế độ hàng loạt báo tên người bị bỏ qua', function 
         ->selectTableRecords([$accountant])
         ->callAction(TestAction::make('setAiAccessBulk')->table()->bulk(), data: ['ai_access' => AiAccessMode::Read->value])
         ->assertNotified(__('ai_connections.staff.bulk.skipped', ['count' => 1, 'names' => 'Kế Toán Bỏ Qua']));
+});
+
+it('đổi chế độ hàng loạt: mọi người đều bị bỏ qua thì chỉ có cảnh báo vàng, không một dòng xanh "Đã đặt chế độ cho 0 người."', function () {
+    $accountant = User::factory()->position(UserPosition::Accountant)->withRole(Role::Accountant)->create(['name' => 'Kế Toán Bỏ Qua']);
+
+    $page = aioPage($this->admin)
+        ->selectTableRecords([$accountant])
+        ->callAction(TestAction::make('setAiAccessBulk')->table()->bulk(), data: ['ai_access' => AiAccessMode::Read->value]);
+
+    // Như `DeadlinesRelationManagerTest`: thông báo nằm ở `filament.notifications`, sang
+    // `filament.claimed_notifications` khi request Livewire kết thúc — đọc cả hai, TRƯỚC
+    // `assertNotified` (nó dựng component Notifications, lấy thông báo ra khỏi session).
+    $statuses = collect([
+        ...session()->get('filament.notifications', []),
+        ...session()->get('filament.claimed_notifications', []),
+    ])->pluck('status')->all();
+
+    expect($statuses)->toContain('warning')->not->toContain('success');
+
+    $page->assertNotified(__('ai_connections.staff.bulk.skipped', ['count' => 1, 'names' => 'Kế Toán Bỏ Qua']))
+        ->assertNotNotified(__('ai_connections.staff.bulk.done', ['count' => 0]));
 });
 
 it('đổi chế độ hàng loạt về Tắt thu hồi kết nối của từng người (như nút từng dòng)', function () {

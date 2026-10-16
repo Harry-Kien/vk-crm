@@ -259,8 +259,13 @@ class AiConnections extends Page implements HasTable
         return $schema
             ->statePath('assessment')
             ->components([
+                // native(false) + d/m/Y như MatterForm: input date gốc hiện theo locale trình duyệt
+                // (mm/dd/yyyy trên en-US). State vẫn là Y-m-d, nên `date_format:Y-m-d` của
+                // UpdateAiSettings không đổi (fix round 1, I3).
                 DatePicker::make('filed_on')
                     ->label(__('ai_connections.assessment.filed_on'))
+                    ->native(false)
+                    ->displayFormat('d/m/Y')
                     ->maxDate(today()),
             ]);
     }
@@ -485,10 +490,16 @@ class AiConnections extends Page implements HasTable
 
                 $this->overview = null;
 
-                Notification::make()
-                    ->title(__('ai_connections.staff.bulk.done', ['count' => $result['applied']]))
-                    ->success()
-                    ->send();
+                // Không một dòng xanh "Đã đặt chế độ cho 0 người." cạnh cảnh báo vàng khi mọi người
+                // đều bị bỏ qua — luật của ReportsActionFailures::failWithNotification (fix round 1, I2).
+                // `applied` đếm cả người đã đúng chế độ chọn ({@see SetAiAccessForMany}): với họ câu
+                // "đã đặt" vẫn đúng.
+                if ($result['applied'] > 0) {
+                    Notification::make()
+                        ->title(__('ai_connections.staff.bulk.done', ['count' => $result['applied']]))
+                        ->success()
+                        ->send();
+                }
 
                 if ($result['skipped'] !== []) {
                     Notification::make()

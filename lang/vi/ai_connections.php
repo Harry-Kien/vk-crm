@@ -209,7 +209,7 @@ return [
             'staff_enabled' => 'Bật AI cho từng nhân sự cần dùng (nút "Đổi chế độ" ở bảng nhân sự)',
             'staff_acknowledged' => 'Nhân sự được bật đọc và cam kết chính sách dùng AI (trên trang "Kết nối AI của tôi" của họ)',
             'staff_connected' => 'Nhân sự nối tài khoản AI của mình (Claude, ChatGPT…) theo trang "Kết nối AI của tôi"',
-            'matters' => 'Bật "cho phép AI" trên từng vụ việc cần dùng, sau khi khách đồng ý bằng văn bản (docs/CHINH-SACH-AI.md)',
+            'matters' => 'Bật "cho phép AI" trên từng vụ việc cần dùng, sau khi khách đồng ý bằng văn bản (docs/CHINH-SACH-AI.md). Vụ hạn chế không bao giờ hiện với AI nên không được đếm',
         ],
         'progress' => [
             'filed' => 'Đã nộp ngày :date',
