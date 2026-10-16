@@ -471,6 +471,9 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.document_store_alert.unavailable',
         'staff.intake_unanswered',
         'staff.matter_reassigned',
+        // làn st: thư thử của nút "Gửi thư thử" (Cài đặt › Thư điện tử) — chỉ để kiểm tra máy chủ thư, tới
+        // chính người bấm; không về hồ sơ nào, cố ý không đẩy.
+        'staff.test_mail',
         'staff.stale_matter',
     ];
     $pushed = array_values(array_map(fn (PushTopic $topic): string => $topic->value, array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => $topic !== PushTopic::Test)));

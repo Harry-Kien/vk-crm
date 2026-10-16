@@ -10,6 +10,8 @@ use App\Models\ClientRequest;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Support\Audit;
+use App\Support\Settings\BusinessSettings;
+use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
@@ -59,6 +61,14 @@ use Illuminate\Support\Facades\Validator;
  * SPEC §10.9 được hỏi ở đây vì lý do đã ghi ở {@see ChecksAccountActive}: một tài khoản vừa bị
  * vô hiệu hoá không ghi thêm được gì vào hồ sơ.
  *
+ * # Công tắc "khách gửi yêu cầu mới" (làn st)
+ *
+ * Văn phòng tắt được việc mở yêu cầu MỚI trên trang "Cài đặt nghiệp vụ"
+ * ({@see BusinessSettings::clientRequestsEnabled()}, mặc định bật). Tắt thì Action ném
+ * `DomainException` với một câu tiếng Việt (trang cổng hiện thành thông báo) — hỏi SAU cổng quyền, nên
+ * bốn tình huống "không thấy vụ" vẫn đi ra bằng đúng câu 404 của {@see self::refuse()}. Trả lời vào một
+ * cuộc trao đổi đã có ({@see ReplyToClientRequest}) không theo công tắc.
+ *
  * # Nhật ký
  *
  * SPEC §10.6 liệt kê những việc VĂN PHÒNG làm, và "khách gửi một yêu cầu" không nằm trong danh
@@ -101,6 +111,13 @@ class OpenClientRequest
         // §8 cấm đúng kiểu câu đó trên màn hình khách hàng.
         if (Gate::forUser($actor)->inspect('create', [ClientRequest::class, $target])->denied()) {
             $this->refuse();
+        }
+
+        // Làn st: công tắc "khách gửi yêu cầu mới trên cổng" (trang "Cài đặt nghiệp vụ", mặc định bật).
+        // Hỏi SAU cổng quyền, để người không được thấy vụ vẫn nhận đúng câu 404 của refuse() — câu
+        // "văn phòng tạm không nhận" chỉ nói với người đã thấy vụ, nên không dò được gì.
+        if (! BusinessSettings::clientRequestsEnabled()) {
+            throw new DomainException(__('settings.business.portal_requests_refused'));
         }
 
         [$subject, $content] = $this->validated($subject, $content);

@@ -38,6 +38,15 @@
         {{-- GỬI MỘT YÊU CẦU MỚI ---------------------------------------------------------- --}}
         <section data-portal-block="new-request" style="{{ $card }}background-color:color-mix(in srgb, var(--primary-500) 10%, transparent);">
             <h2 style="{{ $blockHeading }}">{{ __('requests.portal.new.heading') }}</h2>
+
+            {{-- Làn st: công tắc "khách gửi yêu cầu mới" của trang Cài đặt nghiệp vụ. Tắt thì không có ô
+                 gửi; OpenClientRequest vẫn hỏi lại công tắc, không tin màn hình. --}}
+            @if (! $this->acceptsNewRequests())
+                <p data-portal-requests="closed" style="margin-bottom:0.25rem;">{{ __('settings.business.portal_requests_off') }}</p>
+                @if (filled($hotline = $this->officeHotline()))
+                    <p style="font-weight:600;">{{ __('settings.business.portal_requests_off_hotline', ['hotline' => $hotline]) }}</p>
+                @endif
+            @else
             <p style="margin-bottom:0.75rem;{{ $muted }}">{{ __('requests.portal.new.lead') }}</p>
 
             <form wire:submit="submitRequest" style="display:flex;flex-direction:column;gap:0.75rem;">
@@ -73,6 +82,7 @@
                     {{ __('requests.portal.new.submit') }}
                 </button>
             </form>
+            @endif
         </section>
 
         {{-- LỊCH SỬ TRAO ĐỔI ------------------------------------------------------------- --}}

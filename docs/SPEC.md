@@ -1105,6 +1105,10 @@ Job `CheckStaleMatters` chạy hằng ngày 07:30:
   `manager`.
 - Hiển thị widget "Hồ sơ quá hạn cập nhật" trên trang chủ admin panel.
 
+**Đính chính 2026-10-15 (làn st).** Thư 21 ngày đi sau công tắc "Gửi thư khi hồ sơ quá 21 ngày chưa cập
+nhật cho khách" của trang Cài đặt nghiệp vụ (§7.4), mặc định BẬT; thông báo 14 ngày và widget không theo
+công tắc. Ba ngưỡng 10/14/21 ngày vẫn cố định.
+
 ### 6.5 Công bố tài liệu — `PublishDocument`
 
 1. Chặn tuyệt đối `group = 'D'`. Ném exception. Có test.
@@ -1150,6 +1154,10 @@ in một dòng VÀNG khi `CLAMAV_ENABLED=false` hay khi đã bật mà daemon kh
 (định dạng OLE) có thể mang macro, và `FileGuard` chỉ mở gói `.docx`/`.xlsx` để chặn macro — với tệp đời
 cũ, quét virus là lớp bảo vệ duy nhất. Bước 7–8: khách gửi thêm vào một đầu mục văn phòng ĐÃ NHẬN thì cổng
 nói rõ và chỉ gửi khi khách tích xác nhận; văn phòng có "Từ chối bản mới, giữ bản đã nhận" (§6.12).
+
+**Đính chính 2026-10-15 (làn st).** Bước 4: trần mỗi tệp chỉnh được ở trang Cài đặt nghiệp vụ (§7.4), từ
+1 MB tới trần thật của máy chủ (`UPLOAD_MAX_MB` và giới hạn PHP); chưa đặt thì theo `UPLOAD_MAX_MB` (mặc
+định 20). Áp dụng cho cả tệp nhân sự tải lên.
 
 ### 6.7 Duyệt tài liệu khách nộp — `ReviewChecklistItem`
 
@@ -1274,6 +1282,10 @@ portal, còn item bắt buộc ở trạng thái `missing` hoặc `rejected`:
 phòng còn chưa có bản để khách ký (lượt quét §10 trước bản 1.0; quy tắc theo hợp đồng hiện hành từ lần gộp
 làn fb, 2026-10-14). Tập đó rỗng thì không có email nào. Thanh tiến độ, widget và
 thông báo 14 ngày cho lead lawyer vẫn tính MỌI item bắt buộc còn thiếu, kể cả item hợp đồng đó.
+
+**Đính chính 2026-10-15 (làn st).** Email cho khách đi sau công tắc "Tự động nhắc khách nộp giấy tờ còn
+thiếu" của trang Cài đặt nghiệp vụ (§7.4), mặc định BẬT; tắt thì không email nào được xếp, và email đã xếp
+không đi. Thông báo 14 ngày cho lead lawyer không theo công tắc.
 
 ### 6.10 Kiểm tra xung đột lợi ích — `RunConflictCheck`
 
@@ -1439,6 +1451,11 @@ Khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh một 
 5. Ghi `matter_archives`, đặt `client_access_until` mặc định 90 ngày sau ngày
    kết thúc, và `retention_until` theo chính sách lưu trữ cấu hình trong `.env`
    (mặc định 10 năm).
+
+**Đính chính 2026-10-15 (làn st).** Bước 5: số ngày của `client_access_until` chỉnh được ở trang Cài đặt
+nghiệp vụ (§7.4), 1–730 ngày; chưa đặt thì theo `CLIENT_ACCESS_DAYS` (mặc định 90). Số mới áp cho lần đồng
+bộ dòng lưu trữ kế tiếp (vụ kết thúc từ nay); vụ đã kết thúc giữ ngày cũ, gia hạn từng vụ bằng
+`ExtendClientAccess`. `retention_until` vẫn chỉ theo `.env` (luật, không trên giao diện).
 
 **Đính chính 2026-09-28 (M7 Task 4, R1, R3, R8, R9).** Bước 1–4 đọc theo các phán quyết sau:
 
@@ -1938,6 +1955,35 @@ liên hệ (Reply-To của mọi thư). Màu, logo, font **không** sửa đư�
   `MUC-LUC.pdf` (§6.12) và cổng khách hàng đọc qua service này, **lúc render**: thư đang nằm trong
   hàng đợi mang giá trị mới. Thông tin còn trống thì dòng của nó biến mất, không để lại nhãn treo.
 
+**Đính chính 2026-10-15 (làn st — trung tâm "Cài đặt", chủ văn phòng yêu cầu cùng ngày).** Thêm mục menu
+**"Cài đặt"** (`/admin/settings`), chỉ người có `settings.manage` (admin); người khác nhận 404, kể cả ở
+request cập nhật Livewire. Trang tổng có ô tìm (bỏ dấu) và bảy nhóm thẻ — Văn phòng, Người dùng & phân
+quyền, Vụ việc & tiếp nhận, Cổng khách hàng & thông báo, Tài chính, Tài liệu & lưu trữ, Trợ lý AI — mỗi
+thẻ một trạng thái thật và dẫn tới trang cài đặt của nó; các trang cài đặt sẵn có (Thông tin văn phòng,
+Nhắc thanh toán cho khách, Kho tài liệu, Kết nối AI…) giữ nguyên chỗ cũ. Bốn trang con mới:
+- **"Cài đặt nghiệp vụ"** — sáu thông số chỉnh được trên giao diện, lưu trong `settings` (khoá
+  `business.*`), đọc qua MỘT nơi `App\Support\Settings\BusinessSettings`, ghi qua
+  `App\Actions\Settings\UpdateBusinessSettings` (audit `business_settings_updated`, giá trị cũ → mới):
+  số ngày khách còn xem hồ sơ sau khi vụ kết thúc (§6.12 bước 5; 1–730, mặc định `CLIENT_ACCESS_DAYS`),
+  dung lượng tối đa một tệp tải lên (§6.6 bước 4; 1 MB tới trần thật của máy chủ — `UPLOAD_MAX_MB` và
+  giới hạn PHP, nên giao diện chỉ HẠ được trần), thời hạn phản hồi lần đầu một người liên hệ (§7.1, đính
+  chính M10; 1–40 giờ làm việc, mặc định `INTAKE_RESPONSE_HOURS`), và ba công tắc mặc định BẬT: thư 21
+  ngày "hồ sơ chưa cập nhật cho khách" (§6.4 — chuông 14 ngày không theo công tắc), thư nhắc khách nộp
+  giấy tờ còn thiếu (§6.9 — chuông 14 ngày cho luật sư không theo công tắc), khách gửi yêu cầu MỚI trên
+  cổng (§8.3 mục 7 — cuộc trao đổi đã có vẫn viết tiếp được). Chưa lưu gì thì hệ thống chạy đúng như
+  trước; giá trị lưu trên giao diện thắng `.env`; "Đưa tất cả về mặc định" xoá chúng. Thời hạn lưu trữ hồ
+  sơ (`RETENTION_YEARS`), hạn giữ dữ liệu người liên hệ (`PROSPECT_RETENTION_MONTHS`) và các ngưỡng của
+  §6.4 chỉ HIỂN THỊ đọc-chỉ: chúng là luật hoặc đã gắn vào câu chữ gửi khách.
+- **"Vai trò & quyền"** — ma trận đọc-chỉ sáu vai × quyền của §5, dựng từ `Role::permissions()`; đổi vai
+  của một người ở trang Nhân sự. Không có màn hình nào sửa bộ quyền của một vai.
+- **"Bảo mật đăng nhập"** — đọc-chỉ: 2FA bắt buộc (§10), số nhân sự đã/chưa cài, khoá đăng nhập, giới hạn
+  IP của `/admin` (chỉ đếm số dải, không in dải), HTTPS/HSTS/CSP, ClamAV, bản sao lưu ngoài máy chủ gần
+  nhất — mỗi dòng nói nó được đặt ở đâu trên máy chủ.
+- **"Thư điện tử"** — đường gửi thư, địa chỉ và tên gửi đi, Reply-To (không in mật khẩu), năm thư thử gần
+  nhất, và nút **"Gửi thư thử"** tới email của chính người bấm: mẫu mới `staff.test_mail` (§9), qua hàng
+  đợi sau commit, ghi sổ thư như mọi thư khác (không gửi lại từ sổ thư), tối đa 3 lần mỗi 10 phút, audit
+  `test_mail_requested`.
+
 ### 7.5 Theo dõi đội ngũ và hiệu suất
 
 **Bổ sung 2026-10-04 (M13).** Ba trang tự viết trên panel `admin`, trả lời hai câu hỏi khác nhau —
@@ -2121,6 +2167,12 @@ vào bảng trên, và đổi một hành vi của `client.document_published`:
   (các tài liệu của hồ sơ cùng `MUC-LUC.pdf`) và hạn tải theo `client_access_until`, không nêu tên
   tài liệu nào; gói công bố "chỉ xem" thì thư không hứa tải được. Tài liệu thường trên vụ đã kết thúc
   vẫn không gửi thư này.
+
+**Đính chính 2026-10-15 (làn st).** Thêm mẫu **`staff.test_mail`** — kích hoạt khi quản trị viên bấm "Gửi
+thư thử" ở Cài đặt › Thư điện tử (§7.4). Chỉ tới email của chính người bấm, người nhận tính lại lúc gửi
+qua `ResolveStaffRecipients::forTestMail()` (còn hoạt động, còn `settings.manage`); qua hàng đợi sau
+commit, một lần thử; không mang dữ liệu hồ sơ nào; không gửi lại được từ nhật ký thư (bấm lại nút). Không
+có thông báo đẩy đi cùng.
 
 **Đính chính 2026-10-04 (M12 Task 10, phán quyết R10–R11 của kế hoạch
 `docs/superpowers/plans/2026-09-24-m12-pwa.md`).** Thông báo đẩy trên điện thoại (kênh `push`, §4.15

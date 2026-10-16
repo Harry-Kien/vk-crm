@@ -3,6 +3,7 @@
 namespace App\Support\Files;
 
 use App\Exceptions\FileRejected;
+use App\Support\Settings\BusinessSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use ZipArchive;
@@ -91,13 +92,6 @@ final class FileGuard
         'docx' => ['[Content_Types].xml', 'word/document.xml'],
         'xlsx' => ['[Content_Types].xml', 'xl/workbook.xml'],
     ];
-
-    /**
-     * Giới hạn dự phòng khi `config('vkcrm.upload_max_mb')` thiếu hoặc không phải số dương.
-     * Không dùng `(int) null === 0`: nó fail-closed nhưng vô nghĩa — mọi tệp đều "vượt quá 0 MB",
-     * và người dùng không có cách nào hiểu hay xử lý một câu như vậy.
-     */
-    private const DEFAULT_MAX_MEGABYTES = 20;
 
     /** Đủ dài cho tên tệp thật, đủ ngắn để chắc chắn vừa `media.file_name` varchar(255). */
     private const MAX_NAME_LENGTH = 200;
@@ -342,13 +336,14 @@ final class FileGuard
         return strtolower(pathinfo($name, PATHINFO_EXTENSION));
     }
 
+    /**
+     * Trần mỗi tệp (SPEC §6.6 bước 4): {@see BusinessSettings::uploadMaxMegabytes()} — trang "Cài đặt
+     * nghiệp vụ", mặc định `UPLOAD_MAX_MB`, cùng bước lùi 20 MB khi cấu hình thiếu hoặc không phải số
+     * dương (không dùng `(int) null === 0`: fail-closed nhưng vô nghĩa — mọi tệp đều "vượt quá 0 MB").
+     */
     private static function maxMegabytes(): int
     {
-        $configured = config('vkcrm.upload_max_mb');
-
-        return is_numeric($configured) && (int) $configured > 0
-            ? (int) $configured
-            : self::DEFAULT_MAX_MEGABYTES;
+        return BusinessSettings::uploadMaxMegabytes();
     }
 
     /**

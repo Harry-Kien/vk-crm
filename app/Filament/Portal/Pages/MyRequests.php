@@ -13,6 +13,8 @@ use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\ClientRequestActivity;
+use App\Support\OfficeProfile;
+use App\Support\Settings\BusinessSettings;
 use Closure;
 use DomainException;
 use Filament\Facades\Filament;
@@ -407,6 +409,21 @@ class MyRequests extends Page
     {
         return ClientRequestNotOpen::accepts($request->status)
             && Gate::forUser($this->viewer())->allows('create', [ClientRequestReply::class, $request]);
+    }
+
+    /**
+     * Ô "Gửi yêu cầu mới" chỉ hiện khi văn phòng còn nhận yêu cầu mới qua cổng (làn st, công tắc của
+     * trang "Cài đặt nghiệp vụ"). Không phải cổng thật: {@see OpenClientRequest} hỏi lại công tắc.
+     */
+    public function acceptsNewRequests(): bool
+    {
+        return BusinessSettings::clientRequestsEnabled();
+    }
+
+    /** Hotline văn phòng cho câu "tạm không nhận yêu cầu mới" — `null` khi chưa đặt. */
+    public function officeHotline(): ?string
+    {
+        return OfficeProfile::current()->hotline();
     }
 
     // -------------------------------------------------------------------------------------

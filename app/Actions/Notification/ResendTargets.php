@@ -78,6 +78,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *    chặn (`App\Support\Billing\ClientPaymentReminders::alreadyDelivered()`); thư nhắc quá hạn là một
  *    quyết định của người quản lý hợp đồng, có xem trước và ghi sổ liên lạc — gửi lại thì bấm lại nút đó
  *    (mỗi đợt một lần mỗi ngày), không gửi tay từ sổ thư.
+ *  - `staff.test_mail` (làn st): thư thử của nút "Gửi thư thử" (Cài đặt › Thư điện tử) chỉ để kiểm
+ *    tra máy chủ gửi thư, tới chính người bấm — gửi lại từ sổ thư là bỏ qua giới hạn tần suất và nhật
+ *    ký của nút đó; bấm lại nút là đủ.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -110,6 +113,8 @@ final class ResendTargets
         'client.payment_received',
         // Làn nt Task 2 — lý do ở docblock lớp.
         'client.payment_reminder.*',
+        // làn st — lý do ở docblock lớp.
+        'staff.test_mail',
         'undeclared',
     ];
 

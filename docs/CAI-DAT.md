@@ -273,7 +273,8 @@ SSH mà không có `sudo` thì không cài theo tài liệu này được: hỏi
     ```
 
     Dòng cuối phải in `upload_max_filesize => 20M => 20M` và `post_max_size => 25M => 25M`. Đặt
-    `UPLOAD_MAX_MB` khác 20 thì đổi hai con số theo.
+    `UPLOAD_MAX_MB` khác 20 thì đổi hai con số theo. Trang **Cài đặt › Cài đặt nghiệp vụ** chỉ HẠ được trần
+    này, không nâng quá `UPLOAD_MAX_MB` hay giới hạn PHP — muốn tệp lớn hơn thì nâng cả ba ở đây.
   - `proc_open` KHÔNG nằm trong `disable_functions` (sao lưu cần nó để gọi `mariadb-dump` và
     `rclone`; preflight kiểm bản của dòng lệnh — cron chạy sao lưu bằng PHP dòng lệnh).
 - **PHP dòng lệnh có `pcntl`, và ba hàm `pcntl_async_signals`, `pcntl_signal`, `pcntl_alarm`
@@ -830,7 +831,8 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
     thông báo" hiện lại trên bản ghi chưa đóng. KHÔNG sửa tệp ngôn ngữ trên máy chủ: lần `git pull`
     sau xung đột hoặc ghi đè chỗ sửa; câu chữ đổi qua kho mã.
   - `INTAKE_RESPONSE_HOURS` — ngưỡng phản hồi lần đầu, tính bằng giờ làm việc, mặc định 4
-    (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4).
+    (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4). Giá trị đặt ở trang **Cài đặt › Cài đặt nghiệp vụ**
+    (1–40 giờ) thắng biến này.
 
 **Bản cập nhật M13 (theo dõi đội ngũ) làm gì trên máy chủ đã có dữ liệu:**
 
@@ -1192,6 +1194,14 @@ cấu hình PHP:
 4. Tạo các nhân sự khác ở màn hình **Nhân sự** (chức danh nào thì vai trò đó). Mỗi người tự cài 2FA
    của mình ở lần đăng nhập đầu.
 5. Kiểm lại bốn thông tin pháp lý (Bước 3) — chúng in ở chân mọi thư gửi khách.
+6. Mở **Cài đặt** (biểu tượng bánh răng trên menu trái, chỉ quản trị viên thấy): một trang tổng với các thẻ theo
+   nhóm, mỗi thẻ một trạng thái thật. Bấm **Thư điện tử → Gửi thư thử** để chắc thư tới được hộp thư
+   của bạn (thư đi ở lượt gửi hàng đợi mỗi phút của dòng cron — Bước 8). Ở **Cài đặt nghiệp vụ**, ba
+   thông số trước đây chỉ đặt được trong `.env` (`CLIENT_ACCESS_DAYS`, `UPLOAD_MAX_MB`,
+   `INTAKE_RESPONSE_HOURS`) và ba công tắc thư/cổng chỉnh được ngay trên giao diện: **chưa đổi thì hệ thống theo `.env` như cũ; đã đổi thì giá
+   trị trên giao diện THẮNG `.env`** (sửa `.env` sau đó không còn tác dụng cho tới khi bấm "Đưa tất cả
+   về mặc định"). Thời hạn lưu trữ hồ sơ, hạn giữ dữ liệu người liên hệ, 2FA, giới hạn IP, HTTPS/HSTS/CSP,
+   ClamAV, sao lưu vẫn chỉ đặt trên máy chủ — trang chỉ hiện chúng, đọc-chỉ.
 
 ### Bước 10 — Sao lưu, và một lần khôi phục thử
 
@@ -1557,6 +1567,19 @@ luật sư) trên trang "Kho tài liệu"; `vkcrm:storage:migrate --dry-run`; đ
 --max-minutes=240`, nhiều đêm); `vkcrm:storage:verify --all`. Quay lui: đặt `local`, `optimize` và
 `chmod 600 bootstrap/cache/config.php` TRƯỚC, rồi `vkcrm:storage:rollback` (lệnh từ chối khi công tắc còn `google_drive`). Máy chủ văn phòng
 (bản thứ hai ngoài Google, mã hoá): `docs/SAO-LUU-KHOI-PHUC.md`, Phụ lục D.
+
+### Bản cập nhật trang Cài đặt (làn st)
+
+Không migration, không quyền mới, không tác vụ lịch mới, không biến `.env` mới: chuỗi lệnh nâng cấp ở
+trên là đủ (`db:seed --force` không cần thêm gì). Sau khi lên bản:
+
+1. Ba thông số `CLIENT_ACCESS_DAYS`, `UPLOAD_MAX_MB`, `INTAKE_RESPONSE_HOURS` vẫn được đọc từ `.env` cho
+   tới khi quản trị viên lưu một giá trị khác ở **Cài đặt › Cài đặt nghiệp vụ**; từ lúc đó giá trị trên
+   giao diện thắng `.env`. Ba công tắc mới (thư 21 ngày "hồ sơ chưa cập nhật cho khách", thư nhắc khách
+   nộp giấy tờ, khách gửi yêu cầu mới trên cổng) mặc định BẬT — đúng hành vi trước bản này.
+2. Nút **Gửi thư thử** (Cài đặt › Thư điện tử) xếp thư vào hàng đợi thư thường: lượt gửi hàng đợi mỗi
+   phút của dòng cron (Bước 8) đưa nó đi — cron chưa chạy thì thư nằm chờ. Kết quả hiện trên trang và
+   ở "Thư đã gửi".
 
 ### Nâng cấp hỏng: quay lại bản trước
 

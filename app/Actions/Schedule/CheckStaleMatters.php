@@ -11,6 +11,7 @@ use App\Models\OutboundMessage;
 use App\Models\User;
 use App\Notifications\Staff\StaleMatterAlert;
 use App\Support\MatterStaleness;
+use App\Support\Settings\BusinessSettings;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,10 @@ use Throwable;
  * SPEC §6.4 — hồ sơ quá hạn cập nhật cho khách, chạy 07:30 hằng ngày. 14 ngày: thông báo TRONG HỆ
  * THỐNG cho luật sư phụ trách. 21 ngày: thư `staff.stale_matter` cho luật sư phụ trách, đồng gửi
  * mọi manager xem được vụ.
+ *
+ * Thư 21 ngày đi sau công tắc {@see BusinessSettings::staleMatterMailEnabled()} (làn st, trang "Cài đặt
+ * nghiệp vụ", mặc định BẬT): tắt thì không xếp job thư nào, và job đã xếp tự hỏi lại lúc gửi
+ * (`SendStaleMatterMail::context()`). Thông báo 14 ngày trong hệ thống KHÔNG theo công tắc.
  *
  * # Dùng lại hạ tầng M6.5, không viết lại (task-7-brief.md, "Sửa 2026-09-27, sau M6.5 Task 21")
  *
@@ -133,7 +138,8 @@ class CheckStaleMatters
             }
 
             if (
-                MatterStaleness::olderThan($matter, MatterStaleness::EMAIL_AFTER_DAYS)
+                BusinessSettings::staleMatterMailEnabled()
+                && MatterStaleness::olderThan($matter, MatterStaleness::EMAIL_AFTER_DAYS)
                 && ! $this->recentlyMailed($matter)
             ) {
                 $mailRecipients = $this->recipientsFor($matter, 'mail');

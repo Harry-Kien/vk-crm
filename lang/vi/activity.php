@@ -230,6 +230,11 @@ return [
         // địa chỉ thư của tài khoản cổng nhận) và App\Jobs\SendPaymentOverdueReminderMail::failed().
         'client_payment_reminder_sent' => 'Gửi thư nhắc khách đợt thanh toán quá hạn',
         'client_payment_reminder_failed' => 'Gửi thư nhắc khách đợt thanh toán quá hạn thất bại hẳn',
+        // làn st — App\Actions\Settings\UpdateBusinessSettings (`changes` = trường → {old, new}, `reset` khi
+        // "Đưa tất cả về mặc định") và App\Actions\Settings\SendTestMailToSelf (`recipient` = email của chính
+        // người bấm "Gửi thư thử").
+        'business_settings_updated' => 'Đổi cài đặt nghiệp vụ',
+        'test_mail_requested' => 'Gửi thư thử từ trang Cài đặt',
         // M7 Task 8: app/Actions/Communication/{LogCommunication,DeleteCommunicationLog}.php —
         // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
         'communication_logged' => 'Ghi nhật ký liên lạc',

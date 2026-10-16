@@ -393,6 +393,37 @@ nhân sự, cách làm việc **không đổi**:
 Việc của chủ văn phòng trước khi bật (Workspace, Shared Drive, tài khoản dịch vụ, ý kiến luật sư về hồ
 sơ chuyển dữ liệu ra nước ngoài, máy chủ văn phòng): `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`.
 
+### Cài đặt — một chỗ cho mọi cấu hình (làn st, 2026-10-15)
+
+**Ai vào:** chỉ quản trị viên (quyền `settings.manage`). Mục **"Cài đặt"** (biểu tượng bánh răng) trên menu trái mở một trang
+tổng như các CRM lớn: ô tìm (gõ không dấu cũng được) và các thẻ theo nhóm — Văn phòng, Người dùng & phân
+quyền, Vụ việc & tiếp nhận, Cổng khách hàng & thông báo, Tài chính, Tài liệu & lưu trữ, Trợ lý AI. Mỗi thẻ
+hiện trạng thái đang chạy thật (ví dụ "Nhắc thanh toán: Tắt", "Google Drive: Chưa bật", "2FA: 7/8 nhân sự
+đã cài") và dẫn tới trang của nó. Các trang cài đặt cũ (Thông tin văn phòng, Nhắc thanh toán cho khách,
+Kho tài liệu, Kết nối AI…) vẫn ở chỗ cũ trên menu.
+
+**Chỉnh được gì — "Cài đặt nghiệp vụ"** (mỗi lần lưu ghi vào Nhật ký hệ thống: ai, đổi gì, cũ → mới):
+
+| Cài đặt | Mặc định (chưa đổi gì) | Giới hạn |
+|---|---|---|
+| Số ngày khách còn xem hồ sơ sau khi vụ kết thúc | theo máy chủ (`CLIENT_ACCESS_DAYS`, 90) | 1–730 ngày; áp cho vụ kết thúc từ nay |
+| Gửi thư khi hồ sơ quá 21 ngày chưa cập nhật cho khách | Bật | chuông 14 ngày và cảnh báo trang chủ vẫn còn khi tắt |
+| Thời hạn phản hồi lần đầu một người liên hệ | theo máy chủ (`INTAKE_RESPONSE_HOURS`, 4) | 1–40 giờ làm việc |
+| Khách gửi yêu cầu mới trên cổng | Bật | tắt thì cuộc trao đổi đã có vẫn viết tiếp được |
+| Dung lượng tối đa một tệp tải lên | theo máy chủ (`UPLOAD_MAX_MB`, 20) | 1 MB tới trần của máy chủ (chỉ hạ được) |
+| Tự động nhắc khách nộp giấy tờ còn thiếu | Bật | chuông 14 ngày cho luật sư vẫn còn khi tắt |
+
+Chưa đổi thì hệ thống chạy đúng như trước; đã đổi thì giá trị trên giao diện thắng `.env`; nút "Đưa tất cả
+về mặc định" trả về giá trị của máy chủ.
+
+**Chỉ xem, không đổi trên giao diện:** "Vai trò & quyền" (bảng sáu vai × quyền; đổi vai của một người ở
+trang Nhân sự), "Bảo mật đăng nhập" (2FA bắt buộc, ai chưa cài, khoá đăng nhập, giới hạn IP, HTTPS/HSTS/CSP,
+quét virus, sao lưu gần nhất), thời hạn lưu trữ hồ sơ, hạn giữ dữ liệu người liên hệ — đó là luật hoặc
+cấu hình của máy chủ (`docs/CAI-DAT.md`).
+
+**Thư điện tử:** trang nói thư đang đi qua máy chủ nào, từ địa chỉ nào; nút **"Gửi thư thử"** gửi một thư
+tới chính bạn (tối đa 3 lần mỗi 10 phút) — dùng mỗi khi đổi máy chủ thư.
+
 ---
 
 ## Chưa có chủ — cần chủ văn phòng quyết

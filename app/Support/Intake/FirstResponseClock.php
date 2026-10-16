@@ -4,14 +4,15 @@ namespace App\Support\Intake;
 
 use App\Models\IntakeRequest;
 use App\Support\BusinessHours;
+use App\Support\Settings\BusinessSettings;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Đồng hồ phản hồi lần đầu (M10 R5): một lần có người liên hệ phải được phản hồi — rời `new`, xem
- * `first_response_at` — trong `config('vkcrm.intake_response_hours')` GIỜ LÀM VIỆC
- * ({@see BusinessHours}) kể từ `received_at`. MỘT định nghĩa "quá hạn phản hồi" cho ba nơi:
+ * `first_response_at` — trong {@see BusinessSettings::intakeResponseHours()} GIỜ LÀM VIỆC (trang "Cài
+ * đặt nghiệp vụ", mặc định `INTAKE_RESPONSE_HOURS`; {@see BusinessHours}) kể từ `received_at`. MỘT định nghĩa "quá hạn phản hồi" cho ba nơi:
  * `RemindUnansweredIntakes` (chọn bản ghi để nhắc), `SendUnansweredIntakeReminderMail` (hỏi lại lúc
  * gửi — bản ghi được phản hồi giữa chừng thì không gửi), và widget "Liên hệ chưa ai gọi lại".
  *
@@ -28,7 +29,7 @@ final readonly class FirstResponseClock
 
     public static function fromConfig(): self
     {
-        return new self(BusinessHours::fromConfig(), (int) config('vkcrm.intake_response_hours'));
+        return new self(BusinessHours::fromConfig(), BusinessSettings::intakeResponseHours());
     }
 
     /** Thời điểm bản ghi hết hạn phản hồi: `received_at` cộng ngưỡng, chỉ đếm giờ làm việc. */

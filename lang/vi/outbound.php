@@ -87,6 +87,8 @@ return [
         // Làn nt Task 2: App\Mail\Client\PaymentReminder — báo trước hạn (lịch 08:15) và nhắc đợt quá hạn (nút "Gửi thư nhắc").
         'client.payment_reminder.due_soon' => 'Báo khách đợt thanh toán sắp đến hạn',
         'client.payment_reminder.overdue' => 'Nhắc khách đợt thanh toán đã quá hạn',
+        // làn st: App\Mail\Staff\TestMail — nút "Gửi thư thử" của trang Cài đặt › Thư điện tử.
+        'staff.test_mail' => 'Thư thử từ trang Cài đặt',
     ],
 
     'matter_tab' => [
@@ -128,6 +130,8 @@ return [
                 'client.payment_received' => 'thư xác nhận đã nhận tiền gắn với vụ việc chứ không với khoản thu, nên không dựng lại được; hệ thống tự thử lại nhiều lần, thử hết mà vẫn lỗi thì luật sư phụ trách nhận chuông báo. Thư chỉ đi tới tài khoản mà cổng khách còn cho xem vụ. Hãy báo khách bằng kênh khác nếu cần.',
                 // Làn nt Task 2 (lý do ở docblock `ResendTargets`).
                 'client.payment_reminder.*' => 'thư báo trước hạn tự được gửi lại ở lượt 08:15 kế tiếp khi đợt vẫn sắp đến hạn, vì chỉ thư đã gửi thành công mới chặn thư mới; thư nhắc đợt quá hạn thì người quản lý hợp đồng bấm lại "Gửi thư nhắc" trên dòng đợt đó ở tab "Hợp đồng và thanh toán" (mỗi đợt một lần mỗi ngày), có xem trước nội dung và ghi vào sổ liên lạc của vụ.',
+                // làn st (lý do ở docblock `ResendTargets`).
+                'staff.test_mail' => 'thư thử chỉ để kiểm tra máy chủ gửi thư; hãy bấm lại "Gửi thư thử" ở trang Cài đặt › Thư điện tử sau khi đã sửa cấu hình.',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],
@@ -137,7 +141,7 @@ return [
             'related_gone' => 'Bản ghi mà thư này nói về không còn nữa nên không dựng lại được thư.',
             'superseded' => 'Việc mà thư này báo đã được thay bằng một lần mới hơn (ví dụ giấy tờ đã bị từ chối lại với lý do khác), nên thư cũ không còn đúng. Hãy xem dòng thư của lần mới trong nhật ký.',
             'already_requested' => 'Thư này đã được yêu cầu gửi lại lúc :time. Hãy xem dòng mới nhất của cùng mẫu thư trong nhật ký; nếu lần đó cũng lỗi thì dòng lỗi mới có nút gửi lại riêng.',
-            'no_eligible_recipient' => 'Hiện không còn ai đủ điều kiện nhận thư này (vụ việc đã đóng, đã hết hạn tra cứu hoặc tắt công bố trên cổng, tài khoản đã khoá hoặc chưa kích hoạt, hay nhân sự không còn xem được vụ việc). Không có thư nào được gửi.',
+            'no_eligible_recipient' => 'Hiện không còn ai đủ điều kiện nhận thư này (vụ việc đã đóng, đã hết hạn tra cứu hoặc tắt công bố trên cổng, tài khoản đã khoá hoặc chưa kích hoạt, nhân sự không còn xem được vụ việc, hay văn phòng đã tắt loại thư này ở trang Cài đặt nghiệp vụ). Không có thư nào được gửi.',
             'already_delivered' => 'Mọi người đủ điều kiện nhận thư này đều đã nhận được ở một lần gửi khác. Không có thư nào được gửi.',
         ],
 
