@@ -4,12 +4,15 @@ namespace App\Filament\Admin\Support;
 
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\UpdateDraftContract;
+use App\Enums\ContractStatus;
 use App\Enums\InstalmentTrigger;
 use App\Filament\Admin\Pages\ContractEntry;
 use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\Payment;
+use App\Support\Billing\CollectedRevenue;
 use App\Support\Billing\Money;
 use App\Support\Billing\SplitByPercent;
 use App\Support\Billing\Vat;
@@ -22,6 +25,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 
@@ -249,6 +253,44 @@ final class ContractScheduleForm
         } catch (ValidationException) {
             return null;
         }
+    }
+
+    /**
+     * Luật "ký lại sau khi huỷ" kèm SỐ đã thu trên hợp đồng đã huỷ — `null` khi hợp đồng hiện hành của
+     * vụ không phải bản đã huỷ (soạn hợp đồng đầu tiên thì không có gì để nói). MỘT câu cho cả modal
+     * "Soạn hợp đồng mới" của tab ({@see BillingRelationManager}) lẫn modal "Nhập hợp đồng" của trang kế
+     * toán ({@see ContractEntry}, vòng sửa 1 của làn kt, I1): người nhập lại hợp đồng giấy đủ giá trị mà
+     * không thấy số này thì doanh thu bị đếm hai lần, Công nợ và cổng khách báo khách nợ nhiều hơn.
+     */
+    public static function redraftCollectedRule(Matter $matter): ?string
+    {
+        if ($matter->contract?->status !== ContractStatus::Cancelled) {
+            return null;
+        }
+
+        return __('billing_corrections.redraft.collected_rule', [
+            'collected' => Money::format(self::collectedOnCancelledContracts($matter)),
+        ]);
+    }
+
+    /**
+     * Tổng khoản thu CHƯA HUỶ trên các hợp đồng ĐÃ HUỶ của vụ — số mà {@see CollectedRevenue} vẫn
+     * tính doanh thu nhưng cổng khách và Công nợ không còn đọc (cả hai chỉ theo hợp đồng hiện hành).
+     * Modal soạn/nhập hợp đồng mới hiện số này để văn phòng chỉ ghi phần còn phải thu.
+     *
+     * Chỉ {@see self::redraftCollectedRule()} gọi hàm này, khi hợp đồng hiện hành đã huỷ — lúc đó MỌI
+     * hợp đồng của vụ đều đã huỷ (A1: hợp đồng mới chỉ soạn được khi mọi bản trước đã huỷ), nên điều
+     * kiện `cancelled` dưới đây là phòng xa, không đo riêng được qua màn hình. Chuyển nguyên từ
+     * `BillingRelationManager` ở vòng sửa 1 của làn kt (không đổi truy vấn).
+     */
+    private static function collectedOnCancelledContracts(Matter $matter): int
+    {
+        return (int) Payment::query()
+            ->whereHas('instalment.contract', fn (Builder $query) => $query
+                ->where('matter_id', $matter->getKey())
+                ->where('status', ContractStatus::Cancelled->value))
+            ->whereNull('voided_at')
+            ->sum('amount');
     }
 
     /** @return array<string, string> */

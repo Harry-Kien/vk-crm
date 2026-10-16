@@ -205,7 +205,8 @@ một dòng trong nhật ký hệ thống.
     trên hợp đồng đã huỷ vẫn tính doanh thu (trang Doanh thu, P7) — **không ghi lại** khoản đó trên
     hợp đồng mới, nếu không doanh thu bị tính hai lần. Ngược lại, ghi hợp đồng mới đủ giá trị cũ thì
     cổng khách và trang Công nợ (chỉ đọc hợp đồng hiện hành) báo khách còn nợ nhiều hơn thực tế.
-    Modal **Soạn hợp đồng mới** hiện sẵn số đã thu trên hợp đồng đã huỷ để trừ ra.
+    Modal **Soạn hợp đồng mới** (và **Nhập hợp đồng** ở trang Hợp đồng của kế toán) hiện sẵn số đã thu
+    trên hợp đồng đã huỷ để trừ ra.
 
 ### Kế toán nhập hợp đồng (làn kt, chủ văn phòng chọn 2026-10-15)
 
@@ -221,6 +222,8 @@ chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không c�
    gõ `50.000.000`), thuế suất, từng đợt (tên, phần trăm **hoặc** số tiền, đến hạn khi ký / vào một ngày /
    khi vụ tới một giai đoạn). Khung xem trước cho thấy số tiền từng đợt và tổng các đợt so với giá trị.
    Số hợp đồng `HD-năm-số` do hệ thống cấp.
+   Hồ sơ có hợp đồng **đã huỷ** (lọc trạng thái "Đã huỷ"): hộp thoại hiện sẵn số đã thu trên hợp đồng đã
+   huỷ — chỉ nhập **phần còn phải thu**, không ghi lại khoản đã thu ("Tiền đã thu trên hợp đồng đã huỷ" ngay trên).
 3. Khách **đã ký** và tổng các đợt khớp giá trị: bật **Khách đã ký — kích hoạt luôn**, chọn ngày ký
    (không ở tương lai), rồi lưu — hợp đồng đang hiệu lực ngay, đợt "khi ký" có hạn. Lệch tổng một đồng thì
    không lưu gì, hộp thoại giữ nguyên để sửa. Chưa chắc: để công tắc tắt — **lưu nháp**, rồi **Sửa bản

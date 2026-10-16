@@ -36,7 +36,6 @@ use App\Policies\Concerns\ChecksBillingAccess;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\ClientPaymentReminders;
 use App\Support\Billing\ClientPaymentSettings;
-use App\Support\Billing\CollectedRevenue;
 use App\Support\Billing\Money;
 use App\Support\Billing\SplitByPercent;
 use App\Support\Billing\Vat;
@@ -568,12 +567,9 @@ class BillingRelationManager extends RelationManager
             ->icon(Heroicon::OutlinedDocumentPlus)
             ->modalHeading(__('billing.tab.actions.draft_heading'))
             // Ký lại sau khi huỷ: nói luật tiền đã thu (vòng sửa cuối của làn fb) kèm số đã thu trên
-            // hợp đồng đã huỷ; soạn hợp đồng đầu tiên của vụ thì không có gì để nói.
-            ->modalDescription(fn (): ?string => $matter->contract?->status === ContractStatus::Cancelled
-                ? __('billing_corrections.redraft.collected_rule', [
-                    'collected' => Money::format(static::collectedOnCancelledContracts($matter)),
-                ])
-                : null)
+            // hợp đồng đã huỷ; soạn hợp đồng đầu tiên của vụ thì không có gì để nói. Câu dùng chung với
+            // modal "Nhập hợp đồng" của trang kế toán (làn kt, vòng sửa 1).
+            ->modalDescription(fn (): ?string => ContractScheduleForm::redraftCollectedRule($matter))
             ->visible(fn (): bool => $matter->contract === null || $matter->contract->status === ContractStatus::Cancelled)
             ->authorize(fn (): bool => Gate::allows('create', [Contract::class, $matter]))
             // M10 Task 4 (R3): vụ đến từ một lần tiếp nhận thì phí đã báo lúc đó hiện sẵn làm GỢI Ý tổng
@@ -594,25 +590,6 @@ class BillingRelationManager extends RelationManager
                     return $contract;
                 },
             ));
-    }
-
-    /**
-     * Tổng khoản thu CHƯA HUỶ trên các hợp đồng ĐÃ HUỶ của vụ — số mà {@see CollectedRevenue} vẫn
-     * tính doanh thu nhưng cổng khách và Công nợ không còn đọc (cả hai chỉ theo hợp đồng hiện hành).
-     * Modal soạn hợp đồng mới hiện số này để văn phòng chỉ ghi phần còn phải thu.
-     *
-     * Modal chỉ gọi hàm này khi hợp đồng hiện hành đã huỷ, lúc đó MỌI hợp đồng của vụ đều đã huỷ (A1:
-     * hợp đồng mới chỉ soạn được khi mọi bản trước đã huỷ) — điều kiện `cancelled` dưới đây vì vậy
-     * là phòng xa, không đo riêng được qua màn hình.
-     */
-    private static function collectedOnCancelledContracts(Matter $matter): int
-    {
-        return (int) Payment::query()
-            ->whereHas('instalment.contract', fn (Builder $query) => $query
-                ->where('matter_id', $matter->getKey())
-                ->where('status', ContractStatus::Cancelled->value))
-            ->whereNull('voided_at')
-            ->sum('amount');
     }
 
     private function updateDraftContractAction(): Action

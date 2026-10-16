@@ -385,7 +385,10 @@ class ContractEntry extends Page implements HasTable
             ->icon(Heroicon::OutlinedDocumentPlus)
             ->color('primary')
             ->modalHeading(__('contract_entry.actions.enter_heading'))
-            ->modalDescription(__('contract_entry.actions.enter_description'))
+            // Vòng sửa 1 (I1): hợp đồng hiện hành đã huỷ thì nói thêm đúng câu của modal "Soạn hợp đồng
+            // mới" ở tab — luật tiền đã thu kèm SỐ đã thu trên hợp đồng đã huỷ, để chỉ nhập phần còn phải thu.
+            ->modalDescription(fn (Matter $record): string => trim(__('contract_entry.actions.enter_description')
+                .' '.ContractScheduleForm::redraftCollectedRule($record)))
             ->modalWidth('4xl')
             ->visible(fn (Matter $record): bool => $record->contract === null || $record->contract->status === ContractStatus::Cancelled)
             ->authorize(fn (Matter $record): bool => Gate::allows('create', [Contract::class, $record]))

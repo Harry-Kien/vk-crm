@@ -63,6 +63,10 @@ it('walks the accountant through entering a contract in QUY-TRINH', function () 
         expect($section)->toContain($phrase);
     }
 
+    // Vòng sửa 1 (I1): hợp đồng hiện hành đã huỷ — hộp thoại nhập hiện số đã thu, chỉ nhập phần còn phải thu.
+    expect($section)->toContain('Hồ sơ có hợp đồng **đã huỷ**')
+        ->and($section)->toContain('hộp thoại hiện sẵn số đã thu trên hợp đồng đã huỷ — chỉ nhập **phần còn phải thu**');
+
     // Các nhãn mà tài liệu dẫn là đúng nhãn của màn hình.
     expect(__('contract_entry.navigation_label'))->toBe('Hợp đồng')
         ->and(__('contract_entry.actions.enter'))->toBe('Nhập hợp đồng')

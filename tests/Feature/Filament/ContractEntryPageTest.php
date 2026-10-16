@@ -173,6 +173,40 @@ it('treats a matter whose current contract was cancelled as cancelled, not as wi
         ->assertActionVisible(TestAction::make('enterContract')->table($redo));
 });
 
+/**
+ * Vòng sửa 1 (I1): hợp đồng hiện hành đã huỷ sau khi đã thu tiền — modal "Nhập hợp đồng" phải nói
+ * đúng luật mà modal "Soạn hợp đồng mới" của tab nói (`billing_corrections.redraft.collected_rule`)
+ * kèm SỐ đã thu (chỉ khoản chưa huỷ) trên hợp đồng đã huỷ: kế toán nhập lại đủ giá trị giấy thì doanh
+ * thu bị đếm hai lần, Công nợ và cổng khách báo khách nợ nhiều hơn thực tế.
+ */
+it('tells the accountant entering a contract after a cancelled one how much was already collected, so only what is still owed is entered', function () {
+    $redo = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $old = Contract::factory()->for($redo)->active()->create(['total_amount' => 40_000_000]);
+    $oldInstalment = Instalment::factory()->for($old)->create(['amount' => 40_000_000]);
+    Payment::factory()->for($oldInstalment)->create(['amount' => 15_000_000]);
+    Payment::factory()->for($oldInstalment)->voided()->create(['amount' => 5_000_000]);
+    $old->forceFill(['status' => ContractStatus::Cancelled])->save();
+
+    $this->actingAs($this->accountant, 'web');
+
+    contractPage()
+        ->filterTable('contract_status', [ContractStatus::Cancelled->value])
+        ->mountAction(TestAction::make('enterContract')->table($redo))
+        ->assertMountedActionModalSee(__('contract_entry.actions.enter_description'))
+        ->assertMountedActionModalSee(__('billing_corrections.redraft.collected_rule', [
+            'collected' => Money::format(15_000_000),
+        ]));
+});
+
+it('says nothing about a cancelled contract when entering the first contract of a matter', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    contractPage()
+        ->mountAction(TestAction::make('enterContract')->table($this->empty))
+        ->assertMountedActionModalSee(__('contract_entry.actions.enter_description'))
+        ->assertMountedActionModalDontSee('không ghi lại');
+});
+
 it('shows the restricted matter to the admin, who sees its money', function () {
     $this->actingAs($this->admin, 'web');
 
