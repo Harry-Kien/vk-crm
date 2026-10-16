@@ -76,10 +76,21 @@ use Livewire\Attributes\Url;
  * {@see EnterSignedContract} — soạn và kích hoạt trong MỘT transaction, lệch tổng hay ngày ký ở tương
  * lai thì không lưu gì, hộp thoại ở lại với dữ liệu đã nhập. Mặc định tắt có chủ đích: hợp đồng đã kích
  * hoạt chỉ người có `contract.manage` sửa được (phụ lục, huỷ), nên kích hoạt là một bước nhìn lại rõ
- * ràng. **Sửa bản nháp** ({@see UpdateDraftContract}), **Xoá bản nháp** ({@see DeleteDraftContract}),
- * **Kích hoạt (đã ký)** ({@see ActivateContract}) chỉ hiện khi hợp đồng hiện hành còn nháp. **Ghi khoản
- * thu** (hợp đồng đang hiệu lực) là một liên kết sang trang Công nợ, lọc sẵn mã hồ sơ — chỉ hiện khi
- * người xem mở được trang đó.
+ * ràng.
+ *
+ * **Một khác biệt có chủ đích với form của tab:** tab "Hợp đồng và thanh toán" truyền gợi ý tổng giá
+ * trị là phí đã báo lúc tiếp nhận (`BillingRelationManager::quotedAmountSuggestion()` →
+ * `ContractScheduleForm::fields(suggestedTotal:)`, M10 R3); trang này KHÔNG truyền. Kế toán không thấy
+ * gì của tiếp nhận (không `intake.*`, SPEC §5) — phí đã báo là ghi chú của người tư vấn, không phải số
+ * trên hợp đồng giấy kế toán đang cầm, và một con số điền sẵn từ nơi kế toán không được xem vừa lộ
+ * dữ liệu tiếp nhận vừa mời nhập sai giá trị. Ô tổng giá trị ở đây vì thế để trống.
+ *
+ * **Sửa bản nháp** ({@see UpdateDraftContract}), **Xoá bản nháp** ({@see DeleteDraftContract}),
+ * **Kích hoạt (đã ký)** ({@see ActivateContract}) chỉ hiện khi hợp đồng hiện hành còn nháp — trừ khi
+ * hộp thoại của nút đã mở trên dòng đó: khi ấy trạng thái đổi ở tab khác không làm nút tự ẩn, Action
+ * từ chối bằng câu của nó ({@see self::isOpenDialog()}; "Nhập hợp đồng" cũng vậy). **Ghi khoản thu**
+ * (hợp đồng đang hiệu lực) là một liên kết sang trang Công nợ, lọc sẵn mã hồ sơ — chỉ hiện khi người
+ * xem mở được trang đó.
  *
  * Mỗi nút hỏi `Gate` CÓ NGỮ CẢNH trên đúng dòng (`create` với vụ; `updateDraft`, `delete`, `activate`
  * với hợp đồng — {@see ContractPolicy}); Action hỏi lại trên hàng đã khoá. Lỗi của Action ra qua
@@ -210,6 +221,9 @@ class ContractEntry extends Page implements HasTable
                     ->multiple()
                     ->options(static::statusOptions())
                     ->default([self::STATUS_NONE, ContractStatus::Draft->value])
+                    // Đợt polish (m4): tìm lại dòng của một hộp thoại đang mở KHÔNG qua bộ lọc này —
+                    // xem `isOpenDialog()`. Tập dòng vẫn là `listableBy()` (truy vấn gốc của bảng).
+                    ->excludeWhenResolvingRecord()
                     ->query(fn (Builder $query, array $data): Builder => static::whereContractStatus($query, (array) ($data['values'] ?? []))),
                 SelectFilter::make('matter_type_id')
                     ->label(__('contract_entry.filters.matter_type'))
@@ -297,6 +311,11 @@ class ContractEntry extends Page implements HasTable
      * Lọc theo trạng thái của hợp đồng HIỆN HÀNH (`Matter::contract()`, bản mới nhất). Không chọn gì thì
      * không lọc. "Chưa có hợp đồng" là `whereDoesntHave('contracts')` — vụ chưa từng có hợp đồng nào.
      *
+     * `$values` là chuỗi kể cả khi bộ lọc đến từ query string (`#[Url]`): ô chọn nhiều của Filament bỏ
+     * mọi giá trị không nằm trong `statusOptions()` khi điền bộ lọc từ URL, nên một mảng lồng tự chế
+     * (`filters[contract_status][values][0][]=x`) tới đây thành `[]` — trang trả 200, không lọc (đo
+     * bằng HTTP ở `ContractEntryPageTest`, "crafted nested array in the contract status filter").
+     *
      * @param  list<string>  $values
      */
     private static function whereContractStatus(Builder $query, array $values): Builder
@@ -380,6 +399,44 @@ class ContractEntry extends Page implements HasTable
         ];
     }
 
+    /**
+     * `$action` là hộp thoại ĐANG MỞ trên trang này (đợt polish, m4 — trang này và tab tiền của vụ làm
+     * trên CÙNG một bản nháp).
+     *
+     * Bốn nút trên dòng chỉ hiện theo trạng thái hợp đồng ("Nhập hợp đồng" khi chưa có/đã huỷ, ba nút
+     * nháp khi còn nháp) — để mỗi dòng chỉ mời đúng việc của nó. Nhưng Filament hỏi lại `->visible()`
+     * NGAY LÚC MỞ và LÚC GỬI hộp thoại (`mountAction()`/`callMountedAction()` dừng khi `isDisabled()`,
+     * mà `isDisabled()` đọc `isHidden()` — chú thích ở `BillingRelationManager::activateContractAction()`):
+     * nếu ở tab kia người khác vừa kích hoạt, xoá hay soạn bản nháp, nút tự ẩn lúc bấm, Filament bỏ
+     * ngang không một lời và dữ liệu đã gõ mất. Nên với hộp thoại đã mở (trên đúng dòng người dùng
+     * bấm), điều kiện hiện KHÔNG đọc trạng thái nữa: Action bên dưới là nơi nói "không" bằng câu tiếng
+     * Việt của nó (`ContractStatusConflict`, `ContractNotDestroyable`, `billing.validation.contract_exists`), qua
+     * {@see ReportsActionFailures} — hộp thoại ở lại với dữ liệu đã gõ. Thành ngữ của tab là "chỉ lọc
+     * cấu trúc"; ở một danh sách nhiều dòng, lọc cấu trúc nghĩa là bốn nút trên mọi dòng, và "Nhập hợp
+     * đồng" vẫn ẩn khi người khác vừa soạn (vụ đã có hợp đồng) — nên ở đây là "không lọc trạng thái khi
+     * hộp thoại đang mở".
+     *
+     * "Đang mở" = trang có một mục `$mountedActions` ở ĐÚNG vị trí lồng của action. Filament chỉ gán
+     * vị trí lồng cho action nó tìm lại từ một mục như vậy (`InteractsWithActions::resolveActions()`) —
+     * và dòng của mục đó là dòng người dùng đã bấm (`context.recordKey`); action chưa mở không có vị
+     * trí lồng, không trỏ tới mục nào (`-1`). Nút trên các dòng của bảng được vẽ từ những bản khác,
+     * không mang vị trí lồng, nên vẫn theo trạng thái — kể cả lúc một hộp thoại đang mở (đo bằng
+     * `ContractEntryPageTest`, "still draws the other rows…"; phép thử ngược so thêm khoá dòng không đổi
+     * kết quả nào, nên không có điều kiện đó). Hỏi "có mục ở vị trí đó không", không chỉ "có vị trí
+     * lồng không": công cụ test của Filament (`assertActionHidden`…) cũng gán vị trí lồng khi tìm action
+     * mà không mở nó. Gửi xong, Filament gỡ mục đó.
+     *
+     * Không mở rộng quyền: `->authorize()` (không đọc trạng thái) vẫn hỏi `Gate`, Action hỏi lại trên
+     * hàng đã khoá. Bộ lọc trạng thái không áp khi Filament tìm lại dòng (`excludeWhenResolvingRecord`),
+     * nếu không một dòng vừa đổi trạng thái rơi khỏi bộ lọc mặc định và hộp thoại cũng bỏ ngang. Còn một
+     * trường hợp vẫn im lặng: bản nháp ĐẦU TIÊN của vụ bị xoá ở tab kia — vụ không còn hợp đồng nào, ba
+     * nút nháp không còn hợp đồng để hỏi `Gate` nên tự ẩn; lần vẽ sau cho thấy "Chưa có hợp đồng".
+     */
+    private function isOpenDialog(Action $action): bool
+    {
+        return isset($this->mountedActions[$action->getNestingIndex() ?? -1]);
+    }
+
     private function enterContractAction(): Action
     {
         return Action::make('enterContract')
@@ -398,7 +455,9 @@ class ContractEntry extends Page implements HasTable
                 ? __('contract_entry.actions.submit_activate')
                 : __('contract_entry.actions.submit_draft'))
             ->modalWidth('4xl')
-            ->visible(fn (Matter $record): bool => $record->contract === null || $record->contract->status === ContractStatus::Cancelled)
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action)
+                || $record->contract === null
+                || $record->contract->status === ContractStatus::Cancelled)
             ->authorize(fn (Matter $record): bool => Gate::allows('create', [Contract::class, $record]))
             ->schema(fn (Matter $record): array => [...ContractScheduleForm::fields($record), ...static::signingFields()])
             ->successNotificationTitle(fn (array $data): string => ($data['activate_now'] ?? false)
@@ -423,7 +482,7 @@ class ContractEntry extends Page implements HasTable
             ->icon(Heroicon::OutlinedPencilSquare)
             ->modalHeading(__('billing.tab.actions.update_draft_heading'))
             ->modalWidth('4xl')
-            ->visible(fn (Matter $record): bool => $record->contract?->status === ContractStatus::Draft)
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action) || $record->contract?->status === ContractStatus::Draft)
             ->authorize(fn (Matter $record): bool => $record->contract !== null && Gate::allows('updateDraft', $record->contract))
             ->schema(fn (Matter $record): array => ContractScheduleForm::fields($record))
             ->fillForm(fn (Matter $record): array => $record->contract === null ? [] : ContractScheduleForm::formState($record->contract))
@@ -445,7 +504,7 @@ class ContractEntry extends Page implements HasTable
             ->icon(Heroicon::OutlinedCheckBadge)
             ->color('success')
             ->modalHeading(__('billing.tab.actions.activate_heading'))
-            ->visible(fn (Matter $record): bool => $record->contract?->status === ContractStatus::Draft)
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action) || $record->contract?->status === ContractStatus::Draft)
             ->authorize(fn (Matter $record): bool => $record->contract !== null && Gate::allows('activate', $record->contract))
             ->schema([
                 DatePicker::make('signed_at')
@@ -470,7 +529,7 @@ class ContractEntry extends Page implements HasTable
             ->requiresConfirmation()
             ->modalHeading(__('billing.tab.actions.delete_draft_heading'))
             ->modalDescription(__('billing.tab.actions.delete_draft_description'))
-            ->visible(fn (Matter $record): bool => $record->contract?->status === ContractStatus::Draft)
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action) || $record->contract?->status === ContractStatus::Draft)
             ->authorize(fn (Matter $record): bool => $record->contract !== null && Gate::allows('delete', $record->contract))
             ->successNotificationTitle(__('billing.tab.actions.delete_draft_success'))
             ->action(fn (Action $action, Matter $record) => $this->runAction(

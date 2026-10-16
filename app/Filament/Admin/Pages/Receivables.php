@@ -280,15 +280,17 @@ class Receivables extends Page implements HasTable
                     )),
                 // Làn kt: "Mã hồ sơ" — đích của nút "Ghi khoản thu" trên trang "Hợp đồng" (xem
                 // `$tableFilters`). Đúng mã, không "chứa": liên kết mang mã đầy đủ của một hồ sơ.
+                // Đợt polish (m5): ô này đọc từ query string, nên một giá trị không phải chuỗi
+                // (`filters[matter_code][code][]=x`) bị bỏ qua như ô trống, không thành trang 500.
                 Filter::make('matter_code')
                     ->schema([
                         TextInput::make('code')->label(__('billing.receivables.recent_payments.filters.matter_code')),
                     ])
                     ->query(fn (Builder $query, array $data): Builder => $query->when(
-                        filled($data['code'] ?? null),
+                        is_string($data['code'] ?? null) && filled($data['code']),
                         fn (Builder $query): Builder => $query->whereHas(
                             'contract.matter',
-                            fn (Builder $matter) => $matter->where('code', trim((string) $data['code'])),
+                            fn (Builder $matter) => $matter->where('code', trim($data['code'])),
                         ),
                     )),
             ])

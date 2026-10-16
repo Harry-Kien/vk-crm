@@ -23,6 +23,8 @@ use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Livewire\DatabaseNotifications;
+use Filament\Notifications\Notification as FilamentNotification;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
@@ -749,4 +751,206 @@ it('carries each row through a final readonly DTO of exactly nine fields', funct
         'collected' => 15_000_000,
         'outstanding' => 25_000_000,
     ]);
+});
+
+// =================================================================================================
+// Hai tab cùng mở — trang "Hợp đồng" và tab tiền của vụ làm trên CÙNG một bản nháp (đợt polish, m4)
+// =================================================================================================
+
+/**
+ * "Tab thứ hai" của race: luật sư phụ trách làm ở tab "Hợp đồng và thanh toán" của vụ, rồi phiên quay
+ * lại người đang mở trang "Hợp đồng".
+ */
+function inLeadTab(Matter $matter, User $lead, Closure $act): void
+{
+    $previous = auth()->user();
+
+    test()->actingAs($lead, 'web');
+    $act(test()->livewire(BillingRelationManager::class, [
+        'ownerRecord' => $matter->fresh(),
+        'pageClass' => ViewMatter::class,
+    ]));
+    test()->actingAs($previous, 'web');
+}
+
+/** Đúng thông báo `ReportsActionFailures` dựng cho một lời từ chối của Action. */
+function refusedWith(string $body): FilamentNotification
+{
+    return FilamentNotification::make()->title(__('actions.failed_title'))->body($body)->danger()->persistent();
+}
+
+it('tells the accountant why, instead of dropping the click, when the lead lawyer activated the draft in the matter tab meanwhile', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $page = contractPage()->mountAction(TestAction::make('activate')->table($this->drafted));
+
+    inLeadTab($this->drafted, $this->lawyer, fn ($tab) => $tab
+        ->callAction(TestAction::make('activateContract')->table(), data: ['signed_at' => today()->toDateString()])
+        ->assertHasNoActionErrors());
+
+    $page->setActionData(['signed_at' => today()->subDay()->toDateString()])
+        ->callMountedAction()
+        ->assertActionMounted(TestAction::make('activate')->table($this->drafted));
+
+    FilamentNotification::assertNotified(refusedWith(__('billing.errors.contract_not_draft', [
+        'code' => $this->draft->code,
+        'status' => ContractStatus::Active->label(),
+    ])));
+
+    $draft = $this->draft->fresh();
+
+    expect($draft->activated_by)->toBe($this->lawyer->id)
+        ->and($draft->signed_at->toDateString())->toBe(today()->toDateString());
+});
+
+it('keeps what the accountant typed and says why when the draft being corrected was activated in the matter tab meanwhile', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $page = contractPage()
+        ->mountAction(TestAction::make('updateDraft')->table($this->drafted))
+        ->setActionData(oneInstalmentContract('32.000.000', '32.000.000'));
+
+    inLeadTab($this->drafted, $this->lawyer, fn ($tab) => $tab
+        ->callAction(TestAction::make('activateContract')->table(), data: ['signed_at' => today()->toDateString()])
+        ->assertHasNoActionErrors());
+
+    $page->callMountedAction()
+        ->assertActionMounted(TestAction::make('updateDraft')->table($this->drafted))
+        ->assertSchemaStateSet(['total_amount' => '32.000.000']);
+
+    FilamentNotification::assertNotified(refusedWith(__('billing.errors.contract_not_draft_for_update', [
+        'code' => $this->draft->code,
+        'status' => ContractStatus::Active->label(),
+    ])));
+
+    expect($this->draft->fresh()->total_amount)->toBe(30_000_000);
+});
+
+it('says why when a stale "delete draft" button is clicked after the draft was activated in the matter tab', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    // Trang đã vẽ ra khi hợp đồng còn nháp; nút được bấm SAU khi tab kia kích hoạt.
+    $page = contractPage()->assertActionVisible(TestAction::make('deleteDraft')->table($this->drafted));
+
+    inLeadTab($this->drafted, $this->lawyer, fn ($tab) => $tab
+        ->callAction(TestAction::make('activateContract')->table(), data: ['signed_at' => today()->toDateString()])
+        ->assertHasNoActionErrors());
+
+    // Đúng lời gọi `wire:click` của nút đã vẽ (công cụ test `callAction()` tự từ chối một nút đã ẩn,
+    // nên không mô phỏng được cú bấm trên một màn hình cũ), rồi xác nhận trong hộp thoại.
+    $page->call('mountAction', 'deleteDraft', [], ['table' => true, 'recordKey' => (string) $this->drafted->getKey()])
+        ->assertActionMounted(TestAction::make('deleteDraft')->table($this->drafted))
+        ->callMountedAction();
+
+    FilamentNotification::assertNotified(refusedWith(__('exceptions.contract_not_destroyable_not_draft')));
+
+    expect(Contract::query()->whereKey($this->draft->id)->exists())->toBeTrue();
+});
+
+it('keeps the contract the accountant typed and says why when the lead lawyer drafted one in the matter tab meanwhile', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $page = contractPage()
+        ->mountAction(TestAction::make('enterContract')->table($this->empty))
+        ->setActionData(oneInstalmentContract());
+
+    inLeadTab($this->empty, $this->lawyer, fn ($tab) => $tab
+        ->callAction(TestAction::make('draftContract')->table(), data: oneInstalmentContract('20.000.000', '20.000.000'))
+        ->assertHasNoActionErrors());
+
+    $page->callMountedAction()
+        ->assertActionMounted(TestAction::make('enterContract')->table($this->empty))
+        ->assertSchemaStateSet(['total_amount' => '25.000.000']);
+
+    FilamentNotification::assertNotified(refusedWith(__('billing.validation.contract_exists')));
+
+    $contract = Contract::query()->where('matter_id', $this->empty->id)->sole();
+
+    expect($contract->created_by)->toBe($this->lawyer->id)
+        ->and($contract->total_amount)->toBe(20_000_000);
+});
+
+it('still draws the other rows only the buttons of their own contract status while a dialog is open', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    // Ba dòng: chưa có hợp đồng, nháp, đang hiệu lực. Hộp thoại mở trên MỘT dòng không được làm nút
+    // của nó hiện ra ở hai dòng kia (đếm lời gọi mở hộp thoại trong HTML đã vẽ — `assertActionHidden`
+    // không dùng được khi đang có một action mounted: nó hiểu thành action lồng).
+    $page = contractPage()->filterTable('contract_status', []);
+
+    $page->mountAction(TestAction::make('enterContract')->table($this->empty));
+    expect(substr_count($page->html(), "wire:click=\"mountAction('enterContract'"))->toBe(1);
+
+    $page->call('unmountAction')->mountAction(TestAction::make('activate')->table($this->drafted));
+    expect(substr_count($page->html(), "wire:click=\"mountAction('activate'"))->toBe(1);
+});
+
+// =================================================================================================
+// Query string tự chế (đợt polish, m5)
+// =================================================================================================
+
+it('ignores a crafted nested array in the contract status filter of the URL instead of failing', function () {
+    $this->actingAs($this->accountant, 'web')
+        ->get(ContractEntry::getUrl(panel: 'admin').'?filters[contract_status][values][0][]=x')
+        ->assertOk()
+        ->assertSee($this->signed->code);
+});
+
+it('ignores a crafted nested array in the matter code filter of the receivables URL instead of failing', function () {
+    $this->actingAs($this->accountant, 'web')
+        ->get(Receivables::getUrl(panel: 'admin').'?filters[matter_code][code][]=x')
+        ->assertOk()
+        ->assertSee($this->signed->code);
+});
+
+// =================================================================================================
+// Chuông cho luật sư phụ trách: tiêu đề theo việc, liên kết sang tab tiền (đợt polish, m2 + m9)
+// =================================================================================================
+
+it('titles the lead lawyer bell after what happened and links it to the money tab of the matter', function () {
+    $other = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    contractPage()
+        ->callAction(TestAction::make('enterContract')->table($this->empty), data: oneInstalmentContract())
+        ->assertHasNoActionErrors();
+    contractPage()
+        ->callAction(TestAction::make('activate')->table($this->drafted), data: ['signed_at' => today()->toDateString()])
+        ->assertHasNoActionErrors();
+    contractPage()
+        ->callAction(TestAction::make('enterContract')->table($other), data: oneInstalmentContract(extra: [
+            'activate_now' => true,
+            'signed_at' => today()->toDateString(),
+        ]))
+        ->assertHasNoActionErrors();
+
+    $tab = array_search(BillingRelationManager::class, MatterResource::getRelations(), true);
+    $bells = $this->lawyer->notifications()->get()->keyBy(fn ($notification) => $notification->data['viewData']['matter_id']);
+
+    expect($bells)->toHaveCount(3);
+
+    foreach ([[$this->empty, 'drafted'], [$this->drafted, 'activated'], [$other, 'entered']] as [$matter, $event]) {
+        $data = $bells[$matter->id]->data;
+        $url = MatterResource::getUrl('view', ['record' => $matter->id, 'relation' => $tab], panel: 'admin');
+
+        expect($data['title'])->toBe(__('contract_entry.notifications.titles.'.$event, ['matter' => $matter->code]), $event)
+            ->and($data['actions'])->toBe([[
+                'name' => 'openBillingTab',
+                'label' => __('contract_entry.notifications.open_tab'),
+                'url' => $url,
+                'view' => 'filament-actions::link-action',
+            ]]);
+
+        // Luật sư phụ trách mở được đúng trang đó.
+        $this->actingAs($this->lawyer, 'web')->get($url)->assertOk();
+    }
+
+    expect($bells->map(fn ($notification) => $notification->data['title'])->unique())->toHaveCount(3);
+
+    // Chuông của panel vẽ được nút đó (đọc lại mảng qua `Action::fromArray()`).
+    $this->actingAs($this->lawyer, 'web');
+    Livewire::test(DatabaseNotifications::class)
+        ->assertSee(__('contract_entry.notifications.open_tab'))
+        ->assertSee(__('contract_entry.notifications.titles.activated', ['matter' => $this->drafted->code]));
 });

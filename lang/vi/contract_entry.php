@@ -56,7 +56,14 @@ return [
     ],
 
     'notifications' => [
-        'title' => 'Hợp đồng của hồ sơ :matter vừa được nhập',
+        // Một tiêu đề cho mỗi việc (đợt polish, m2) — cùng ba khoá với câu thân bên dưới.
+        'titles' => [
+            'drafted' => 'Hợp đồng của hồ sơ :matter vừa được nhập (bản nháp)',
+            'activated' => 'Hợp đồng của hồ sơ :matter vừa được kích hoạt',
+            'entered' => 'Hợp đồng của hồ sơ :matter vừa được nhập và kích hoạt',
+        ],
+        // Nút của dòng chuông: mở tab "Hợp đồng và thanh toán" của vụ để kiểm tra lại (đợt polish, m9).
+        'open_tab' => 'Mở tab Hợp đồng và thanh toán',
         'drafted' => ':who đã nhập hợp đồng :contract (bản nháp) cho hồ sơ :matter (tổng :total, :count đợt) — anh/chị kiểm tra lại.',
         'activated' => ':who đã kích hoạt hợp đồng :contract của hồ sơ :matter (ngày ký :date, tổng :total, :count đợt) — anh/chị kiểm tra lại.',
         'entered' => ':who đã nhập và kích hoạt hợp đồng :contract cho hồ sơ :matter (ngày ký :date, tổng :total, :count đợt) — anh/chị kiểm tra lại.',

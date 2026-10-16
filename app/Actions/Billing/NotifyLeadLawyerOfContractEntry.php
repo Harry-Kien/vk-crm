@@ -27,6 +27,13 @@ use Illuminate\Support\Facades\Notification;
  *   sách: không ai nhận chuông về việc chính mình vừa làm — nên luật sư phụ trách tự nhập thì không ai
  *   nhận gì (một điều kiện, không phải hai: phép thử ngược cho thấy một lần hỏi "người nhập có phải
  *   luật sư phụ trách không" đứng trước nó không đổi được kết quả nào).
+ * - **Khoảng hở đã biết (đợt polish, m7 — chỉ ghi lại, chưa sửa):** chuỗi dự phòng trả ĐÚNG MỘT người
+ *   (trưởng phòng đầu tiên thấy tiền của vụ, không có thì quản trị viên đầu tiên). Khi luật sư phụ
+ *   trách đã nghỉ/không còn thấy tiền VÀ người nhập lại chính là người đó, bước bỏ người nhập để lại
+ *   danh sách RỖNG: không ai nhận chuông — chuỗi không đi tiếp tới người kế. Hiếm (người dự phòng tự
+ *   nhập hợp đồng của một vụ mất người phụ trách) và không mất dữ liệu (nhật ký hoạt động vẫn ghi người
+ *   nhập). Sửa đúng cần một phương thức của `ResolveStaffRecipients` (dự phòng trừ một người), tệp của
+ *   làn tk — để sau khi gộp hai làn.
  * - Vụ `restricted`: kế toán không bao giờ tới đây (cổng tiền đã từ chối trong Action); quản trị viên
  *   nhập thì luật sư phụ trách — người duy nhất ngoài quản trị viên thấy tiền của vụ — nhận chuông.
  *
