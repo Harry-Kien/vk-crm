@@ -94,3 +94,23 @@ it('counts the active people holding each role', function () {
     Livewire::test(RolePermissionsPage::class)
         ->assertSeeHtml('data-role-count="lawyer">'.__('settings.roles.people', ['count' => 2]).'<');
 });
+
+/**
+ * Gộp integ-4 (mục B): quyền của các làn gộp sau làn st có nhóm thật — `contract.enter` (làn kt) đứng ở
+ * "Hợp đồng & tiền" cạnh `contract.manage`, và bảng không có nhóm "Quyền khác". Mutation probe: bỏ
+ * `Permission::ContractEnter` khỏi `PermissionGroups::GROUPS` → đỏ (rơi vào `other`).
+ */
+it('puts contract.enter next to contract.manage and leaves no "other" bucket', function () {
+    $groups = PermissionGroups::all();
+
+    expect($groups)->not->toHaveKey('other')
+        ->and($groups['money'])->toContain(Permission::ContractEnter)
+        ->and(array_search(Permission::ContractEnter, $groups['money'], true))
+        ->toBe(array_search(Permission::ContractManage, $groups['money'], true) + 1);
+
+    $this->actingAs($this->admin, 'web');
+
+    Livewire::test(RolePermissionsPage::class)
+        ->assertDontSee(__('settings.roles.groups.other'))
+        ->assertSeeHtml('data-role="accountant" data-permission="contract.enter" data-granted="1"');
+});

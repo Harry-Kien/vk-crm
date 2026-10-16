@@ -37,6 +37,8 @@ final class PermissionGroups
         'money' => [
             Permission::BillingView,
             Permission::ContractManage,
+            // Làn kt (gộp integ-4): kế toán nhập hợp đồng giấy đã ký — cạnh `contract.manage`.
+            Permission::ContractEnter,
             Permission::PaymentRecord,
             Permission::RevenueViewAny,
         ],
