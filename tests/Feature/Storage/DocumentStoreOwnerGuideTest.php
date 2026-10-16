@@ -92,6 +92,14 @@ it('tài liệu kho có Phụ lục C (sổ tay chuyển đổi) và sổ tay hu
         ->toContain('PENDING OWNER');
 });
 
+it('Phụ lục C bước 9 trỏ tới đúng nhãn ô số đang hiện trên trang "Kho tài liệu" (rà soát cuối làn tl, I2)', function () {
+    $guide = (string) file_get_contents(base_path('docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md'));
+    $step9 = (string) str($guide)->after('## Phụ lục C')->after("\n9. ")->before("\n10. ");
+
+    expect($step9)->toContain('"'.__('document_store.page.figures.unreceipted').'"')
+        ->and($guide)->not->toContain('Media trên kho chưa có biên nhận văn phòng');
+});
+
 it('dàn ý hồ sơ chuyển dữ liệu ra nước ngoài có đủ 11 mục và câu "không phải tư vấn pháp lý"', function () {
     $outline = (string) file_get_contents(base_path('docs/PHAP-LY-LUU-TRU-NUOC-NGOAI.md'));
 

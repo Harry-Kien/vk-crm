@@ -436,7 +436,57 @@ it('dải trạng thái: một câu cho mỗi tình huống, xanh/vàng/đỏ, k
         Store::setting(TransferDossier::KEYS['transfer_before_dossier_basis'], 'Ý kiến số 12');
         SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
     }, 'warning', 'dossier_due', ['days' => 3]],
+    // Rà soát cuối làn tl, I1: production, kho đang bật, lần kiểm tra mỗi giờ gần nhất còn `ok`, nhưng
+    // không còn ngày hồ sơ lẫn ý kiến luật sư → lượt đẩy từ chối, `storage:migrate` trả mã 2. Dải không
+    // được nói "Không cần làm gì" hay bảo chạy lệnh chuyển tệp cũ trong lúc chờ lần kiểm tra kế tiếp.
+    'kho đang bật mà không còn ngày hồ sơ lẫn ý kiến luật sư (production)' => [function () {
+        config(['app.env' => 'production']);
+        Store::enableRemote(now()->subDay());
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'error', 'transfer_blocked', []],
+    'như trên, còn tệp cũ chưa chuyển: không bảo chạy lệnh chuyển tệp cũ' => [function () {
+        config(['app.env' => 'production']);
+        Store::enableRemote(now()->subDay());
+        Store::media(['created_at' => now()->subDays(30)]);
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'error', 'transfer_blocked', []],
+    'production, kho đang bật, chỉ có ý kiến luật sư cho chuyển trước: cổng mở' => [function () {
+        config(['app.env' => 'production']);
+        Store::enableRemote(now()->subDay());
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_on'], now()->subDays(2)->toDateString());
+        Store::setting(TransferDossier::KEYS['transfer_before_dossier_basis'], 'Ý kiến số 12');
+        SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+    }, 'ok', 'remote_ok', []],
+    'production, đã chọn Drive nhưng chưa bật, chưa có hồ sơ: chưa bật, không phải bị chặn' => [
+        fn () => config(['app.env' => 'production', 'vkcrm.storage.driver' => DocumentStore::DRIVER_GOOGLE_DRIVE]),
+        'warning', 'not_enabled', [],
+    ],
+    'production, chỉ lưu trên máy chủ, chưa có hồ sơ' => [fn () => config(['app.env' => 'production']), 'ok', 'local', []],
 ]);
+
+it('admin xoá cả ngày hồ sơ lẫn ngày ý kiến luật sư trên trang (production, kho đang bật): dải đổi ngay sang ĐỎ "đã dừng chuyển"', function () {
+    $this->freezeTime();
+    config(['app.env' => 'production']);
+    Store::enableRemote(now()->subDay());
+    foreach (t5DossierValues() as $field => $value) {
+        Store::setting(TransferDossier::KEYS[$field], $value);
+    }
+    SystemHealth::current()->forceFill(['document_store_status' => 'ok', 'document_store_checked_at' => now()])->save();
+
+    expect(tlStoreAttribute(tlStoreHtml($this->admin), 'data-overview', 'data-situation'))->toBe('remote_ok');
+
+    Livewire::test(DocumentStorePage::class)
+        ->fillForm(['transfer_dossier_on' => null, 'transfer_before_dossier_on' => null, 'transfer_before_dossier_basis' => null])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $html = html_entity_decode(tlStoreHtml($this->admin), ENT_QUOTES);
+
+    expect(tlStoreAttribute($html, 'data-overview', 'data-state'))->toBe('error')
+        ->and(tlStoreAttribute($html, 'data-overview', 'data-situation'))->toBe('transfer_blocked')
+        ->and($html)->toContain(__('document_store.page.overview.headline.transfer_blocked'))
+        ->and($html)->not->toContain(__('document_store.page.overview.next.remote_ok'));
+});
 
 it('nói ngay đầu trang đây là trang kỹ thuật, và dẫn nhân sự tới trang Tài liệu', function () {
     $html = tlStoreHtml($this->admin);

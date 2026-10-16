@@ -50,7 +50,10 @@ use Illuminate\Validation\ValidationException;
  *  - **Một câu đầu trang** nói đây là trang kỹ thuật, nhân sự tìm tài liệu ở trang `DocumentLibrary`.
  *  - **Các bước bật Google Drive** dạng danh sách kiểm, mỗi bước đọc từ đúng dữ liệu đã có (cấu hình,
  *    `settings`, `system_health`, số tệp cũ) — không lệnh gọi Google nào, nên bước "kiểm tra đạt" đọc
- *    lần kiểm tra tự động mỗi giờ (chỉ chạy khi công tắc là `google_drive`) cộng mốc bật kho.
+ *    lần kiểm tra tự động mỗi giờ cộng mốc bật kho. Lần kiểm tra đó (`storage.health`,
+ *    `CheckDocumentStoreHealth`) chạy mỗi giờ ở MỌI chế độ; nó chỉ hỏi Google khi kho có liên quan
+ *    (công tắc `google_drive`, hoặc còn media trên Drive), luôn xem đồng hồ 60 ngày (chỉ có tác dụng ở
+ *    production), và ghi trạng thái `null` khi kho không liên quan mà đồng hồ không có gì để báo.
  *  - **Bốn ô số** có sắc độ tốt/xấu ({@see self::tiles()}); tên biến môi trường và lệnh artisan chỉ còn
  *    trong mục thu gọn "Chi tiết kỹ thuật".
  *  - **Form hồ sơ** nằm trong một mục thu gọn, mở sẵn đúng khi cần: công tắc đã là `google_drive` mà chưa
@@ -255,14 +258,20 @@ class DocumentStorePage extends Page
      *
      *  1. công tắc lạ → đỏ (tệp mới ở lại máy chủ trong khi người vận hành có thể tin là đã lên Drive);
      *  2. lần kiểm tra tự động gần nhất `misconfigured`/`unavailable` → đỏ;
-     *  3. quá hạn 60 ngày nộp hồ sơ (chỉ production — {@see TransferDossier::appliesHere()}) → đỏ;
-     *  4. công tắc là máy chủ: còn tệp trên Drive → vàng (đang quay lui); không → xanh;
-     *  5. công tắc là Drive mà chưa có mốc bật → vàng;
-     *  6. kiểm tra báo `degraded` → vàng;
-     *  7. sắp tới hạn nộp hồ sơ (production, từ ngày 45) → vàng;
-     *  8. chưa có lần kiểm tra nào → vàng;
-     *  9. còn tệp cũ chưa chuyển → vàng;
-     * 10. còn lại → xanh.
+     *  3. production ({@see TransferDossier::appliesHere()}), tệp mới đang tự lên Drive
+     *     ({@see DocumentStore::pushesNewFiles()}) mà không còn ngày hồ sơ lẫn ý kiến luật sư
+     *     ({@see TransferDossier::allowsTransfer()} sai) → đỏ. Đọc thẳng `settings`, không chờ lần kiểm tra
+     *     mỗi giờ: ngay khi quản trị viên xoá hai ngày đó trên chính trang này, lượt đẩy
+     *     (`PushDocumentFileToRemote`) và `vkcrm:storage:migrate` đã từ chối, trong khi `system_health`
+     *     còn giữ `ok` tới lượt kiểm tra kế tiếp (tối đa 60 phút);
+     *  4. quá hạn 60 ngày nộp hồ sơ (chỉ production) → đỏ;
+     *  5. công tắc là máy chủ: còn tệp trên Drive → vàng (đang quay lui); không → xanh;
+     *  6. công tắc là Drive mà chưa có mốc bật → vàng;
+     *  7. kiểm tra báo `degraded` → vàng;
+     *  8. sắp tới hạn nộp hồ sơ (production, từ ngày 45) → vàng;
+     *  9. chưa có lần kiểm tra nào → vàng;
+     * 10. còn tệp cũ chưa chuyển → vàng;
+     * 11. còn lại → xanh.
      *
      * @param  array<string, int>  $counts
      * @return array{state: string, situation: string, headline: string, next: string}
@@ -274,6 +283,7 @@ class DocumentStorePage extends Page
         [$state, $situation, $replace] = match (true) {
             ! DocumentStore::driverIsValid() => ['error', 'driver_invalid', []],
             in_array($status, [DocumentStoreStatus::Misconfigured, DocumentStoreStatus::Unavailable], true) => ['error', 'check_failed', []],
+            $legal && DocumentStore::pushesNewFiles() && ! $dossier->allowsTransfer() => ['error', 'transfer_blocked', []],
             $legal && $dossier->isOverdue() => ['error', 'dossier_overdue', ['days' => $dossier->day() - TransferDossier::DUE_DAYS]],
             ! DocumentStore::usesRemote() => $counts['remote'] > 0
                 ? ['warning', 'remote_while_local', ['count' => $this->number($counts['remote'])]]
@@ -302,7 +312,9 @@ class DocumentStorePage extends Page
      *  - `dossier`: có ngày hồ sơ hoặc ý kiến luật sư — đúng điều kiện mở cổng production (R13);
      *  - `enabled_checked`: tệp mới đang tự lên Drive (công tắc + mốc bật, {@see DocumentStore::pushesNewFiles()})
      *    VÀ lần kiểm tra tự động gần nhất `ok`. Lần kiểm tra bằng lệnh trước khi bật không để lại dấu vết
-     *    nào trong CSDL; lần kiểm tra mỗi giờ chỉ chạy khi công tắc là `google_drive`;
+     *    nào trong CSDL; lần kiểm tra mỗi giờ chạy ở mọi chế độ nhưng chỉ ghi `ok` khi kho có liên quan
+     *    (công tắc `google_drive` hoặc còn media trên Drive) — kho không liên quan thì trạng thái là `null`
+     *    hoặc `degraded` của đồng hồ 60 ngày, không bao giờ `ok`;
      *  - `migrated`: tệp mới đang tự lên Drive VÀ không còn tệp cũ ở máy chủ.
      *
      * @return array<string, bool>
