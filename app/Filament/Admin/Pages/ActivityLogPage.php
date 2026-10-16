@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Pages;
 
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Clients\Pages\EditClient;
 use App\Filament\Admin\Resources\ClientUsers\Pages\EditClientUser;
@@ -36,6 +37,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Lang;
 use Spatie\Activitylog\Models\Activity;
+use UnitEnum;
 
 /**
  * Trang chỉ đọc cho nhật ký hệ thống (SPEC §7.4, §10.6), gated bằng auditLog.view — chỉ admin
@@ -73,6 +75,10 @@ class ActivityLogPage extends Page implements HasTable
     private ?array $propertiesAccess = null;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 70;
 
     public static function getNavigationLabel(): string
     {

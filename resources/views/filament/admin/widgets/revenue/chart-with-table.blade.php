@@ -12,9 +12,10 @@
     của Filament, cùng thành ngữ system-health.blade.php.
 
     KHÔNG tooltip callback, KHÔNG RawJs (M8 R4 chưa có phán quyết CSP — xem docblock từng widget):
-    `getOptions()` chỉ là mảng PHP thuần, `@js()` serialize nó y hệt cách vendor làm. Toàn bộ số
-    tiền đã là chuỗi Money::format() PHP, nằm trong nhãn (`labels`) và trong bảng số dưới đây —
-    không có số tiền thô nào cần một bộ định dạng JS.
+    `getOptions()` chỉ là mảng PHP thuần, `@js()` serialize nó y hệt cách vendor làm. Bảng số dưới
+    đây là chuỗi Money::format() PHP. Trục và tooltip tiền (làn rv): widget chỉ khai một CỜ dữ liệu
+    (`MoneyChart::pluginOptions()`); hàm định dạng nằm trong tệp tĩnh `public/charts/money.js`,
+    không đi qua `getOptions()` (xem đoạn "Thêm lần ba" bên dưới và `App\Support\Charts\MoneyChart`).
 
     Thêm so với vendor, lần hai (2026-10-10, người xem CHỌN dạng biểu đồ — trait
     `HasSwitchableChartKind`), ba chỗ, mỗi chỗ đều tự tắt khi widget không dùng trait:
@@ -28,6 +29,16 @@
          giờ được vá lên nhau), Alpine vẽ lại từ đầu. Test: `tests/Feature/Filament/ChartKindSwitchTest.php`.
     Bảng số ở cuối cũng thôi đòi widget phải có `numberTableRows()` (widget "Vụ việc theo giai đoạn"
     trên trang chủ dùng chung view này mà không có bảng số).
+
+    Thêm lần ba (làn rv, 2026-10-15 — chủ văn phòng: "nhiều chữ nhìn rối quá"), mỗi chỗ tự tắt khi widget
+    không khai:
+      4. `getExplanation()` — cách tính của biểu đồ, giấu sau nút ⓘ cạnh tiêu đề
+         (`components/info-tip.blade.php`, bấm/chạm để mở); dưới tiêu đề chỉ còn MỘT dòng phụ ngắn
+         (`getDescription()`, thường là khoảng ngày). Lời giải thích vẫn nằm trong `aria-label` của canvas.
+      5. Hai ô chọn ở góc phải tiêu đề (dạng biểu đồ, "Theo tháng") thu nhỏ bằng style nội tuyến và đứng
+         thành một hàng (khung flex bọc `afterHeader`).
+    Trục và tooltip tiền: widget khai `App\Support\Charts\MoneyChart::pluginOptions()` trong `getOptions()`
+    (một cờ dữ liệu, vẫn không RawJs) — `public/charts/money.js` lo phần định dạng.
 --}}
 @php
     use Filament\Support\Facades\FilamentAsset;
@@ -49,21 +60,29 @@
     $kindOptions = $switchesKind ? $this->chartKindOptions() : [];
     $showsKindSelect = count($kindOptions) > 1;
     $chartOptions = $switchesKind ? $this->chartOptionsForKind() : $this->getOptions();
+    $explanation = method_exists($this, 'getExplanation') ? $this->getExplanation() : null;
+    $headingWithTip = filled($explanation) && filled($heading)
+        ? new \Illuminate\Support\HtmlString(view('filament.admin.widgets.revenue.heading-with-tip', ['heading' => $heading, 'explanation' => $explanation])->render())
+        : $heading;
+    $compactSelectStyle = 'font-size: 0.8125rem; padding-block: 0.25rem;';
 
     $chartAccessibleLabel = trim(implode('. ', array_filter([
         $heading instanceof Htmlable ? strip_tags($heading->toHtml()) : $heading,
         $description instanceof Htmlable ? strip_tags($description->toHtml()) : $description,
+        $explanation,
     ], fn ($value): bool => filled($value))));
 @endphp
 
 <x-filament-widgets::widget class="fi-wi-chart">
     <x-filament::section
         :description="$description"
-        :heading="$heading"
+        :heading="$headingWithTip"
         :collapsible="$isCollapsible"
     >
         @if ($showsKindSelect || $filters || method_exists($this, 'getFiltersSchema'))
             <x-slot name="afterHeader">
+                {{-- Làn rv: các ô chọn đứng thành MỘT hàng ở góc phải (xuống dòng chỉ khi thật hẹp). --}}
+                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;">
                 @if ($showsKindSelect)
                     <x-filament::input.wrapper
                         inline-prefix
@@ -74,6 +93,7 @@
                             :aria-label="__('widgets.chart_kind.label')"
                             inline-prefix
                             wire:model.live="chartKind"
+                            :style="$compactSelectStyle"
                         >
                             @foreach ($kindOptions as $value => $label)
                                 <option value="{{ $value }}">
@@ -94,6 +114,7 @@
                             :aria-label="__('filament-widgets::chart.filter.label')"
                             inline-prefix
                             wire:model.live="filter"
+                            :style="$compactSelectStyle"
                         >
                             @foreach ($filters as $value => $label)
                                 <option value="{{ $value }}">
@@ -130,6 +151,7 @@
                         </div>
                     </x-filament::dropdown>
                 @endif
+                </div>
             </x-slot>
         @endif
 

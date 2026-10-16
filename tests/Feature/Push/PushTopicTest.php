@@ -303,7 +303,7 @@ it('points an overdue instalment at the receivables page for whoever can open it
     $url = pushTopicPayload(PushTopic::StaffInstalmentOverdue, $recipient, $instalment, null)['data']['url'];
 
     expect($url)->toBe($receivables
-        ? parse_url(Receivables::getUrl(panel: 'admin'), PHP_URL_PATH)
+        ? parse_url(Receivables::overdueListUrl(), PHP_URL_PATH).'?'.parse_url(Receivables::overdueListUrl(), PHP_URL_QUERY)
         : "/admin/matters/{$matter->id}?relation=".array_search(BillingRelationManager::class, MatterResource::getRelations(), true));
 })->with([
     'kế toán' => [Role::Accountant, true],

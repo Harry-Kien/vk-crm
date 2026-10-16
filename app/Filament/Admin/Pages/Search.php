@@ -54,6 +54,9 @@ class Search extends Page
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedMagnifyingGlass;
 
+    /** Khu không nhóm trên cùng, sau Bảng điều khiển (`-2`), Công việc (`-1`) và Việc của tôi (`0`). */
+    protected static ?int $navigationSort = 10;
+
     public string $term = '';
 
     public static function getNavigationLabel(): string

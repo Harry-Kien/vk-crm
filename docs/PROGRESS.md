@@ -9173,6 +9173,29 @@ lời báo "bị trả lại" khi người giao đã đi VÀ người trả lạ
 (trưởng phòng; quản trị viên với vụ hạn chế) thay vì không ai. Cả bộ `--processes=2` trên cây đã gộp (kèm hai sửa đó): **9760 passed, 40 skipped, 0 failed**; 279 test giao việc xanh; pint
 PASS.
 
+### Trang Doanh thu gọn + menu trái có nhóm (làn rv)
+
+Theo yêu cầu chủ văn phòng 2026-10-15 (kèm ảnh): "Phần doanh thu nhiều chữ nhìn rối quá, làm như các CRM chuyên nghiệp".
+- **Hàng ô số (KPI)** đầu trang Doanh thu: **Đã thu** (tiền về trong kỳ, ▲/▼ so với cùng khoảng của kỳ trước), **Còn phải
+  thu** và **Quá hạn** (tại hôm nay, cùng danh sách với trang Công nợ; bấm ô mở Công nợ — "Quá hạn" lọc sẵn — cho người
+  mở được trang đó, và chỉ khi không lọc luật sư/lĩnh vực vì Công nợ không có hai bộ lọc này), **Hợp đồng ký mới** (số
+  và tổng giá trị). Cùng nguồn tính với các biểu đồ, cùng tầm nhìn (vụ hạn chế, kế toán, luật sư chỉ vụ mình).
+- **Bớt chữ:** tiêu đề biểu đồ ngắn, một dòng phụ; giải thích cách tính chuyển vào nút **ⓘ** (không xoá). Tiền dạng rút gọn
+  trên trục ("60 tr", "1,2 tỷ"), đủ số trong chú giải và bảng (`Money::compact`, `public/charts/money.js`). Màu thống nhất:
+  đã thu xanh lá, còn phải thu xanh dương, quá hạn đỏ. Bộ lọc gọn một hàng; trang dùng hết bề ngang.
+- **Menu trái có nhóm** (enum `NavigationGroup`): khối trên cùng cho việc hằng ngày (Bảng điều khiển, Công việc, Việc của
+  tôi, Tìm kiếm) rồi Khách hàng & vụ việc · Tài chính · Đội ngũ · Báo cáo · Hệ thống. Nhóm chỉ đổi chỗ, không đổi quyền —
+  `AdminNavigationGroupsTest` ghim đúng tập mục của từng vai: **trang mới phải khai `$navigationGroup`/`$navigationSort` và
+  thêm vào test này**.
+
+**Gộp vào main (2026-10-16):** không xung đột chữ (gộp lên `377b5259`, làn tk). Phán quyết khi gộp: "Công việc" (sort -1) và
+"Việc của tôi" (0) ở khối trên cùng, Tìm kiếm 10; Theo dõi đội ngũ, Hiệu suất vào nhóm Đội ngũ. Rà soát gộp: một phát hiện
+(PROGRESS chưa có mục này — nay đã có) và các minor sửa ngay: ô "Còn phải thu"/"Quá hạn" không dẫn sang Công nợ khi đang lọc
+luật sư/lĩnh vực (số sẽ lệch) — ⓘ nói rõ; thư và thông báo đẩy "đợt quá hạn" mở Công nợ lọc sẵn quá hạn
+(`Receivables::overdueListUrl()`, một chỗ cho cả ô KPI); **trưởng phòng có mục "Việc của tôi"** (chuông/thư nhận hồ sơ
+trỏ tới mục đó); QUY-TRINH dòng menu sửa cho đúng ai thấy gì. Cả bộ `--processes=2` trên cây đã gộp: **9822 passed, 40 skipped, 1 failed** — test M13 còn ghim luật cũ
+"trưởng phòng không có Việc của tôi", sửa theo phán quyết mới (276 test liên quan + tài liệu xanh); pint PASS.
+
 ## Ghi chú M14
 
 **Trạng thái: M14 — xong phần mã, chờ chủ văn phòng.** Google Drive làm kho tài liệu phía sau CRM
@@ -9611,8 +9634,8 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
   tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
 - Giao – nhận – xử lý hồ sơ NỘI BỘ: **ĐÃ GỘP** (làn tk). Lỗi luồng nội bộ còn treo: **ĐÃ GỘP** (làn fi). Đang làm (yêu
-  cầu 2026-10-15): kế toán nhập hợp đồng (kt), trang Doanh thu gọn + nhóm menu (rv), trang Tài liệu chung (tl), Kết nối AI
-  (ai), trung tâm Cài đặt (st). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
+  cầu 2026-10-15): kế toán nhập hợp đồng (kt), trang Tài liệu chung (tl), Kết nối AI (ai), trung tâm Cài đặt (st).
+  Trang Doanh thu gọn + nhóm menu: **ĐÃ GỘP** (làn rv). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
   (mục "Vai trò nhân viên kinh doanh (làn kd)" phía trên). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch
   thanh toán cho khách (làn nt)" phía trên).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn

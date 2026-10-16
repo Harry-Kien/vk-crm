@@ -120,16 +120,47 @@ return [
             'lawyer' => 'Luật sư phụ trách',
             'practice_area' => 'Lĩnh vực',
             'by_count' => 'Đếm theo số vụ',
-            'by_count_help' => 'Bật để đếm theo số vụ việc thay vì tổng giá trị. Chỉ đổi con số được đo trên biểu đồ "Cơ cấu vụ việc theo lĩnh vực", không thêm trục nào khác.',
+            // Làn rv: chữ này nằm sau nút ⓘ cạnh công tắc, không còn in dưới công tắc.
+            'by_count_help' => 'Bật để đếm theo số vụ việc thay vì tổng giá trị. Chỉ đổi con số được đo trên biểu đồ "Cơ cấu theo lĩnh vực", không thêm trục nào khác.',
         ],
+        // làn rv (2026-10-15): hàng ô số đầu trang — RevenueKpiWidget.
+        'kpi' => [
+            'comparison' => 'so với :range',
+            'collected' => [
+                'label' => 'Đã thu',
+                'explanation' => 'Tiền về trong kỳ (:range), tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về. So với cùng khoảng đã qua của kỳ liền trước (kỳ "Tuỳ chọn": khoảng dài bằng nhau ngay trước đó); "—" khi kỳ trước không có đồng nào.',
+            ],
+            'outstanding' => [
+                'label' => 'Còn phải thu',
+                // Rà soát cuối làn rv, I1: ô này không theo Kỳ — dòng phụ in trên ô phải nói vậy.
+                'detail' => ':count đợt chưa thu xong, tại hôm nay',
+                'explanation' => 'Tại hôm nay: phần còn lại chưa thu của mọi đợt trên các hợp đồng đang hiệu lực, kể cả đợt đã quá hạn — cùng danh sách với trang "Công nợ". Không phụ thuộc kỳ đang lọc. Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ. Bấm ô để mở trang "Công nợ" — chỉ khi không lọc theo luật sư hay lĩnh vực (trang đó không có hai bộ lọc này).',
+            ],
+            'overdue' => [
+                'label' => 'Quá hạn',
+                'detail' => ':count đợt quá hạn, tại hôm nay',
+                // Rà soát cuối làn rv, I2: ô "Đã thu" chỉ đếm tiền về TRONG kỳ, nên phần đã thu của đợt
+                // quá hạn có thể không nằm ở ô nào — không hứa nó nằm ở "Đã thu".
+                'explanation' => 'Tại hôm nay: phần còn lại chưa thu của các đợt đã qua hạn thanh toán, kể cả đợt đã thu một phần — đợt đó chỉ tính phần còn lại, phần đã thu không tính ở ô này. Không phụ thuộc kỳ đang lọc. Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ. Bấm ô để mở trang "Công nợ" — chỉ khi không lọc theo luật sư hay lĩnh vực (trang đó không có hai bộ lọc này).',
+            ],
+            'signed' => [
+                'label' => 'Hợp đồng ký mới',
+                'value' => ':count hợp đồng',
+                'detail' => 'Tổng giá trị :amount',
+                'explanation' => 'Hợp đồng ký trong kỳ (:range), tính theo ngày ký hợp đồng, chỉ hợp đồng đang hiệu lực hoặc đã hoàn tất (không tính hợp đồng đã huỷ). Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ. Số hợp đồng so với cùng khoảng đã qua của kỳ liền trước.',
+            ],
+        ],
+        // Làn rv: mỗi biểu đồ một tiêu đề ngắn, MỘT dòng phụ (`description`), còn cách tính nằm ở
+        // `explanation` — chữ của nút ⓘ cạnh tiêu đề (không xoá, chỉ giấu đi).
         'donut' => [
-            'heading' => 'Đã thu / còn phải thu / quá hạn',
-            'description' => 'Việc đã ký trong kỳ (:range) — tính theo ngày ký hợp đồng, chỉ hợp đồng đang hiệu lực hoặc đã hoàn tất. Ba lát tính TẠI HÔM NAY. Bộ lọc luật sư mang hai nghĩa: "Đã thu" theo luật sư phụ trách lúc tiền về; "còn phải thu"/"quá hạn" theo luật sư phụ trách hiện tại của vụ. Tiền đã thu của hợp đồng sau đó bị huỷ không tính ở đây (hai biểu đồ doanh thu vẫn tính, vì tiền đó đã về).',
+            'heading' => 'Tỉ lệ thu tiền',
+            'description' => 'Hợp đồng ký :range',
+            'explanation' => 'Việc đã ký trong kỳ (:range) — tính theo ngày ký hợp đồng, chỉ hợp đồng đang hiệu lực hoặc đã hoàn tất. Ba lát tính TẠI HÔM NAY. Bộ lọc luật sư mang hai nghĩa: "Đã thu" theo luật sư phụ trách lúc tiền về; "còn phải thu"/"quá hạn" theo luật sư phụ trách hiện tại của vụ. Tiền đã thu của hợp đồng sau đó bị huỷ không tính ở đây (hai biểu đồ doanh thu vẫn tính, vì tiền đó đã về).',
             'description_lawyer_filtered' => 'Đang lọc theo một luật sư cụ thể: hai tập vụ việc trên có thể khác nhau sau một lần bàn giao — xem lại nghĩa của từng lát ở trên trước khi so sánh với tổng đã ký.',
             'slices' => [
-                'collected' => 'Đã thu: :amount',
-                'not_yet_due' => 'Còn phải thu, chưa tới hạn: :amount',
-                'overdue' => 'Quá hạn: :amount',
+                'collected' => 'Đã thu',
+                'not_yet_due' => 'Còn phải thu, chưa tới hạn',
+                'overdue' => 'Quá hạn',
             ],
             'table' => [
                 'signed_total' => 'Tổng giá trị đã ký trong kỳ (hợp đồng còn hiệu lực/đã hoàn tất)',
@@ -143,18 +174,26 @@ return [
             ],
         ],
         'over_time' => [
-            'heading' => 'Doanh thu theo thời gian',
-            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
+            // Làn rv: tiêu đề theo cách chia cột đang chọn — "Doanh thu theo tháng/quý/năm".
+            'heading' => 'Doanh thu theo :unit',
+            'heading_units' => [
+                'month' => 'tháng',
+                'quarter' => 'quý',
+                'year' => 'năm',
+            ],
+            'description' => 'Tiền về :range',
+            'explanation' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
             'filter_month' => 'Theo tháng',
             'filter_quarter' => 'Theo quý',
             'filter_year' => 'Theo năm',
             // Lượt rà soát cuối M9, M4: nhãn một cột khi xem theo quý.
             'quarter_label' => 'Quý :quarter/:year',
-            'series' => 'Tiền đã thu (đã gồm thuế GTGT nếu có)',
+            'series' => 'Tiền đã thu',
         ],
         'by_stage' => [
-            'heading' => 'Tiền đã thu theo đợt/giai đoạn (đã gồm thuế GTGT nếu có)',
-            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, gộp theo giai đoạn kích hoạt đợt, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
+            'heading' => 'Tiền thu theo giai đoạn',
+            'description' => 'Tiền về :range',
+            'explanation' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, gộp theo đợt/giai đoạn kích hoạt đợt, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
             'bucket_label' => ':type — :stage',
             'on_signing_bucket' => 'Tạm ứng khi ký hợp đồng (mọi loại vụ việc)',
             'due_date_bucket' => 'Đến hạn theo ngày cụ thể, không theo giai đoạn (mọi loại vụ việc)',
@@ -162,19 +201,23 @@ return [
             'series' => 'Đã thu',
         ],
         'mix_by_practice_area' => [
-            'heading' => 'Cơ cấu vụ việc theo lĩnh vực',
-            'description' => 'Việc đã ký trong kỳ (:range) — tính theo ngày ký hợp đồng, chỉ hợp đồng đang hiệu lực hoặc đã hoàn tất (không tính hợp đồng đã huỷ). Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ. Công tắc "đếm theo số vụ" đổi số vụ/số tiền được đo, xếp giảm dần theo giá trị đó.',
+            'heading' => 'Cơ cấu theo lĩnh vực',
+            'description_amount' => 'Hợp đồng ký :range · theo giá trị',
+            'description_count' => 'Hợp đồng ký :range · theo số vụ',
+            'explanation' => 'Việc đã ký trong kỳ (:range) — tính theo ngày ký hợp đồng, chỉ hợp đồng đang hiệu lực hoặc đã hoàn tất (không tính hợp đồng đã huỷ). Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ. Công tắc "đếm theo số vụ" đổi số vụ/số tiền được đo, xếp giảm dần theo giá trị đó.',
             'series_amount' => 'Giá trị đã ký',
             'series_count' => 'Số vụ',
         ],
         'load_per_lawyer' => [
             'heading' => 'Tải theo luật sư',
-            'description' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách hiện tại. KHÔNG phụ thuộc bộ lọc thời gian của trang. Bộ lọc luật sư (luật sư phụ trách hiện tại của vụ) thu hẹp còn đúng một cột.',
+            'description' => 'Số vụ đang mở, tại hôm nay',
+            'explanation' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách hiện tại. KHÔNG phụ thuộc bộ lọc thời gian của trang. Bộ lọc luật sư (luật sư phụ trách hiện tại của vụ) thu hẹp còn đúng một cột.',
             'series' => 'Số vụ đang mở',
         ],
         'closed_with_balance' => [
-            'heading' => 'Hồ sơ đã kết thúc còn công nợ',
-            'description' => 'KHÔNG phụ thuộc bộ lọc thời gian hay công tắc đếm — luôn liệt kê mọi vụ việc anh/chị được xem đã kết thúc mà còn dư nợ. Bộ lọc luật sư (luật sư phụ trách hiện tại của vụ) và lĩnh vực vẫn thu hẹp phạm vi vụ việc.',
+            'heading' => 'Hồ sơ đã đóng còn nợ',
+            'description' => 'Mọi thời điểm, không theo kỳ',
+            'explanation' => 'KHÔNG phụ thuộc bộ lọc thời gian hay công tắc đếm — luôn liệt kê mọi vụ việc anh/chị được xem đã kết thúc mà còn dư nợ. Bộ lọc luật sư (luật sư phụ trách hiện tại của vụ) và lĩnh vực vẫn thu hẹp phạm vi vụ việc.',
             'columns' => [
                 'matter_code' => 'Mã hồ sơ',
                 'client' => 'Khách hàng',
@@ -183,6 +226,11 @@ return [
             ],
             'empty_heading' => 'Không có hồ sơ đã kết thúc nào còn công nợ.',
         ],
+    ],
+    // làn rv (2026-10-15): nút ⓘ dùng chung (resources/views/components/info-tip.blade.php).
+    'info_tip' => [
+        'label' => 'Giải thích',
+        'label_for' => 'Giải thích: :subject',
     ],
     // 2026-10-10: ô chọn dạng biểu đồ (trait HasSwitchableChartKind) — nhãn cho trình đọc màn hình.
     'chart_kind' => [

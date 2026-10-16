@@ -70,3 +70,27 @@ it('formats a value for an input field that parse() reads straight back, without
     expect(Money::formatForInput($dong))->not->toContain('₫')
         ->and(Money::parse(Money::formatForInput($dong)))->toBe($dong);
 })->with([0, 7, 1_250_000, Money::MAX]);
+
+// =================================================================================================
+// Làn rv (2026-10-15) — dạng rút gọn cho trục và nhãn biểu đồ: "60 tr", "1,2 tỷ". Tooltip và bảng số
+// vẫn đủ `format()`. `public/charts/money.js` vẽ cùng quy tắc ở phía trình duyệt. Test dưới chỉ ghim
+// từng nhánh của bản PHP; bản JS không có test tự động — sửa một bên thì chạy tay các ca này qua
+// `compact()` của money.js (vd. bằng node) để hai bên không lệch.
+// =================================================================================================
+
+it('shortens an amount for a chart axis: million as "tr", billion as "tỷ", thousand as "nghìn", with a decimal comma', function (int $dong, string $expected) {
+    expect(Money::compact($dong))->toBe($expected);
+})->with([
+    'không' => [0, '0'],
+    'dưới một nghìn' => [950, '950'],
+    'nghìn' => [500_000, '500 nghìn'],
+    'nghìn có lẻ' => [12_500, '12,5 nghìn'],
+    'triệu tròn' => [60_000_000, '60 tr'],
+    'triệu có lẻ' => [1_250_000, '1,3 tr'],
+    'triệu bỏ ,0' => [2_040_000, '2 tr'],
+    'gần một tỷ vẫn là triệu' => [999_000_000, '999 tr'],
+    'làm tròn lên một nghìn triệu thành tỷ' => [999_960_000, '1 tỷ'],
+    'tỷ có lẻ' => [1_200_000_000, '1,2 tỷ'],
+    'nghìn tỷ có dấu chấm nhóm' => [1_500_000_000_000, '1.500 tỷ'],
+    'số âm giữ dấu' => [-60_000_000, '-60 tr'],
+]);

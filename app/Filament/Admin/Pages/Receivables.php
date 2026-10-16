@@ -7,6 +7,7 @@ use App\Actions\Billing\VoidPayment;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentState;
 use App\Enums\InstalmentStatus;
+use App\Enums\NavigationGroup;
 use App\Enums\PaymentMethod;
 use App\Enums\Permission;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
@@ -40,6 +41,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Url;
+use UnitEnum;
 
 /**
  * Trang "Công nợ" cho kế toán (M9 Task 8; kế hoạch, P3 "Ai thấy và ghi tiền"): kế toán ghi tiền
@@ -117,9 +120,24 @@ class Receivables extends Page implements HasTable
     use InteractsWithTable;
     use ReportsActionFailures;
 
+    /**
+     * Bộ lọc của bảng đọc được từ URL, `?filters[overdue][isActive]=1` — cùng khai báo
+     * `Filament\Resources\Pages\ListRecords` dùng (làn rv, 2026-10-15): ô "Quá hạn" đầu trang Doanh thu
+     * mở thẳng trang này với bộ lọc "Quá hạn" đã bật. Chỉ ĐỌC ý muốn của người xem; tập dòng vẫn do
+     * {@see self::rowsQuery()} (phạm vi `listableBy`) quyết.
+     *
+     * @var array<string, mixed>|null
+     */
+    #[Url(as: 'filters')]
+    public ?array $tableFilters = null;
+
     protected string $view = 'filament.admin.pages.receivables';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBanknotes;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Finance;
+
+    protected static ?int $navigationSort = 20;
 
     public static function getNavigationLabel(): string
     {
@@ -154,6 +172,16 @@ class Receivables extends Page implements HasTable
      * đợt quá hạn, M9 Task 11, chọn liên kết theo từng người nhận). MỘT định nghĩa: `canAccess()`
      * gọi thẳng hàm này, không có bản thứ hai để lệch.
      */
+    /**
+     * Đường dẫn tuyệt đối tới trang này đã lọc sẵn "Quá hạn" — MỘT chỗ cho ô "Quá hạn" của trang Doanh thu,
+     * thư và thông báo đẩy "đợt quá hạn" (rà soát gộp làn rv, 2026-10-16): người bấm từ thư hay từ ô số đều
+     * mở đúng danh sách quá hạn.
+     */
+    public static function overdueListUrl(): string
+    {
+        return self::getUrl(['filters' => ['overdue' => ['isActive' => '1']]], panel: 'admin');
+    }
+
     public static function canBeOpenedBy(User $user): bool
     {
         return $user->can(Permission::BillingView->value)

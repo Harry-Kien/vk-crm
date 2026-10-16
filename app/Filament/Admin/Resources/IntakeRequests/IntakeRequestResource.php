@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\IntakeRequests;
 
+use App\Enums\NavigationGroup;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\ConvertIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\CreateIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\EditIntakeRequest;
@@ -17,6 +18,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use UnitEnum;
 
 /**
  * Màn hình tiếp nhận (M10 Task 3): mỗi lần có người liên hệ văn phòng — gọi điện, nhắn Zalo, bước vào
@@ -41,6 +43,10 @@ class IntakeRequestResource extends Resource
 
     // Mỗi resource một hình riêng — xem NavigationIconsTest. Ống nghe có mũi tên vào: một cuộc gọi đến.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPhoneArrowDownLeft;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Clients;
+
+    protected static ?int $navigationSort = 10;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

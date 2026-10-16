@@ -3,21 +3,21 @@
 namespace App\Filament\Admin\Widgets\Revenue;
 
 use App\Enums\ChartKind;
-use App\Enums\ContractStatus;
 use App\Enums\Permission;
 use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
-use App\Models\Contract;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Billing\Money;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Billing\SignedContracts;
+use App\Support\Charts\MoneyChart;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Contracts\Support\Htmlable;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 
 /**
  * Cơ cấu vụ việc theo lĩnh vực hành nghề — cột ngang XẾP HẠNG (giảm dần theo giá trị đang đo),
@@ -53,7 +53,9 @@ use Illuminate\Support\Facades\Gate;
 class MatterMixByPracticeAreaWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
-    use HasSwitchableChartKind;
+    use HasSwitchableChartKind {
+        chartFrameKey as switchableChartFrameKey;
+    }
     use InteractsWithPageFilters;
 
     protected static bool $isDiscovered = false;
@@ -70,14 +72,42 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         return $user instanceof User && Gate::forUser($user)->allows(Permission::RevenueViewAny->value);
     }
 
+    /**
+     * Khoá của khung biểu đồ đổi theo thứ đang đo (làn rv). Chart.js chỉ đọc tuỳ chọn — ở đây cờ trục tiền
+     * của `MoneyChart`, có khi đo giá trị, không có khi đếm số vụ — lúc DỰNG biểu đồ; bật/tắt "Đếm theo số
+     * vụ" chỉ đẩy dữ liệu mới vào biểu đồ cũ. Khoá khác thì Livewire thay hẳn khung và Alpine dựng lại, như
+     * khi đổi dạng biểu đồ — số vụ không bao giờ mang "₫". Thứ đang đo chen ngay sau id của widget, để khoá
+     * vẫn kết thúc bằng `.chart.<kiểu>` như mọi khung của `HasSwitchableChartKind`.
+     */
+    public function chartFrameKey(): string
+    {
+        $measure = RevenueFilters::fromPageFilters($this->pageFilters)->byCount ? 'count' : 'amount';
+
+        return Str::replaceFirst($this->getId(), $this->getId().'.'.$measure, $this->switchableChartFrameKey());
+    }
+
     public function getHeading(): string|Htmlable|null
     {
         return __('widgets.revenue_dashboard.mix_by_practice_area.heading');
     }
 
+    /** Một dòng phụ: khoảng ngày ký và thứ đang đo — giá trị hay số vụ (làn rv). */
     public function getDescription(): string|Htmlable|null
     {
-        return __('widgets.revenue_dashboard.mix_by_practice_area.description', [
+        $filters = RevenueFilters::fromPageFilters($this->pageFilters);
+
+        return __($filters->byCount
+            ? 'widgets.revenue_dashboard.mix_by_practice_area.description_count'
+            : 'widgets.revenue_dashboard.mix_by_practice_area.description_amount', ['range' => $filters->rangeLabel()]);
+    }
+
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
+        return __('widgets.revenue_dashboard.mix_by_practice_area.explanation', [
             'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
         ]);
     }
@@ -122,11 +152,14 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         ];
     }
 
+    /** Trục tiền rút gọn (MoneyChart) chỉ khi đo giá trị; đếm số vụ thì trục là số trần. */
     protected function getOptions(): array
     {
+        $money = RevenueFilters::fromPageFilters($this->pageFilters)->byCount ? [] : MoneyChart::pluginOptions();
+
         return [
             'indexAxis' => 'y',
-            'plugins' => ['legend' => ['display' => false]],
+            'plugins' => ['legend' => ['display' => false], ...$money],
             'scales' => ['x' => ['ticks' => ['precision' => 0]]],
         ];
     }
@@ -147,16 +180,11 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         }
 
         $filters = RevenueFilters::fromPageFilters($this->pageFilters);
-        [$from, $to] = $filters->bounds();
 
-        $signed = Contract::query()
+        // "Việc đã ký trong kỳ" là SignedContracts (làn rv: tách nguyên văn từ đây — ô "Hợp đồng ký mới"
+        // đầu trang đọc cùng truy vấn); ở đây chỉ gộp theo lĩnh vực.
+        $signed = SignedContracts::query($user, $filters, $filters->bounds())
             ->join('matters', 'matters.id', '=', 'contracts.matter_id')
-            ->whereBetween('contracts.signed_at', [$from, $to])
-            ->whereIn('contracts.status', [ContractStatus::Active->value, ContractStatus::Completed->value])
-            ->whereHas('matter', fn (Builder $q) => $q
-                ->listableBy($user)
-                ->when($filters->lawyerId, fn (Builder $mq, int $v) => $mq->where('lead_lawyer_id', $v)))
-            ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q->where('matters.matter_type_id', $v))
             ->groupBy('matters.matter_type_id')
             ->selectRaw('matters.matter_type_id as matter_type_id, count(*) as matters_count, sum(contracts.total_amount) as total_amount')
             ->get()

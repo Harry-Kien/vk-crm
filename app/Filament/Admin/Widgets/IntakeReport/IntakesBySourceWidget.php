@@ -48,6 +48,15 @@ class IntakesBySourceWidget extends ChartWidget
         return __('intake_report.by_source.description', ['range' => $this->reportFilters()->rangeLabel()]);
     }
 
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề; dưới tiêu đề giờ chỉ còn một dòng phụ ngắn. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
+        return __('intake_report.by_source.explanation', ['range' => $this->reportFilters()->rangeLabel()]);
+    }
+
     /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
     protected function chartKinds(): array
     {

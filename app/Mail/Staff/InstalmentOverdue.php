@@ -165,7 +165,7 @@ class InstalmentOverdue extends BrandedMailable
     private function link(): array
     {
         if (Receivables::canBeOpenedBy($this->recipient)) {
-            return [Receivables::getUrl(panel: 'admin'), __('billing.overdue_email.open_receivables')];
+            return [Receivables::overdueListUrl(), __('billing.overdue_email.open_receivables')];
         }
 
         $tab = array_search(BillingRelationManager::class, MatterResource::getRelations(), true);

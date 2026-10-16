@@ -109,11 +109,21 @@ function widgetRows(string $class, array $pageFilters = []): array
     return Livewire::test($class, ['pageFilters' => $pageFilters])->instance()->numberTableRows();
 }
 
-function widgetDescription(string $class, array $pageFilters = []): string
+/**
+ * Làn rv (2026-10-15): cách tính của mỗi widget không còn in dưới tiêu đề mà nằm sau nút ⓘ cạnh tiêu đề
+ * (`getExplanation()`). Hàm này đọc chữ đó VÀ khẳng định nó có trên màn hình, trong khung của nút ⓘ
+ * (`data-info-tip`) — nghĩa không bị xoá, chỉ bị giấu đi.
+ */
+function widgetExplanation(string $class, array $pageFilters = []): string
 {
-    $description = Livewire::test($class, ['pageFilters' => $pageFilters])->instance()->getDescription();
+    $component = Livewire::test($class, ['pageFilters' => $pageFilters]);
+    $explanation = (string) $component->instance()->getExplanation();
+    $html = $component->html();
 
-    return (string) $description;
+    expect($html)->toContain('data-info-tip="')
+        ->and(substr($html, strpos($html, 'data-info-tip="')))->toContain(e($explanation));
+
+    return $explanation;
 }
 
 /**
@@ -401,6 +411,9 @@ it('lists every practice area even one with zero matters, all twelve of them', f
  * M9 Task 13 (minor rà soát Task 9): nghĩa của bộ lọc in bằng LỜI tiếng Việt, không bằng tên cột
  * CSDL (`contracts.signed_at`, `payments.attributed_lawyer_id`…) — người đọc là kế toán và chủ văn
  * phòng. Các câu dưới đây là nghĩa, đúng một-một với cột mà mỗi widget lọc (docblock từng widget).
+ *
+ * Làn rv: nghĩa đó nằm sau nút ⓘ cạnh tiêu đề (`widgetExplanation()` khẳng định nó có trong khung ⓘ
+ * trên màn hình), không còn in dưới tiêu đề.
  */
 it('prints the meaning of the time filter and the lawyer filter on every widget that filters by them, in words and not in column names', function () {
     $this->actingAs($this->admin, 'web');
@@ -410,18 +423,13 @@ it('prints the meaning of the time filter and the lawyer filter on every widget 
     $lawyerWhenPaid = 'luật sư phụ trách lúc tiền về';
     $currentLawyer = 'luật sư phụ trách hiện tại';
 
-    $closedWithBalanceDescription = (string) Livewire::test(ClosedWithBalanceWidget::class, ['pageFilters' => []])
-        ->instance()
-        ->getTable()
-        ->getDescription();
-
     $descriptions = [
-        'donut' => widgetDescription(ReceivablesDonutWidget::class),
-        'over_time' => widgetDescription(RevenueOverTimeWidget::class),
-        'by_stage' => widgetDescription(RevenueByStageWidget::class),
-        'mix' => widgetDescription(MatterMixByPracticeAreaWidget::class),
-        'load' => widgetDescription(LoadPerLawyerWidget::class),
-        'closed' => $closedWithBalanceDescription,
+        'donut' => widgetExplanation(ReceivablesDonutWidget::class),
+        'over_time' => widgetExplanation(RevenueOverTimeWidget::class),
+        'by_stage' => widgetExplanation(RevenueByStageWidget::class),
+        'mix' => widgetExplanation(MatterMixByPracticeAreaWidget::class),
+        'load' => widgetExplanation(LoadPerLawyerWidget::class),
+        'closed' => widgetExplanation(ClosedWithBalanceWidget::class),
     ];
 
     expect($descriptions['donut'])->toContain($signedInPeriod)->toContain($lawyerWhenPaid)->toContain($currentLawyer)
@@ -445,9 +453,10 @@ it('prints the meaning of the time filter and the lawyer filter on every widget 
 it('says on the donut and on both revenue charts how money collected on a later cancelled contract is counted', function () {
     $this->actingAs($this->admin, 'web');
 
-    expect(widgetDescription(ReceivablesDonutWidget::class))->toContain('Tiền đã thu của hợp đồng sau đó bị huỷ không tính ở đây')
-        ->and(widgetDescription(RevenueOverTimeWidget::class))->toContain('kể cả tiền đã thu của hợp đồng sau đó bị huỷ')
-        ->and(widgetDescription(RevenueByStageWidget::class))->toContain('kể cả tiền đã thu của hợp đồng sau đó bị huỷ');
+    // Làn rv: trong khung của nút ⓘ (`widgetExplanation()`), không còn in dưới tiêu đề.
+    expect(widgetExplanation(ReceivablesDonutWidget::class))->toContain('Tiền đã thu của hợp đồng sau đó bị huỷ không tính ở đây')
+        ->and(widgetExplanation(RevenueOverTimeWidget::class))->toContain('kể cả tiền đã thu của hợp đồng sau đó bị huỷ')
+        ->and(widgetExplanation(RevenueByStageWidget::class))->toContain('kể cả tiền đã thu của hợp đồng sau đó bị huỷ');
 });
 
 // =================================================================================================

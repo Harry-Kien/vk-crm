@@ -55,6 +55,15 @@ class IntakesByOwnerWidget extends ChartWidget
         return __('leads.report.by_owner.description', ['range' => $this->reportFilters()->rangeLabel()]);
     }
 
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề; dưới tiêu đề giờ chỉ còn một dòng phụ ngắn. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
+        return __('leads.report.by_owner.explanation', ['range' => $this->reportFilters()->rangeLabel()]);
+    }
+
     /** Tỉ lệ không phải các phần của một tổng: không có "tròn". */
     protected function chartKinds(): array
     {

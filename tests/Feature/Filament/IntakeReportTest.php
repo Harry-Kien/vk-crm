@@ -139,6 +139,22 @@ function irpDescription(string $class, array $pageFilters = []): string
     return (string) Livewire::test($class, ['pageFilters' => $pageFilters])->instance()->getDescription();
 }
 
+/**
+ * Làn rv (2026-10-15): cách tính của widget nằm sau nút ⓘ cạnh tiêu đề (`getExplanation()`). Đọc chữ đó
+ * VÀ khẳng định nó có trên màn hình, trong khung của nút ⓘ (`data-info-tip`).
+ */
+function irpExplanation(string $class, array $pageFilters = []): string
+{
+    $component = Livewire::test($class, ['pageFilters' => $pageFilters]);
+    $explanation = (string) $component->instance()->getExplanation();
+    $html = $component->html();
+
+    expect($html)->toContain('data-info-tip="')
+        ->and(substr($html, strpos($html, 'data-info-tip="')))->toContain(e($explanation));
+
+    return $explanation;
+}
+
 /** Nhãn của sáu nguồn, theo thứ tự enum — trục chung của ba biểu đồ theo nguồn. */
 function irpSourceLabels(): array
 {
@@ -326,8 +342,9 @@ it('computes the median first-response time per source and overall, in clock tim
         ['label' => IntakeSource::Other->label(), 'value' => '—'],
     ]);
 
-    expect(irpDescription(IntakeResponseTimeWidget::class))
-        ->toContain('53 phút')
+    // Làn rv: trung vị vẫn ở dòng phụ dưới tiêu đề; lời dặn "giờ đồng hồ" nằm trong khung của nút ⓘ.
+    expect(irpDescription(IntakeResponseTimeWidget::class))->toContain('53 phút')
+        ->and(irpExplanation(IntakeResponseTimeWidget::class))->toContain('53 phút')
         ->toContain(__('intake_report.response_time.clock_note'));
 });
 
@@ -623,6 +640,26 @@ it('renders every widget with the shared number table and the accessible canvas 
         Livewire::test($widget)
             ->assertSee(__('widgets.revenue_dashboard.number_table_toggle'))
             ->assertSeeHtml('role="img"');
+    }
+});
+
+/**
+ * Làn rv (2026-10-15 — "nhiều chữ nhìn rối quá"): khung chung `chart-with-table` cho mọi trang biểu đồ —
+ * tiêu đề ngắn, MỘT dòng phụ, cách tính sau nút ⓘ cạnh tiêu đề. Không đoạn văn nào dưới tiêu đề nữa.
+ */
+it('gives every intake chart a short heading, one short sub-line and its explanation behind the info button', function () {
+    irpFixture($this->assistant);
+    $this->actingAs($this->manager, 'web');
+
+    foreach (irpWidgets() as $widget) {
+        $instance = Livewire::test($widget)->instance();
+        $description = (string) $instance->getDescription();
+        $explanation = irpExplanation($widget);
+
+        expect(count(preg_split('/\s+/u', trim((string) $instance->getHeading()))))->toBeLessThanOrEqual(5, $widget)
+            ->and(mb_strlen($description))->toBeLessThanOrEqual(60, $widget)
+            ->and($description)->not->toContain('. ')
+            ->and(mb_strlen($explanation))->toBeGreaterThan(mb_strlen($description), $widget);
     }
 });
 

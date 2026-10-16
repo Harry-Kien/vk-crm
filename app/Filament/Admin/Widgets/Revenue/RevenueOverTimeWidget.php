@@ -10,10 +10,10 @@ use App\Models\User;
 use App\Support\Billing\CollectedRevenue;
 use App\Support\Billing\Money;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Charts\MoneyChart;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Contracts\Support\Htmlable;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 
@@ -47,14 +47,31 @@ class RevenueOverTimeWidget extends ChartWidget
     /** Tránh tính hai lần khi cả `getData()` lẫn `numberTableRows()` cùng đọc (Fix round 1). */
     private ?array $bucketsCache = null;
 
+    /** "Doanh thu theo tháng/quý/năm" — theo cách chia cột đang chọn ở ô "Theo tháng" (làn rv). */
     public function getHeading(): string|Htmlable|null
     {
-        return __('widgets.revenue_dashboard.over_time.heading');
+        $unit = in_array($this->filter, ['month', 'quarter', 'year'], true) ? $this->filter : 'month';
+
+        return __('widgets.revenue_dashboard.over_time.heading', [
+            'unit' => __('widgets.revenue_dashboard.over_time.heading_units.'.$unit),
+        ]);
     }
 
+    /** Một dòng phụ: khoảng ngày tiền về (làn rv). Cách tính nằm ở {@see self::getExplanation()}. */
     public function getDescription(): string|Htmlable|null
     {
         return __('widgets.revenue_dashboard.over_time.description', [
+            'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
+        ]);
+    }
+
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
+        return __('widgets.revenue_dashboard.over_time.explanation', [
             'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
         ]);
     }
@@ -104,7 +121,7 @@ class RevenueOverTimeWidget extends ChartWidget
     protected function getOptions(): array
     {
         return [
-            'plugins' => ['legend' => ['display' => false]],
+            'plugins' => ['legend' => ['display' => false], ...MoneyChart::pluginOptions()],
             'scales' => ['y' => ['ticks' => ['precision' => 0]]],
         ];
     }
@@ -130,13 +147,9 @@ class RevenueOverTimeWidget extends ChartWidget
         $filters = RevenueFilters::fromPageFilters($this->pageFilters);
 
         // "Tiền đã thu trong kỳ, trong tầm nhìn của người xem" là CollectedRevenue (M13 Task 2, tách
-        // nguyên văn từ đây — cột P7 của trang hiệu suất đọc cùng truy vấn). Hai bộ lọc của trang gắn
-        // THÊM: một khoản thu thuộc đúng một vụ, nên `whereHas` lĩnh vực thứ hai tương đương với điều
-        // kiện cũ nằm trong cùng closure `listableBy`.
-        $rows = CollectedRevenue::query($user, $filters->bounds())
-            ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('attributed_lawyer_id', $v))
-            ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q
-                ->whereHas('instalment.contract.matter', fn (Builder $mq) => $mq->where('matter_type_id', $v)))
+        // nguyên văn từ đây — cột P7 của trang hiệu suất đọc cùng truy vấn); hai bộ lọc của trang gắn qua
+        // `filtered()` (làn rv: cùng chỗ với ô "Đã thu" đầu trang).
+        $rows = CollectedRevenue::filtered($user, $filters, $filters->bounds())
             ->get(['paid_on', 'amount']);
 
         $granularity = in_array($this->filter, ['month', 'quarter', 'year'], true) ? $this->filter : 'month';

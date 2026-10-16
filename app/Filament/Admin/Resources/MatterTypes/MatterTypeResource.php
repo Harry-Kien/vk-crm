@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\MatterTypes;
 
+use App\Enums\NavigationGroup;
 use App\Filament\Admin\Resources\MatterTypes\Pages\CreateMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\EditMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\ListMatterTypes;
@@ -17,6 +18,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use UnitEnum;
 
 /** Dữ liệu cấu hình (không phải dữ liệu vụ việc): chỉ settings.manage được ghi, ai cũng đọc (MatterTypePolicy). */
 class MatterTypeResource extends Resource
@@ -26,6 +28,10 @@ class MatterTypeResource extends Resource
     // Mỗi resource một hình riêng (dữ liệu cấu hình, không phải dữ liệu nghiệp vụ): năm mục cùng một biểu
     // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedSquares2x2;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 10;
 
     // Nhãn tiếng Việt không viết hoa từng chữ như mặc định của Filament.
     protected static bool $hasTitleCaseModelLabel = false;

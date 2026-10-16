@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\OutboundMessages;
 
+use App\Enums\NavigationGroup;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ListOutboundMessages;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ViewOutboundMessage;
 use App\Filament\Admin\Resources\OutboundMessages\Schemas\OutboundMessageInfolist;
@@ -14,6 +15,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use UnitEnum;
 
 /**
  * Nhật ký thư đi ra, CHỈ ĐỌC (SPEC §4.15, §7.4; M6.5 Task 13, findings `notify-8`/`spec-gap-07`).
@@ -40,6 +42,10 @@ class OutboundMessageResource extends Resource
     // Mỗi resource một hình riêng — xem NavigationIconsTest; "gửi thư" là hình tự nhiên nhất và
     // chưa resource nào ở cấp Resource (không phải RelationManager) dùng nó.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPaperAirplane;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 60;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

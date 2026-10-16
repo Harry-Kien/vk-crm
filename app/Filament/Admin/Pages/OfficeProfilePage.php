@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Pages;
 
 use App\Actions\Settings\UpdateOfficeProfile;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Models\User;
 use App\Support\OfficeProfile;
@@ -17,6 +18,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use UnitEnum;
 
 /**
  * Trang "Thông tin văn phòng" (M7 Task 10) — chỉ admin sửa chín thông tin in trên mọi thư, trên
@@ -55,6 +57,10 @@ class OfficeProfilePage extends Page
     protected static ?string $slug = 'office-profile';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingLibrary;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 20;
 
     /** @var array<string, mixed> */
     public array $data = [];

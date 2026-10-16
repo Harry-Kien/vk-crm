@@ -14,6 +14,7 @@ use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Filament\Widgets\TableWidget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\HtmlString;
 
 /**
  * "Hồ sơ đã kết thúc còn công nợ" — bảng, KHÔNG phải biểu đồ (kế hoạch M9, "Tiền trên một vụ việc
@@ -37,15 +38,30 @@ class ClosedWithBalanceWidget extends TableWidget
 
     protected static bool $isDiscovered = false;
 
+    /** Làn rv: bảng chiếm cả hàng của lưới hai cột — bốn cột chữ và số không ép được vào nửa trang. */
+    protected int|string|array $columnSpan = 'full';
+
     public function getTableHeading(): string
     {
         return __('widgets.revenue_dashboard.closed_with_balance.heading');
     }
 
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề bảng (làn rv, 2026-10-15) — trước làn rv in thẳng dưới tiêu đề; dưới tiêu
+     * đề giờ chỉ còn một dòng phụ ngắn.
+     */
+    public function getExplanation(): string
+    {
+        return __('widgets.revenue_dashboard.closed_with_balance.explanation');
+    }
+
     public function table(Table $table): Table
     {
         return $table
-            ->heading(__('widgets.revenue_dashboard.closed_with_balance.heading'))
+            ->heading(new HtmlString(view('filament.admin.widgets.revenue.heading-with-tip', [
+                'heading' => __('widgets.revenue_dashboard.closed_with_balance.heading'),
+                'explanation' => $this->getExplanation(),
+            ])->render()))
             ->description(__('widgets.revenue_dashboard.closed_with_balance.description'))
             ->query(fn (): Builder => $this->rowsQuery())
             ->emptyStateHeading(__('widgets.revenue_dashboard.closed_with_balance.empty_heading'))

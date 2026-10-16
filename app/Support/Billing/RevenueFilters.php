@@ -28,6 +28,7 @@ final class RevenueFilters
         public readonly ?int $lawyerId,
         public readonly ?int $practiceAreaId,
         public readonly bool $byCount,
+        private readonly string $period = 'this_month',
     ) {}
 
     /** @param  array<string, mixed>|null  $pageFilters */
@@ -35,7 +36,8 @@ final class RevenueFilters
     {
         $pageFilters ??= [];
 
-        [$from, $to] = self::period((string) ($pageFilters['period'] ?? 'this_month'), $pageFilters);
+        $period = (string) ($pageFilters['period'] ?? 'this_month');
+        [$from, $to] = self::period($period, $pageFilters);
 
         return new self(
             from: $from->startOfDay(),
@@ -43,6 +45,53 @@ final class RevenueFilters
             lawyerId: filled($pageFilters['lawyer_id'] ?? null) ? (int) $pageFilters['lawyer_id'] : null,
             practiceAreaId: filled($pageFilters['practice_area_id'] ?? null) ? (int) $pageFilters['practice_area_id'] : null,
             byCount: (bool) ($pageFilters['by_count'] ?? false),
+            period: in_array($period, ['this_quarter', 'this_year', 'custom'], true) ? $period : 'this_month',
+        );
+    }
+
+    /**
+     * Kỳ để SO SÁNH của hàng ô số đầu trang (làn rv, 2026-10-15: "▲ 12 % so với kỳ trước"), cùng luật sư
+     * và lĩnh vực, chỉ khác khoảng ngày:
+     *
+     *  - **Tháng/quý/năm này: CÙNG KHOẢNG ĐÃ QUA của kỳ liền trước.** Hôm nay 15/10 thì "tháng này" so với
+     *    01/09 – 15/09, không với cả tháng 9 — nửa tháng đang chạy so với một tháng đủ thì lúc nào cũng
+     *    "giảm". Kỳ đã kết thúc (hôm nay ngoài kỳ — không xảy ra với ba phím tắt, nhưng giữ cho đúng) thì
+     *    so với cả kỳ trước.
+     *  - **Tuỳ chọn: khoảng dài BẰNG NHAU liền trước** (01/06 – 10/06 so với 22/05 – 31/05).
+     *
+     * Dời bằng `sub…NoOverflow()`: 31/03 lùi một tháng là 28/02 (hay 29/02), không tràn sang tháng 3.
+     */
+    public function previousPeriod(): self
+    {
+        if ($this->period === 'custom') {
+            $days = (int) $this->from->copy()->startOfDay()->diffInDays($this->to->copy()->startOfDay()) + 1;
+            $from = $this->from->copy()->subDays($days);
+            $to = $this->from->copy()->subDay();
+        } else {
+            $shift = fn (Carbon $date): Carbon => match ($this->period) {
+                'this_quarter' => $date->copy()->subQuarterNoOverflow(),
+                'this_year' => $date->copy()->subYearNoOverflow(),
+                default => $date->copy()->subMonthNoOverflow(),
+            };
+
+            $from = $shift($this->from);
+            $periodEnd = $shift($this->to);
+            $periodEnd = match ($this->period) {
+                'this_quarter' => $periodEnd->endOfQuarter(),
+                'this_year' => $periodEnd->endOfYear(),
+                default => $periodEnd->endOfMonth(),
+            };
+            $elapsedEnd = today()->between($this->from, $this->to) ? $shift(today()) : $periodEnd;
+            $to = $elapsedEnd->lessThan($periodEnd) ? $elapsedEnd : $periodEnd;
+        }
+
+        return new self(
+            from: $from->startOfDay(),
+            to: $to->endOfDay(),
+            lawyerId: $this->lawyerId,
+            practiceAreaId: $this->practiceAreaId,
+            byCount: $this->byCount,
+            period: $this->period,
         );
     }
 

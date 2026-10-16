@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Pages;
 
 use App\Actions\Storage\MeasureDocumentStore;
 use App\Actions\Storage\RecordDataTransferDossier;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Models\SystemHealth;
 use App\Models\User;
@@ -23,6 +24,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use UnitEnum;
 
 /**
  * Trang "Kho tài liệu" (kế hoạch M14, Task 5; R13, R14) — chỉ admin. Hai phần:
@@ -52,6 +54,10 @@ class DocumentStorePage extends Page
     protected static ?string $slug = 'document-store';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCircleStack;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 30;
 
     /** @var array<string, mixed> */
     public array $data = [];
