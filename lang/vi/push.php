@@ -144,4 +144,10 @@ return [
         'endpoint' => 'Địa chỉ nhận thông báo mà trình duyệt gửi lên không hợp lệ.',
         'keys' => 'Khoá thông báo mà trình duyệt gửi lên không hợp lệ.',
     ],
+
+    // M15 Task 2: App\Actions\Push\RegisterNativeDevice — ứng dụng iPhone nội bộ đăng ký token APNs.
+    'native' => [
+        'token_invalid' => 'Mã nhận thông báo của máy không hợp lệ.',
+        'version_invalid' => 'Số phiên bản ứng dụng không hợp lệ.',
+    ],
 ];

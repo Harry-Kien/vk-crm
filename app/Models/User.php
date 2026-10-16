@@ -131,6 +131,16 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         return $this->hasMany(AiAcknowledgement::class);
     }
 
+    /**
+     * M15 — các iPhone của người này nhận thông báo qua APNs (`native_push_devices`).
+     *
+     * @return HasMany<NativePushDevice, $this>
+     */
+    public function nativePushDevices(): HasMany
+    {
+        return $this->hasMany(NativePushDevice::class);
+    }
+
     public function leadMatters(): HasMany
     {
         return $this->hasMany(Matter::class, 'lead_lawyer_id');

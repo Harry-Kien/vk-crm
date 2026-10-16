@@ -7,6 +7,7 @@ use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Filament\Admin\Pages\Auth\Login;
 use App\Filament\Admin\Pages\PushDevices;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
+use App\Http\Controllers\Native\NativeDeviceController;
 use App\Http\Controllers\Pwa\PushSubscriptionController;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
 use App\Http\Middleware\EndDisabledStaffSessions;
@@ -190,7 +191,11 @@ class AdminPanelProvider extends PanelProvider
              * docblock `RefuseStaffWithoutTwoFactor`. Trang "Thông báo trên điện thoại" mở từ user
              * menu (ẩn khi máy chủ chưa có khoá VAPID).
              */
-            ->authenticatedRoutes(PushSubscriptionController::routes([RefuseStaffWithoutTwoFactor::class]))
+            ->authenticatedRoutes(function (): void {
+                PushSubscriptionController::routes([RefuseStaffWithoutTwoFactor::class])();
+                // M15 Task 2 — sổ máy iPhone: cùng chồng middleware, cùng cổng 2FA.
+                NativeDeviceController::routes([RefuseStaffWithoutTwoFactor::class])();
+            })
             ->userMenuItems(['push-devices' => PushDevices::userMenuItem()])
             ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('brand.theme'))
             // M12 R2 — manifest, theme-color, apple-touch-icon: hook THỨ HAI cùng tên, không gộp vào

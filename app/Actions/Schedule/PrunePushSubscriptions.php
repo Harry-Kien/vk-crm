@@ -5,6 +5,7 @@ namespace App\Actions\Schedule;
 use App\Actions\Notification\ResolveClientRecipients;
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Models\ClientUser;
+use App\Models\NativePushDevice;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Database\Eloquent\Builder;
@@ -78,6 +79,20 @@ class PrunePushSubscriptions
                 ->delete();
 
             $stale = PushSubscription::query()
+                ->where(fn (Builder $rows) => $rows
+                    ->where('last_seen_at', '<', $cutoff)
+                    ->orWhere(fn (Builder $neverSeen) => $neverSeen
+                        ->whereNull('last_seen_at')
+                        ->where('created_at', '<', $cutoff)))
+                ->delete();
+
+            // M15: sổ máy iPhone dọn cùng luật (chủ không còn dùng được; quá 180 ngày không mở ứng dụng),
+            // đếm vào cùng hai con số.
+            $ownerIneligible += NativePushDevice::query()
+                ->whereDoesntHave('user', fn (Builder $staff) => $staff->where('is_active', true)->whereNull('deleted_at'))
+                ->delete();
+
+            $stale += NativePushDevice::query()
                 ->where(fn (Builder $rows) => $rows
                     ->where('last_seen_at', '<', $cutoff)
                     ->orWhere(fn (Builder $neverSeen) => $neverSeen

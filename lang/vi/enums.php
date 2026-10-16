@@ -42,6 +42,11 @@ return [
         'web' => 'Nhập trên web',
         'mcp' => 'Tạo qua AI',
     ],
+    // M15 Task 2: ApnsEnvironment (app/Enums) — môi trường APNs của token một máy iPhone.
+    'apns_environment' => [
+        'sandbox' => 'Thử nghiệm (sandbox)',
+        'production' => 'Chính thức',
+    ],
     // M11 R2 (Task 6): App\Enums\AiAccessMode — công tắc truy cập qua AI theo người (`users.ai_access`).
     'ai_access_mode' => [
         'off' => 'Tắt',

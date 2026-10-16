@@ -10,6 +10,7 @@ use App\Support\Audit;
 use App\Support\Push\PushSession;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -55,6 +56,9 @@ class ForgetPushDevice
     /** "Khoá truy cập ngay" (`SuspendStaffAccess`, làn fb mục A5): nhân sự nghỉ đột xuất hay bị nghi lộ dữ liệu. */
     public const REASON_STAFF_SUSPENDED = 'staff_suspended';
 
+    /** Xoá (mềm) tài khoản nhân sự (`DeleteStaffMember`): người đã xoá không còn nhận thông báo nào. */
+    public const REASON_STAFF_DELETED = 'staff_deleted';
+
     /**
      * R9 — `$owner` vừa đăng xuất khỏi `$guard` trên trình duyệt mang phiên `$session`: gỡ máy của
      * trình duyệt này, nếu phiên còn nhớ endpoint của nó VÀ dòng đó thuộc đúng `$owner`.
@@ -83,17 +87,28 @@ class ForgetPushDevice
         $endpoint = $session->pull(PushSession::endpointKey($guard));
         $session->forget(PushSession::checkedKey($guard));
 
+        // M15: iPhone của nhân sự (guard `web`). Rút khoá khỏi phiên TRƯỚC mọi nhánh trả sớm.
+        $nativeToken = $owner instanceof User && $guard === 'web' ? $session->pull(PushSession::nativeTokenKey()) : null;
+
         // Khoá chỉ được ghi sau khi endpoint đã qua luật của `RegisterPushDevice`; vẫn kiểm hình dạng
         // (không ném) để một giá trị lạ không bao giờ vào câu WHERE trên cột `ascii`.
-        if (! is_string($endpoint) || Validator::make(
+        $webValid = is_string($endpoint) && Validator::make(
             ['endpoint' => $endpoint],
             ['endpoint' => RegisterPushDevice::endpointRule(knownHost: false)],
-        )->fails()) {
-            return false;
-        }
+        )->passes();
 
         try {
-            return $this->forget($owner, $owner->pushSubscriptions()->where('endpoint', $endpoint)) > 0;
+            $removed = false;
+
+            if ($webValid) {
+                $removed = $this->forget($owner, $owner->pushSubscriptions()->where('endpoint', $endpoint)) > 0;
+            }
+
+            if ($owner instanceof User && $this->forgetNativeToken($owner, $nativeToken)) {
+                $removed = true;
+            }
+
+            return $removed;
         } catch (Throwable $exception) {
             Log::warning('Không gỡ được thiết bị nhận thông báo đẩy lúc đăng xuất; người dùng vẫn được đăng xuất.', [
                 'guard' => $guard,
@@ -141,13 +156,42 @@ class ForgetPushDevice
      */
     public function all(User|ClientUser $owner, ?User $by = null, ?string $reason = null): int
     {
-        return $this->forget($owner, $owner->pushSubscriptions(), $by, $reason);
+        $removed = $this->forget($owner, $owner->pushSubscriptions(), $by, $reason);
+
+        // M15: nhân sự còn có sổ máy iPhone (`native_push_devices`) — gỡ cùng chỗ, đếm chung, để mọi
+        // người gọi (khoá truy cập, xoá nhân sự, đặt lại 2FA…) tự gỡ cả điện thoại.
+        if ($owner instanceof User) {
+            $removed += $this->forget($owner, $owner->nativePushDevices(), $by, $reason);
+        }
+
+        return $removed;
     }
 
     /**
-     * @param  MorphMany|Builder  $devices  dòng của `$owner`, đã lọc
+     * M15 — `DELETE /admin/native/devices`: gỡ iPhone mà phiên này đã đăng ký, và chỉ nó. Không nhận
+     * token từ request: token của người khác không đoán-để-gỡ được.
+     *
+     * @return bool `true` khi đã gỡ một dòng
      */
-    private function forget(User|ClientUser $owner, MorphMany|Builder $devices, ?User $by = null, ?string $reason = null): int
+    public function nativeFromSession(User $owner, Session $session): bool
+    {
+        return $this->forgetNativeToken($owner, $session->pull(PushSession::nativeTokenKey()));
+    }
+
+    /** Token phải đúng hình dạng trước khi vào câu WHERE; dòng phải thuộc đúng `$owner`. */
+    private function forgetNativeToken(User $owner, mixed $token): bool
+    {
+        if (! is_string($token) || preg_match(RegisterNativeDevice::TOKEN_PATTERN, $token) !== 1) {
+            return false;
+        }
+
+        return $this->forget($owner, $owner->nativePushDevices()->where('token', $token)) > 0;
+    }
+
+    /**
+     * @param  MorphMany|HasMany|Builder  $devices  dòng của `$owner`, đã lọc
+     */
+    private function forget(User|ClientUser $owner, MorphMany|HasMany|Builder $devices, ?User $by = null, ?string $reason = null): int
     {
         return DB::transaction(function () use ($owner, $devices, $by, $reason): int {
             $rows = $devices->lockForUpdate()->get(['id', 'device_label']);

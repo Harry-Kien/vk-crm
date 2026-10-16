@@ -337,6 +337,8 @@ it('has a Vietnamese label for every reason the office can remove a push device 
         'push_device_removed.office',
         // Làn fb, mục A5: "Khoá truy cập ngay" (`SuspendStaffAccess`).
         'push_device_removed.staff_suspended',
+        // M15 Task 2: xoá tài khoản nhân sự (`DeleteStaffMember`).
+        'push_device_removed.staff_deleted',
     ]);
 
     foreach (m13bRlPushRemovalReasons() as $suffix) {

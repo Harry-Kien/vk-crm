@@ -199,6 +199,9 @@ function spec1010OpenPages(): array
         'filament.admin.push.subscriptions.store',
         'filament.admin.push.subscriptions.destroy',
         'filament.admin.push.test',
+        // M15 Task 2 — đăng ký/gỡ iPhone CỦA CHÍNH người gọi (DELETE gỡ token trong phiên, không nhận token từ thân request).
+        'filament.admin.native.devices.store',
+        'filament.admin.native.devices.destroy',
         'filament.portal.pages.my-matters',
         'filament.portal.pages.thong-bao-dien-thoai',
         'filament.portal.auth.login',

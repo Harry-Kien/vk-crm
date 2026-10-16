@@ -35,4 +35,14 @@ final class PushSession
     {
         return 'push.checked.'.$guard;
     }
+
+    /**
+     * M15 — token APNs của iPhone đang dùng phiên này (chỉ nhân sự, guard `web`): ghi khi ứng dụng
+     * đăng ký máy, đọc khi đăng xuất hay khi ứng dụng gỡ máy. Không theo guard vì cổng khách không có
+     * ứng dụng iPhone.
+     */
+    public static function nativeTokenKey(): string
+    {
+        return 'push.native_token';
+    }
 }

@@ -3,6 +3,7 @@
 namespace App\Actions\User;
 
 use App\Actions\Mcp\RevokeAiConnections;
+use App\Actions\Push\ForgetPushDevice;
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Enums\AiRevocationReason;
 use App\Enums\Role;
@@ -139,6 +140,10 @@ class DeleteStaffMember
 
                 // M11 R8 (Task 6): xem docblock lớp, mục cuối.
                 app(RevokeAiConnections::class)->handle($lockedTarget, AiRevocationReason::Deleted, $lockedActor);
+
+                // M15: máy nhận thông báo (trình duyệt VÀ iPhone) của người đã xoá thôi nhận tin ngay sau commit.
+                DB::afterCommit(fn () => app(ForgetPushDevice::class)
+                    ->all($lockedTarget, $lockedActor, ForgetPushDevice::REASON_STAFF_DELETED));
             });
         });
     }

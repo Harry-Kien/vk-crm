@@ -358,6 +358,8 @@ return [
             'office' => 'Văn phòng gỡ theo yêu cầu của khách (mất hoặc đổi máy)',
             // Làn fb, mục A5: ForgetPushDevice::REASON_STAFF_SUSPENDED.
             'staff_suspended' => 'Khoá truy cập ngay: gỡ mọi máy của nhân sự',
+            // M15 Task 2: ForgetPushDevice::REASON_STAFF_DELETED.
+            'staff_deleted' => 'Xoá tài khoản nhân sự: gỡ mọi máy của nhân sự',
         ],
         // Làn tk, Task 2: MoveTasksOnHandover::HANDOVER_REASON — việc nội bộ của lead cũ chuyển khi bàn giao vụ.
         'task_reassigned' => [
