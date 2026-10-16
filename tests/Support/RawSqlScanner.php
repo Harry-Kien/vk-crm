@@ -22,6 +22,15 @@ use Symfony\Component\Finder\Finder;
  *  - `select|insert|update|delete|cursor|exec|query|prepare` trên một kết nối (`DB::connection()->`,
  *    `getConnection()`, `getPdo()`, `$connection|$conn|$db|$pdo`, `->connection|db|pdo->`) — những
  *    tên này cũng là hàm của query builder nên không thể cờ trên mọi đối tượng.
+ *
+ * **Điểm mù đã biết** (bộ dò là lưới an toàn, không phải bằng chứng; người rà soát vẫn phải đọc):
+ *  - `fromQuery`, `rawValue`, và dạng chuỗi của `selectSub|fromSub|joinSub|insertUsing`;
+ *  - lời gọi động (`$q->$method()`, `call_user_func`, `[$q, 'whereRaw']`);
+ *  - bí danh: facade `DB` đặt tên khác (`use … as Db`), `Expression` đặt bí danh;
+ *  - `select|insert|update|delete|cursor` trên đối tượng không nhận ra là kết nối
+ *    (`DB::getFacadeRoot()->`, `$database->`, `app('db')->`); `statement`, `selectOne`… thì bắt ở mọi đối tượng;
+ *  - đối số THỨ BA `$boolean` của `whereRaw|havingRaw` (chỉ xét đối số đầu) và mọi đối số sau đối số đầu;
+ *  - chỉ quét `app/` — không quét `database/`, `routes/`, `config/`, `resources/`, `bootstrap/`.
  */
 final class RawSqlScanner
 {

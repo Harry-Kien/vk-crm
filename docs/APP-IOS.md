@@ -4,8 +4,12 @@ Tài liệu này liệt kê những việc **chỉ chủ văn phòng (hoặc ng�
 Apple, theo đúng thứ tự. Phần mã do đội kỹ thuật làm theo kế hoạch
 `docs/superpowers/plans/2026-10-16-m15-ios-app.md`.
 
-Nên **bắt đầu mục A ngay hôm nay**: Apple xác minh doanh nghiệp mất vài ngày đến vài tuần, trong lúc đó
-phần mã được làm song song.
+> **Trạng thái 2026-10-16:** app iPhone CHƯA được dựng. Chủ văn phòng chỉ nên làm mục A–C ngay bây giờ
+> (Apple xác minh doanh nghiệp mất vài tuần). Mục D–G, các lệnh, đường dẫn và tag nêu dưới đây chỉ có sau
+> khi đội kỹ thuật báo Task 2–9 của kế hoạch M15 xong — đừng tạo khoá APNs hay khoá API trước lúc đó.
+
+Nên **bắt đầu mục A ngay hôm nay**: Apple xác minh doanh nghiệp mất vài ngày đến vài tuần. Phần mã chỉ
+bắt đầu sau khi CRM đã được dùng thật tại văn phòng.
 
 | Mục | Việc | Chi phí | Thời gian chờ thường gặp |
 |---|---|---|---|
@@ -60,12 +64,15 @@ Làm trong <https://developer.apple.com/account> và <https://appstoreconnect.ap
    ngôn ngữ chính Tiếng Việt, Bundle ID ở bước 1, SKU `vkcrm-staff`.
 4. **Khoá API cho máy dựng tự động**: Users and Access → Integrations → App Store Connect API → Team
    Keys → `+`, quyền **Admin** (cần cho ký tự động) → tải `.p8` (một lần), ghi **Key ID** và **Issuer ID**.
-5. **Đưa vào GitHub** (repo `Harry-Kien/vk-crm` → Settings → Secrets and variables → Actions):
-   - Secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64` (nội dung tệp `.p8` mã hoá base64),
-     `APPLE_TEAM_ID`.
-   - Variables: `VKCRM_SERVER_URL` = `https://khachhang.luatvukhang.com/admin`.
-   - Environments → tạo `ios-release`, thêm chính anh/chị làm người duyệt bắt buộc (mỗi lần tải bản lên
-     Apple phải có anh/chị bấm đồng ý).
+5. **Đưa vào GitHub** (repo `Harry-Kien/vk-crm`):
+   - Settings → Environments → tạo `ios-release`, thêm chính anh/chị làm người duyệt bắt buộc (mỗi lần
+     tải bản lên Apple phải có anh/chị bấm đồng ý).
+   - Cũng trong `ios-release` (Settings → Environments → ios-release → **Environment secrets**) tạo
+     `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64` (nội dung tệp `.p8` mã hoá base64),
+     `APPLE_TEAM_ID`. **Không** đặt bốn khoá này ở "Repository secrets": chỉ khoá nằm trong môi trường mới
+     bị chặn cho tới khi người duyệt bấm đồng ý.
+   - Settings → Secrets and variables → Actions → Variables: `VKCRM_SERVER_URL` =
+     `https://khachhang.luatvukhang.com/admin` (biến thường, để ở mức repo cũng được).
 
 ## E. Bản thử TestFlight
 
@@ -77,7 +84,7 @@ Làm trong <https://developer.apple.com/account> và <https://appstoreconnect.ap
 
 ## F. Nghiệm thu trên iPhone thật (với bản TestFlight)
 
-Đánh dấu từng dòng, chụp ảnh nếu có lỗi, ghi phiên bản iOS:
+Khi app đã dựng xong, bản thử phải đạt các điểm sau. Đánh dấu từng dòng, chụp ảnh nếu có lỗi, ghi phiên bản iOS:
 
 - [ ] Cài được, mở ra là trang đăng nhập CRM, đăng nhập được bằng mật khẩu + mã 2 lớp.
 - [ ] Để app ở nền 5 phút, mở lại → phải mở khoá bằng Face ID / mật mã.
@@ -113,6 +120,8 @@ Làm trong <https://developer.apple.com/account> và <https://appstoreconnect.ap
 
 ## Cập nhật về sau
 
+(Mô tả cách app SẼ vận hành khi đã dựng xong.)
+
 - **Sửa tính năng CRM** (màn hình, quy trình, quyền): cập nhật máy chủ như bình thường. App hiện ngay bản
   mới, **không cần nộp lại Apple**.
 - **Sửa phần vỏ app** (Face ID, tải tệp, biểu tượng, phiên bản iOS mới): đội kỹ thuật gắn tag
@@ -125,7 +134,7 @@ Làm trong <https://developer.apple.com/account> và <https://appstoreconnect.ap
 
 1. Quản trị viên vào **Nhân sự → người đó → "Khoá truy cập ngay"**: phiên trên điện thoại bị cắt ở thao
    tác kế tiếp, máy bị gỡ khỏi danh sách nhận thông báo.
-2. App luôn đòi Face ID / mật mã máy, và không lưu hồ sơ trên máy, nên người nhặt được điện thoại không
-   đọc được dữ liệu CRM.
+2. Khi app đã dựng xong, nó sẽ luôn đòi Face ID / mật mã máy và không lưu hồ sơ trên máy, nên người nhặt
+   được điện thoại không đọc được dữ liệu CRM.
 3. Nghỉ việc hẳn: bàn giao việc như quy trình thường, thu hồi mã đổi trong Apple Business Manager nếu
    cần.

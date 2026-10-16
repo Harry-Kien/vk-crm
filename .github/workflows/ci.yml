@@ -17,6 +17,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Rà soát phụ thuộc chạy cả khi không ai đẩy mã: lỗ hổng mới được công bố hằng ngày.
+  schedule:
+    - cron: "0 2 * * 1"
   pull_request:
 
 permissions:
@@ -29,6 +32,7 @@ concurrency:
 jobs:
   tests:
     name: Pest + Pint
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
@@ -57,6 +61,7 @@ jobs:
 
   schema:
     name: Migration trên MariaDB thật
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     services:
@@ -124,8 +129,10 @@ jobs:
           DB_PASSWORD: password
         run: php artisan test
 
-  # M15 Task 1 — rà soát phụ thuộc: lỗ hổng đã công bố mức cao trở lên làm job đỏ. Composer audit đọc
-  # composer.lock (không cần cài); npm audit chạy ở gốc repo SAU `npm ci` và KHÔNG `--omit=dev`, vì
+  # M15 Task 1 — rà soát phụ thuộc, chạy cả theo lịch hằng tuần. `composer audit` làm job đỏ với MỌI
+  # lỗ hổng đã công bố (không phân mức) và cả gói bị bỏ rơi; `npm audit` chỉ đỏ từ mức cao trở lên.
+  # Composer audit đọc composer.lock (không cần cài); npm audit chạy ở gốc repo SAU `npm ci --ignore-scripts`
+  # (không chạy script cài đặt của gói) và KHÔNG `--omit=dev`, vì
   # phụ thuộc gốc chỉ là công cụ dựng (Vite/Tailwind) — `--omit=dev` sẽ không kiểm gì cả. Khi có
   # app điện thoại (`mobile/`), thêm một bước `npm audit --prefix mobile` tương tự.
   security:
@@ -150,7 +157,7 @@ jobs:
           node-version: '22'
 
       - name: npm ci
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: npm audit
         run: npm audit --audit-level=high
