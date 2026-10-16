@@ -476,7 +476,13 @@ it('offers the stages of the matter type, but not its first stage, for a stage-t
         ->assertHasActionErrors(['instalments.0.trigger_stage_key']);
 });
 
-it('does not tell the lead lawyer about a contract they entered themselves', function () {
+/**
+ * Gộp integ-4 mục D (m7 của làn kt): luật sư phụ trách tự nhập thì không nhận chuông về việc của chính
+ * mình — người quản lý của vụ (`ResolveStaffRecipients::supervisorsFor()`: trưởng phòng) nhận thay, để
+ * con số vẫn có người thứ hai nhìn. Mutation probe: bỏ điều kiện "luật sư phụ trách là người nhập" →
+ * luật sư nhận chuông của chính mình, trưởng phòng không.
+ */
+it('does not tell the lead lawyer about a contract they entered themselves, and tells the managers of the matter instead', function () {
     $this->actingAs($this->lawyer, 'web');
 
     contractPage()
@@ -484,7 +490,9 @@ it('does not tell the lead lawyer about a contract they entered themselves', fun
         ->assertHasNoActionErrors();
 
     expect(Contract::query()->where('matter_id', $this->empty->id)->exists())->toBeTrue()
-        ->and($this->lawyer->notifications()->count())->toBe(0);
+        ->and($this->lawyer->notifications()->count())->toBe(0)
+        ->and($this->manager->notifications()->sole()->data['body'])->toStartWith('Luật sư Luật sư Phụ Trách Minh đã nhập hợp đồng')
+        ->and($this->admin->notifications()->count())->toBe(0);
 });
 
 it('tells the lead lawyer when the manager enters the contract too, naming the manager', function () {
@@ -510,6 +518,67 @@ it('falls back to a manager who sees the money when the lead lawyer was deactiva
 
     expect($this->lawyer->notifications()->count())->toBe(0)
         ->and($this->manager->notifications()->count())->toBe(1)
+        ->and($this->accountant->notifications()->count())->toBe(0);
+});
+
+/**
+ * Gộp integ-4 mục D (m7 của làn kt): luật sư phụ trách không còn hoạt động thì MỌI người quản lý của vụ trừ
+ * người nhập nhận chuông — trước bản sửa chuỗi dự phòng trả đúng một người, và khi người đó chính là người
+ * nhập thì không ai nhận gì. Mutation probe: quay về `forBilling()` một người → trưởng phòng thứ hai không
+ * nhận; bỏ bước bỏ người nhập → trưởng phòng nhập nhận chuông của chính mình.
+ */
+it('tells every other manager when the lead lawyer is inactive and a manager entered the contract', function () {
+    $this->lawyer->forceFill(['is_active' => false])->save();
+    $second = User::factory()->withRole(Role::Manager)->create();
+    $gone = User::factory()->withRole(Role::Manager)->create(['is_active' => false]);
+
+    $this->actingAs($this->manager, 'web');
+
+    contractPage()
+        ->callAction(TestAction::make('enterContract')->table($this->empty), data: oneInstalmentContract())
+        ->assertHasNoActionErrors();
+
+    expect($this->manager->notifications()->count())->toBe(0)
+        ->and($second->notifications()->count())->toBe(1)
+        ->and($gone->notifications()->count())->toBe(0)
+        ->and($this->lawyer->notifications()->count())->toBe(0)
+        ->and($this->admin->notifications()->count())->toBe(0);
+});
+
+it('tells every manager of the matter, not just one, when the accountant enters for an inactive lead lawyer', function () {
+    $this->lawyer->forceFill(['is_active' => false])->save();
+    $second = User::factory()->withRole(Role::Manager)->create();
+
+    $this->actingAs($this->accountant, 'web');
+
+    contractPage()
+        ->callAction(TestAction::make('enterContract')->table($this->empty), data: oneInstalmentContract())
+        ->assertHasNoActionErrors();
+
+    expect($this->manager->notifications()->count())->toBe(1)
+        ->and($second->notifications()->count())->toBe(1)
+        ->and($this->accountant->notifications()->count())->toBe(0);
+});
+
+/**
+ * Vụ hạn chế: người quản lý của vụ là quản trị viên (`supervisorsFor()`), không trưởng phòng — kế toán không
+ * bao giờ tới đây (trang không liệt kê vụ hạn chế cho họ). Quản trị viên nhập cho vụ mất luật sư phụ trách
+ * thì quản trị viên khác nhận, trưởng phòng thì không bao giờ.
+ */
+it('tells the other admins, never a manager, on a restricted matter whose lead lawyer is inactive', function () {
+    $this->lawyer->forceFill(['is_active' => false])->save();
+    $otherAdmin = User::factory()->withRole(Role::Admin)->create();
+
+    $this->actingAs($this->admin, 'web');
+
+    contractPage()
+        ->callAction(TestAction::make('enterContract')->table($this->restricted), data: oneInstalmentContract())
+        ->assertHasNoActionErrors();
+
+    expect(Contract::query()->where('matter_id', $this->restricted->id)->exists())->toBeTrue()
+        ->and($otherAdmin->notifications()->count())->toBe(1)
+        ->and($this->admin->notifications()->count())->toBe(0)
+        ->and($this->manager->notifications()->count())->toBe(0)
         ->and($this->accountant->notifications()->count())->toBe(0);
 });
 

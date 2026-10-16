@@ -21,21 +21,18 @@ use Illuminate\Support\Facades\Notification;
  * - **Gọi SAU khi transaction tiền đã commit** — ba Action trên gọi lớp này sau `moneyTransaction()`,
  *   không bên trong nó: một lần chạy lại transaction (xung đột khoá, `LocksBillingRows`) không gửi hai
  *   lần, và một lần rollback không để lại chuông về một hợp đồng không tồn tại.
- * - **Người nhận:** `ResolveStaffRecipients::forBilling($matter, [luật sư phụ trách])` — luật sư phụ
- *   trách khi họ còn hoạt động và còn thấy tiền của vụ; không thì chuỗi dự phòng R3 của chính lớp đó
- *   (một trưởng phòng, rồi một quản trị viên thấy tiền của vụ). Người vừa làm việc đó bị bỏ khỏi danh
- *   sách: không ai nhận chuông về việc chính mình vừa làm — nên luật sư phụ trách tự nhập thì không ai
- *   nhận gì (một điều kiện, không phải hai: phép thử ngược cho thấy một lần hỏi "người nhập có phải
- *   luật sư phụ trách không" đứng trước nó không đổi được kết quả nào).
- * - **Khoảng hở đã biết (đợt polish, m7 — chỉ ghi lại, chưa sửa):** chuỗi dự phòng trả ĐÚNG MỘT người
- *   (trưởng phòng đầu tiên thấy tiền của vụ, không có thì quản trị viên đầu tiên). Khi luật sư phụ
- *   trách đã nghỉ/không còn thấy tiền VÀ người nhập lại chính là người đó, bước bỏ người nhập để lại
- *   danh sách RỖNG: không ai nhận chuông — chuỗi không đi tiếp tới người kế. Hiếm (người dự phòng tự
- *   nhập hợp đồng của một vụ mất người phụ trách) và không mất dữ liệu (nhật ký hoạt động vẫn ghi người
- *   nhập). Sửa đúng cần một phương thức của `ResolveStaffRecipients` (dự phòng trừ một người), tệp của
- *   làn tk — để sau khi gộp hai làn.
+ * - **Người nhận (gộp integ-4, mục D — sửa khoảng hở m7 của làn kt):** luật sư phụ trách, khi họ còn
+ *   nhận được chuông về tiền của vụ (`ResolveStaffRecipients::qualifiesForBilling()`: đang hoạt động, chưa
+ *   xoá mềm, thấy tiền của vụ) VÀ không phải chính người nhập. Không thì MỌI người quản lý của vụ
+ *   (`ResolveStaffRecipients::supervisorsFor()`: trưởng phòng; quản trị viên với vụ hạn chế) TRỪ người
+ *   nhập. Không ai nhận chuông về việc chính mình vừa làm, nhưng con số luôn có người thứ hai nhìn: luật
+ *   sư phụ trách tự nhập thì trưởng phòng nhận; người nhập là trưởng phòng của một vụ mất người phụ trách
+ *   thì các trưởng phòng khác nhận. Trước bản sửa, chuỗi dự phòng của `forBilling()` trả ĐÚNG MỘT người,
+ *   và khi người đó lại là người nhập thì không ai nhận gì. Chỉ còn rỗng khi người nhập là người quản lý
+ *   DUY NHẤT của vụ — nhật ký hoạt động vẫn ghi người nhập (`Audit::record(..., $actor)` ở Action).
  * - Vụ `restricted`: kế toán không bao giờ tới đây (cổng tiền đã từ chối trong Action); quản trị viên
- *   nhập thì luật sư phụ trách — người duy nhất ngoài quản trị viên thấy tiền của vụ — nhận chuông.
+ *   nhập thì luật sư phụ trách — người duy nhất ngoài quản trị viên thấy tiền của vụ — nhận chuông, và
+ *   khi họ không còn hoạt động thì các quản trị viên khác nhận, không bao giờ trưởng phòng.
  *
  * Nhật ký hoạt động ghi người nhập ở chính Action (`Audit::record(..., $actor)`), không ở đây.
  */
@@ -60,10 +57,13 @@ class NotifyLeadLawyerOfContractEntry
             return;
         }
 
-        $recipients = $this->recipients
-            ->forBilling($matter, [$matter->leadLawyer])
-            ->reject(fn (User $user): bool => $user->is($actor))
-            ->values();
+        $lead = $matter->leadLawyer;
+
+        $recipients = $lead instanceof User && ! $lead->is($actor) && $this->recipients->qualifiesForBilling($lead, $matter)
+            ? collect([$lead])
+            : $this->recipients->supervisorsFor($matter)
+                ->reject(fn (User $user): bool => $user->is($actor))
+                ->values();
 
         if ($recipients->isEmpty()) {
             return;

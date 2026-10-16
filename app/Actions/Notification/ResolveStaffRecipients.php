@@ -211,6 +211,17 @@ class ResolveStaffRecipients
     }
 
     /**
+     * Như {@see self::qualifies()} nhưng với cổng TIỀN của {@see self::forBilling()} (`is_active`, chưa xoá
+     * mềm, `ContractPolicy::viewAny` của vụ) — gộp integ-4 mục D: `NotifyLeadLawyerOfContractEntry` hỏi
+     * "luật sư phụ trách còn nhận được chuông về tiền của vụ không" để tự chọn người thay, thay vì chuỗi dự
+     * phòng một người của `forBilling()`.
+     */
+    public function qualifiesForBilling(User $user, Matter $matter): bool
+    {
+        return $this->qualify(collect([$user]), $matter, billing: true)->isNotEmpty();
+    }
+
+    /**
      * @param  array<string, mixed>  $mustAllow
      * @return Collection<int, User>
      *
