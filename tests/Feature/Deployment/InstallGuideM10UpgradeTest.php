@@ -80,14 +80,20 @@ function m10IntakePermissions(): array
     ));
 }
 
-/** @return list<string> */
+/**
+ * Bốn quyền tiền của M9. `contract.enter` (làn kt, 2026-10-15) cũng mang tiền tố `contract.` nhưng không
+ * thuộc bản M9: hai sổ nâng cấp nhắc nó ở câu riêng (`ContractEntryDocsTest`).
+ *
+ * @return list<string>
+ */
 function m10MoneyPermissions(): array
 {
     return array_values(array_map(
         fn (Permission $permission): string => $permission->value,
         array_filter(
             Permission::cases(),
-            fn (Permission $permission): bool => preg_match('/^(billing|contract|payment|revenue)\./', $permission->value) === 1,
+            fn (Permission $permission): bool => preg_match('/^(billing|contract|payment|revenue)\./', $permission->value) === 1
+                && $permission !== Permission::ContractEnter,
         ),
     ));
 }

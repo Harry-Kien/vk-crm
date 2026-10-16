@@ -36,7 +36,7 @@ use Illuminate\Support\Collection;
  * **Mọi đồng đi qua đúng các Action của sản phẩm** — `DraftContract`, `ActivateContract`,
  * `AmendContract`, `RecordPayment`, `VoidPayment`, `WaiveInstalment`, `ReassignMatter` — với actor
  * tường minh là người làm việc đó ở văn phòng thật: luật sư phụ trách soạn, kích hoạt, ký phụ lục và
- * miễn; kế toán ghi và huỷ khoản thu; riêng vụ `restricted` thì luật sư phụ trách tự ghi (P3); quản
+ * miễn; kế toán ghi và huỷ khoản thu (và nhập bản nháp vụ 9 — làn kt); riêng vụ `restricted` thì luật sư phụ trách tự ghi (P3); quản
  * trị viên bàn giao. Vì vậy bất biến tổng, `attributed_lawyer_id` (P2), `created_by`, trạng thái
  * `paid` và nhật ký do chính mã thật giữ, và `billing:check-invariants` chạy sạch trên dữ liệu này là
  * một phép đo chứ không phải một hằng số. Không factory, không `DB::table()`.
@@ -59,7 +59,8 @@ use Illuminate\Support\Collection;
  * `DemoDataSeeder`) thì hỏng to ngay (`firstOrFail()`), như `MatterSeeder`.
  *
  * Các tình huống cố ý (mỗi mục một khẳng định ở `tests/Feature/Seeders/BillingSeederTest.php`):
- *  - mọi vụ đã rời giai đoạn đầu có hợp đồng `active`; vụ 9 (còn ở `intake`) có bản nháp; vụ 15
+ *  - mọi vụ đã rời giai đoạn đầu có hợp đồng `active`; vụ 9 (còn ở `intake`) có bản nháp do KẾ TOÁN
+ *    nhập (làn kt — trang "Hợp đồng"; luật sư phụ trách nhận chuông); vụ 15
  *    (còn ở `intake`) cố ý không có hợp đồng;
  *  - giá trị 15.000.000 – 450.000.000 đ; thuế suất 8%, 10% hoặc không có;
  *  - lịch 30% khi ký / 40% khi nộp đơn / 30% khi xét xử sơ thẩm (vụ 1, 2, 10, 19, 20 và bản nháp vụ
@@ -208,8 +209,9 @@ class BillingSeeder extends Seeder
                 );
             }],
 
-            // Vụ 9 — còn ở "Tiếp nhận": BẢN NHÁP, chưa ký.
-            [$vu(9), fn (Matter $m) => $this->draft($m, 45_000_000, 10, self::THIRTY_FORTY_THIRTY)],
+            // Vụ 9 — còn ở "Tiếp nhận": BẢN NHÁP, chưa ký, do KẾ TOÁN nhập (làn kt: trang "Hợp đồng") —
+            // luật sư phụ trách có một dòng chuông "Kế toán … đã nhập hợp đồng …" để demo.
+            [$vu(9), fn (Matter $m) => $this->draft($m, 45_000_000, 10, self::THIRTY_FORTY_THIRTY, $this->accountant)],
 
             [$vu(10), function (Matter $m): void {
                 $rows = $this->signed($m, 200_000_000, 10, self::THIRTY_FORTY_THIRTY);
@@ -353,12 +355,13 @@ class BillingSeeder extends Seeder
     }
 
     /**
-     * Soạn bản nháp (luật sư phụ trách) — phần trăm của từng dòng thành số đồng qua
-     * `SplitByPercent::split()` (phần dư rơi vào đợt cuối, đúng như form soạn hợp đồng).
+     * Soạn bản nháp (luật sư phụ trách, hoặc `$by` — làn kt: kế toán nhập hợp đồng giấy đã ký) — phần
+     * trăm của từng dòng thành số đồng qua `SplitByPercent::split()` (phần dư rơi vào đợt cuối, đúng như
+     * form soạn hợp đồng).
      *
      * @param  list<array<string, mixed>>  $rows
      */
-    private function draft(Matter $matter, int $total, ?int $vatRate, array $rows): Contract
+    private function draft(Matter $matter, int $total, ?int $vatRate, array $rows, ?User $by = null): Contract
     {
         $amounts = SplitByPercent::split($total, array_column($rows, 'percent'));
 
@@ -376,7 +379,7 @@ class BillingSeeder extends Seeder
             ];
         }
 
-        return app(DraftContract::class)->handle($matter->leadLawyer, $matter, [
+        return app(DraftContract::class)->handle($by ?? $matter->leadLawyer, $matter, [
             'total_amount' => $total,
             'vat_rate_percent' => $vatRate,
         ], $instalments);

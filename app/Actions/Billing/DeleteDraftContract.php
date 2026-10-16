@@ -22,8 +22,10 @@ use Illuminate\Support\Facades\Gate;
  *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
  *     TRƯỚC (câu đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi
  *     `contracts`; đọc lại từ hàng đã khoá.
- *  2. **Quyền:** `ContractPolicy::delete` qua `Gate::forUser($actor)` (`contract.manage` trên một vụ
- *     người đó thấy được tiền — cùng cổng với sửa bản nháp).
+ *  2. **Quyền:** `ContractPolicy::delete` qua `Gate::forUser($actor)` — `contract.manage` **hoặc**
+ *     `contract.enter` (làn kt: kế toán xoá bản nháp mình nhập nhầm) trên một vụ người đó thấy được
+ *     tiền; cùng điều kiện với `ContractPolicy::updateDraft` (sửa bản nháp), viết rời. `contract.enter`
+ *     không bao giờ xoá được hợp đồng đã ký: bước 3 chặn mọi hợp đồng không còn `draft`.
  *  3. "Xoá được không" là {@see Contract::assertDestroyable()} — ĐÚNG hàm hook `deleting` gọi, không
  *     một điều kiện thứ hai: còn `draft` và chưa có khoản thu nào ({@see ContractNotDestroyable}).
  *  4. Xoá các đợt qua model (hook `Instalment::deleting` vẫn chạy, cùng lý do `UpdateDraftContract`),

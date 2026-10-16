@@ -3,11 +3,12 @@
 namespace App\Enums;
 
 /**
- * Đúng 21 quyền ở SPEC §5: 13 quyền của bảng gốc, cộng 4 quyền tiền của M9 (`billing.view`,
+ * Đúng 22 quyền ở SPEC §5: 13 quyền của bảng gốc, cộng 4 quyền tiền của M9 (`billing.view`,
  * `contract.manage`, `payment.record`, `revenue.viewAny`) thêm bằng đính chính có ngày ngay dưới
  * bảng đó ("Bổ sung 2026-09-19, sửa 2026-09-24"), cộng 3 quyền tiếp nhận của M10 (`intake.create`,
  * `intake.viewAny`, `intake.convert`) thêm bằng đính chính "Bổ sung 2026-09-24 (M10)", cộng 1 quyền
- * của M13 (`performance.viewAny`, "Bổ sung 2026-10-04") — không thêm lặng lẽ. Đếm cộng dồn theo
+ * của M13 (`performance.viewAny`, "Bổ sung 2026-10-04"), cộng 1 quyền của làn kt (`contract.enter`,
+ * "Bổ sung 2026-10-15") — không thêm lặng lẽ. Đếm cộng dồn theo
  * milestone: lần gộp một làn khác thêm quyền chỉ phải sửa con số tổng. Tên quyền là nguồn sự thật,
  * không sinh tự động từ resource.
  */
@@ -36,6 +37,15 @@ enum Permission: string
 
     /** Soạn, kích hoạt, ký phụ lục (kể cả đổi số tiền từng đợt), huỷ hợp đồng; miễn một đợt. */
     case ContractManage = 'contract.manage';
+
+    /**
+     * Làn kt (2026-10-15, SPEC §5 "Bổ sung 2026-10-15"): NHẬP một hợp đồng giấy đã ký cho vụ CÓ SẴN —
+     * soạn bản nháp, sửa và xoá bản nháp, kích hoạt với ngày ký (`ContractPolicy::create`, `updateDraft`,
+     * `delete`, `activate`). Không phụ lục, hoàn tất, huỷ, miễn, dời hạn hay thư nhắc khách: những quyết
+     * định thương mại đó vẫn là `contract.manage`. Như `contract.manage`, một mình quyền này không mở
+     * tiền của vụ nào: cùng đi với "thấy tiền của vụ" (`ChecksBillingAccess::canSeeBilling()`). Vai kế toán.
+     */
+    case ContractEnter = 'contract.enter';
 
     /** Ghi nhận và huỷ một khoản thu. Trên vụ `restricted` luật sư phụ trách ghi được dù thiếu quyền này. */
     case PaymentRecord = 'payment.record';

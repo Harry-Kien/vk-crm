@@ -114,6 +114,8 @@ function spec1010GatedPages(): array
         'filament.admin.pages.team' => Role::Lawyer,
         'filament.admin.pages.receivables' => Role::Assistant,
         'filament.admin.pages.revenue-dashboard' => Role::Assistant,
+        // Làn kt — "Hợp đồng" (kế toán nhập hợp đồng đã ký): `billing.view` + `contract.enter`/`contract.manage`.
+        'filament.admin.pages.contract-entry' => Role::Assistant,
         'filament.admin.resources.client-users.index' => Role::Accountant,
         'filament.admin.resources.client-users.create' => Role::Accountant,
         'filament.admin.resources.clients.index' => Role::Accountant,

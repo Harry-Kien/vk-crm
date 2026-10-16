@@ -82,8 +82,13 @@ it('refuses a draft that somehow carries a payment row, and deletes nothing', fu
         ->and(Instalment::query()->where('contract_id', $this->draft->id)->count())->toBe(2);
 });
 
-it('refuses an accountant, who cannot manage contracts, and deletes nothing', function () {
-    expect(fn () => deleteDraft($this->accountant, $this->draft))->toThrow(AuthorizationException::class);
+it('refuses an account that reads the money but neither manages nor enters contracts, and deletes nothing', function () {
+    // Làn kt: kế toán nay có `contract.enter` và xoá được bản nháp (`ContractEntryPageTest`); người đọc
+    // tiền thuần là một tài khoản cấp thẳng `matter.viewAny` + `billing.view`.
+    $reader = User::factory()->create();
+    $reader->givePermissionTo(['matter.viewAny', 'billing.view']);
+
+    expect(fn () => deleteDraft($reader, $this->draft))->toThrow(AuthorizationException::class);
 
     expect(Contract::query()->whereKey($this->draft->id)->exists())->toBeTrue()
         ->and(Activity::query()->where('event', 'contract_draft_deleted')->exists())->toBeFalse();

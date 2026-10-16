@@ -85,13 +85,17 @@ enum Role: string
             ],
             // Kế toán chỉ thấy danh sách rút gọn, không mở được nội dung hồ sơ (SPEC §5) — vẫn
             // đúng sau M9: `billing.view` là một trục riêng, không kèm `matter.view`. Kế toán thấy
-            // và ghi TIỀN (qua `AccountantBillingRow`), không soạn hợp đồng.
+            // và ghi TIỀN (qua `AccountantBillingRow`).
             // M10: không có quyền `intake.*` nào — người liên hệ không có tiền nào để thu (SPEC §5).
+            // Làn kt (2026-10-15, SPEC §5 bổ sung cùng ngày): kế toán NHẬP hợp đồng giấy đã ký cho vụ có
+            // sẵn (`contract.enter`, trang "Hợp đồng"), vẫn không `contract.manage` (phụ lục, hoàn tất,
+            // huỷ, miễn, dời hạn, thư nhắc khách) và vẫn không `matter.view`.
             self::Accountant => [
                 Permission::MatterViewAny,
                 Permission::BillingView,
                 Permission::PaymentRecord,
                 Permission::RevenueViewAny,
+                Permission::ContractEnter,
             ],
             // Làn kd (2026-10-14, SPEC §5 bổ sung cùng ngày): nhân viên kinh doanh ghi một lần liên hệ
             // và cập nhật lead MÌNH ghi, được giao — đúng tầm nhìn `intake.create` của

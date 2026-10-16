@@ -124,7 +124,9 @@ class Receivables extends Page implements HasTable
      * Bộ lọc của bảng đọc được từ URL, `?filters[overdue][isActive]=1` — cùng khai báo
      * `Filament\Resources\Pages\ListRecords` dùng (làn rv, 2026-10-15): ô "Quá hạn" đầu trang Doanh thu
      * mở thẳng trang này với bộ lọc "Quá hạn" đã bật. Chỉ ĐỌC ý muốn của người xem; tập dòng vẫn do
-     * {@see self::rowsQuery()} (phạm vi `listableBy`) quyết.
+     * {@see self::rowsQuery()} (phạm vi `listableBy`) quyết. Làn kt dùng cùng khoá: nút "Ghi khoản
+     * thu" của trang "Hợp đồng" ({@see ContractEntry}) liên kết sang đây lọc sẵn mã hồ sơ
+     * (`?filters[matter_code][code]=VK-…`).
      *
      * @var array<string, mixed>|null
      */
@@ -142,6 +144,23 @@ class Receivables extends Page implements HasTable
     public static function getNavigationLabel(): string
     {
         return __('billing.receivables.navigation_label');
+    }
+
+    /**
+     * Làn kt: lối tắt "Nhập hợp đồng cho hồ sơ" sang trang {@see ContractEntry} — để kế toán không còn
+     * phải hỏi "thêm số tiền của hồ sơ ở đâu". Chỉ hiện với người mở được trang đó.
+     *
+     * @return array<int, Action>
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('openContractEntry')
+                ->label(__('contract_entry.actions.open_contracts'))
+                ->icon(Heroicon::OutlinedClipboardDocumentList)
+                ->visible(fn (): bool => ContractEntry::canAccess())
+                ->url(fn (): string => ContractEntry::getUrl()),
+        ];
     }
 
     public function getTitle(): string
@@ -276,6 +295,21 @@ class Receivables extends Page implements HasTable
                         fn (Builder $query, $value): Builder => $query->whereHas(
                             'contract.matter',
                             fn (Builder $matter) => $matter->where('client_id', $value),
+                        ),
+                    )),
+                // Làn kt: "Mã hồ sơ" — đích của nút "Ghi khoản thu" trên trang "Hợp đồng" (xem
+                // `$tableFilters`). Đúng mã, không "chứa": liên kết mang mã đầy đủ của một hồ sơ.
+                // Đợt polish (m5): ô này đọc từ query string, nên một giá trị không phải chuỗi
+                // (`filters[matter_code][code][]=x`) bị bỏ qua như ô trống, không thành trang 500.
+                Filter::make('matter_code')
+                    ->schema([
+                        TextInput::make('code')->label(__('billing.receivables.recent_payments.filters.matter_code')),
+                    ])
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        is_string($data['code'] ?? null) && filled($data['code']),
+                        fn (Builder $query): Builder => $query->whereHas(
+                            'contract.matter',
+                            fn (Builder $matter) => $matter->where('code', trim($data['code'])),
                         ),
                     )),
             ])

@@ -910,7 +910,7 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 >
 > **Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — tải gói bàn giao là đọc tiền.** Từ M9, `MUC-LUC.pdf` trong gói bàn giao in "Bảng kê thanh toán" (§6.12). Gói là một tài liệu nhóm B của vụ, nên trước bản sửa mọi nhân sự có `matter.view` trên vụ — kể cả **trợ lý** trong đội, vai trò không có `billing.view` — tải được gói và đọc được toàn bộ tiền của vụ. Nay `DocumentPolicy::download` của nhân sự đòi thêm, **chỉ cho các version của gói bàn giao** và **chỉ khi vụ có hợp đồng đã từng ký** (khác `draft` — kể cả `cancelled`, vì gói dựng trước lần huỷ vẫn in bảng kê): người tải phải thấy được tiền của vụ theo đúng định nghĩa trên (`ContractPolicy::view`). Không có định nghĩa thứ hai. Người không tải được gói vẫn thấy dòng gói (tên, version) trên tab Tài liệu, chỉ mất nút "Tải"; mọi tài liệu khác của vụ, và gói của vụ chưa từng có hợp đồng đã ký, không đổi luật. Khách không chịu điều kiện này (bảng kê là thứ §5 phần Portal cho khách xem về vụ của chính họ).
 
-> **Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất).** Số liệu theo dõi và hiệu suất **theo người** (§6.14, ba trang ở §7.5) là dữ liệu truy cập về nhân sự, không phải một màn hình thao tác, nên nó nằm trong bảng vai trò này như M9 đã làm với tiền. Thêm **một** quyền (13 quyền gốc + 4 quyền tiền của M9 + 3 quyền tiếp nhận của M10 + 1 quyền của M13 = **21**, đúng số trường hợp của enum `Permission`; *sửa 2026-10-07, rà soát cuối làn M13: bản trước ghi "13 + 4 + 1", bỏ sót ba quyền `intake.*` của bổ sung M10 ngay dưới*):
+> **Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất).** Số liệu theo dõi và hiệu suất **theo người** (§6.14, ba trang ở §7.5) là dữ liệu truy cập về nhân sự, không phải một màn hình thao tác, nên nó nằm trong bảng vai trò này như M9 đã làm với tiền. Thêm **một** quyền (13 quyền gốc + 4 quyền tiền của M9 + 3 quyền tiếp nhận của M10 + 1 quyền của M13 = **21**, đúng số trường hợp của enum `Permission` lúc đó — làn kt thêm `contract.enter`, nay **22**, xem "Bổ sung 2026-10-15" dưới; *sửa 2026-10-07, rà soát cuối làn M13: bản trước ghi "13 + 4 + 1", bỏ sót ba quyền `intake.*` của bổ sung M10 ngay dưới*):
 >
 > | Quyền | admin | manager | lawyer | assistant | accountant |
 > |---|---|---|---|---|---|
@@ -987,6 +987,18 @@ quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồ
 > **Trang chủ của nhân viên kinh doanh** chỉ có widget lead (ngoài dải "Tình trạng hệ thống" mọi nhân sự đều có, đứng trên cùng, và ô tài khoản): "Lead của tôi" (số lead theo trạng thái), "Lead đến hẹn liên hệ lại", "Liên hệ chưa ai gọi lại" (§7.1). **Báo cáo theo người**: trang "Bức tranh đầu vào" thêm widget "Lead theo người phụ trách" (người được giao, chưa giao thì người ghi: số lead và tỉ lệ thành vụ việc), chỉ `intake.viewAny`. Máy chủ đã có dữ liệu nhận vai mới qua `php artisan migrate --force` rồi `php artisan db:seed --force`.
 >
 > **Đính chính 2026-10-15 (làn fi A1, A2, B1–B3; vòng sửa 1, I2, I4).** (1) "Đổi chức danh … sang `sales` bị chặn như sang kế toán" ở trên đọc là: bị chặn bởi mọi việc dở **trừ lead người đó phụ trách** (`assigned_to`) — nhân viên kinh doanh vẫn là người phụ trách lead được; sang kế toán thì cả lead phụ trách cũng chặn (§6.11, đính chính cùng ngày). (2) **Gộp** (`MergeIntake`) mang sang bản đích các lần chăm sóc (giữ người ghi, thời điểm), luật sư tư vấn khi bản đích chưa có (cả hai có mà khác nhau: giữ của bản đích, id kia vào nhật ký gộp) và hẹn liên hệ lại sớm nhất còn ở tương lai của hai bản. Luật sư tư vấn của bản nguồn chỉ sang khi người đó còn nhận được lead (`HandIntakeToLawyer::canReceive()`); bản nguồn đã đóng không chặn ai nghỉ việc hay đổi vai, nên người đó có thể đã nghỉ hay sang vai kinh doanh — khi đó id vào nhật ký gộp, bản đích không có luật sư tư vấn. (3) **Mở lại** (`ReopenIntake`) xoá hẹn liên hệ lại đã qua, bỏ luật sư tư vấn không còn nhận được lead (dòng `intake_reopened` mang `consulting_lawyer_dropped`; lead về tay người phụ trách), và khi đưa một lần từ chối vì xung đột về "Đỏ chờ" LẦN ĐẦU thì báo trưởng phòng/quản trị như đường thường (`IntakeRedPending`, sau commit). (4) **Ghi lần chăm sóc** từ chối thời gian liên hệ trước lúc văn phòng nhận lead (và ở tương lai), lỗi trên đúng ô.
+
+> **Bổ sung 2026-10-15 (làn kt — kế toán nhập hợp đồng).** Chủ văn phòng (chat 2026-10-15), đăng nhập kế toán: "Phần kế toán và phần Admin sao không thêm được hồ sơ và số tiền của hồ sơ vào?" — hôm đó hợp đồng chỉ soạn được ở tab "Hợp đồng và thanh toán" của trang vụ việc (`contract.manage`), mà kế toán không mở được trang vụ việc (`matter.view`). Chủ văn phòng chọn **"Cho kế toán nhập hợp đồng"**: kế toán nhập hợp đồng giấy đã ký — tổng giá trị, thuế suất, các đợt thu — cho một hồ sơ **có sẵn**, vẫn **không** mở được nội dung hồ sơ; hồ sơ vẫn do luật sư/trưởng phòng mở. Thêm **một** quyền (21 quyền ở trên + 1 quyền của làn kt = **22**, đúng số trường hợp của enum `Permission`):
+>
+> | Quyền | admin | manager | lawyer | assistant | accountant | sales |
+> |---|---|---|---|---|---|---|
+> | `contract.enter` (nhập hợp đồng đã ký cho vụ có sẵn: soạn bản nháp, sửa và xoá bản nháp, kích hoạt với ngày ký) | ✓ | — | — | — | ✓ | — |
+>
+> **Gồm gì, không gồm gì.** `ContractPolicy::create` (soạn bản nháp), `updateDraft` (sửa bản nháp và lịch thu của nó), `delete` (xoá bản nháp — chỉ được khi còn nháp, chưa có khoản thu, như mọi người), `activate` (kích hoạt với ngày ký) đòi "thấy tiền của vụ" (định nghĩa trên) **và** (`contract.manage` **hoặc** `contract.enter`). Mọi quyết định thương mại trên hợp đồng đã ký — ký phụ lục (kể cả đổi số tiền hay huỷ một đợt), hoàn tất, huỷ hợp đồng (`ContractPolicy::update`), miễn một đợt, dời hạn, gửi thư nhắc khách (`InstalmentPolicy`) — **vẫn chỉ `contract.manage`**: kế toán nhập đúng tờ giấy đã ký, không tự đổi điều khoản. Trước bổ sung này `update` còn là cổng của sửa nháp và kích hoạt; hai việc đó nay có ability riêng. Bảng M9 ở trên đọc là: `contract.manage` = soạn, kích hoạt, ký phụ lục, huỷ; **soạn và kích hoạt** thì người có `contract.enter` cũng làm được.
+>
+> **Ranh giới của kế toán không đổi.** Kế toán vẫn không có `matter.view`: trang vụ việc vẫn 404. Màn hình nhập là trang **"Hợp đồng"** (§7, cạnh "Công nợ"): danh sách vụ theo đúng tầm nhìn tiền (`Matter::listableBy` — vụ `restricted` không có, vụ đã huỷ không có), mỗi dòng mã hồ sơ, loại vụ việc, tên khách hàng, **luật sư phụ trách**, số và trạng thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** tiêu đề, ghi chú, tài liệu, bên đối lập (DTO readonly `AccountantContractRow`). Tên luật sư phụ trách là điểm nới rộng có chủ đích: người kế toán hỏi lại khi tờ giấy không rõ, và người nhận chuông dưới đây; tên nhân sự không phải nội dung hồ sơ. Form nhập là **đúng** form của tab tiền (một bản dùng chung), cộng công tắc "Khách đã ký — kích hoạt luôn" (mặc định tắt): bật thì soạn và kích hoạt trong **một** transaction — lệch tổng hay ngày ký ở tương lai thì không lưu gì. Trang mở cho ai có `billing.view` và (`contract.enter` hoặc `contract.manage`); trang chủ của người có `contract.enter` có ô "Hồ sơ chưa có hợp đồng" / "Hợp đồng còn nháp", trang Công nợ có nút "Nhập hợp đồng cho hồ sơ".
+>
+> **Báo luật sư phụ trách.** Ai không phải luật sư phụ trách (kế toán, trưởng phòng, quản trị viên) nhập, kích hoạt hay nhập-và-kích-hoạt hợp đồng của vụ thì luật sư phụ trách nhận **một dòng chuông** ("Kế toán X đã nhập hợp đồng HD-… cho hồ sơ VK-… (tổng …, n đợt) — anh/chị kiểm tra lại."), gửi sau commit, người nhận qua `ResolveStaffRecipients::forBilling()` (luật sư phụ trách nghỉ thì chuỗi dự phòng R3: một trưởng phòng, rồi một quản trị viên thấy tiền của vụ; không bao giờ chính người nhập). Không thư: không thư nội bộ nào của vòng đời hợp đồng tồn tại. Nhật ký hoạt động ghi người nhập (`contract_drafted`, `contract_activated`). Máy chủ đã có dữ liệu nhận quyền mới qua `php artisan db:seed --force` (`RolesAndPermissionsSeeder`).
 
 **Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
 **chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
@@ -1863,6 +1875,21 @@ trạng thái, trừ "Đã gộp") rồi danh sách **"Lead đến hẹn liên h
 hôm nay hoặc đã qua, hẹn sớm nhất trước); hai widget có số thứ tự riêng, không trùng widget nào họ thấy. Widget "Liên hệ chưa ai gọi lại" hiện với họ như mọi người có `intake.create`.
 Trang chủ các vai khác không đổi.
 
+**Đính chính 2026-10-15 (làn kt — kế toán nhập hợp đồng, §5 bổ sung 2026-10-15, §7.2).** Thêm một hàng
+hai ô số **"Hợp đồng cần nhập"** (`ContractsToEnterWidget`). **Ai thấy:** người có `contract.enter` VÀ mở
+được trang "Hợp đồng" (`billing.view` và `contract.enter` hoặc `contract.manage`) — tức kế toán và quản
+trị viên. Luật sư và trưởng phòng (chỉ `contract.manage`) soạn hợp đồng ở tab "Hợp đồng và thanh toán"
+của vụ, trang chủ của họ không đổi; người khác mount thẳng widget nhận 404. **Đứng ở đâu:** đứng cuối
+trang chủ, sau mọi widget đang có (số thứ tự 3, sau "Thống kê nhanh" — mục 6); dải "Tình trạng hệ thống"
+vẫn trên cùng. Đây là phần tóm tắt dẫn tới việc phải làm, không phải danh sách, nên không đẩy danh sách
+nào xuống. **Đếm gì** — trên đúng tập dòng của trang "Hợp đồng", `Matter::listableBy` của người xem (vụ
+chưa xoá mềm; kế toán không có vụ hạn chế, quản trị viên đếm cả vụ hạn chế): "Hồ sơ chưa có hợp đồng" là
+vụ chưa từng có hợp đồng nào (`whereDoesntHave('contracts')` — vụ đã đóng mà chưa từng có hợp đồng, như
+vụ không thu phí, vẫn được đếm); "Hợp đồng còn nháp" là vụ có hợp đồng hiện hành còn nháp
+(`Matter::contract`, bản mới nhất). Vụ có hợp đồng hiện hành đã huỷ không vào ô nào — trang lọc "Đã huỷ"
+để nhập lại phần còn phải thu (QUY-TRINH, "Kế toán nhập hợp đồng"). Hai ô chỉ đếm: không mã hồ sơ, không
+tên khách; mỗi ô là một liên kết tới trang "Hợp đồng" lọc sẵn đúng trạng thái đó.
+
 ### 7.2 Resource `Matter`
 
 Bảng danh sách: mã hồ sơ, khách hàng, loại, tiêu đề, giai đoạn (badge màu),
@@ -1894,6 +1921,12 @@ khoản thu, phụ lục, và dòng tổng đã thu / còn phải thu / quá h�
 **thêm** vào chín tab trên (cùng tab "Đội ngũ" của M6.5), và chỉ hiện với người
 được xem tiền của vụ (§5, bổ sung M9). Kế toán không mở được trang vụ việc — màn
 hình tiền của kế toán là trang "Công nợ", không phải tab này.
+
+**Đính chính 2026-10-15 (làn kt).** Kế toán có thêm trang **"Hợp đồng"** cạnh "Công
+nợ": nhập hợp đồng giấy đã ký cho hồ sơ có sẵn bằng đúng form soạn/sửa bản nháp của
+tab này (một bản dùng chung), xoá bản nháp, kích hoạt với ngày ký, hoặc "Khách đã
+ký — kích hoạt luôn" trong một lần; dòng chỉ mang các cột rút gọn của §5 (bổ sung
+2026-10-15). Phụ lục, hoàn tất, huỷ, miễn, dời hạn, thư nhắc khách vẫn chỉ ở tab này.
 
 Mỗi dòng tiến độ đã công bố hiển thị nhãn trạng thái đọc: *"Khách đã xem lúc
 21:14 ngày 14/09"* hoặc *"Khách chưa xem"* — nhãn chưa xem quá 5 ngày tô vàng.

@@ -30,11 +30,13 @@ it('grants the admin every permission and the accountant almost none', function 
         ->and($accountant->can(Permission::MatterCreate->value))->toBeFalse()
         ->and($accountant->can(Permission::SettingsManage->value))->toBeFalse()
         // M9 (SPEC §5, bổ sung 2026-09-19, sửa 2026-09-24): kế toán thấy và ghi TIỀN, không
-        // soạn hợp đồng — và vẫn không có `matter.view` ở trên.
+        // `contract.manage` — và vẫn không có `matter.view` ở trên.
         ->and($accountant->can(Permission::BillingView->value))->toBeTrue()
         ->and($accountant->can(Permission::PaymentRecord->value))->toBeTrue()
         ->and($accountant->can(Permission::RevenueViewAny->value))->toBeTrue()
         ->and($accountant->can(Permission::ContractManage->value))->toBeFalse()
+        // Làn kt (SPEC §5, bổ sung 2026-10-15): nhập hợp đồng đã ký, không quyết định thương mại nào.
+        ->and($accountant->can(Permission::ContractEnter->value))->toBeTrue()
         // M10 (SPEC §5, bổ sung 2026-09-24): kế toán không thấy gì của tiếp nhận.
         ->and($accountant->can(Permission::IntakeCreate->value))->toBeFalse()
         ->and($accountant->can(Permission::IntakeViewAny->value))->toBeFalse()
@@ -45,12 +47,14 @@ it('grants the admin every permission and the accountant almost none', function 
  * `EnumLabelsTest` chỉ bắt nhãn thiếu ở dạng `enums.…`; nhãn quyền đọc từ `lang/vi/permissions.php`,
  * nên một quyền thiếu nhãn trả về chính khoá `permissions.…` và lọt qua test đó. Bốn quyền M9 là
  * lần đầu bảng quyền đổi kể từ M2; ba quyền M10 (nhóm intake) là lần thứ hai; một quyền M13
- * (`performance.viewAny`, SPEC §5 đính chính 2026-10-04) là lần thứ ba. Chốt ở đây cho cả hai mươi
- * mốt: 13 quyền gốc, cộng 4 quyền tiền của M9, cộng 3 quyền tiếp nhận của M10, cộng 1 quyền của M13.
+ * (`performance.viewAny`, SPEC §5 đính chính 2026-10-04) là lần thứ ba; một quyền của làn kt
+ * (`contract.enter`, SPEC §5 bổ sung 2026-10-15) là lần thứ tư. Chốt ở đây cho cả hai mươi hai: 13
+ * quyền gốc, cộng 4 quyền tiền của M9, cộng 3 quyền tiếp nhận của M10, cộng 1 quyền của M13, cộng 1
+ * quyền của làn kt.
  * Đếm cộng dồn theo milestone để lần gộp làn khác thêm quyền chỉ phải sửa con số tổng.
  */
 it('gives every permission a vietnamese label', function () {
-    expect(Permission::cases())->toHaveCount(21);
+    expect(Permission::cases())->toHaveCount(22);
 
     foreach (Permission::cases() as $permission) {
         expect($permission->label())->not->toStartWith('permissions.', "{$permission->value} thiếu nhãn trong lang/vi/permissions.php");
@@ -66,6 +70,7 @@ it('matches the spec permission table for every role', function () {
             'billing.view', 'contract.manage', 'payment.record', 'revenue.viewAny',
             'intake.create', 'intake.viewAny', 'intake.convert',
             'performance.viewAny',
+            'contract.enter',
         ],
         Role::Manager->value => [
             'matter.viewAny', 'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',
@@ -86,7 +91,8 @@ it('matches the spec permission table for every role', function () {
             'matter.view', 'matter.update', 'checklist.review', 'client.manage', 'clientUser.manage',
             'intake.create',
         ],
-        Role::Accountant->value => ['matter.viewAny', 'billing.view', 'payment.record', 'revenue.viewAny'],
+        // Làn kt (2026-10-15): kế toán nhập hợp đồng giấy đã ký (`contract.enter`), vẫn không `contract.manage`.
+        Role::Accountant->value => ['matter.viewAny', 'billing.view', 'payment.record', 'revenue.viewAny', 'contract.enter'],
         // Làn kd (2026-10-14): nhân viên kinh doanh — đúng MỘT quyền, ghi và cập nhật lead của mình.
         // Không vụ việc, khách, tài liệu, tiền; không `intake.viewAny`, không `intake.convert`.
         Role::Sales->value => ['intake.create'],

@@ -41,8 +41,9 @@ use Illuminate\Support\Facades\Gate;
  *     TRƯỚC (câu đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi
  *     `contracts`; đọc lại cả hai từ hàng đã khoá (vụ việc đã khoá là ngữ cảnh kiểm giai đoạn kích
  *     hoạt ở bước 5).
- *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)` (SPEC §5: `contract.manage`
- *     là cổng của MỌI thay đổi trên một hợp đồng đã có, kể cả sửa bản nháp — xem docblock
+ *  2. **Quyền:** `ContractPolicy::updateDraft` qua `Gate::forUser($actor)` — `contract.manage` hoặc
+ *     `contract.enter` (làn kt, SPEC §5 bổ sung 2026-10-15: kế toán sửa được bản nháp mình nhập; trước
+ *     làn kt câu này hỏi `update`, nay chỉ còn là cổng của phụ lục/hoàn tất/huỷ — docblock
  *     `ContractPolicy`).
  *  3. Chỉ trên `draft` ({@see ContractStatusConflict::notDraftForUpdate()} — câu RIÊNG với
  *     `notDraft()` của `ActivateContract`, vì đây là "sửa" không phải "kích hoạt").
@@ -67,7 +68,7 @@ class UpdateDraftContract
     public function handle(User $actor, Contract $contract, array $attributes, array $instalments): Contract
     {
         return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $attributes, $instalments): Contract {
-            Gate::forUser($actor)->authorize('update', $locked);
+            Gate::forUser($actor)->authorize('updateDraft', $locked);
 
             if ($locked->status !== ContractStatus::Draft) {
                 throw ContractStatusConflict::notDraftForUpdate($locked);
