@@ -11,6 +11,7 @@ use App\Actions\Mcp\SetUserAiAccess;
 use App\Actions\Mcp\StaffAiSummary;
 use App\Actions\Mcp\UpdateAiSettings;
 use App\Enums\AiAccessMode;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\User;
@@ -37,6 +38,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
+use UnitEnum;
 
 /**
  * Trang "Kết nối AI" của quản trị (M11 Task 15; R2, R8, R12 mục 3). Tên lớp tiếng Anh (CLAUDE.md:
@@ -78,6 +80,10 @@ class AiConnections extends Page implements HasTable
     protected static ?string $slug = 'ket-noi-ai';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedSparkles;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 40;
 
     /** Nhân sự đang mở phần "Chi tiết" — chỉ nút "Kết nối" của bảng đặt được. */
     #[Locked]

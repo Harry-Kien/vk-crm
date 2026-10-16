@@ -2,12 +2,14 @@
 
 namespace App\Filament\Admin\Pages;
 
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Widgets\Revenue\ClosedWithBalanceWidget;
 use App\Filament\Admin\Widgets\Revenue\LoadPerLawyerWidget;
 use App\Filament\Admin\Widgets\Revenue\MatterMixByPracticeAreaWidget;
 use App\Filament\Admin\Widgets\Revenue\ReceivablesDonutWidget;
 use App\Filament\Admin\Widgets\Revenue\RevenueByStageWidget;
+use App\Filament\Admin\Widgets\Revenue\RevenueKpiWidget;
 use App\Filament\Admin\Widgets\Revenue\RevenueOverTimeWidget;
 use App\Models\MatterType;
 use App\Models\User;
@@ -20,11 +22,15 @@ use Filament\Forms\Components\Toggle;
 use Filament\Pages\Dashboard;
 use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
 use Filament\Schemas\Schema;
+use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Filament\Widgets\Widget;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
+use UnitEnum;
 
 /**
  * Trang doanh thu (M9 Task 9) — bức tranh tiền của cả văn phòng trên MỘT trang, lọc được theo kỳ,
@@ -52,7 +58,8 @@ use Illuminate\Support\Facades\Gate;
  *
  * `RevenueFilters` chỉ mang một khoảng ngày trung lập; MỖI widget tự diễn dịch nó theo đúng cột
  * của MÌNH (`payments.paid_on` "tiền về trong kỳ", hay `contracts.signed_at` "việc đã ký trong
- * kỳ") và tự in nghĩa đó lên `getDescription()`/`getHeading()` của chính nó — không nơi nào khác
+ * kỳ") và tự in nghĩa đó lên chính nó (từ làn rv: `getExplanation()`, nút ⓘ cạnh tiêu đề; dòng phụ
+ * `getDescription()` chỉ còn khoảng ngày) — không nơi nào khác
  * "biết hộ" ý nghĩa của một widget khác. Tương tự, bộ lọc luật sư mang HAI nghĩa
  * (`payments.attributed_lawyer_id` "lúc thu" hay `matters.lead_lawyer_id` "hiện tại", kế hoạch
  * M9 P2) và mỗi widget in đúng nghĩa nó dùng.
@@ -69,6 +76,16 @@ use Illuminate\Support\Facades\Gate;
  * `getSubheading()` chỉ in câu chung "Số liệu gồm các vụ việc anh/chị được xem." (cùng chuỗi với
  * trang "Công nợ", `billing.receivables.scope_note`) — không một widget nào được thêm "(đã ẩn N
  * vụ hạn chế)" hay bất kỳ con số nào tiết lộ RẰNG có vụ bị loại.
+ *
+ * # Làn rv (2026-10-15) — gọn như một CRM chuyên nghiệp
+ *
+ * Chủ văn phòng: "nhiều chữ nhìn rối quá". (1) Hàng ô số `RevenueKpiWidget` đứng ĐẦU, hết bề ngang.
+ * (2) Mỗi biểu đồ một tiêu đề ngắn và một dòng phụ; cách tính giấu sau nút ⓘ (`getExplanation()` của
+ * từng widget, view `chart-with-table`). (3) Trang dùng hết bề ngang (`$maxContentWidth = Full`), lưới hai
+ * cột từ `lg`, một cột trên điện thoại. (4) Bộ lọc trên MỘT hàng (bốn cột từ `lg`): Kỳ, Luật sư phụ trách,
+ * Lĩnh vực, công tắc "Đếm theo số vụ" (nhãn ở trên như ba ô kia, giải thích sau ⓘ); hai ô ngày của "Tuỳ
+ * chọn" xuống hàng sau, để hàng đầu không xô lệch khi bật/tắt chúng. (Mục "không có ô đổi kiểu biểu đồ"
+ * ở trên đã được thay từ 2026-10-10 — `HasSwitchableChartKind`, mỗi widget chỉ mời dạng không nói sai.)
  */
 class RevenueDashboard extends Dashboard
 {
@@ -77,6 +94,13 @@ class RevenueDashboard extends Dashboard
     protected static string $routePath = '/revenue-dashboard';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Finance;
+
+    protected static ?int $navigationSort = 10;
+
+    /** Làn rv: dashboard dùng hết bề ngang — hai bên không còn khoảng trống. */
+    protected Width|string|null $maxContentWidth = Width::Full;
 
     public static function getNavigationLabel(): string
     {
@@ -113,7 +137,9 @@ class RevenueDashboard extends Dashboard
 
     public function filtersForm(Schema $schema): Schema
     {
-        return $schema->components([
+        // Làn rv: một hàng bốn ô từ `lg` (hai ô từ `sm`, một ô trên điện thoại). Ghi đủ mọi mốc: `columns()`
+        // GỘP với mốc sẵn có của `HasFiltersForm` (md 2, xl 3, 2xl 4), nên chỉ ghi `lg` thì từ `xl` lại còn 3.
+        return $schema->columns(['default' => 1, 'sm' => 2, 'md' => 2, 'lg' => 4, 'xl' => 4, '2xl' => 4])->components([
             Select::make('period')
                 ->label(__('widgets.revenue_dashboard.filters.period'))
                 ->options([
@@ -125,14 +151,6 @@ class RevenueDashboard extends Dashboard
                 ->default('this_month')
                 ->native(false)
                 ->live(),
-            DatePicker::make('date_from')
-                ->label(__('widgets.revenue_dashboard.filters.date_from'))
-                ->native(false)
-                ->visible(fn ($get) => $get('period') === 'custom'),
-            DatePicker::make('date_to')
-                ->label(__('widgets.revenue_dashboard.filters.date_to'))
-                ->native(false)
-                ->visible(fn ($get) => $get('period') === 'custom'),
             Select::make('lawyer_id')
                 ->label(__('widgets.revenue_dashboard.filters.lawyer'))
                 // Fix round 1, minor: options chỉ liệt kê luật sư đang phụ trách ÍT NHẤT một vụ
@@ -176,9 +194,22 @@ class RevenueDashboard extends Dashboard
                     ->all())
                 ->native(false)
                 ->searchable(),
+            // Làn rv: nhãn ở trên (`inline(false)`) cho thẳng hàng với ba ô chọn; đoạn giải thích sau ⓘ.
             Toggle::make('by_count')
                 ->label(__('widgets.revenue_dashboard.filters.by_count'))
-                ->helperText(__('widgets.revenue_dashboard.filters.by_count_help')),
+                ->inline(false)
+                ->hint(new HtmlString(Blade::render('<x-info-tip :text="$text" :label="$label" />', [
+                    'text' => __('widgets.revenue_dashboard.filters.by_count_help'),
+                    'label' => __('widgets.revenue_dashboard.filters.by_count'),
+                ]))),
+            DatePicker::make('date_from')
+                ->label(__('widgets.revenue_dashboard.filters.date_from'))
+                ->native(false)
+                ->visible(fn ($get) => $get('period') === 'custom'),
+            DatePicker::make('date_to')
+                ->label(__('widgets.revenue_dashboard.filters.date_to'))
+                ->native(false)
+                ->visible(fn ($get) => $get('period') === 'custom'),
         ]);
     }
 
@@ -188,7 +219,7 @@ class RevenueDashboard extends Dashboard
     }
 
     /**
-     * Sáu widget doanh thu, đăng ký TƯỜNG MINH ở đây — KHÔNG `Filament::getWidgets()` (điều 1
+     * Bảy widget doanh thu (hàng ô số của làn rv đứng đầu), đăng ký TƯỜNG MINH ở đây — KHÔNG `Filament::getWidgets()` (điều 1
      * của kế hoạch M9 Task 9): mỗi widget đặt `$isDiscovered = false` nên panel không tự gom
      * chúng vào trang chủ §7.1 lẫn vào đây; trang này là nơi DUY NHẤT liệt kê chúng.
      *
@@ -197,6 +228,7 @@ class RevenueDashboard extends Dashboard
     public function getWidgets(): array
     {
         return [
+            RevenueKpiWidget::class,
             ReceivablesDonutWidget::class,
             RevenueOverTimeWidget::class,
             RevenueByStageWidget::class,

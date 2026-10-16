@@ -19,7 +19,8 @@ use Illuminate\Support\Facades\Gate;
 /**
  * Tải theo luật sư — cột ngang, số vụ việc ĐANG MỞ (`closed_at is null`) theo luật sư phụ trách
  * HIỆN TẠI (`matters.lead_lawyer_id`, Fix round 1, I6 — nghĩa này giờ được NÓI RA trên
- * `getDescription()`, không chỉ ngụ ý qua tên widget).
+ * `getExplanation()`, nút ⓘ cạnh tiêu đề từ làn rv; trước đó là `getDescription()` — không chỉ ngụ ý qua
+ * tên widget).
  *
  * **KHÔNG phụ thuộc bộ lọc thời gian của trang.** Đây là một ẢNH CHỤP HIỆN TẠI ("ai đang cầm bao
  * nhiêu vụ ngay lúc này"), không phải một số phát sinh trong một kỳ — nên đổi kỳ lọc trên trang
@@ -64,9 +65,19 @@ class LoadPerLawyerWidget extends ChartWidget
         return __('widgets.revenue_dashboard.load_per_lawyer.heading');
     }
 
+    /** Một dòng phụ (làn rv). Cách tính nằm ở {@see self::getExplanation()}. */
     public function getDescription(): string|Htmlable|null
     {
         return __('widgets.revenue_dashboard.load_per_lawyer.description');
+    }
+
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
+        return __('widgets.revenue_dashboard.load_per_lawyer.explanation');
     }
 
     /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */

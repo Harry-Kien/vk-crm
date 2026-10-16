@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters;
 
+use App\Enums\NavigationGroup;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
@@ -27,6 +28,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use UnitEnum;
 
 /**
  * Danh sách vụ việc có giới hạn theo vai trò (SPEC §5, §7.2). Đây là resource nhạy cảm nhất về
@@ -51,6 +53,10 @@ class MatterResource extends Resource
     // Mỗi resource một hình riêng (vụ việc — cán cân, mục dùng nhiều nhất của panel): năm mục cùng một biểu
     // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedScale;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Clients;
+
+    protected static ?int $navigationSort = 30;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

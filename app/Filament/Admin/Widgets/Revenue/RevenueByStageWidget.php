@@ -11,6 +11,7 @@ use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\Money;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Charts\MoneyChart;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Contracts\Support\Htmlable;
@@ -88,9 +89,21 @@ class RevenueByStageWidget extends ChartWidget
         return __('widgets.revenue_dashboard.by_stage.heading');
     }
 
+    /** Một dòng phụ: khoảng ngày tiền về (làn rv). Cách tính nằm ở {@see self::getExplanation()}. */
     public function getDescription(): string|Htmlable|null
     {
         return __('widgets.revenue_dashboard.by_stage.description', [
+            'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
+        ]);
+    }
+
+    /**
+     * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
+     * đề. `chart-with-table` đọc nó nếu widget khai.
+     */
+    public function getExplanation(): string
+    {
+        return __('widgets.revenue_dashboard.by_stage.explanation', [
             'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
         ]);
     }
@@ -129,7 +142,7 @@ class RevenueByStageWidget extends ChartWidget
     {
         return [
             'indexAxis' => 'y',
-            'plugins' => ['legend' => ['display' => false]],
+            'plugins' => ['legend' => ['display' => false], ...MoneyChart::pluginOptions()],
             'scales' => ['x' => ['ticks' => ['precision' => 0]]],
         ];
     }

@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Pages;
 
 use App\Actions\Settings\UpdateClientPaymentSettings;
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Models\User;
 use App\Support\Billing\ClientPaymentSettings;
@@ -20,6 +21,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use UnitEnum;
 
 /**
  * Trang "Nhắc thanh toán cho khách" (làn nt Task 1) — MỘT công tắc toàn hệ thống, mặc định TẮT, cùng
@@ -45,6 +47,10 @@ class ClientPaymentSettingsPage extends Page
     protected static ?string $slug = 'client-payment-reminders';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBanknotes;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Finance;
+
+    protected static ?int $navigationSort = 30;
 
     /** @var array<string, mixed> */
     public array $data = [];

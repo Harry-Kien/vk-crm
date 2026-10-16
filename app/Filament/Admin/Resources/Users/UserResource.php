@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Users;
 
+use App\Enums\NavigationGroup;
 use App\Filament\Admin\Resources\Users\Pages\CreateUser;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Admin\Resources\Users\Pages\ListUsers;
@@ -15,6 +16,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use UnitEnum;
 
 /**
  * Quản trị nhân sự nội bộ — gated bằng settings.manage (UserPolicy), không có luật hiển thị
@@ -29,6 +31,10 @@ class UserResource extends Resource
     // Mỗi resource một hình riêng (nhân sự nội bộ): năm mục cùng một biểu
     // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUsers;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Team;
+
+    protected static ?int $navigationSort = 20;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

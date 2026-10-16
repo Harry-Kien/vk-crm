@@ -7,6 +7,7 @@ use App\Actions\Mcp\AiConnection;
 use App\Actions\Mcp\DisconnectAiConnections;
 use App\Actions\Mcp\ListAiConnections;
 use App\Enums\McpAccessRefusal;
+use App\Enums\NavigationGroup;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\AiAcknowledgement;
 use App\Models\User;
@@ -21,6 +22,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use UnitEnum;
 
 /**
  * Trang "Kết nối AI của tôi" của nhân sự (M11 Task 15; R2, R8, R12 mục 1). Tên lớp tiếng Anh (kế
@@ -54,6 +56,10 @@ class MyAiConnections extends Page
     protected static ?string $slug = McpEndpoint::MY_AI_CONNECTIONS_SLUG;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedLink;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::System;
+
+    protected static ?int $navigationSort = 50;
 
     /** @var array<string, mixed> trạng thái form cam kết */
     public array $acknowledgement = [];

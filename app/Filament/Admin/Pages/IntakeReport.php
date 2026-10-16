@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Pages;
 
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeConversionWidget;
 use App\Filament\Admin\Widgets\IntakeReport\IntakeOutcomesWidget;
@@ -22,6 +23,7 @@ use Filament\Widgets\Widget;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use UnitEnum;
 
 /**
  * Bức tranh đầu vào (M10 Task 6) — trang báo cáo tiếp nhận: số liên hệ theo nguồn, tỉ lệ chuyển thành
@@ -59,6 +61,10 @@ class IntakeReport extends Dashboard
     protected static string $routePath = '/intake-report';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedFunnel;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Reports;
+
+    protected static ?int $navigationSort = 10;
 
     public static function getNavigationLabel(): string
     {

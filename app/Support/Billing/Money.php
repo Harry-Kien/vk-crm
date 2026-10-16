@@ -30,6 +30,41 @@ final class Money
     }
 
     /**
+     * Dạng RÚT GỌN cho trục và nhãn của biểu đồ (làn rv, 2026-10-15): `60000000` → `"60 tr"`,
+     * `1200000000` → `"1,2 tỷ"`, `500000` → `"500 nghìn"`, dưới một nghìn thì chữ số trần. Một chữ số
+     * lẻ, dấu phẩy thập phân, bỏ đuôi `,0`. Đơn vị chọn theo độ lớn của số; nếu làm tròn đẩy số lên
+     * một nghìn đơn vị (`999960000` → "1000 tr") thì lên đơn vị kế tiếp ("1 tỷ"). KHÔNG dùng cho tooltip
+     * hay bảng số — ở đó luôn là {@see self::format()} đủ chữ số. `public/charts/money.js` vẽ trục biểu
+     * đồ theo ĐÚNG quy tắc này ở phía trình duyệt; sửa một bên thì sửa cả bên kia (`MoneyTest` ghim
+     * từng nhánh của quy tắc).
+     */
+    public static function compact(int $dong): string
+    {
+        $sign = $dong < 0 ? '-' : '';
+        $abs = abs($dong);
+        $units = [[1_000, 'nghìn'], [1_000_000, 'tr'], [1_000_000_000, 'tỷ']];
+
+        for ($i = count($units) - 1; $i >= 0; $i--) {
+            if ($abs < $units[$i][0]) {
+                continue;
+            }
+
+            $value = round($abs / $units[$i][0], 1);
+
+            if ($value >= 1000 && isset($units[$i + 1])) {
+                $i++;
+                $value = round($abs / $units[$i][0], 1);
+            }
+
+            $decimals = fmod($value, 1.0) === 0.0 ? 0 : 1;
+
+            return $sign.number_format($value, $decimals, ',', '.').' '.$units[$i][1];
+        }
+
+        return $sign.number_format($abs, 0, ',', '.');
+    }
+
+    /**
      * `1250000` → `"1.250.000"` — đúng dạng {@see self::parse()} đọc lại được, KHÔNG kèm "₫": giá trị
      * điền sẵn vào một ô nhập tiền (form sửa bản nháp). Điền `format()` vào ô rồi bấm lưu ngay sẽ
      * ra lỗi định dạng, vì `parse()` cố tình không đoán nghĩa ký tự "₫".

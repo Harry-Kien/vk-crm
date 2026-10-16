@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Clients;
 
+use App\Enums\NavigationGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Clients\Pages\CreateClient;
 use App\Filament\Admin\Resources\Clients\Pages\EditClient;
@@ -18,6 +19,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Auth;
+use UnitEnum;
 
 /**
  * ClientPolicy::view chạy một truy vấn exists() cho MỖI bản ghi (M2/M3 review, carry-forward
@@ -43,6 +45,10 @@ class ClientResource extends Resource
     // Mỗi resource một hình riêng (Khách hàng là một hồ sơ tổ chức/cá nhân của văn phòng): năm mục cùng một biểu
     // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice2;
+
+    protected static string|UnitEnum|null $navigationGroup = NavigationGroup::Clients;
+
+    protected static ?int $navigationSort = 20;
 
     protected static bool $hasTitleCaseModelLabel = false;
 
