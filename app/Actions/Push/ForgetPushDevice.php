@@ -97,18 +97,25 @@ class ForgetPushDevice
             ['endpoint' => RegisterPushDevice::endpointRule(knownHost: false)],
         )->passes();
 
+        // Hai nhánh gỡ độc lập: lỗi ở nhánh trình duyệt không được bỏ qua nhánh iPhone (và ngược lại).
+        $removed = false;
+
+        if ($webValid) {
+            $removed = $this->guarded($owner, $guard, fn (): bool => $this->forget($owner, $owner->pushSubscriptions()->where('endpoint', $endpoint)) > 0);
+        }
+
+        if ($owner instanceof User && $nativeToken !== null) {
+            $removed = $this->guarded($owner, $guard, fn (): bool => $this->forgetNativeToken($owner, $nativeToken)) || $removed;
+        }
+
+        return $removed;
+    }
+
+    /** Chạy một nhánh gỡ lúc đăng xuất; không bao giờ ném (xem docblock của {@see self::onLogout()}). */
+    private function guarded(User|ClientUser $owner, string $guard, \Closure $remove): bool
+    {
         try {
-            $removed = false;
-
-            if ($webValid) {
-                $removed = $this->forget($owner, $owner->pushSubscriptions()->where('endpoint', $endpoint)) > 0;
-            }
-
-            if ($owner instanceof User && $this->forgetNativeToken($owner, $nativeToken)) {
-                $removed = true;
-            }
-
-            return $removed;
+            return $remove();
         } catch (Throwable $exception) {
             Log::warning('Không gỡ được thiết bị nhận thông báo đẩy lúc đăng xuất; người dùng vẫn được đăng xuất.', [
                 'guard' => $guard,
@@ -165,6 +172,16 @@ class ForgetPushDevice
         }
 
         return $removed;
+    }
+
+    /**
+     * M15 — nút "Gỡ" của một iPhone trên trang "Thông báo trên điện thoại". Chỉ máy của CHÍNH `$owner`.
+     *
+     * @return bool `false` khi id không phải một iPhone của `$owner` (người gọi trả 404)
+     */
+    public function nativeById(User $owner, int $id): bool
+    {
+        return $this->forget($owner, $owner->nativePushDevices()->whereKey($id)) > 0;
     }
 
     /**

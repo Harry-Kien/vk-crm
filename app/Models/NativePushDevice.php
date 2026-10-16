@@ -35,6 +35,7 @@ class NativePushDevice extends Model
         return [
             'environment' => ApnsEnvironment::class,
             'last_seen_at' => 'datetime',
+            'user_id' => 'integer',
         ];
     }
 

@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\Users\Pages;
 
 use App\Actions\Mcp\RevokeAiConnections;
+use App\Actions\Push\ForgetPushDevice;
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
 use App\Actions\User\RecordStaffPermissionChange;
@@ -452,6 +453,13 @@ class EditUser extends EditRecord
 
                 if ($revocation !== null) {
                     app(RevokeAiConnections::class)->handle($updated, $revocation, $actor);
+                }
+
+                // M15: tắt `is_active` — máy nhận thông báo (trình duyệt VÀ iPhone) thôi nhận tin ngay sau
+                // commit, cùng lối `DeleteStaffMember` và `SuspendStaffAccess`.
+                if ($wasActive && ! $newIsActive) {
+                    DB::afterCommit(fn () => app(ForgetPushDevice::class)
+                        ->all($updated, $actor, ForgetPushDevice::REASON_STAFF_SUSPENDED));
                 }
 
                 return $updated;

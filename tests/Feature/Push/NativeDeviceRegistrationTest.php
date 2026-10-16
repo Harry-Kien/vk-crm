@@ -8,9 +8,11 @@ use App\Models\ClientUser;
 use App\Models\NativePushDevice;
 use App\Models\User;
 use App\Support\Push\PushSession;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use PDOException;
 use Spatie\Activitylog\Models\Activity;
 
 /*
@@ -202,4 +204,22 @@ it('moves ownership through the action as well (second owner wins, one row)', fu
 
     expect(nativeRows())->toHaveCount(1)
         ->and((int) nativeRows()[0]->user_id)->toBe($b->id);
+});
+
+it('retries a deadlock on first registration (MariaDB gap lock) instead of answering 500', function () {
+    $thrown = 0;
+    NativePushDevice::creating(function () use (&$thrown): void {
+        if ($thrown++ === 0) {
+            throw new QueryException('mariadb', 'insert into native_push_devices', [], new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction'));
+        }
+    });
+
+    $staff = nativeStaff();
+
+    $this->actingAs($staff, 'web')->postJson('/admin/native/devices', nativePayload(nativeToken()))->assertNoContent();
+
+    expect($thrown)->toBe(2)
+        ->and(nativeRows())->toHaveCount(1)
+        ->and((int) nativeRows()[0]->user_id)->toBe($staff->id)
+        ->and(Activity::query()->where('event', 'push_device_added')->count())->toBe(1);
 });

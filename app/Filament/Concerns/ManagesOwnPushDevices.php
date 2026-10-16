@@ -133,6 +133,44 @@ trait ManagesOwnPushDevices
             ->all();
     }
 
+    /**
+     * M15 — iPhone (ứng dụng nội bộ) của người đang xem; chỉ nhân sự có, khách luôn rỗng. Chỉ id, nhãn,
+     * phiên bản và lần cuối thấy — không token.
+     *
+     * @return list<array{id: int, label: string, app_version: string, last_seen_at: ?string}>
+     */
+    public function nativeDevices(): array
+    {
+        $viewer = $this->viewer();
+
+        if (! $viewer instanceof User) {
+            return [];
+        }
+
+        return $viewer->nativePushDevices()
+            ->orderByDesc('last_seen_at')
+            ->orderByDesc('id')
+            ->get(['id', 'device_label', 'app_version', 'last_seen_at'])
+            ->map(fn ($device): array => [
+                'id' => (int) $device->id,
+                'label' => (string) ($device->device_label ?: __('push.devices.unknown_device')),
+                'app_version' => (string) $device->app_version,
+                'last_seen_at' => $device->last_seen_at !== null ? $this->formatDate($device->last_seen_at) : null,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** Nút "Gỡ" của một iPhone: chỉ máy của chính người bấm, id của người khác là 404. */
+    public function removeNativeDevice(int $device): void
+    {
+        $viewer = $this->viewer();
+
+        abort_unless($viewer instanceof User && app(ForgetPushDevice::class)->nativeById($viewer, $device), 404);
+
+        Notification::make()->title(__('push.devices.removed'))->success()->send();
+    }
+
     public function removeDevice(int $device): void
     {
         $viewer = $this->viewer();

@@ -28,6 +28,7 @@
     $app = __("pwa.{$panel}.short_name", ['firm' => config('vkcrm.brand.short_name')]);
     $configured = $this->pushConfigured();
     $devices = $this->devices();
+    $nativeDevices = $this->nativeDevices();
 
     $stack = 'display:flex;flex-direction:column;gap:1.5rem;max-width:40rem;';
     $card = 'border-radius:0.75rem;padding:1rem;border:1px solid color-mix(in srgb, var(--gray-500) 30%, transparent);display:flex;flex-direction:column;gap:0.75rem;';
@@ -123,16 +124,44 @@
                 </form>
             @endif
 
-            @if (count($devices) > 1)
+            @if (count($devices) + count($nativeDevices) > 1)
                 <div>
                     <button
                         type="button"
                         wire:click="removeAllDevices"
-                        wire:confirm="{{ __('push.devices.remove_all_confirm') }}"
+                        wire:confirm="{{ __($panel === 'admin' ? 'push.devices.remove_all_confirm_staff' : 'push.devices.remove_all_confirm') }}"
                         style="{{ $quiet }}"
                     >{{ __('push.devices.remove_all') }}</button>
                 </div>
             @endif
         </section>
+
+        {{-- ỨNG DỤNG IPHONE (M15) -------------------------------------------------------- --}}
+        @if (count($nativeDevices) > 0)
+            <section data-vk-native-list style="{{ $card }}">
+                <h2 style="{{ $blockHeading }}">{{ __('push.devices.native_heading') }}</h2>
+
+                @foreach ($nativeDevices as $device)
+                    <div data-vk-native-row="{{ $device['id'] }}" wire:key="native-device-{{ $device['id'] }}" style="{{ $row }}">
+                        <div style="display:flex;flex-direction:column;gap:0.25rem;">
+                            <p style="font-weight:600;">{{ $device['label'] }}</p>
+                            <p style="{{ $muted }}">
+                                {{ __('push.devices.native_version', ['version' => $device['app_version']]) }}
+                                @if ($device['last_seen_at'] !== null)
+                                    <br>{{ __('push.devices.last_seen', ['date' => $device['last_seen_at']]) }}
+                                @endif
+                            </p>
+                        </div>
+
+                        <button
+                            type="button"
+                            wire:click="removeNativeDevice({{ $device['id'] }})"
+                            wire:confirm="{{ __('push.devices.native_remove_confirm') }}"
+                            style="{{ $quiet }}"
+                        >{{ __('push.devices.remove') }}</button>
+                    </div>
+                @endforeach
+            </section>
+        @endif
     </div>
 </x-filament-panels::page>

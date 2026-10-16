@@ -78,7 +78,7 @@ class RegisterPushDevice
 
         for ($attempt = 1; ; $attempt++) {
             try {
-                DB::transaction(fn () => $this->attach($owner, $data, $label));
+                DB::transaction(fn () => $this->attach($owner, $data, $label), attempts: 3);
 
                 return $data['endpoint'];
             } catch (UniqueConstraintViolationException) {

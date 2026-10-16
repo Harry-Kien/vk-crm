@@ -65,6 +65,10 @@ return [
         'remove_all' => 'Gỡ mọi thiết bị',
         'remove_all_confirm' => 'Gỡ tất cả các máy? Không máy nào nhận thông báo nữa cho tới khi bật lại. '
             .'Thư điện tử vẫn gửi như thường.',
+        'native_heading' => 'Ứng dụng iPhone',
+        'native_version' => 'Phiên bản :version',
+        'native_remove_confirm' => 'Gỡ iPhone này? Ứng dụng sẽ đăng ký lại khi anh/chị mở nó lần nữa.',
+        'remove_all_confirm_staff' => 'Gỡ tất cả các máy, kể cả ứng dụng iPhone? Không máy nào nhận thông báo nữa cho tới khi bật lại; ứng dụng iPhone tự đăng ký lại khi được mở lần nữa. Thư điện tử vẫn gửi như thường.',
         'removed' => 'Đã gỡ thiết bị.',
         'removed_all' => 'Đã gỡ :count thiết bị.',
         // {@see \App\Support\Push\DeviceLabel} — phần nhãn không phải danh từ riêng.

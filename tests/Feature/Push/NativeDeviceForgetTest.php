@@ -6,12 +6,15 @@ use App\Actions\User\DeleteStaffMember;
 use App\Actions\User\ResetStaffTwoFactor;
 use App\Actions\User\SuspendStaffAccess;
 use App\Enums\Role;
+use App\Enums\UserPosition;
+use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Models\User;
 use App\Support\Push\PushSession;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use NotificationChannels\WebPush\PushSubscription;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\WebPushTestKeys;
 
@@ -180,4 +183,42 @@ it('the daily prune also drops native rows of an inactive staff member', functio
     app(PrunePushSubscriptions::class)->handle();
 
     expect(forgetCount($staff))->toBe(0);
+});
+
+it('a failing web-push removal on logout does not skip the iPhone removal', function () {
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($staff, 'web')->postJson('/admin/native/devices', forgetRegister('may-nay'))->assertNoContent();
+
+    // Nhánh trình duyệt hỏng: xoá dòng đăng ký web ném lỗi CSDL.
+    $endpoint = 'https://fcm.googleapis.com/fcm/send/abc:APA91bX';
+    $keys = WebPushTestKeys::subscription();
+    $staff->updatePushSubscription($endpoint, $keys['p256dh'], $keys['auth'], 'aes128gcm');
+    PushSubscription::deleting(fn () => throw new RuntimeException('hỏng'));
+    $session = app('session.store');
+    $session->put(PushSession::endpointKey('web'), $endpoint);
+
+    $removed = app(ForgetPushDevice::class)->onLogout($staff, 'web', $session);
+
+    expect($removed)->toBeTrue()
+        ->and(forgetCount($staff))->toBe(0);
+});
+
+it('turning is_active off in the staff form removes that person\'s iPhones and web devices', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $staff = User::factory()->position(UserPosition::Assistant)->withRole(Role::Assistant)->create();
+    $bystander = User::factory()->withRole(Role::Accountant)->create();
+    forgetDevice($staff, 'm1');
+    forgetDevice($bystander, 'm2');
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditUser::class, ['record' => $staff->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($staff->fresh()->is_active)->toBeFalse()
+        ->and(forgetCount($staff))->toBe(0)
+        ->and(forgetCount($bystander))->toBe(1);
 });
