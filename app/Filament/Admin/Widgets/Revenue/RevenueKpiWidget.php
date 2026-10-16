@@ -30,7 +30,10 @@ use Illuminate\Support\Facades\Auth;
  *    chưa thu trên hợp đồng đang hiệu lực, TẠI HÔM NAY — không theo kỳ (một khoản nợ không "thuộc về"
  *    một kỳ; cùng lý do `ClosedWithBalanceWidget`/`LoadPerLawyerWidget` không đọc kỳ). Luật sư = luật sư
  *    phụ trách HIỆN TẠI. Vì là ảnh chụp, hai ô này không có "so với kỳ trước" (không có ảnh chụp cũ để
- *    so mà không dựng lại lịch sử) — dòng phụ là số đợt.
+ *    so mà không dựng lại lịch sử) — dòng phụ là số đợt kèm "tại hôm nay", in ngay trên ô: lát "Quá hạn"
+ *    của vành khuyên cùng màu đỏ chỉ tính hợp đồng ký trong kỳ, nên đổi Kỳ thì vành khuyên đổi còn ô
+ *    không — chữ trên ô phải nói vì sao (rà soát cuối làn rv, I1; lệch với "theo Kỳ" của brief §1, chờ
+ *    controller xác nhận phán quyết).
  *  - **Hợp đồng ký mới** — {@see SignedContracts::query()}, chung với "Cơ cấu theo lĩnh vực": số hợp đồng
  *    đang hiệu lực/đã hoàn tất ký trong kỳ và tổng giá trị.
  *

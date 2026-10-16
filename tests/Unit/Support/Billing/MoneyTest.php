@@ -73,8 +73,9 @@ it('formats a value for an input field that parse() reads straight back, without
 
 // =================================================================================================
 // Làn rv (2026-10-15) — dạng rút gọn cho trục và nhãn biểu đồ: "60 tr", "1,2 tỷ". Tooltip và bảng số
-// vẫn đủ `format()`. `public/charts/money.js` vẽ cùng quy tắc ở phía trình duyệt — test dưới ghim
-// từng nhánh của quy tắc để hai bên không lệch.
+// vẫn đủ `format()`. `public/charts/money.js` vẽ cùng quy tắc ở phía trình duyệt. Test dưới chỉ ghim
+// từng nhánh của bản PHP; bản JS không có test tự động — sửa một bên thì chạy tay các ca này qua
+// `compact()` của money.js (vd. bằng node) để hai bên không lệch.
 // =================================================================================================
 
 it('shortens an amount for a chart axis: million as "tr", billion as "tỷ", thousand as "nghìn", with a decimal comma', function (int $dong, string $expected) {

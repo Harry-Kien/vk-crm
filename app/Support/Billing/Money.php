@@ -34,9 +34,12 @@ final class Money
      * `1200000000` → `"1,2 tỷ"`, `500000` → `"500 nghìn"`, dưới một nghìn thì chữ số trần. Một chữ số
      * lẻ, dấu phẩy thập phân, bỏ đuôi `,0`. Đơn vị chọn theo độ lớn của số; nếu làm tròn đẩy số lên
      * một nghìn đơn vị (`999960000` → "1000 tr") thì lên đơn vị kế tiếp ("1 tỷ"). KHÔNG dùng cho tooltip
-     * hay bảng số — ở đó luôn là {@see self::format()} đủ chữ số. `public/charts/money.js` vẽ trục biểu
-     * đồ theo ĐÚNG quy tắc này ở phía trình duyệt; sửa một bên thì sửa cả bên kia (`MoneyTest` ghim
-     * từng nhánh của quy tắc).
+     * hay bảng số — ở đó luôn là {@see self::format()} đủ chữ số.
+     *
+     * Hiện chưa màn hình nào gọi hàm này: trục và nhãn biểu đồ do `public/charts/money.js` vẽ ở phía
+     * trình duyệt, theo cùng quy tắc. `MoneyTest` chỉ ghim từng nhánh của bản PHP này; bản JS KHÔNG có
+     * test tự động. Sửa một bên thì sửa cả bên kia, rồi chạy tay các ca của `MoneyTest` qua `compact()`
+     * của money.js (vd. bằng node) — rà soát cuối làn rv đã làm vậy: 12/12 ca trùng.
      */
     public static function compact(int $dong): string
     {

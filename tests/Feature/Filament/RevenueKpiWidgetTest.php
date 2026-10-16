@@ -185,6 +185,46 @@ it('keeps the donut on contracts signed in the period while the cards read every
         ->and(rvCards()['overdue']['amount'])->toBe(30_000_000);
 });
 
+/*
+ * Rà soát cuối làn rv, I1: hai ô "Còn phải thu"/"Quá hạn" là ảnh chụp HÔM NAY, không theo Kỳ — trong khi
+ * lát "Quá hạn" của bánh tròn cùng trang (cùng màu đỏ) chỉ tính hợp đồng ký trong kỳ. Dòng phụ IN TRÊN ô
+ * (không chỉ trong ⓘ) phải nói "tại hôm nay", ở mọi kỳ đang lọc, để người chọn "Năm nay" thấy vì sao ô
+ * không đổi còn bánh tròn đổi.
+ */
+it('says on the outstanding and overdue cards themselves that they are as of today, whatever the period', function () {
+    $matter = fn () => Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    rvContract($matter(), 30_000_000, '2026-03-01', '2026-09-30');
+    rvContract($matter(), 8_000_000, '2026-10-05', '2026-11-30');
+
+    $this->actingAs($this->accountant, 'web');
+
+    foreach ([[], ['period' => 'this_year']] as $filters) {
+        $html = Livewire::test(RevenueKpiWidget::class, ['pageFilters' => $filters])->html();
+
+        expect($html)->toContain('2 đợt chưa thu xong, tại hôm nay')
+            ->and($html)->toContain('1 đợt quá hạn, tại hôm nay');
+    }
+});
+
+/*
+ * Rà soát cuối làn rv, I2: phần đã thu của một đợt quá hạn KHÔNG chắc nằm ở ô "Đã thu" — ô đó chỉ đếm
+ * tiền về TRONG kỳ. Đợt quá hạn thu một phần ngày 01/09, kỳ "Tháng này" (tháng 10): 10 triệu đó không ở
+ * ô nào. Lời giải thích của "Quá hạn" không được hứa điều ngược lại.
+ */
+it('does not promise in the overdue explanation that the part already paid shows under collected', function () {
+    $contract = rvContract(Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]), 30_000_000, '2026-03-01', '2026-09-30');
+    rvPay($contract, 10_000_000, '2026-09-01', $this->lawyer);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $cards = rvCards();
+
+    expect($cards['collected']['amount'])->toBe(0)
+        ->and($cards['overdue']['amount'])->toBe(20_000_000)
+        ->and($cards['overdue']['explanation'])->not->toContain('Đã thu')
+        ->and($cards['overdue']['explanation'])->toContain('phần đã thu không tính ở ô này');
+});
+
 it('paints the overdue card red only when something is overdue', function () {
     $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
     rvContract($matter, 8_000_000, '2026-10-05', '2026-11-30');

@@ -132,13 +132,16 @@ return [
             ],
             'outstanding' => [
                 'label' => 'Còn phải thu',
-                'detail' => ':count đợt chưa thu xong',
+                // Rà soát cuối làn rv, I1: ô này không theo Kỳ — dòng phụ in trên ô phải nói vậy.
+                'detail' => ':count đợt chưa thu xong, tại hôm nay',
                 'explanation' => 'Tại hôm nay: phần còn lại chưa thu của mọi đợt trên các hợp đồng đang hiệu lực, kể cả đợt đã quá hạn — cùng danh sách với trang "Công nợ". Không phụ thuộc kỳ đang lọc. Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ.',
             ],
             'overdue' => [
                 'label' => 'Quá hạn',
-                'detail' => ':count đợt quá hạn',
-                'explanation' => 'Tại hôm nay: phần còn lại chưa thu của các đợt đã qua hạn thanh toán, kể cả đợt đã thu một phần (phần đã thu nằm ở "Đã thu"). Không phụ thuộc kỳ đang lọc. Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ.',
+                'detail' => ':count đợt quá hạn, tại hôm nay',
+                // Rà soát cuối làn rv, I2: ô "Đã thu" chỉ đếm tiền về TRONG kỳ, nên phần đã thu của đợt
+                // quá hạn có thể không nằm ở ô nào — không hứa nó nằm ở "Đã thu".
+                'explanation' => 'Tại hôm nay: phần còn lại chưa thu của các đợt đã qua hạn thanh toán, kể cả đợt đã thu một phần — đợt đó chỉ tính phần còn lại, phần đã thu không tính ở ô này. Không phụ thuộc kỳ đang lọc. Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ.',
             ],
             'signed' => [
                 'label' => 'Hợp đồng ký mới',
