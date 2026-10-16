@@ -197,6 +197,12 @@ return [
         'portal_requests_off' => 'Văn phòng tạm không nhận yêu cầu mới qua cổng. Anh/chị vẫn trả lời được các cuộc trao đổi bên dưới, hoặc gọi hotline của văn phòng.',
         'portal_requests_off_hotline' => 'Hotline: :hotline',
         'portal_requests_refused' => 'Văn phòng tạm không nhận yêu cầu mới qua cổng. Vui lòng gọi hotline của văn phòng hoặc trả lời trong một cuộc trao đổi đã có.',
+
+        // Cổng khách hàng, khối 7 của trang hồ sơ (MatterProgress) khi công tắc đang tắt: nút không còn
+        // hứa "Gửi yêu cầu cho văn phòng" mà dẫn tới các cuộc trao đổi đã có; số hotline vẫn hiện bên dưới.
+        'portal_progress_requests_heading' => 'Trao đổi với văn phòng',
+        'portal_progress_requests_off' => 'Văn phòng tạm không nhận yêu cầu mới qua cổng. Anh/chị vẫn xem và trả lời được các cuộc trao đổi đã có.',
+        'portal_progress_requests_view' => 'Xem các cuộc trao đổi',
     ],
 
     // -----------------------------------------------------------------------------------------

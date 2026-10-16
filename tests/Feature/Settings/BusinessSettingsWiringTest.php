@@ -13,6 +13,7 @@ use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\FileRejected;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
+use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\MyRequests;
 use App\Filament\Portal\Pages\SubmitDocument;
 use App\Jobs\SendMissingDocumentsMail;
@@ -31,6 +32,7 @@ use App\Models\User;
 use App\Notifications\Staff\StaleMatterAlert;
 use App\Support\Files\FileGuard;
 use App\Support\Intake\FirstResponseClock;
+use App\Support\OfficeProfile;
 use App\Support\Scopes\ClientPortalScope;
 use App\Support\Settings\BusinessSettings;
 use Carbon\CarbonImmutable;
@@ -333,6 +335,55 @@ it('hides the new-request form and refuses a new request when switched off, but 
         ->assertHasNoErrors();
 
     expect(ClientRequestReply::query()->withoutGlobalScopes()->where('request_id', $thread->id)->count())->toBe(1);
+});
+
+/** Khối 7 "Gửi yêu cầu" của trang hồ sơ trên cổng, cắt khỏi phần còn lại của trang (HTTP thật). */
+function wiringProgressRequestsBlock(ClientUser $viewer, Matter $matter): string
+{
+    $html = test()->actingAs($viewer, 'client')
+        ->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->getContent();
+
+    $start = strpos($html, 'data-portal-block="7"');
+    $end = strpos($html, 'data-portal-end="matter-progress"');
+
+    expect($start)->not->toBeFalse()->and($end)->not->toBeFalse();
+
+    return substr($html, (int) $start, (int) $end - (int) $start);
+}
+
+/**
+ * Vòng sửa 1 (rà soát Task 1): tắt công tắc thì nút chính của cổng — khối 7 trên trang hồ sơ — không
+ * còn hứa "Gửi yêu cầu cho văn phòng" để rồi dẫn khách tới một trang từ chối. Nút đổi thành lối xem các
+ * cuộc trao đổi đã có (vẫn trả lời được), kèm câu "tạm không nhận", và số hotline vẫn ở đó.
+ *
+ * Mutation probe: bỏ nhánh `@if (! $acceptsNewRequests)` trong khối 7 (luôn vẽ nút cũ) → vế "tắt" đỏ;
+ * đảo điều kiện → vế "mặc định" đỏ; tiêu đề khối luôn là "Gửi yêu cầu" → vế "tắt" đỏ.
+ */
+it('relabels the portal request button on the matter page when switched off, and keeps the hotline', function () {
+    [$matter, $account] = wiringPortalMatter();
+    $requestsUrl = MyRequests::getUrl(['record' => $matter->getKey()], panel: 'portal');
+    $hotline = OfficeProfile::current()->hotline();
+
+    $before = wiringProgressRequestsBlock($account, $matter);
+
+    expect($before)->toContain(__('portal_progress.blocks.requests.open'))
+        ->and($before)->not->toContain(__('settings.business.portal_progress_requests_off'))
+        ->and($before)->not->toContain(__('settings.business.portal_progress_requests_view'))
+        ->and($before)->not->toContain(__('settings.business.portal_progress_requests_heading'))
+        ->and($before)->toContain('tel:'.$hotline);
+
+    BusinessSettingsScreen::save(['client_requests' => false]);
+
+    $after = wiringProgressRequestsBlock($account, $matter);
+
+    expect($after)->not->toContain(__('portal_progress.blocks.requests.open'))
+        ->and($after)->toContain(__('settings.business.portal_progress_requests_off'))
+        ->and($after)->toContain(__('settings.business.portal_progress_requests_view'))
+        ->and($after)->toContain(__('settings.business.portal_progress_requests_heading'))
+        ->and($after)->toContain('href="'.e($requestsUrl).'"')
+        ->and($after)->toContain('tel:'.$hotline);
 });
 
 // ---------------------------------------------------------------------------------------------

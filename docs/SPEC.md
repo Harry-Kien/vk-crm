@@ -1970,7 +1970,8 @@ Nhắc thanh toán cho khách, Kho tài liệu, Kết nối AI…) giữ nguyên
   chính M10; 1–40 giờ làm việc, mặc định `INTAKE_RESPONSE_HOURS`), và ba công tắc mặc định BẬT: thư 21
   ngày "hồ sơ chưa cập nhật cho khách" (§6.4 — chuông 14 ngày không theo công tắc), thư nhắc khách nộp
   giấy tờ còn thiếu (§6.9 — chuông 14 ngày cho luật sư không theo công tắc), khách gửi yêu cầu MỚI trên
-  cổng (§8.3 mục 7 — cuộc trao đổi đã có vẫn viết tiếp được). Chưa lưu gì thì hệ thống chạy đúng như
+  cổng (§8.3 mục 7 — cuộc trao đổi đã có vẫn viết tiếp được; khối 7 của trang hồ sơ đổi nút thành "Xem
+  các cuộc trao đổi" kèm câu tạm không nhận, hotline vẫn hiện). Chưa lưu gì thì hệ thống chạy đúng như
   trước; giá trị lưu trên giao diện thắng `.env`; "Đưa tất cả về mặc định" xoá chúng. Thời hạn lưu trữ hồ
   sơ (`RETENTION_YEARS`), hạn giữ dữ liệu người liên hệ (`PROSPECT_RETENTION_MONTHS`) và các ngưỡng của
   §6.4 chỉ HIỂN THỊ đọc-chỉ: chúng là luật hoặc đã gắn vào câu chữ gửi khách.
