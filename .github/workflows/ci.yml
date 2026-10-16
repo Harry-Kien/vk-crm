@@ -123,3 +123,34 @@ jobs:
           DB_USERNAME: sail
           DB_PASSWORD: password
         run: php artisan test
+
+  # M15 Task 1 — rà soát phụ thuộc: lỗ hổng đã công bố mức cao trở lên làm job đỏ. Composer audit đọc
+  # composer.lock (không cần cài); npm audit chạy ở gốc repo SAU `npm ci` và KHÔNG `--omit=dev`, vì
+  # phụ thuộc gốc chỉ là công cụ dựng (Vite/Tailwind) — `--omit=dev` sẽ không kiểm gì cả. Khi có
+  # app điện thoại (`mobile/`), thêm một bước `npm audit --prefix mobile` tương tự.
+  security:
+    name: Rà soát phụ thuộc
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cài PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: composer audit
+        run: composer audit --locked --no-interaction
+
+      - name: Cài Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: npm ci
+        run: npm ci
+
+      - name: npm audit
+        run: npm audit --audit-level=high
