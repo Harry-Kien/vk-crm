@@ -18,6 +18,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * "Giao việc" (làn tk, Task 1) — một việc của một vụ, hoặc một việc chung (`$matter` rỗng).
@@ -25,7 +26,8 @@ use Illuminate\Validation\ValidationException;
  * # Ai giao, ai nhận
  *
  * Người giao: {@see TaskPolicy::assignOnMatter()} (luật sư phụ trách/cộng sự của vụ, quản lý, quản
- * trị) hoặc {@see TaskPolicy::create()} cho việc chung (quản lý, quản trị), tài khoản còn hoạt động.
+ * trị) hoặc {@see TaskPolicy::create()} cho việc chung (làn fa1: mọi nhân sự có `matter.view` — luật sư, trợ
+ * lý, quản lý, quản trị), tài khoản còn hoạt động.
  * Người nhận: {@see TaskAssignees::qualifies()} — hỏi lại DƯỚI KHOÁ dòng của người đó, không tin ô chọn
  * của màn hình (một người bị vô hiệu hoá giữa lúc mở form và lúc bấm "Giao" bị từ chối ở đây). Không ai
  * tự giao việc cho chính mình.
@@ -33,14 +35,18 @@ use Illuminate\Validation\ValidationException;
  * # Khoá: vụ việc trước, người nhận sau
  *
  * Thứ tự toàn cục của dự án (vụ trước, người thứ ba sau cùng — `ChangeDeadlineResponsible`). Khoá dòng
- * người nhận còn xếp hàng hai lần "Giao" trùng nhau cho cùng một người, để câu chống trùng dưới đây đọc
- * được lần trước.
+ * người nhận còn xếp hàng hai lần gửi CÙNG một hộp thoại cho cùng một người, để câu chống trùng dưới đây
+ * đọc được lần trước.
  *
- * # Bấm trùng không tạo hai việc
+ * # Bấm trùng không tạo hai việc — theo hộp thoại, không theo tiêu đề (làn fa1, phán quyết 4)
  *
- * Một việc ĐANG CHỜ NHẬN cùng vụ, cùng người giao, cùng người nhận, cùng tiêu đề, tạo trong
- * {@see self::DUPLICATE_WINDOW_SECONDS} giây qua là CHÍNH lần bấm trước (nút gửi hai lần, hai tab): trả về
- * việc đó, không ghi thêm dòng nhật ký nào, không báo lần hai.
+ * Màn hình sinh một mã một lần (`$submissionKey`, UUID) khi MỞ hộp thoại "Giao việc" và gửi kèm mỗi lần lưu.
+ * Một lần giao trước của CÙNG người giao mang đúng mã đó (`properties.submission_key` của dòng `task_assigned`,
+ * trong {@see self::SUBMISSION_KEY_DAYS} ngày qua) là CHÍNH lần bấm trước (nút gửi hai lần, mạng chậm gửi lại):
+ * trả về việc đó, không ghi thêm dòng nhật ký nào, không báo lần hai. Hai lần giao THẬT (mở hộp thoại hai lần)
+ * mang hai mã — cùng tiêu đề vẫn là hai việc; trước làn fa1, khoá theo tiêu đề nuốt mất lần giao thứ hai (một
+ * lần sửa hạn/mô tả, hay hai việc "Photo hồ sơ") mà vẫn báo thành công. Không mã (gọi từ nơi không có hộp thoại),
+ * hay mã không đúng dạng: không chống trùng.
  *
  * # Báo người nhận
  *
@@ -54,9 +60,15 @@ class AssignTask
     use ReadsWithoutPortalScope;
     use ValidatesTaskInput;
 
-    public const DUPLICATE_WINDOW_SECONDS = 60;
+    /** Mã một lần của hộp thoại còn được so trong ngần này ngày — xem docblock lớp. */
+    public const SUBMISSION_KEY_DAYS = 1;
+
+    /** Dạng của mã một lần (UUID, hay bất kỳ chữ-số-gạch tới 64 ký tự). */
+    private const SUBMISSION_KEY_PATTERN = '/^[A-Za-z0-9-]{8,64}$/';
 
     /**
+     * @param  string|null  $submissionKey  mã một lần của hộp thoại — xem docblock lớp
+     *
      * @throws AuthorizationException
      * @throws ValidationException
      */
@@ -68,12 +80,14 @@ class AssignTask
         ?string $description = null,
         ?string $dueDate = null,
         TaskPriority $priority = TaskPriority::Normal,
+        ?string $submissionKey = null,
     ): Task {
+        $submissionKey = is_string($submissionKey) && preg_match(self::SUBMISSION_KEY_PATTERN, $submissionKey) === 1 ? $submissionKey : null;
         $title = $this->cleanTitle($title);
         $description = $this->cleanText($description, 'description', Task::DESCRIPTION_MAX_LENGTH);
         $dueDate = $this->cleanDueDate($dueDate);
 
-        return DB::transaction(function () use ($actor, $matter, $assignee, $title, $description, $dueDate, $priority): Task {
+        return DB::transaction(function () use ($actor, $matter, $assignee, $title, $description, $dueDate, $priority, $submissionKey): Task {
             $lockedMatter = null;
 
             if ($matter !== null) {
@@ -111,19 +125,7 @@ class AssignTask
                 $this->refuseAssignee();
             }
 
-            $duplicate = $this->scopelessly(Task::query())
-                ->when(
-                    $lockedMatter === null,
-                    fn ($query) => $query->whereNull('matter_id'),
-                    fn ($query) => $query->where('matter_id', $lockedMatter->getKey()),
-                )
-                ->where('assigned_by', $actor->getKey())
-                ->where('assignee_id', $lockedAssignee->getKey())
-                ->where('title', $title)
-                ->where('status', TaskStatus::Pending->value)
-                ->where('created_at', '>=', now()->subSeconds(self::DUPLICATE_WINDOW_SECONDS))
-                ->latest('id')
-                ->first();
+            $duplicate = $this->sameSubmission($actor, $submissionKey);
 
             if ($duplicate !== null) {
                 return $duplicate;
@@ -147,12 +149,35 @@ class AssignTask
                 'to' => TaskStatus::Pending->value,
                 'priority' => $priority->value,
                 'due_date' => $dueDate,
+                ...($submissionKey !== null ? ['submission_key' => $submissionKey] : []),
             ], causer: $actor);
 
             $this->queueNotice($task, TaskAlert::ASSIGNED, $lockedAssignee->getKey(), $activity);
 
             return $task;
         });
+    }
+
+    /**
+     * Việc mà `$actor` đã giao bằng CHÍNH hộp thoại mang `$key` (docblock lớp, mục "Bấm trùng") — còn tồn tại; không
+     * mã thì `null`. Dòng nhật ký không bao giờ sửa, nên nó là sổ của mọi lần giao.
+     */
+    private function sameSubmission(User $actor, ?string $key): ?Task
+    {
+        if ($key === null) {
+            return null;
+        }
+
+        $taskId = Activity::query()
+            ->where('event', 'task_assigned')
+            ->where('causer_type', $actor->getMorphClass())
+            ->where('causer_id', $actor->getKey())
+            ->where('created_at', '>=', now()->subDays(self::SUBMISSION_KEY_DAYS))
+            ->where('properties->submission_key', $key)
+            ->latest('id')
+            ->value('subject_id');
+
+        return $taskId === null ? null : $this->scopelessly(Task::query())->find($taskId);
     }
 
     private function refuse(): never

@@ -170,11 +170,12 @@ it('never lets a portal account read a task, whatever the policy or the query', 
 // Khả năng theo vai và trạng thái
 // ---------------------------------------------------------------------------------------------
 
-it('lets only managers and admins assign a general task', function () {
+it('lets every staff member who sees matters assign a general task, and not the accountant', function () {
+    // Làn fa1 (phán quyết 3, 2026-10-16): trước đó chỉ quản lý/quản trị.
     expect(Gate::forUser($this->admin)->allows('create', Task::class))->toBeTrue()
         ->and(Gate::forUser($this->manager)->allows('create', Task::class))->toBeTrue()
-        ->and(Gate::forUser($this->lead)->allows('create', Task::class))->toBeFalse()
-        ->and(Gate::forUser($this->assistant)->allows('create', Task::class))->toBeFalse()
+        ->and(Gate::forUser($this->lead)->allows('create', Task::class))->toBeTrue()
+        ->and(Gate::forUser($this->assistant)->allows('create', Task::class))->toBeTrue()
         ->and(Gate::forUser($this->accountant)->allows('create', Task::class))->toBeFalse();
 });
 

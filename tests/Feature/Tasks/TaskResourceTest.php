@@ -455,8 +455,9 @@ it('lets a manager give a general task to the accountant, with the title limit o
         ->and($task->priority)->toBe(TaskPriority::High);
 });
 
-it('hides the general-task button from lawyers, assistants and the accountant', function (string $who) {
+it('shows the "Giao việc" button to lawyers and assistants, and hides it from the accountant', function (string $who, bool $visible) {
+    // Làn fa1 (phán quyết 3): mọi nhân sự có `matter.view` giao được việc chung.
     $this->actingAs(test()->{$who}, 'web');
 
-    tkListPage()->assertActionHidden('create');
-})->with(['lead', 'assistant', 'accountant']);
+    $visible ? tkListPage()->assertActionVisible('create') : tkListPage()->assertActionHidden('create');
+})->with([['lead', true], ['assistant', true], ['accountant', false]]);

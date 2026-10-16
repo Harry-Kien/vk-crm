@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Một việc giao NỘI BỘ (làn tk, Task 1 — chủ văn phòng, 2026-10-10: "luật sư giao việc chuyên viên";
@@ -189,6 +190,8 @@ class Task extends Model
     /**
      * Việc CÓ HẠN đã hoàn thành trong `$bounds` (hai cận đủ giờ của `PerformancePeriod::bounds()`) — tập của
      * chỉ số "Việc hoàn thành đúng hạn" (làn tk, Task 2). Đúng hạn hay trễ: {@see self::completedOnTime()}.
+     * Một việc được "Mở lại" (`App\Actions\Task\ReopenTask`, làn fa1) về "Đang làm" và mất `completed_at`, nên ra
+     * khỏi tập này cho tới khi hoàn thành lần nữa (khi đó `completed_at` là lần xong mới).
      *
      * @param  array{0: string, 1: string}  $bounds
      */
@@ -250,8 +253,10 @@ class Task extends Model
 
     /**
      * Việc QUÁ HẠN ĐƯỢC TÍNH (làn tk, vòng sửa polish 1 — rà soát Task 2, m8): người nhận còn giữ
-     * ({@see self::scopeHeld()}), đã qua hạn ({@see self::scopeOverdue()}), và là việc chung hay việc của một
-     * vụ còn mở ({@see self::scopeOnLiveMatter()}). MỘT định nghĩa cho mọi con số "quá hạn" (ô "Việc của tôi
+     * ({@see self::scopeHeld()}), đã qua hạn ({@see self::scopeOverdue()}), là việc chung hay việc của một
+     * vụ còn mở ({@see self::scopeOnLiveMatter()}), và — làn fa1, phán quyết 5 — người nhận còn GIỮ ĐƯỢC việc
+     * ({@see self::scopeHeldBySeatedAssignee()}: việc của người đã sang "người theo dõi", đã trả lại hồ sơ hay
+     * không còn mở được hồ sơ hiện "Cần giao lại", không vào số quá hạn của họ). MỘT định nghĩa cho mọi con số "quá hạn" (ô "Việc của tôi
      * đã quá hạn" của bảng điều khiển, cột "Việc quá hạn" của Theo dõi đội ngũ và trang của một người), cho
      * bộ lọc "Chỉ việc quá hạn" của trang Công việc mà ô đó mở ra, và cho lịch nhắc quá hạn
      * (`RemindPendingWork`): việc của một vụ đã kết thúc hay đã huỷ không vào số và không được nhắc — trên vụ
@@ -259,7 +264,50 @@ class Task extends Model
      */
     public function scopeOverdueToHandle(Builder $query): Builder
     {
-        return $query->held()->overdue()->onLiveMatter();
+        return $query->held()->overdue()->onLiveMatter()->heldBySeatedAssignee();
+    }
+
+    /**
+     * Người nhận còn GIỮ ĐƯỢC việc (làn fa1, phán quyết 5 — kiểm tra luồng nội bộ 2026-10-16): việc chung, hay việc
+     * của một vụ mà người nhận ngồi một ghế giữ việc ({@see self::workingSeats()}: không "người theo dõi"), chưa
+     * "Trả lại" ghế đó, và còn mở được vụ — bản SQL của `TaskAssignees::holdsSeat()` (cùng ba vế; phủ định của các
+     * vế `off_team` / `seat_declined` / `off_access` của {@see self::scopeNeedsReassignment()}). Không hỏi
+     * `is_active`, như `holdsSeat()`: người đã nghỉ không nhận lời nhắc nào (`ResolveStaffRecipients::forTask()`),
+     * và hàng của họ ẩn khỏi Theo dõi đội ngũ.
+     *
+     * MỘT định nghĩa cho số "quá hạn" ({@see self::scopeOverdueToHandle()}), cho lượt chọn VÀ lần hỏi lại lúc gửi
+     * của ba lời nhắc người nhận (`RemindPendingWork`: chờ nhận, sắp đến hạn, quá hạn), và cho phần "việc còn giữ
+     * đã quá hạn" của tỉ lệ đúng hạn (`BuildTaskPerformance`). Một việc không qua vế này hiện "Cần giao lại";
+     * lời nhắc cho NGƯỜI GIAO (chưa được nhận, quá hạn) không qua vế này — người giao được nhắc thay.
+     */
+    public function scopeHeldBySeatedAssignee(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $holds): Builder => $holds
+            ->whereNull($this->qualifyColumn('matter_id'))
+            ->orWhere(fn (Builder $onMatter): Builder => $onMatter
+                ->whereExists(fn (QueryBuilder $seat): QueryBuilder => $seat
+                    ->selectRaw('1')
+                    ->from('matter_user')
+                    ->whereColumn('matter_user.matter_id', $this->qualifyColumn('matter_id'))
+                    ->whereColumn('matter_user.user_id', $this->qualifyColumn('assignee_id'))
+                    ->whereIn('matter_user.role_in_matter', self::workingSeats())
+                    ->where(fn (QueryBuilder $notReturned): QueryBuilder => $notReturned
+                        ->whereNotNull('matter_user.accepted_at')
+                        ->orWhereNull('matter_user.declined_at')))
+                ->whereNot(fn (Builder $blocked): Builder => $blocked->whereCannotOpenMatter('assignee_id'))));
+    }
+
+    /**
+     * Việc người nhận còn giữ, đã quá hạn, mà HẠN rơi trong `[$from, $to]` (ngày `Y-m-d`) — phần "việc còn mở đã
+     * quá hạn trong kỳ" của tỉ lệ "Việc hoàn thành đúng hạn" (làn fa1, phán quyết 6). Cùng định nghĩa
+     * {@see self::scopeOverdueToHandle()}: việc bị trả lại, đã huỷ, của vụ đã kết thúc, và việc "Cần giao lại" vì
+     * người nhận không còn giữ được, không vào đây.
+     */
+    public function scopeOverdueWithDueDateBetween(Builder $query, string $from, string $to): Builder
+    {
+        return $query->overdueToHandle()
+            ->whereDate($this->qualifyColumn('due_date'), '>=', $from)
+            ->whereDate($this->qualifyColumn('due_date'), '<=', $to);
     }
 
     /**
@@ -484,6 +532,23 @@ class Task extends Model
     public function isOpen(): bool
     {
         return $this->status->isOpen();
+    }
+
+    /**
+     * Id người đã bấm "Huỷ việc" lần gần nhất — người gây ra dòng nhật ký `task_cancelled` mới nhất của việc này
+     * (dòng nhật ký không bao giờ sửa; bảng `tasks` không có cột người huỷ). `null`: chưa từng huỷ, hay dòng không
+     * có người gây ra. Cổng "Khôi phục" (`TaskPolicy::restore`, làn fa1) đọc nó — chỉ trên việc đang "Đã huỷ".
+     */
+    public function cancelledBy(): ?int
+    {
+        $causer = Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('event', 'task_cancelled')
+            ->latest('id')
+            ->value('causer_id');
+
+        return $causer === null ? null : (int) $causer;
     }
 
     public function isOverdue(): bool

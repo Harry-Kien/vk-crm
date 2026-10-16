@@ -102,7 +102,6 @@ return [
     'actions' => [
         'assign' => 'Giao việc',
         'assign_heading' => 'Giao một việc',
-        'assign_general_heading' => 'Giao một việc chung',
         'assign_submit' => 'Giao việc',
         'assign_success' => 'Đã giao việc. Người nhận được báo bằng chuông và thư.',
         'accept' => 'Đã nhận',
@@ -123,7 +122,8 @@ return [
         'edit' => 'Sửa',
         'edit_heading' => 'Sửa việc',
         'edit_submit' => 'Lưu',
-        'edit_success' => 'Đã lưu thay đổi.',
+        // Làn fa1 (phán quyết 1): người đang giữ việc được báo điều đã đổi.
+        'edit_success' => 'Đã lưu thay đổi. Người đang giữ việc (nếu có) được báo bằng chuông và thư điều đã đổi.',
         'reassign' => 'Giao lại',
         'reassign_heading' => 'Giao lại việc này cho người khác',
         'reassign_submit' => 'Giao lại',
@@ -522,7 +522,8 @@ return [
     'performance' => [
         'column' => 'Việc hoàn thành đúng hạn',
         'declined' => ':count lần trả lại việc',
-        'explain' => 'Trong số việc giao nội bộ CÓ HẠN mà người này hoàn thành trong kỳ, số việc xong không muộn hơn hết ngày hạn, trên tổng số việc đó. Dưới 5 việc thì không tính tỉ lệ. Dòng dưới là số lần người này bấm "Trả lại" một việc trong kỳ (theo nhật ký, kể cả việc đã giao lại cho người khác). Không xếp hạng, không so người này với người khác.',
+        // Làn fa1 (phán quyết 6, 2026-10-16): mẫu số thêm việc còn giữ đã quá hạn, hạn trong kỳ.
+        'explain' => 'Số việc giao nội bộ CÓ HẠN người này xong không muộn hơn hết ngày hạn, trên tổng của: mọi việc có hạn người này hoàn thành trong kỳ, cộng mọi việc người này còn giữ (chờ nhận hay đang làm) đã quá hạn mà hạn rơi trong kỳ — việc bỏ dở quá hạn tính là trễ. Không tính: việc đã huỷ, việc đã trả lại hay đã giao lại cho người khác (tính cho người đang giữ), việc của hồ sơ đã kết thúc, việc "Cần giao lại" vì người nhận đã rời đội ngũ hay trả lại hồ sơ. Việc được mở lại để làm lại không còn là "đã hoàn thành" cho tới khi xong lần nữa. Dưới 5 việc thì không tính tỉ lệ. Số của kỳ đã qua có thể đổi khi một việc quá hạn được hoàn thành, huỷ hay giao lại sau đó. Dòng dưới là số lần người này bấm "Trả lại" một việc trong kỳ (theo nhật ký, kể cả việc đã giao lại cho người khác). Không xếp hạng, không so người này với người khác.',
     ],
 
     // Bảng điều khiển (App\Filament\Admin\Widgets\MyWorkQueueWidget).
@@ -537,5 +538,142 @@ return [
         'seats_hint' => 'Bấm "Đã nhận hồ sơ" hoặc "Trả lại"',
         'returned' => 'Việc tôi giao bị trả lại',
         'returned_hint' => 'Giao lại cho người khác hoặc huỷ',
+    ],
+
+    // =============================================================================================
+    // làn fa1 (2026-10-16) — sửa phát hiện của đợt kiểm tra luồng nội bộ: CÔNG VIỆC (giao – nhận – làm – xong).
+    // Mọi khoá mới của làn nằm trong khối này.
+    // =============================================================================================
+
+    // Trang "Công việc": dòng mô tả đầu trang; câu thêm khi tab "Chờ tôi nhận" rỗng mà còn hồ sơ chờ nhận.
+    // :where là một câu của `seat.where`.
+    'page' => [
+        'subheading' => 'Mọi việc anh/chị giao hoặc được giao; hồ sơ chờ nhận ở mục Việc của tôi.',
+        'awaiting_empty_seats' => 'Anh/chị đang có :count hồ sơ chờ nhận — bấm "Đã nhận hồ sơ" :where.',
+    ],
+
+    // Nút "Giao việc" đầu trang Công việc (App\Filament\Admin\Resources\Tasks\Pages\ListTasks::assignTaskAction()).
+    'assign' => [
+        'matter' => 'Vụ việc',
+        'matter_none' => 'Việc chung (không thuộc vụ nào)',
+        'matter_help' => 'Để trống nếu là việc chung. Chỉ các vụ đang mở anh/chị được giao việc.',
+        // Nhãn kèm tên mỗi người nhận — chỉ đếm việc anh/chị xem được.
+        'workload' => 'đang giữ :held việc, :overdue quá hạn',
+        'workload_none' => 'chưa giữ việc nào',
+    ],
+
+    // "Giao lại": ô hạn khi hạn cũ đã qua.
+    'reassign' => [
+        'due_past_help' => 'Hạn cũ :date đã qua — đã gợi ý một hạn mới (cùng số ngày người trước có); đổi nếu cần.',
+    ],
+
+    // "Mở lại" một việc đã hoàn thành (App\Actions\Task\ReopenTask).
+    'reopen' => [
+        'action' => 'Mở lại',
+        'heading' => 'Yêu cầu làm lại việc này?',
+        'description' => 'Việc trở về "Đang làm" cho cùng người nhận, và họ được báo kèm nhận xét của anh/chị.',
+        'heading_own' => 'Mở lại việc anh/chị vừa báo hoàn thành?',
+        'description_own' => 'Dùng khi bấm "Hoàn thành" nhầm. Việc trở về "Đang làm"; người giao được báo.',
+        'reason_help' => 'Bắt buộc — điều chưa đạt, cần làm thêm gì.',
+        'reason_help_own' => 'Không bắt buộc.',
+        'submit' => 'Mở lại',
+        'success' => 'Đã mở lại việc — việc trở về "Đang làm".',
+        'errors' => [
+            'matter_closed' => 'Hồ sơ của việc này đã kết thúc nên không mở lại được việc. Nếu còn việc phải làm, hãy mở lại hồ sơ trước (trưởng phòng hoặc quản trị viên).',
+        ],
+    ],
+
+    // "Khôi phục" một việc đã huỷ (App\Actions\Task\RestoreTask).
+    'restore' => [
+        'action' => 'Khôi phục',
+        'heading' => 'Khôi phục việc đã huỷ?',
+        'description' => 'Việc trở về "Chờ nhận" cho người nhận cũ (nếu họ còn nhận được việc), và họ được báo kèm lý do.',
+        'reason_help' => 'Bắt buộc — ví dụ huỷ nhầm, khách vẫn cần.',
+        'submit' => 'Khôi phục',
+        'success' => 'Đã khôi phục việc — người nhận cũ được báo.',
+        'success_needs_reassignment' => 'Đã khôi phục việc, nhưng người nhận cũ không còn nhận được việc này: việc hiện "Cần giao lại" — hãy bấm "Giao lại".',
+        'errors' => [
+            'matter_closed' => 'Hồ sơ của việc này đã kết thúc nên không khôi phục được việc. Nếu còn việc phải làm, hãy mở lại hồ sơ trước (trưởng phòng hoặc quản trị viên).',
+        ],
+    ],
+
+    // Lời nhắc người giao (chưa được nhận, quá hạn) về một việc "Cần giao lại" vì người nhận. :who đã escape ở chuông.
+    'reminder_needs_reassignment' => ':who không còn giữ được việc này (đã nghỉ, rời đội ngũ, trả lại hồ sơ hoặc không còn mở được hồ sơ) — việc hiện "Cần giao lại": hãy giao lại.',
+
+    // Chuông của các loại lời báo mới (App\Notifications\Staff\TaskAlert::UPDATED…). :title, :who, :reason, :changes,
+    // :assignee, :assigner đã escape.
+    'notice' => [
+        'updated' => [
+            'title' => 'Một việc anh/chị đang giữ vừa được sửa',
+            'body' => ':who đã sửa việc ":title": :changes.',
+        ],
+        'reopened' => [
+            'title' => 'Việc anh/chị đã hoàn thành được mở lại — cần làm tiếp',
+            'body' => ':who đã mở lại việc ":title". Nhận xét: :reason',
+        ],
+        'reopened_by_holder' => [
+            'title' => 'Việc anh/chị giao được mở lại',
+            'body' => ':who đã mở lại việc ":title" vừa báo hoàn thành — việc trở về "Đang làm".',
+        ],
+        'reopened_by_holder_on_behalf' => [
+            'title' => 'Một việc trên hồ sơ anh/chị phụ trách được mở lại',
+            'body' => ':who đã mở lại việc ":title" do :assigner giao, vừa báo hoàn thành — việc trở về "Đang làm". :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
+        ],
+        'restored' => [
+            'title' => 'Một việc đã huỷ được khôi phục cho anh/chị',
+            'body' => ':who đã khôi phục việc ":title" — việc lại chờ anh/chị bấm "Đã nhận" hoặc "Trả lại". Lý do: :reason',
+        ],
+        'reassigned_by_other' => [
+            'title' => 'Việc anh/chị giao đã được giao lại cho người khác',
+            'body' => ':who đã giao lại việc ":title" cho :assignee.',
+        ],
+        'cancelled_by_other' => [
+            'title' => 'Việc anh/chị giao đã bị huỷ',
+            'body' => ':who đã huỷ việc ":title". Lý do: :reason',
+        ],
+        'accepted_on_behalf' => [
+            'title' => 'Một việc trên hồ sơ anh/chị phụ trách đã được nhận',
+            'body' => ':who đã nhận việc ":title" do :assigner giao. :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
+        ],
+        'completed_on_behalf' => [
+            'title' => 'Một việc trên hồ sơ anh/chị phụ trách đã hoàn thành',
+            'body' => ':who đã hoàn thành việc ":title" do :assigner giao. :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
+        ],
+        // Các phần của :changes (App\Support\Tasks\TaskChangeSummary), nối bằng "; ".
+        'changes' => [
+            'due_date' => 'hạn :from → :to',
+            'priority' => 'ưu tiên :from → :to',
+            'title' => 'tiêu đề cũ ":from"',
+            'description' => 'mô tả, hướng dẫn đã được sửa — xem ở khung Xem của việc',
+        ],
+    ],
+
+    // Thư của các loại lời báo mới (App\Mail\Staff\TaskNotice). Tiêu đề thư không mang tên việc hay mã vụ.
+    'notice_email' => [
+        'subject' => [
+            'updated' => ':name vừa sửa một việc anh/chị đang giữ',
+            'reopened' => ':name đã mở lại một việc anh/chị đã hoàn thành',
+            'restored' => ':name đã khôi phục một việc cho anh/chị',
+            'accepted_on_behalf' => ':name đã nhận một việc trên hồ sơ anh/chị phụ trách',
+            'completed_on_behalf' => ':name đã hoàn thành một việc trên hồ sơ anh/chị phụ trách',
+        ],
+        'headline' => [
+            'updated' => ':name vừa sửa một việc anh/chị đang giữ — điều đã đổi ở dưới.',
+            'reopened' => ':name đã mở lại một việc anh/chị đã báo hoàn thành: việc trở về "Đang làm", cần làm tiếp theo nhận xét dưới đây.',
+            'restored' => ':name đã khôi phục một việc đã huỷ và giao lại cho anh/chị.',
+            'accepted_on_behalf' => ':name đã nhận việc do :assigner giao trên hồ sơ anh/chị phụ trách. :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
+            'completed_on_behalf' => ':name đã hoàn thành việc do :assigner giao trên hồ sơ anh/chị phụ trách. :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
+        ],
+        'action' => [
+            'updated' => 'Mở mục Công việc',
+            'reopened' => 'Mở mục Công việc — tab "Đang làm"',
+            'restored' => 'Mở mục Công việc để bấm "Đã nhận" hoặc "Trả lại"',
+            'accepted_on_behalf' => 'Mở tab Công việc của hồ sơ',
+            'completed_on_behalf' => 'Mở tab Công việc của hồ sơ',
+        ],
+        'fields' => [
+            'changes' => 'Điều đã đổi',
+            'reason' => 'Lý do, nhận xét',
+        ],
     ],
 ];

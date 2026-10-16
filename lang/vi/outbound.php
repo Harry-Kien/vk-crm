@@ -92,6 +92,10 @@ return [
         'staff.task.accepted' => 'Báo người giao việc đã được nhận',
         'staff.task.declined' => 'Báo người giao việc bị trả lại',
         'staff.task.completed' => 'Báo người giao việc đã hoàn thành',
+        // làn fa1 (2026-10-16): App\Mail\Staff\TaskNotice — ba lời báo cho người đang giữ việc.
+        'staff.task.updated' => 'Báo người giữ việc điều người giao vừa sửa',
+        'staff.task.reopened' => 'Báo người giữ việc đã hoàn thành được mở lại',
+        'staff.task.restored' => 'Báo người nhận việc đã huỷ được khôi phục',
         // Làn tk, Task 2: App\Mail\Staff\TaskReminder (lịch `tasks.remind`) và MatterAssignmentNotice (nhận hồ sơ).
         'staff.task.reminder.awaiting' => 'Nhắc nhân sự nhận việc đang chờ',
         'staff.task.reminder.unaccepted' => 'Báo người giao việc chưa được nhận',

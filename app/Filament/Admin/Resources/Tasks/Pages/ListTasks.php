@@ -10,13 +10,18 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Tasks\Concerns\ProvidesTaskActions;
 use App\Filament\Admin\Resources\Tasks\Tables\TaskColumns;
 use App\Filament\Admin\Resources\Tasks\TaskResource;
+use App\Filament\Admin\Widgets\Tasks\MatterAssignmentsAwaitingMeWidget;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Tasks\SeatInbox;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
@@ -25,6 +30,7 @@ use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 
 /**
  * Trang "Công việc" — xem docblock {@see TaskResource}. Bốn tab trên CÙNG một phạm vi
@@ -39,16 +45,20 @@ use Illuminate\Support\Facades\Gate;
  *    phạm vi vụ họ xem được), có bộ lọc vụ việc, người nhận, người giao, quá hạn, cần giao lại (`Task::scopeNeedsReassignment()`).
  *
  * Mọi tab cùng một thứ tự (`Task::scopeOrderedForWork()`): việc còn mở trước theo hạn, việc đã đóng sau.
- * Bộ lọc "Chỉ việc quá hạn" là việc còn mở đã qua hạn trên vụ còn mở hay việc chung (`overdue()` +
- * `onLiveMatter()`) — cùng định nghĩa với ô quá hạn của bảng điều khiển và lịch nhắc
- * (`Task::scopeOverdueToHandle()`): việc của vụ đã kết thúc chỉ còn huỷ, không còn "quá hạn" để đuổi theo.
+ * Bộ lọc "Chỉ việc quá hạn" là việc còn mở đã qua hạn trên vụ còn mở hay việc chung, mà người nhận còn GIỮ ĐƯỢC
+ * (`overdue()` + `onLiveMatter()` + `heldBySeatedAssignee()` — làn fa1, phán quyết 5) — cùng định nghĩa với ô quá
+ * hạn của bảng điều khiển và lịch nhắc (`Task::scopeOverdueToHandle()`): việc của vụ đã kết thúc chỉ còn huỷ,
+ * không còn "quá hạn" để đuổi theo; việc của người không còn giữ được nằm ở bộ lọc "Cần giao lại".
  *
  * Bộ lọc "Vụ việc" chỉ bày mã của những vụ có ít nhất một việc người xem THẤY ĐƯỢC
  * ({@see self::matterOptions()}): mã một vụ `restricted` không bao giờ vào ô chọn của người không xem
  * được nó; một id gửi tay lên bộ lọc vẫn chỉ lọc bên trong `visibleTo()`, nên không ra dòng nào.
  *
- * "Giao việc chung" (nút tiêu đề, tên `create` = `TaskPolicy::create`, chỉ quản lý/quản trị); việc của
- * một vụ được giao ở tab "Công việc" của vụ đó, nơi danh sách người nhận là đội ngũ của vụ.
+ * "Giao việc" (nút tiêu đề, tên `create` = `TaskPolicy::create` — làn fa1: mọi nhân sự có `matter.view`): một
+ * việc chung, hay — chọn ô "Vụ việc" — một việc của một vụ người giao được giao việc ({@see self::assignTaskAction()});
+ * tab "Công việc" của từng vụ vẫn giao được như trước. Dòng mô tả đầu trang ({@see self::getSubheading()}) nói
+ * trang chứa gì và hồ sơ chờ nhận nằm ở "Việc của tôi"; tab "Chờ tôi nhận" rỗng mà còn hồ sơ chờ nhận thì câu
+ * rỗng chỉ đúng chỗ đó ({@see self::awaitingEmptyHint()}).
  */
 class ListTasks extends ListRecords
 {
@@ -108,7 +118,7 @@ class ListTasks extends ListRecords
                 Filter::make('overdue')
                     ->label(__('tasks.filters.overdue'))
                     ->toggle()
-                    ->query(fn (Builder $query): Builder => $query->overdue()->onLiveMatter()),
+                    ->query(fn (Builder $query): Builder => $query->overdue()->onLiveMatter()->heldBySeatedAssignee()),
                 Filter::make('needs_reassignment')
                     ->label(__('tasks.filters.needs_reassignment'))
                     ->toggle()
@@ -117,51 +127,105 @@ class ListTasks extends ListRecords
             ->filtersLayout(FiltersLayout::AboveContentCollapsible)
             ->recordActions($this->taskRecordActions())
             ->emptyStateHeading(fn (): string => __('tasks.empty.'.($this->activeTab ?? 'all')))
+            ->emptyStateDescription(fn (): ?string => $this->awaitingEmptyHint())
             ->paginated([10, 25, 50]);
+    }
+
+    /** Làn fa1 (phán quyết 7): một dòng mô tả đầu trang — trang này chứa gì, hồ sơ chờ nhận nằm ở đâu. */
+    public function getSubheading(): string|Htmlable|null
+    {
+        return __('tasks.page.subheading');
+    }
+
+    /**
+     * Câu thêm dưới câu rỗng của tab "Chờ tôi nhận" (làn fa1, phán quyết 7): người xem không có việc nào chờ nhận
+     * nhưng có HỒ SƠ chờ nhận (ghế trong đội ngũ vụ — `MatterAssignmentsAwaitingMeWidget::seats()`, cùng tập của ô
+     * "Hồ sơ chờ tôi nhận") thì chỉ đúng chỗ bấm "Đã nhận hồ sơ" ({@see SeatInbox::whereKey()}). Tab khác: không.
+     */
+    private function awaitingEmptyHint(): ?string
+    {
+        if (($this->activeTab ?? 'all') !== 'awaiting') {
+            return null;
+        }
+
+        $user = $this->taskActor();
+        $seats = MatterAssignmentsAwaitingMeWidget::seats($user)->count();
+
+        return $seats === 0 ? null : __('tasks.page.awaiting_empty_seats', ['count' => $seats, 'where' => __(SeatInbox::whereKey($user))]);
     }
 
     /** @return list<Action> */
     protected function getHeaderActions(): array
     {
-        return [$this->assignGeneralTaskAction()];
+        return [$this->assignTaskAction()];
     }
 
     /**
-     * "Giao việc chung" — tên `create` (`TaskPolicy::create`: quản lý, quản trị). Người nhận: mọi nhân sự
-     * đang làm ({@see TaskAssignees::options()} với vụ rỗng), trừ chính người giao. `AssignTask` hỏi lại
-     * dưới khoá.
+     * "Giao việc" — tên `create` (`TaskPolicy::create`: làn fa1, mọi nhân sự có `matter.view`). Ô "Vụ việc" để
+     * trống là một việc chung; chọn một vụ thì là việc của vụ đó — ô chỉ bày các vụ người giao được giao việc
+     * ({@see TaskAssignees::assignableMatters()}), và ô người nhận đổi theo vụ ({@see TaskAssignees::options()}:
+     * đội ngũ giữ việc của vụ, hay mọi nhân sự đang làm với việc chung; nhãn kèm số việc đang giữ / quá hạn của
+     * mỗi người, chỉ trong các việc người giao xem được). Ô ẩn `submission_key` mang mã một lần sinh khi MỞ hộp
+     * thoại — chống bấm trùng của `AssignTask` (phán quyết 4). `AssignTask` hỏi lại mọi thứ dưới khoá.
      */
-    protected function assignGeneralTaskAction(): Action
+    protected function assignTaskAction(): Action
     {
         return Action::make('create')
             ->label(__('tasks.actions.assign'))
             ->icon(Heroicon::OutlinedPlus)
             ->authorize(fn (): bool => Gate::allows('create', Task::class))
-            ->modalHeading(__('tasks.actions.assign_general_heading'))
+            ->modalHeading(__('tasks.actions.assign_heading'))
             ->modalSubmitActionLabel(__('tasks.actions.assign_submit'))
+            ->fillForm(fn (): array => ['submission_key' => (string) Str::uuid(), 'priority' => TaskPriority::Normal->value])
             ->schema(fn (): array => [
+                Select::make('matter_id')
+                    ->label(__('tasks.assign.matter'))
+                    ->placeholder(__('tasks.assign.matter_none'))
+                    ->helperText(__('tasks.assign.matter_help'))
+                    ->options(fn (): array => app(TaskAssignees::class)->assignableMatters($this->taskActor()))
+                    ->visible(fn (): bool => app(TaskAssignees::class)->assignableMatters($this->taskActor()) !== [])
+                    ->searchable()
+                    ->native(false)
+                    ->live()
+                    ->afterStateUpdated(fn (Set $set): mixed => $set('assignee_id', null)),
                 Select::make('assignee_id')
                     ->label(__('tasks.fields.assignee'))
-                    ->helperText(__('tasks.fields.assignee_help_general'))
-                    ->options(fn (): array => app(TaskAssignees::class)->options(null, $this->taskActor()))
+                    ->helperText(fn (Get $get): string => __(filled($get('matter_id')) ? 'tasks.fields.assignee_help_matter' : 'tasks.fields.assignee_help_general'))
+                    ->options(fn (Get $get): array => app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()))
                     ->searchable()
                     ->required()
                     ->native(false),
                 ...$this->taskDetailFields(),
+                Hidden::make('submission_key'),
             ])
             ->successNotificationTitle(__('tasks.actions.assign_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
                 fn () => app(AssignTask::class)->handle(
                     actor: $this->taskActor(),
-                    matter: null,
+                    matter: $this->assignMatter($data['matter_id'] ?? null),
                     assignee: User::query()->withTrashed()->findOrFail($data['assignee_id'] ?? null),
                     title: (string) ($data['title'] ?? ''),
                     description: $data['description'] ?? null,
                     dueDate: $data['due_date'] ?? null,
                     priority: TaskPriority::tryFrom((string) ($data['priority'] ?? '')) ?? TaskPriority::Normal,
+                    submissionKey: isset($data['submission_key']) ? (string) $data['submission_key'] : null,
                 ),
             ));
+    }
+
+    /**
+     * Vụ của ô "Vụ việc" — chỉ trong {@see TaskAssignees::assignableMatters()}: một id ngoài danh sách đó (gửi tay)
+     * đã bị luật "in:" của ô chặn trước khi tới đây; ở đây không bao giờ đọc một vụ ngoài danh sách. Rỗng hay
+     * ngoài danh sách: `null` (việc chung — với id gửi tay, form đã từ chối).
+     */
+    private function assignMatter(mixed $matterId): ?Matter
+    {
+        if (blank($matterId) || ! array_key_exists((int) $matterId, app(TaskAssignees::class)->assignableMatters($this->taskActor()))) {
+            return null;
+        }
+
+        return Matter::query()->find((int) $matterId);
     }
 
     /**

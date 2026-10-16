@@ -306,6 +306,10 @@ return [
         // hỏng hẳn sau hết lượt thử lại (chỉ id: đối tượng, loại nhắc, người nhận).
         'work_reminder_failed' => 'Gửi thư nhắc việc nội bộ thất bại hẳn',
         // --- Hết khối làn tk ----------------------------------------------------------------
+        // --- làn fa1 (2026-10-16): App\Actions\Task\ReopenTask / RestoreTask ---
+        'task_reopened' => 'Mở lại việc đã hoàn thành',
+        'task_restored' => 'Khôi phục việc đã huỷ',
+        // --- hết khối làn fa1 ---
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

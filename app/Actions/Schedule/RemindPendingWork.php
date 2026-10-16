@@ -40,6 +40,12 @@ use Throwable;
  * Việc "Bị trả lại" không nhắc (người giao đã được báo, nó nằm ở "Tôi đã giao"); việc của vụ đã kết thúc
  * hay đã huỷ không nhắc (không còn việc gì để làm trên vụ — người giao huỷ hay hoàn tất nó).
  *
+ * Làn fa1 (phán quyết 5, kiểm tra luồng nội bộ 2026-10-16): ba lời nhắc NGƯỜI NHẬN (chờ nhận, sắp đến hạn, quá
+ * hạn) chỉ tới người còn GIỮ ĐƯỢC việc ({@see self::assigneeHoldsSeat()} — `Task::scopeHeldBySeatedAssignee()`,
+ * cùng định nghĩa với số "quá hạn"): người đã sang "người theo dõi", đã trả lại hồ sơ hay không còn mở được hồ sơ
+ * không được bảo bấm một nút họ không còn có. Việc đó hiện "Cần giao lại"; hai lời báo NGƯỜI GIAO (chưa được nhận,
+ * quá hạn) vẫn đi như cũ — người giao được nhắc thay — kèm một câu nói rõ việc cần giao lại (`SendWorkReminder`).
+ *
  * # Người nhận — không bao giờ lộ vụ hạn chế
  *
  *  - việc: người nhận qua `ResolveStaffRecipients::forTask()` (đang hoạt động, chưa xoá, còn XEM ĐƯỢC
@@ -133,8 +139,11 @@ class RemindPendingWork
             $queued += $this->guarded(fn (): int => $this->queueForTask($task, self::DUE_SOON, self::dueSoonKey($task), [$task->assignee]));
         }
 
-        // `Task::scopeOverdueToHandle()`: CÙNG định nghĩa "quá hạn" với ô của bảng điều khiển và Theo dõi đội ngũ.
-        foreach (self::liveTasks()->overdueToHandle()->get() as $task) {
+        // Việc còn giữ, đã qua hạn, trên vụ còn mở. Lời nhắc NGƯỜI NHẬN thêm vế "còn giữ được việc"
+        // (`queueForTask()` → `Task::scopeHeldBySeatedAssignee()`), nên tới đúng tập `Task::scopeOverdueToHandle()` —
+        // CÙNG định nghĩa "quá hạn" với ô của bảng điều khiển và Theo dõi đội ngũ; lời báo NGƯỜI GIAO không có vế đó
+        // (làn fa1, phán quyết 5: người nhận không còn giữ được việc thì người giao được nhắc thay).
+        foreach (self::liveTasks()->held()->overdue()->get() as $task) {
             $queued += $this->guarded(fn (): int => $this->queueForTask($task, self::OVERDUE, self::overdueKey(), [$task->assignee])
                 + $this->queueForTask($task, self::OVERDUE_ASSIGNER, self::overdueKey(), $this->taskAssignerAudience($task)));
         }
@@ -184,7 +193,22 @@ class RemindPendingWork
                 ->contains(fn (User $user): bool => $user->is($recipient));
         }
 
-        return $task->assignee_id === $recipient->getKey();
+        return $task->assignee_id === $recipient->getKey() && self::assigneeHoldsSeat($task);
+    }
+
+    /**
+     * Người nhận của `$task` còn GIỮ ĐƯỢC việc (làn fa1, phán quyết 5) — `Task::scopeHeldBySeatedAssignee()`, MỘT
+     * định nghĩa với số "quá hạn": không "người theo dõi", không ghế đã trả lại, còn mở được hồ sơ. Không còn thì
+     * ba lời nhắc người nhận (chờ nhận, sắp đến hạn, quá hạn) không đi — họ không bấm "Đã nhận"/"Hoàn thành" được
+     * nữa (`TaskPolicy::stillHolds()`), việc hiện "Cần giao lại" — và lời báo người giao (chưa được nhận, quá hạn)
+     * nói rõ việc cần giao lại (`SendWorkReminder`).
+     */
+    public static function assigneeHoldsSeat(Task $task): bool
+    {
+        return Task::query()->withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($task->getKey())
+            ->heldBySeatedAssignee()
+            ->exists();
     }
 
     /**
@@ -371,6 +395,11 @@ class RemindPendingWork
      */
     private function queueForTask(Task $task, string $kind, string $key, array $preferred): int
     {
+        // Xem {@see self::assigneeHoldsSeat()}: lời nhắc người nhận chỉ tới người còn giữ được việc.
+        if (! self::isAssignerKind($kind) && ! self::assigneeHoldsSeat($task)) {
+            return 0;
+        }
+
         $queued = 0;
 
         foreach (app(ResolveStaffRecipients::class)->forTask($task, $preferred) as $user) {

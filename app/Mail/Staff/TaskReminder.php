@@ -27,6 +27,9 @@ use Illuminate\Mail\Mailables\Envelope;
  * người giao đã rời vụ hay nghỉ việc mang `$onBehalfOf` = tên người giao — tiêu đề, câu mở đầu, nút theo bộ
  * chữ `*_on_behalf`, thêm dòng "Người giao", đường dẫn về tab "Công việc" của vụ
  * (`TaskReminderAlert::urlFor()`). Cùng mẫu, cùng khoá sổ thư.
+ *
+ * Làn fa1 (phán quyết 5): `$needsReassignment` — người nhận việc không còn làm được việc này (việc hiện "Cần giao
+ * lại") — thêm câu `tasks.reminder_needs_reassignment` vào câu mở đầu của hai loại báo người giao, như chuông.
  */
 class TaskReminder extends BrandedMailable
 {
@@ -49,6 +52,7 @@ class TaskReminder extends BrandedMailable
         public string $detail,
         public string $ledgerKey,
         public ?string $onBehalfOf = null,
+        public bool $needsReassignment = false,
     ) {}
 
     protected function template(): string
@@ -86,7 +90,9 @@ class TaskReminder extends BrandedMailable
                     'name' => (string) $task->assignee?->name,
                     'detail' => $this->detail,
                     'assigner' => (string) $this->onBehalfOf,
-                ]),
+                ]).($this->needsReassignment && RemindPendingWork::isAssignerKind($this->kind)
+                    ? ' '.__('tasks.reminder_needs_reassignment', ['who' => (string) $task->assignee?->name])
+                    : ''),
                 'details' => array_values(array_filter([
                     $line('title', $task->title),
                     $task->matter?->code === null ? null : $line('matter', $task->matter->code),

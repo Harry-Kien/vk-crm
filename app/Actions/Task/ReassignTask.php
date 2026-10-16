@@ -4,6 +4,7 @@ namespace App\Actions\Task;
 
 use App\Actions\Task\Concerns\OpensTask;
 use App\Actions\Task\Concerns\QueuesTaskNotices;
+use App\Actions\Task\Concerns\ValidatesTaskInput;
 use App\Enums\TaskStatus;
 use App\Models\Task;
 use App\Models\User;
@@ -29,15 +30,27 @@ use Illuminate\Validation\ValidationException;
  * nhận MỘT chuông chung `TaskAlert::REASSIGNED_AWAY` (không tiêu đề, không mã vụ, không thư), để không
  * làm tiếp một việc đã sang tay người khác. Họ đã trả lại thì đã buông việc: không báo. Họ đã nghỉ/bị vô
  * hiệu: job bỏ họ (`ResolveStaffRecipients::forFormerTaskHolder()`).
+ *
+ * Làn fa1 (phán quyết 7, kiểm tra luồng nội bộ 2026-10-16): lần giao lại đặt được hạn mới (`$setDueDate`; màn
+ * hình điền sẵn hạn cũ nếu còn ở tương lai, gợi ý một hạn mới nếu đã qua — `ProvidesTaskActions`); dòng nhật ký
+ * ghi `due_date_from`/`due_date_to` khi hạn đổi, và thư "được giao" của người mới mang hạn mới. Người bấm không
+ * phải người giao (luật sư phụ trách hay quản lý chuyển việc của một người giao khác): người giao gốc nhận một
+ * CHUÔNG {@see TaskAlert::REASSIGNED_BY_OTHER} nêu người nhận mới (job lọc qua `forTask()`).
  */
 class ReassignTask
 {
     use OpensTask;
     use QueuesTaskNotices;
+    use ValidatesTaskInput;
 
-    public function handle(Task $task, User $actor, User $newAssignee): Task
+    /**
+     * @param  bool  $setDueDate  làn fa1: `true` thì hạn của việc thành `$dueDate` (rỗng = không hạn; một ngày đã
+     *                            qua chỉ được khi đó đúng là hạn việc đang mang — `ValidatesTaskInput::cleanDueDate()`);
+     *                            `false` (gọi từ nơi không có ô hạn) thì giữ hạn cũ
+     */
+    public function handle(Task $task, User $actor, User $newAssignee, ?string $dueDate = null, bool $setDueDate = false): Task
     {
-        return DB::transaction(function () use ($task, $actor, $newAssignee): Task {
+        return DB::transaction(function () use ($task, $actor, $newAssignee, $dueDate, $setDueDate): Task {
             $fresh = $this->openTask($task, $actor);
 
             $this->authorizeTransition($fresh, $actor, 'reassign', TaskStatus::open());
@@ -58,6 +71,8 @@ class ReassignTask
 
             $from = $fresh->status;
             $previous = $fresh->assignee_id;
+            $oldDue = $fresh->due_date?->toDateString();
+            $newDue = $setDueDate ? $this->cleanDueDate($dueDate, $oldDue) : $oldDue;
 
             $fresh->update([
                 'assignee_id' => $locked->getKey(),
@@ -66,6 +81,7 @@ class ReassignTask
                 'accepted_at' => null,
                 'declined_at' => null,
                 'decline_reason' => null,
+                'due_date' => $newDue,
             ]);
 
             $activity = Audit::record('task_reassigned', $fresh, [
@@ -74,6 +90,7 @@ class ReassignTask
                 'to' => TaskStatus::Pending->value,
                 'previous_assignee_id' => $previous,
                 'assignee_id' => $locked->getKey(),
+                ...($newDue !== $oldDue ? ['due_date_from' => $oldDue, 'due_date_to' => $newDue] : []),
             ], causer: $actor);
 
             $this->queueNotice($fresh, TaskAlert::ASSIGNED, $locked->getKey(), $activity);
@@ -82,6 +99,12 @@ class ReassignTask
             // cho luật sư phụ trách, rồi luật sư đó chuyển tiếp) thì không tự báo mình.
             if ($from !== TaskStatus::Declined && $previous !== $actor->getKey()) {
                 $this->queueNotice($fresh, TaskAlert::REASSIGNED_AWAY, $previous, $activity);
+            }
+
+            // Làn fa1 (phán quyết 7): luật sư phụ trách hay quản lý giao lại việc của một người giao khác — người
+            // giao gốc được báo (một chuông), trừ khi chính họ là người vừa mất hay vừa nhận việc (đã có lời báo trên).
+            if (! in_array($fresh->assigned_by, [$actor->getKey(), $previous, $locked->getKey()], true)) {
+                $this->queueNotice($fresh, TaskAlert::REASSIGNED_BY_OTHER, $fresh->assigned_by, $activity);
             }
 
             return $fresh;

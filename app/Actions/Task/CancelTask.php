@@ -19,6 +19,10 @@ use Illuminate\Support\Facades\DB;
  * sách của họ và họ cần biết vì sao. Việc đã bị trả lại thì người nhận cũ đã buông nó — không báo.
  *
  * Bấm lần hai khi việc đã huỷ (của bất kỳ ai xem được việc): trả về việc, không ghi thêm gì.
+ *
+ * Làn fa1 (phán quyết 7): người bấm không phải người giao (luật sư phụ trách hay quản lý huỷ việc của một người
+ * khác) thì người giao gốc nhận một CHUÔNG {@see TaskAlert::CANCELLED_BY_OTHER} kèm lý do (job lọc qua
+ * `forTask()`). Huỷ nhầm thì chính người huỷ, luật sư phụ trách hay quản lý "Khôi phục" được ({@see RestoreTask}).
  */
 class CancelTask
 {
@@ -56,6 +60,10 @@ class CancelTask
 
             if ($from !== TaskStatus::Declined) {
                 $this->queueNotice($fresh, TaskAlert::CANCELLED, $fresh->assignee_id, $activity);
+            }
+
+            if ($fresh->assigned_by !== $actor->getKey() && $fresh->assigned_by !== $fresh->assignee_id) {
+                $this->queueNotice($fresh, TaskAlert::CANCELLED_BY_OTHER, $fresh->assigned_by, $activity);
             }
 
             return $fresh;

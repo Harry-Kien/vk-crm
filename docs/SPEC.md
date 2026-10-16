@@ -2317,6 +2317,45 @@ nhận đã có chuông cùng lúc; việc mới được giao — thứ cần b
 Người nhận mọi thư qua `ResolveStaffRecipients` (`forTask()`, `forTaskAssigner()`, `qualifies()`,
 `handle()`), nên vụ `restricted` chỉ tới luật sư phụ trách và quản trị viên.
 
+**Đính chính 2026-10-16 (làn fa1 — kiểm tra luồng nội bộ: công việc).** Chủ văn phòng (2026-10-16) yêu cầu luồng
+giao – nhận – làm – xong "đúng với thực tế trong doanh nghiệp nhất"; các luật sau thay luật cũ của làn tk:
+
+1. **Ai giao việc chung.** `TaskPolicy::create` = mọi nhân sự có `matter.view` (luật sư, trợ lý, trưởng phòng, quản
+   trị viên), không còn chỉ trưởng phòng/quản trị viên; kế toán, nhân viên kinh doanh nhận việc chung, không giao.
+   Nút "Giao việc" đầu trang Công việc có ô "Vụ việc" tuỳ chọn (trống = việc chung; chọn = một vụ mà
+   `TaskPolicy::assignOnMatter` cho phép, người nhận là đội ngũ giữ việc của vụ). Ô người nhận ghi số việc đang giữ
+   (`Task::held()`) và quá hạn (`Task::overdueToHandle()`) của mỗi người, chỉ đếm trong `Task::visibleTo(người giao)`.
+   Việc chung gắn khách tiềm năng: ngoài phạm vi (không liên kết tới bản ghi tiếp nhận).
+2. **Chống bấm trùng.** Theo mã một lần của hộp thoại (`submission_key` trong dòng nhật ký `task_assigned`, so
+   trong một ngày, cùng người giao), không theo tiêu đề: hai lần giao thật cùng tiêu đề là hai việc.
+3. **Sửa việc báo người giữ.** `UpdateTask` trên việc chờ nhận/đang làm, người sửa không phải người giữ: chuông + thư
+   mới `staff.task.updated` nêu điều đã đổi (hạn cũ → mới, ưu tiên cũ → mới, tiêu đề cũ; mô tả chỉ "đã sửa").
+   Dòng `task_updated` có thêm `old`/`new` cho hạn, ưu tiên, tiêu đề.
+4. **Mở lại, khôi phục.** `ReopenTask` (Hoàn thành → Đang làm, cùng người giữ, `completed_at`/`completion_note` xoá
+   trên dòng, giữ trong dòng `task_reopened`): người giao, luật sư phụ trách, quản lý/quản trị — bắt buộc lý do; chính
+   người đã hoàn thành trong 24 giờ đầu — lý do tuỳ chọn. Người khác mở lại: người giữ nhận chuông + thư mới
+   `staff.task.reopened` kèm lý do; người giữ tự mở lại: người giao (qua `forTaskAssigner`) nhận một chuông.
+   `RestoreTask` (Đã huỷ → Chờ nhận cho người nhận cũ, dòng `task_restored`): chính người đã huỷ (dòng
+   `task_cancelled` gần nhất), luật sư phụ trách, quản lý/quản trị — bắt buộc lý do; người nhận cũ còn
+   `TaskAssignees::qualifies` thì nhận chuông + thư mới `staff.task.restored`, không thì việc hiện "Cần giao lại".
+   Vụ đã kết thúc: cả hai từ chối bằng câu rõ ràng.
+5. **Nhắc và số quá hạn chỉ tính người còn giữ được việc** (`Task::scopeHeldBySeatedAssignee()` = bản SQL của
+   `TaskAssignees::holdsSeat()`): ba lời nhắc người nhận (`reminder.awaiting`, `.due_soon`, `.overdue`) và mọi số
+   "quá hạn" (`Task::overdueToHandle()`, bộ lọc "Chỉ việc quá hạn") bỏ người đã sang "người theo dõi", đã trả lại
+   ghế, hay không còn mở được hồ sơ; hai lời báo người giao vẫn đi, kèm câu "cần giao lại".
+6. **Tỉ lệ "Việc hoàn thành đúng hạn"** (Hiệu suất theo kỳ) = việc có hạn xong đúng hạn trong kỳ ÷ (việc có hạn
+   hoàn thành trong kỳ + việc người nhận còn giữ đã quá hạn mà hạn rơi trong kỳ —
+   `Task::scopeOverdueWithDueDateBetween()`). Việc huỷ, trả lại, của vụ đã kết thúc, "Cần giao lại" vì người nhận
+   không vào mẫu; số của kỳ đã qua có thể đổi khi việc quá hạn được xong, huỷ hay giao lại sau đó. Số liệu mốc hạn
+   và hồ sơ (P1–P10) không đổi.
+7. **Nhỏ.** "Giao lại" đặt được hạn mới (`task_reassigned` ghi `due_date_from`/`due_date_to`); luật sư phụ trách
+   hay quản lý giao lại / huỷ việc NGƯỜI KHÁC giao thì người giao gốc nhận một chuông; "đã nhận", "đã hoàn thành"
+   đi qua `forTaskAssigner()` (người nhận thay khi người giao đã đi), như "bị trả lại".
+
+Ba mẫu thư mới `staff.task.updated`, `staff.task.reopened`, `staff.task.restored` cùng họ `staff.task.*` (không gửi
+lại được) và KHÔNG đẩy (`PushTopicTest`): chuông và thư cùng lúc là đủ. Không migration mới, không tác vụ lịch mới,
+không quyền mới.
+
 ---
 
 ## 10. Bảo mật — yêu cầu cụ thể
