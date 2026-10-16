@@ -113,7 +113,9 @@
                     >{{ __('push.devices.remove') }}</button>
                 </div>
             @empty
-                <p data-vk-push-empty style="{{ $muted }}">{{ __('push.devices.empty') }}</p>
+                @if (count($nativeDevices) === 0)
+                    <p data-vk-push-empty style="{{ $muted }}">{{ __('push.devices.empty') }}</p>
+                @endif
             @endforelse
 
             @if ($configured && count($devices) > 0)

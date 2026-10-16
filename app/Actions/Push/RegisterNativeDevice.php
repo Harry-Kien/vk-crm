@@ -11,12 +11,10 @@ use App\Support\Audit;
 use App\Support\Push\DeviceLabel;
 use App\Support\Push\PushSession;
 use Illuminate\Contracts\Session\Session;
-use Illuminate\Database\ConcurrencyErrorDetector;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
-use Throwable;
 
 /**
  * M15 Task 2 — gắn một chiếc iPhone (token APNs) với nhân sự đang đăng nhập; gọi từ
@@ -30,7 +28,11 @@ use Throwable;
  *    {@see PushDeviceConflict}. Trên MariaDB (REPEATABLE READ), `SELECT … FOR UPDATE` một token CHƯA CÓ
  *    lấy khoá khoảng: hai request cùng giữ nó rồi cùng INSERT thì một bên bị DEADLOCK (1213/40001, không
  *    phải vi phạm UNIQUE). `DB::transaction(attempts: 3)` chạy lại bên bị chọn làm nạn nhân — lần sau
- *    nó thấy dòng của bên thắng — nên không request nào trả 500;
+ *    nó thấy dòng của bên thắng — nên không request nào trả 500. Chỉ đúng khi `handle()` là giao dịch NGOÀI
+ *    CÙNG (đường thật: request HTTP). Nếu người gọi đã mở giao dịch bao ngoài thì Laravel KHÔNG chạy lại
+ *    mà ném `DeadlockException` (MariaDB đã huỷ cả giao dịch ngoài; chạy lại sẽ INSERT ngoài giao dịch
+ *    của người gọi) — cố ý không bắt ở đây. Tổng số lần thử tối đa là 3 (không nhân với vòng UNIQUE:
+ *    vòng UNIQUE chỉ thử lại vi phạm UNIQUE, mỗi lần một giao dịch);
  *  - nhật ký `push_device_added`/`push_device_removed` chỉ mang nhãn thiết bị, KHÔNG BAO GIỜ token
  *    (một token là địa chỉ nhận thông báo của máy đó).
  */
@@ -67,12 +69,6 @@ class RegisterNativeDevice
             } catch (UniqueConstraintViolationException) {
                 if ($attempt >= 2) {
                     throw new PushDeviceConflict;
-                }
-            } catch (Throwable $e) {
-                // `attempts: 3` chỉ chạy lại khi giao dịch này là giao dịch NGOÀI CÙNG; nếu request đã nằm
-                // trong một giao dịch bao ngoài thì deadlock nổi lên đây — chạy lại ở vòng này.
-                if ($attempt >= 3 || ! (new ConcurrencyErrorDetector)->causedByConcurrencyError($e)) {
-                    throw $e;
                 }
             }
         }

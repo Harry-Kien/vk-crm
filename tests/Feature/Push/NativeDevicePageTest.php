@@ -90,3 +90,22 @@ it('"Gỡ mọi thiết bị" removes web and iPhone devices and reports the mat
     expect(DB::table('native_push_devices')->count())->toBe(0)
         ->and($staff->pushSubscriptions()->count())->toBe(0);
 });
+
+it('does not say "no device" when the person has only an iPhone', function () {
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+    pageIphone($staff, 'a');
+
+    $html = $this->actingAs($staff, 'web')->get('/admin/thong-bao-dien-thoai')->assertOk()->getContent();
+
+    expect($html)->toContain('data-vk-native-list')
+        ->not->toContain('data-vk-push-empty')
+        ->not->toContain(__('push.devices.empty'))
+        ->not->toContain('removeAllDevices');
+});
+
+it('still says "no device" when there is neither a browser nor an iPhone', function () {
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+
+    $this->actingAs($staff, 'web')->get('/admin/thong-bao-dien-thoai')->assertOk()
+        ->assertSee('data-vk-push-empty', false);
+});

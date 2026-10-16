@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\NativePushDevice;
 use App\Models\User;
 use App\Support\Push\PushSession;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Support\Collection;
@@ -206,20 +207,18 @@ it('moves ownership through the action as well (second owner wins, one row)', fu
         ->and((int) nativeRows()[0]->user_id)->toBe($b->id);
 });
 
-it('retries a deadlock on first registration (MariaDB gap lock) instead of answering 500', function () {
+it('rethrows a deadlock when the caller already holds a transaction: no silent retry outside it', function () {
+    // RefreshDatabase mở sẵn một giao dịch bao ngoài: đây chính là trường hợp "lồng". Laravel không chạy lại
+    // (MariaDB đã huỷ cả giao dịch ngoài); chạy lại sẽ INSERT ngoài giao dịch của người gọi.
     $thrown = 0;
     NativePushDevice::creating(function () use (&$thrown): void {
-        if ($thrown++ === 0) {
-            throw new QueryException('mariadb', 'insert into native_push_devices', [], new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction'));
-        }
+        $thrown++;
+
+        throw new QueryException('mariadb', 'insert into native_push_devices', [], new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction'));
     });
 
-    $staff = nativeStaff();
-
-    $this->actingAs($staff, 'web')->postJson('/admin/native/devices', nativePayload(nativeToken()))->assertNoContent();
-
-    expect($thrown)->toBe(2)
-        ->and(nativeRows())->toHaveCount(1)
-        ->and((int) nativeRows()[0]->user_id)->toBe($staff->id)
-        ->and(Activity::query()->where('event', 'push_device_added')->count())->toBe(1);
+    expect(DB::transactionLevel())->toBeGreaterThan(0)
+        ->and(fn () => app(RegisterNativeDevice::class)->handle(nativeStaff(), nativePayload(nativeToken()), NATIVE_UA))
+        ->toThrow(DeadlockException::class)
+        ->and($thrown)->toBe(1);
 });
