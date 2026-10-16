@@ -1466,8 +1466,13 @@ Khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh một 
 
 **Đính chính 2026-10-15 (làn st).** Bước 5: số ngày của `client_access_until` chỉnh được ở trang Cài đặt
 nghiệp vụ (§7.4), 1–730 ngày; chưa đặt thì theo `CLIENT_ACCESS_DAYS` (mặc định 90). Số mới áp cho lần đồng
-bộ dòng lưu trữ kế tiếp (vụ kết thúc từ nay); vụ đã kết thúc giữ ngày cũ, gia hạn từng vụ bằng
-`ExtendClientAccess`. `retention_until` vẫn chỉ theo `.env` (luật, không trên giao diện).
+bộ dòng lưu trữ kế tiếp (`SyncMatterArchive::syncClosed()`), tính từ `closed_at`: vụ kết thúc từ nay theo
+số mới; vụ đã kết thúc giữ ngày đang có cho tới lần nó được đồng bộ lại (chuyển sang một giai đoạn kết
+thúc khác) — khi đó **tăng** số ngày kéo dài `client_access_until` của vụ đó, kể cả vụ đã quá hạn xem (vụ
+hiện lại trên cổng; tài khoản cổng đã bị `client-access.expire` tắt thì vẫn bật lại tay), còn **giảm** số
+ngày không rút ngắn ngày đã có (giữ ngày muộn hơn, cùng luật với gia hạn tay `ExtendClientAccess`).
+`retention_until` vẫn chỉ theo `.env` (luật, không trên giao diện). (Câu này đính chính lại ngày
+2026-10-16 khi gộp integ-4: bản trước viết "vụ đã kết thúc giữ ngày cũ", sai với lần đồng bộ lại.)
 
 **Đính chính 2026-09-28 (M7 Task 4, R1, R3, R8, R9).** Bước 1–4 đọc theo các phán quyết sau:
 
@@ -2043,9 +2048,17 @@ Nhắc thanh toán cho khách, Kho tài liệu, Kết nối AI…) giữ nguyên
   các cuộc trao đổi" kèm câu tạm không nhận, hotline vẫn hiện; trang "Yêu cầu" không câu nào mời "gửi một
   yêu cầu mới" — tiêu đề, cuộc trao đổi đã đóng, trang chưa có gì đều chỉ hotline hoặc cuộc trao đổi còn
   mở). Chưa lưu gì thì hệ thống chạy đúng như
-  trước; giá trị lưu trên giao diện thắng `.env`; "Đưa tất cả về mặc định" xoá chúng. Thời hạn lưu trữ hồ
-  sơ (`RETENTION_YEARS`), hạn giữ dữ liệu người liên hệ (`PROSPECT_RETENTION_MONTHS`) và các ngưỡng của
-  §6.4 chỉ HIỂN THỊ đọc-chỉ: chúng là luật hoặc đã gắn vào câu chữ gửi khách.
+  trước; giá trị lưu trên giao diện thắng `.env`; "Đưa tất cả về mặc định" xoá chúng và luôn ghi một dòng
+  nhật ký khi có dòng nào bị xoá (`cleared`, kể cả khi giá trị đang dùng không đổi). Dung lượng tệp — lưu hay
+  chưa — không bao giờ vượt trần thật của máy chủ (`UPLOAD_MAX_MB` lớn hơn giới hạn PHP thì form, thẻ và
+  câu "tối đa N MB" đều là trần). Thời hạn lưu trữ hồ
+  sơ (`RETENTION_YEARS`), hạn giữ dữ liệu người liên hệ (`PROSPECT_RETENTION_MONTHS`), các ngưỡng của
+  §6.4, bậc nhắc mốc thời hạn của §6.5 (`CheckDeadlines::TIERS`) và — gộp integ-4 — giờ làm việc
+  (`config/vkcrm.php`, `business_hours`) cùng ngưỡng nhắc việc, hồ sơ chờ nhận của lịch `tasks.remind`
+  (24/48 giờ làm việc) chỉ HIỂN THỊ đọc-chỉ: chúng là luật, đã gắn vào câu chữ gửi khách, hoặc chỉ đặt
+  trên máy chủ. Trang tổng có thêm thẻ "Giờ làm việc & nhắc việc nội bộ" (dẫn tới mục đọc-chỉ đó), "Kế
+  toán nhập hợp đồng" (trang "Hợp đồng", đếm người có `contract.enter`) và "Trang Tài liệu" (đếm người mở
+  được trang).
 - **"Vai trò & quyền"** — ma trận đọc-chỉ sáu vai × quyền của §5, dựng từ `Role::permissions()`; đổi vai
   của một người ở trang Nhân sự. Không có màn hình nào sửa bộ quyền của một vai.
 - **"Bảo mật đăng nhập"** — đọc-chỉ: 2FA bắt buộc (§10), số nhân sự đã/chưa cài, khoá đăng nhập, giới hạn

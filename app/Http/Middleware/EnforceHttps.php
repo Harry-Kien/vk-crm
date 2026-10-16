@@ -44,6 +44,13 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class EnforceHttps
 {
+    /**
+     * `max-age` của HSTS (giây, một năm) khi `HSTS_MAX_AGE` để trống ngoài `local`/`testing` — MỘT hằng số cho
+     * header gửi đi ở đây và cho dòng HSTS của trang "Bảo mật đăng nhập"
+     * (`App\Support\Settings\LoginSecurityStatus::hstsSeconds()`, gộp integ-4).
+     */
+    public const STRICT_HSTS_SECONDS = 31536000;
+
     public function handle(Request $request, Closure $next): Response
     {
         if (HttpsDefaults::boolFromRaw(config('vkcrm.security.force_https')) && ! $request->secure()) {
@@ -76,7 +83,7 @@ class EnforceHttps
             return;
         }
 
-        $maxAge = HttpsDefaults::secondsFromRaw(config('vkcrm.security.hsts_max_age'), 31536000);
+        $maxAge = HttpsDefaults::secondsFromRaw(config('vkcrm.security.hsts_max_age'), self::STRICT_HSTS_SECONDS);
 
         if ($maxAge <= 0) {
             return;

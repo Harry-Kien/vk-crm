@@ -20,9 +20,6 @@ return [
             'placeholder' => 'Ví dụ: thư, cổng khách, 2FA, Google Drive…',
             'empty' => 'Không có cài đặt nào khớp ":term".',
         ],
-        'server_only' => 'Đặt trên máy chủ — xem CAI-DAT',
-        'open' => 'Mở',
-
         'groups' => [
             'office' => 'Văn phòng',
             'people' => 'Người dùng & phân quyền',
@@ -69,6 +66,12 @@ return [
                 'description' => 'Thời hạn phản hồi lần đầu một người liên hệ văn phòng trước khi hệ thống nhắc.',
                 'status' => 'Phản hồi trong :hours giờ làm việc',
             ],
+            // Gộp integ-4: giờ làm việc (BusinessHours) và lịch nhắc việc nội bộ tasks.remind (làn tk) — chỉ xem.
+            'working_hours' => [
+                'title' => 'Giờ làm việc & nhắc việc nội bộ',
+                'description' => 'Giờ làm việc của văn phòng — dùng để đo hạn phản hồi người liên hệ và để nhắc việc, hồ sơ chờ nhận. Đặt trên máy chủ, chỉ xem tại đây.',
+                'status' => ':days, :opens–:closes',
+            ],
             'portal_rules' => [
                 'title' => 'Cổng khách hàng',
                 'description' => 'Khách gửi yêu cầu mới trên cổng; dung lượng tối đa một tệp tải lên.',
@@ -88,11 +91,23 @@ return [
                 'description' => 'Công tắc nhắc lịch thanh toán, thông tin chuyển khoản và mã VietQR.',
                 'status' => 'Nhắc thanh toán: :state',
             ],
+            // Gộp integ-4: trang "Hợp đồng" của làn kt.
+            'contract_entry' => [
+                'title' => 'Kế toán nhập hợp đồng',
+                'description' => 'Trang "Hợp đồng": kế toán nhập hợp đồng giấy đã ký (tổng giá trị, các đợt thu) cho hồ sơ có sẵn, không mở nội dung hồ sơ. Ai nhập được do vai trò quyết (Vai trò & quyền).',
+                'status' => ':count người nhập được hợp đồng',
+            ],
             'document_store' => [
                 'title' => 'Kho tài liệu',
                 'description' => 'Nơi lưu tệp hồ sơ: máy chủ hay Google Drive dùng chung của văn phòng.',
                 'status_remote' => 'Google Drive: Đang dùng',
                 'status_local' => 'Google Drive: Chưa bật (lưu trên máy chủ)',
+            ],
+            // Gộp integ-4: trang "Tài liệu" của làn tl.
+            'document_library' => [
+                'title' => 'Trang Tài liệu',
+                'description' => 'Mọi tài liệu nhân sự được phép xem, của mọi vụ việc, ở một chỗ — ai mở được theo quyền xem hồ sơ.',
+                'status' => ':count nhân sự mở được',
             ],
             'backup' => [
                 'title' => 'Sao lưu',
@@ -118,6 +133,17 @@ return [
     'state' => [
         'on' => 'Bật',
         'off' => 'Tắt',
+    ],
+
+    // Ngày trong tuần theo ISO-8601 (1 = Thứ Hai … 7 = Chủ nhật), như config('vkcrm.business_hours.days').
+    'days' => [
+        1 => 'Thứ Hai',
+        2 => 'Thứ Ba',
+        3 => 'Thứ Tư',
+        4 => 'Thứ Năm',
+        5 => 'Thứ Sáu',
+        6 => 'Thứ Bảy',
+        7 => 'Chủ nhật',
     ],
 
     // -----------------------------------------------------------------------------------------
@@ -146,7 +172,8 @@ return [
             'client_access_days' => [
                 'label' => 'Số ngày khách còn xem hồ sơ sau khi vụ kết thúc',
                 'suffix' => 'ngày',
-                'hint' => 'Từ :min đến :max ngày. Áp dụng cho vụ kết thúc từ nay; vụ đã kết thúc giữ hạn cũ (gia hạn từng vụ bằng nút "Gia hạn truy cập").',
+                // Gộp integ-4 (M1): đúng SyncMatterArchive::syncClosed() — hạn tính lại ở mỗi lần đồng bộ, giữ ngày muộn hơn.
+                'hint' => 'Từ :min đến :max ngày, tính từ ngày vụ kết thúc. Vụ kết thúc từ nay theo số mới. Vụ đã kết thúc giữ hạn đang có cho tới lần hồ sơ được đồng bộ lại (ví dụ chuyển sang một giai đoạn kết thúc khác): khi đó tăng số ngày sẽ kéo dài hạn xem của vụ đó — kể cả vụ đã quá hạn xem (tài khoản cổng đã bị tắt thì vẫn phải bật lại tay) — còn giảm số ngày thì không rút ngắn hạn đã có. Gia hạn riêng một vụ bằng nút "Gia hạn truy cập".',
             ],
             'stale_matter_mail' => [
                 'label' => 'Gửi thư khi hồ sơ quá 21 ngày chưa cập nhật cho khách',
@@ -155,7 +182,8 @@ return [
             'intake_response_hours' => [
                 'label' => 'Thời hạn phản hồi lần đầu một người liên hệ',
                 'suffix' => 'giờ làm việc',
-                'hint' => 'Từ :min đến :max giờ làm việc. Quá hạn mà chưa ai gọi lại thì người được giao (hoặc trưởng phòng) nhận chuông và thư nhắc.',
+                // Gộp integ-4 (M3): đúng ResolveStaffRecipients::forIntake() — người được giao, không thì mọi người xem được mọi bản ghi tiếp nhận, không nữa thì quản trị viên.
+                'hint' => 'Từ :min đến :max giờ làm việc. Quá hạn mà chưa ai gọi lại thì người được giao nhận chuông và thư nhắc; chưa giao ai, hoặc người được giao đã nghỉ hay không còn xem được bản ghi, thì mọi người xem được mọi bản ghi tiếp nhận (trưởng phòng, quản trị hệ thống) nhận; không còn ai như vậy thì quản trị hệ thống nhận.',
             ],
             'client_requests' => [
                 'label' => 'Khách gửi yêu cầu mới trên cổng',
@@ -179,7 +207,10 @@ return [
             'retention_years' => 'Thời hạn lưu trữ hồ sơ sau khi kết thúc: :years năm (RETENTION_YEARS).',
             'prospect_retention_months' => 'Thời hạn giữ dữ liệu người liên hệ không thành khách: :months tháng (PROSPECT_RETENTION_MONTHS) — gắn với câu thông báo xử lý dữ liệu cá nhân.',
             'staleness' => 'Hồ sơ "chưa cập nhật cho khách": tô vàng sau :warning ngày, đỏ và chuông sau :danger ngày, thư sau :mail ngày (SPEC §6.4).',
-            'deadlines' => 'Nhắc mốc thời hạn trước :tiers ngày và khi quá hạn (SPEC §6.5).',
+            'deadlines' => 'Nhắc mốc thời hạn trước :tiers ngày (mốc ":critical" thêm :extra ngày) và khi quá hạn (SPEC §6.5).',
+            // Gộp integ-4 với làn tk: giờ làm việc (config/vkcrm.php) và ngưỡng của lịch nhắc tasks.remind.
+            'working_hours' => 'Giờ làm việc của văn phòng: :days, :opens–:closes (:timezone) — dùng để đo hạn phản hồi người liên hệ và cho lịch nhắc việc nội bộ (đặt trong config/vkcrm.php, mục business_hours).',
+            'task_reminders' => 'Việc và hồ sơ được giao chưa ai nhận: sau :remind giờ làm việc nhắc người nhận, sau :escalate giờ làm việc báo người giao; việc sắp đến hạn và quá hạn cũng được nhắc. Lịch nhắc chạy mỗi nửa giờ, chỉ trong giờ làm việc.',
         ],
 
         'reset' => [

@@ -2,6 +2,7 @@
 
 namespace App\Support\Settings;
 
+use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Models\SystemHealth;
 use App\Models\User;
@@ -21,7 +22,8 @@ use Illuminate\Support\Collection;
  *  - giới hạn IP của /admin: {@see RestrictAdminIpAllowlist::entries()} — chỉ ĐẾM số dải, không trả dải
  *    nào (một danh sách IP được phép là thứ không in ra màn hình);
  *  - khoá đăng nhập: {@see LoginThrottle::MAX_ATTEMPTS} lần trong {@see LoginThrottle::DECAY_SECONDS};
- *  - HTTPS bắt buộc / HSTS: {@see HttpsDefaults} trên đúng hai khoá mà `EnforceHttps` đọc;
+ *  - HTTPS bắt buộc / HSTS: {@see HttpsDefaults} trên đúng hai khoá mà `EnforceHttps` đọc, với CHÍNH hằng số
+ *    {@see EnforceHttps::STRICT_HSTS_SECONDS} của middleware cho trường hợp để trống;
  *  - CSP: {@see ContentSecurityPolicy::mode()};
  *  - quét virus: `vkcrm.clamav.enabled` (cùng khoá mà `AppServiceProvider` dùng để chọn `ClamAvScanner`
  *    hay `NullScanner`);
@@ -31,9 +33,6 @@ use Illuminate\Support\Collection;
  */
 final class LoginSecurityStatus
 {
-    /** Số giây của HSTS khi `HSTS_MAX_AGE` để trống ngoài `local`/`testing` — cùng con số `EnforceHttps` truyền vào `HttpsDefaults::secondsFromRaw()`. */
-    public const STRICT_HSTS_SECONDS = 31536000;
-
     /** @return Collection<int, User> nhân sự đang hoạt động, sắp theo tên */
     private static function activeStaff(): Collection
     {
@@ -75,7 +74,7 @@ final class LoginSecurityStatus
 
     public static function hstsSeconds(): int
     {
-        return HttpsDefaults::secondsFromRaw(config('vkcrm.security.hsts_max_age'), self::STRICT_HSTS_SECONDS);
+        return HttpsDefaults::secondsFromRaw(config('vkcrm.security.hsts_max_age'), EnforceHttps::STRICT_HSTS_SECONDS);
     }
 
     /** `off`, `report` hay `enforce`. */

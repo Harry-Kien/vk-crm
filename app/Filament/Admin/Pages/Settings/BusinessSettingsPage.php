@@ -2,12 +2,17 @@
 
 namespace App\Filament\Admin\Pages\Settings;
 
+use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Settings\UpdateBusinessSettings;
+use App\Enums\DeadlineSeverity;
 use App\Filament\Admin\Concerns\IsSettingsPage;
 use App\Models\IntakeRequest;
 use App\Models\User;
+use App\Support\BusinessHours;
 use App\Support\MatterStaleness;
 use App\Support\Settings\BusinessSettings;
+use App\Support\Settings\SettingsCatalog;
+use App\Support\Tasks\AcceptanceClock;
 use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -24,8 +29,10 @@ use Illuminate\Validation\ValidationException;
  * chỉnh được ngay trên giao diện. Ý nghĩa, mặc định và chỗ nối của từng cái ở docblock
  * {@see BusinessSettings}; luật lưu (quyền, giới hạn, chỉ ghi điều đổi, audit cũ → mới) ở
  * {@see UpdateBusinessSettings}. Trang chỉ vẽ form, gọi Action, và liệt kê đọc-chỉ những giá trị theo
- * luật hay theo máy chủ (thời hạn lưu trữ hồ sơ, hạn giữ dữ liệu khách tiềm năng, các ngưỡng của SPEC)
- * — những thứ đó KHÔNG có ô nào ở đây.
+ * luật hay theo máy chủ (thời hạn lưu trữ hồ sơ, hạn giữ dữ liệu khách tiềm năng, các ngưỡng của SPEC,
+ * bậc nhắc mốc thời hạn, và — gộp integ-4 với làn tk — giờ làm việc của văn phòng cùng ngưỡng nhắc việc,
+ * hồ sơ chờ nhận) — những thứ đó KHÔNG có ô nào ở đây. Mục đọc-chỉ mang `id="fixed"`: thẻ "Giờ làm việc &
+ * nhắc việc nội bộ" của trang tổng dẫn thẳng tới nó.
  *
  * Cổng: {@see IsSettingsPage} (chỉ `settings.manage`, 404 ở mount và mọi request cập nhật);
  * {@see self::save()} và hành động "Đưa tất cả về mặc định" hỏi lại; Action hỏi lần nữa.
@@ -150,12 +157,16 @@ class BusinessSettingsPage extends Page
 
     /**
      * Những giá trị theo luật hay theo máy chủ, chỉ để đọc — đọc từ chính nơi mã dùng chúng, không chép
-     * tay con số.
+     * tay con số: bậc nhắc mốc thời hạn từ {@see CheckDeadlines::TIERS}, giờ làm việc từ
+     * {@see BusinessHours::fromConfig()} (chỉ đặt trong `config/vkcrm.php`, không `.env`, không bảng
+     * `settings`), ngưỡng nhắc việc/hồ sơ chờ nhận của lịch `tasks.remind` từ {@see AcceptanceClock}.
      *
      * @return list<string>
      */
     public function fixedValues(): array
     {
+        $hours = BusinessHours::fromConfig();
+
         return [
             __('settings.business.fixed.retention_years', ['years' => (int) config('vkcrm.retention_years')]),
             __('settings.business.fixed.prospect_retention_months', ['months' => IntakeRequest::retentionMonths()]),
@@ -163,6 +174,21 @@ class BusinessSettingsPage extends Page
                 'warning' => MatterStaleness::WARNING_AFTER_DAYS,
                 'danger' => MatterStaleness::DANGER_AFTER_DAYS,
                 'mail' => MatterStaleness::EMAIL_AFTER_DAYS,
+            ]),
+            __('settings.business.fixed.deadlines', [
+                'tiers' => implode(', ', array_filter(CheckDeadlines::TIERS, fn (int $tier): bool => $tier !== CheckDeadlines::CRITICAL_ONLY_TIER)),
+                'critical' => DeadlineSeverity::Critical->label(),
+                'extra' => CheckDeadlines::CRITICAL_ONLY_TIER,
+            ]),
+            __('settings.business.fixed.working_hours', [
+                'days' => SettingsCatalog::workingDays($hours),
+                'opens' => $hours->opensAt,
+                'closes' => $hours->closesAt,
+                'timezone' => $hours->timezone,
+            ]),
+            __('settings.business.fixed.task_reminders', [
+                'remind' => AcceptanceClock::REMIND_AFTER_HOURS,
+                'escalate' => AcceptanceClock::ESCALATE_AFTER_HOURS,
             ]),
         ];
     }
@@ -220,7 +246,8 @@ class BusinessSettingsPage extends Page
         if (BusinessSettings::current()->isStored($field)) {
             $parts[] = __('settings.business.source.screen');
         } else {
-            $default = BusinessSettings::defaultFor($field);
+            // Mặc định ĐANG DÙNG (dung lượng tệp đã chặn ở trần của máy chủ, M2) — cùng con số form mở ra.
+            $default = BusinessSettings::effectiveDefault($field);
 
             $parts[] = __('settings.business.source.server').' '.__('settings.business.source.default', [
                 'value' => is_bool($default) ? __($default ? 'settings.state.on' : 'settings.state.off') : $default,

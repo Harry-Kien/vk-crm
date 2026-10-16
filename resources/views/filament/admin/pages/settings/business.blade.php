@@ -26,7 +26,7 @@
         </button>
     </form>
 
-    <section data-settings="fixed-values" style="{{ $card }}">
+    <section id="fixed" data-settings="fixed-values" style="{{ $card }}">
         <h2 style="font-size:1rem;font-weight:700;margin-bottom:0.5rem;">{{ __('settings.business.fixed.heading') }}</h2>
         <ul style="display:flex;flex-direction:column;gap:0.375rem;margin:0 0 0.75rem 1.25rem;list-style:disc;">
             @foreach ($this->fixedValues() as $line)

@@ -65,8 +65,14 @@ use Throwable;
  */
 class CheckDeadlines
 {
-    /** Bậc nhắc theo số ngày còn lại, từ xa tới gần. Bậc 14 chỉ áp cho mốc `critical`. */
-    private const TIERS = [14, 7, 3, 1];
+    /**
+     * Bậc nhắc theo số ngày còn lại, từ xa tới gần. Bậc {@see self::CRITICAL_ONLY_TIER} chỉ áp cho mốc
+     * `critical`. Công khai để trang "Cài đặt nghiệp vụ" hiện đọc-chỉ đúng con số này (gộp integ-4, M4).
+     */
+    public const TIERS = [14, 7, 3, 1];
+
+    /** Bậc chỉ mốc `critical` ("Không thể gia hạn") mới có. */
+    public const CRITICAL_ONLY_TIER = 14;
 
     public const OVERDUE_KEY = 'overdue';
 
@@ -289,7 +295,7 @@ class CheckDeadlines
 
         return $deadline->severity === DeadlineSeverity::Critical
             ? $tiers
-            : array_values(array_filter($tiers, fn (int $t): bool => $t !== 14));
+            : array_values(array_filter($tiers, fn (int $t): bool => $t !== self::CRITICAL_ONLY_TIER));
     }
 
     /**

@@ -113,8 +113,16 @@ class DocumentLibrary extends Page implements HasTable
     {
         $user = Auth::user();
 
-        return $user instanceof User
-            && Gate::forUser($user)->allows(Permission::MatterView->value);
+        return $user instanceof User && static::canBeOpenedBy($user);
+    }
+
+    /**
+     * Người này có mở được trang không (`matter.view`) — MỘT định nghĩa cho {@see self::canAccess()} và cho
+     * thẻ "Trang Tài liệu" của trang tổng Cài đặt, nơi đếm số nhân sự mở được (gộp integ-4, mục C).
+     */
+    public static function canBeOpenedBy(User $user): bool
+    {
+        return Gate::forUser($user)->allows(Permission::MatterView->value);
     }
 
     public static function shouldRegisterNavigation(): bool

@@ -7,6 +7,8 @@ use App\Enums\Role;
 use App\Filament\Admin\Pages\ActivityLogPage;
 use App\Filament\Admin\Pages\AiConnections;
 use App\Filament\Admin\Pages\ClientPaymentSettingsPage;
+use App\Filament\Admin\Pages\ContractEntry;
+use App\Filament\Admin\Pages\DocumentLibrary;
 use App\Filament\Admin\Pages\DocumentStorePage;
 use App\Filament\Admin\Pages\OfficeProfilePage;
 use App\Filament\Admin\Pages\Settings\BusinessSettingsPage;
@@ -18,6 +20,7 @@ use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Billing\ClientPaymentSettings;
+use App\Support\BusinessHours;
 use App\Support\Mcp\McpSwitches;
 use App\Support\OfficeProfile;
 use App\Support\Storage\DocumentStore;
@@ -37,6 +40,13 @@ use Illuminate\Support\Str;
  *
  * "Sao lưu" không có trang trên giao diện (đặt trên máy chủ, `docs/SAO-LUU-KHOI-PHUC.md`): thẻ nói trạng thái và
  * dẫn tới "Bảo mật đăng nhập", nơi có dòng sao lưu.
+ *
+ * Gộp integ-4 (mục C): thẻ "Giờ làm việc & nhắc việc nội bộ" (làn tk) — giờ làm việc chỉ đặt trong
+ * `config/vkcrm.php` ({@see BusinessHours::fromConfig()}) và lịch `tasks.remind` không có công tắc, nên thẻ
+ * chỉ ĐỌC và dẫn tới mục đọc-chỉ `#fixed` của "Cài đặt nghiệp vụ" (không công tắc nào được bịa ra); thẻ
+ * "Kế toán nhập hợp đồng" (làn kt, trang {@see ContractEntry}) đếm người đang hoạt động có `contract.enter`;
+ * thẻ "Trang Tài liệu" (làn tl, trang {@see DocumentLibrary}) đếm người đang hoạt động mở được trang, qua
+ * chính `DocumentLibrary::canBeOpenedBy()`.
  */
 final class SettingsCatalog
 {
@@ -69,6 +79,7 @@ final class SettingsCatalog
                     ]), 'gray'),
                 self::card('intake_rules', Heroicon::OutlinedPhoneArrowDownLeft, self::businessUrl('intake'),
                     __('settings.hub.cards.intake_rules.status', ['hours' => $business->number('intake_response_hours')]), 'gray'),
+                self::card('working_hours', Heroicon::OutlinedClock, self::businessUrl('fixed'), self::workingHoursStatus(), 'gray'),
             ],
             'portal' => [
                 self::card('portal_rules', Heroicon::OutlinedGlobeAlt, self::businessUrl('portal'),
@@ -86,11 +97,19 @@ final class SettingsCatalog
                 self::card('client_payments', Heroicon::OutlinedBanknotes, ClientPaymentSettingsPage::canAccess() ? ClientPaymentSettingsPage::getUrl() : null,
                     __('settings.hub.cards.client_payments.status', ['state' => self::onOff(ClientPaymentSettings::enabled())]),
                     ClientPaymentSettings::enabled() ? 'success' : 'gray'),
+                self::card('contract_entry', Heroicon::OutlinedClipboardDocumentList, ContractEntry::canAccess() ? ContractEntry::getUrl() : null,
+                    __('settings.hub.cards.contract_entry.status', ['count' => self::activeStaffWho(
+                        fn (User $user): bool => $user->can(Permission::ContractEnter->value),
+                    )]), 'gray'),
             ],
             'documents' => [
                 self::card('document_store', Heroicon::OutlinedCircleStack, DocumentStorePage::canAccess() ? DocumentStorePage::getUrl() : null,
                     __(DocumentStore::usesRemote() ? 'settings.hub.cards.document_store.status_remote' : 'settings.hub.cards.document_store.status_local'),
                     DocumentStore::usesRemote() ? 'success' : 'gray'),
+                self::card('document_library', Heroicon::OutlinedDocumentText, DocumentLibrary::canAccess() ? DocumentLibrary::getUrl() : null,
+                    __('settings.hub.cards.document_library.status', ['count' => self::activeStaffWho(
+                        fn (User $user): bool => DocumentLibrary::canBeOpenedBy($user),
+                    )]), 'gray'),
                 self::card('backup', Heroicon::OutlinedArchiveBox, LoginSecurityPage::canAccess() ? LoginSecurityPage::getUrl() : null, ...self::backupStatus()),
                 self::card('activity_log', Heroicon::OutlinedClipboardDocumentList, ActivityLogPage::canAccess() ? ActivityLogPage::getUrl() : null, null, 'gray'),
             ],
@@ -106,6 +125,20 @@ final class SettingsCatalog
             fn (array $cards): array => array_values(array_filter($cards, fn (SettingsCard $card): bool => $card->url !== null)),
             $groups,
         );
+    }
+
+    /**
+     * Ngày làm việc đọc được: một dải liền ("Thứ Hai–Thứ Sáu") hay liệt kê ("Thứ Hai, Thứ Tư, Thứ Sáu") —
+     * dùng chung cho thẻ và cho dòng đọc-chỉ của "Cài đặt nghiệp vụ".
+     */
+    public static function workingDays(BusinessHours $hours): string
+    {
+        $days = $hours->days;
+        $isRun = count($days) > 2 && max($days) - min($days) === count($days) - 1;
+
+        return $isRun
+            ? __('settings.days.'.min($days)).'–'.__('settings.days.'.max($days))
+            : implode(', ', array_map(fn (int $day): string => __("settings.days.{$day}"), $days));
     }
 
     /** Chuỗi để so ô tìm: chữ thường, bỏ dấu tiếng Việt (`đ` → `d`), gộp khoảng trắng. */
@@ -130,6 +163,23 @@ final class SettingsCatalog
     private static function businessUrl(string $section): ?string
     {
         return BusinessSettingsPage::canAccess() ? BusinessSettingsPage::getUrl().'#'.$section : null;
+    }
+
+    private static function workingHoursStatus(): string
+    {
+        $hours = BusinessHours::fromConfig();
+
+        return __('settings.hub.cards.working_hours.status', [
+            'days' => self::workingDays($hours),
+            'opens' => $hours->opensAt,
+            'closes' => $hours->closesAt,
+        ]);
+    }
+
+    /** Số nhân sự đang hoạt động thoả `$test` (một truy vấn, rồi hỏi Gate từng người — văn phòng nhỏ). */
+    private static function activeStaffWho(callable $test): int
+    {
+        return User::query()->where('is_active', true)->get()->filter($test)->count();
     }
 
     private static function onOff(bool $on): string

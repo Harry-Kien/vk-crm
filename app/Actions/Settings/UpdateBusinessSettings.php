@@ -37,7 +37,9 @@ use Illuminate\Validation\ValidationException;
  * trang đã gác. Rồi một transaction: {@see WriteSettings} (câu đầu tiên là lần đọc khoá các dòng) và —
  * CHỈ khi có gì đổi — một dòng `business_settings_updated`, causer là `$actor`: `changes` = trường →
  * `{old, new}` (giá trị ĐANG DÙNG trước và sau, kiểu int/bool — không có gì nhạy cảm trong sáu thông
- * số này); {@see self::reset()} thêm `reset = true`. Không gửi thư nào.
+ * số này); {@see self::reset()} thêm `reset = true` và `cleared` (các trường vừa xoá dòng lưu), và ghi
+ * dòng đó MỖI KHI nó xoá ít nhất một dòng đã lưu, kể cả khi không giá trị đang dùng nào đổi (gộp integ-4,
+ * M5: hộp xác nhận hứa "Lần đổi này được ghi vào nhật ký"). Không xoá gì thì không ghi gì. Không gửi thư nào.
  */
 final class UpdateBusinessSettings
 {
@@ -79,8 +81,9 @@ final class UpdateBusinessSettings
 
     /**
      * "Đưa tất cả về mặc định": xoá mọi giá trị đã lưu (ghi `null`), từ đó sáu thông số theo `.env` lại.
-     * Nhật ký nêu những trường mà giá trị ĐANG DÙNG đổi theo; trường đã lưu đúng bằng mặc định thì dòng
-     * được xoá mà không nêu (không có gì đổi với người dùng).
+     * Nhật ký nêu ở `changes` những trường mà giá trị ĐANG DÙNG đổi theo, và ở `cleared` MỌI trường vừa xoá
+     * dòng lưu — trường đã lưu đúng bằng mặc định chỉ có ở `cleared` (không có gì đổi với người dùng, nhưng
+     * dòng lưu đã mất: nhật ký vẫn ghi, như hộp xác nhận hứa).
      *
      * @return list<string> tên các trường mà giá trị đang dùng đã đổi
      */
@@ -91,6 +94,7 @@ final class UpdateBusinessSettings
         $current = BusinessSettings::current();
         $changes = [];
         $values = [];
+        $cleared = [];
 
         foreach (BusinessSettings::KEYS as $field => $key) {
             if (! $current->isStored($field)) {
@@ -98,15 +102,16 @@ final class UpdateBusinessSettings
             }
 
             $values[$key] = null;
+            $cleared[] = $field;
             $old = $this->effective($current, $field);
-            $new = BusinessSettings::defaultFor($field);
+            $new = BusinessSettings::effectiveDefault($field);
 
             if ($old !== $new) {
                 $changes[$field] = ['old' => $old, 'new' => $new];
             }
         }
 
-        return $this->write($actor, $values, $changes, reset: true);
+        return $this->write($actor, $values, $changes, reset: true, cleared: $cleared);
     }
 
     private function authorize(User $actor): void
@@ -119,18 +124,21 @@ final class UpdateBusinessSettings
     /**
      * @param  array<string, ?string>  $values  khoá đầy đủ → giá trị lưu
      * @param  array<string, array{old: int|bool, new: int|bool}>  $changes
+     * @param  list<string>  $cleared  chỉ cho {@see self::reset()}: các trường vừa xoá dòng lưu
      * @return list<string>
      */
-    private function write(User $actor, array $values, array $changes, bool $reset): array
+    private function write(User $actor, array $values, array $changes, bool $reset, array $cleared = []): array
     {
         if ($values === []) {
             return [];
         }
 
-        DB::transaction(function () use ($actor, $values, $changes, $reset): void {
+        DB::transaction(function () use ($actor, $values, $changes, $reset, $cleared): void {
             $this->writeSettings->handle($values, $actor);
 
-            if ($changes === []) {
+            // Lưu thường: chỉ ghi khi có gì đổi. Đưa về mặc định: `$values` khác rỗng nghĩa là đã xoá ít nhất
+            // một dòng lưu — luôn ghi (M5).
+            if ($changes === [] && ! $reset) {
                 return;
             }
 
@@ -138,6 +146,7 @@ final class UpdateBusinessSettings
 
             if ($reset) {
                 $properties['reset'] = true;
+                $properties['cleared'] = $cleared;
             }
 
             Audit::record('business_settings_updated', null, $properties, $actor);

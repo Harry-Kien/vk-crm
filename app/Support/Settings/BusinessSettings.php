@@ -38,7 +38,8 @@ use App\Models\Setting;
  * (`.env`) theo ĐÚNG cách nơi đọc cũ đã đọc (kể cả bước lùi 20 MB của tệp tải lên), ba công tắc là BẬT.
  * Một giá trị lưu hỏng (không phải số, ngoài giới hạn, công tắc khác {@see self::ON}/{@see self::OFF})
  * cũng rơi về mặc định đó — không bao giờ thành "tắt hẳn" hay "0 ngày" vì một dòng sửa tay; riêng dung
- * lượng tệp lưu lớn hơn trần hiện tại của máy chủ thì dùng đúng trần đó ({@see self::number()}). Giá trị lưu
+ * lượng tệp — lưu hay chưa lưu — không bao giờ vượt trần hiện tại của máy chủ: số lớn hơn thì dùng đúng trần
+ * đó ({@see self::number()}, {@see self::effectiveDefault()}; gộp integ-4, M2 của rà soát làn st). Giá trị lưu
  * trên giao diện THẮNG `.env`; xoá nó ("Đưa về mặc định") là theo `.env` lại.
  *
  * # Đọc
@@ -156,6 +157,19 @@ final class BusinessSettings
     }
 
     /**
+     * Mặc định ĐANG DÙNG khi chưa lưu gì: {@see self::defaultFor()}, riêng dung lượng tệp chặn ở
+     * {@see self::uploadCeilingMegabytes()} — `UPLOAD_MAX_MB` lớn hơn giới hạn PHP thì tệp lớn hơn trần
+     * không bao giờ tới được `FileGuard`, nên con số trên form, trên thẻ và trong câu "tối đa N MB" là trần
+     * (gộp integ-4, M2): form không bao giờ mở với giá trị trên `maxValue` của chính nó.
+     */
+    public static function effectiveDefault(string $field): int|bool
+    {
+        $default = self::defaultFor($field);
+
+        return $field === 'upload_max_mb' ? min((int) $default, self::uploadCeilingMegabytes()) : $default;
+    }
+
+    /**
      * Trần THẬT của một tệp tải lên trên máy chủ này, tính bằng MB (làm tròn xuống): số nhỏ nhất trong
      * ba giới hạn mà một tệp phải qua trước khi tới `FileGuard` —
      *
@@ -191,13 +205,13 @@ final class BusinessSettings
     // Thể hiện — trang cài đặt đọc cả sáu
     // -------------------------------------------------------------------------------------
 
-    /** Giá trị ĐANG DÙNG của một con số: đã lưu và hợp lệ, hoặc {@see self::defaultFor()}. */
+    /** Giá trị ĐANG DÙNG của một con số: đã lưu và hợp lệ, hoặc {@see self::effectiveDefault()}. */
     public function number(string $field): int
     {
         $stored = $this->stored[self::KEYS[$field]] ?? null;
 
         if (! is_string($stored) || preg_match('/^\d{1,4}$/', $stored) !== 1) {
-            return (int) self::defaultFor($field);
+            return (int) self::effectiveDefault($field);
         }
 
         $value = (int) $stored;
@@ -208,7 +222,7 @@ final class BusinessSettings
             return $max;
         }
 
-        return $value >= $min && $value <= $max ? $value : (int) self::defaultFor($field);
+        return $value >= $min && $value <= $max ? $value : (int) self::effectiveDefault($field);
     }
 
     /** Công tắc ĐANG bật? Chưa lưu hay lưu hỏng = mặc định BẬT; chỉ đúng {@see self::OFF} là tắt. */

@@ -6,8 +6,11 @@ use Filament\Support\Icons\Heroicon;
 
 /**
  * Một thẻ của trang tổng "Cài đặt" (làn st): biểu tượng, tên, một dòng mô tả, trạng thái THẬT đang chạy
- * (hoặc `null` khi thẻ không có trạng thái để nói), sắc thái của trạng thái, và đường dẫn tới trang cài
- * đặt của nó (`null` = đặt trên máy chủ, thẻ không bấm được). Dựng bởi {@see SettingsCatalog}.
+ * (hoặc `null` khi thẻ không có trạng thái để nói), sắc thái của trạng thái, và đường dẫn tới trang của nó.
+ * `url = null` nghĩa là NGƯỜI XEM không mở được trang đích (`canAccess()` sai): {@see SettingsCatalog::groups()}
+ * bỏ thẻ đó, nên trang tổng không bao giờ vẽ một thẻ không bấm được. Giá trị chỉ đặt trên máy chủ (giờ làm
+ * việc, ngưỡng theo luật…) không có thẻ "không bấm được": thẻ của chúng dẫn tới mục đọc-chỉ của "Cài đặt
+ * nghiệp vụ" (gộp integ-4). Dựng bởi {@see SettingsCatalog}.
  */
 final readonly class SettingsCard
 {

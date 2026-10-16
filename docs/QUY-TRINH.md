@@ -595,21 +595,25 @@ Kho tài liệu, Kết nối AI…) vẫn ở chỗ cũ trên menu.
 
 | Cài đặt | Mặc định (chưa đổi gì) | Giới hạn |
 |---|---|---|
-| Số ngày khách còn xem hồ sơ sau khi vụ kết thúc | theo máy chủ (`CLIENT_ACCESS_DAYS`, 90) | 1–730 ngày; áp cho vụ kết thúc từ nay |
+| Số ngày khách còn xem hồ sơ sau khi vụ kết thúc | theo máy chủ (`CLIENT_ACCESS_DAYS`, 90) | 1–730 ngày, tính từ ngày kết thúc; vụ kết thúc từ nay theo số mới; vụ đã kết thúc giữ hạn đang có cho tới khi hồ sơ được đồng bộ lại (chuyển sang giai đoạn kết thúc khác) — khi đó tăng số ngày kéo dài hạn của vụ đó (kể cả vụ đã quá hạn xem), giảm thì không rút ngắn |
 | Gửi thư khi hồ sơ quá 21 ngày chưa cập nhật cho khách | Bật | chuông 14 ngày và cảnh báo trang chủ vẫn còn khi tắt |
-| Thời hạn phản hồi lần đầu một người liên hệ | theo máy chủ (`INTAKE_RESPONSE_HOURS`, 4) | 1–40 giờ làm việc |
+| Thời hạn phản hồi lần đầu một người liên hệ | theo máy chủ (`INTAKE_RESPONSE_HOURS`, 4) | 1–40 giờ làm việc; quá hạn thì người được giao được nhắc, chưa giao ai thì trưởng phòng và quản trị hệ thống |
 | Khách gửi yêu cầu mới trên cổng | Bật | tắt thì cuộc trao đổi đã có vẫn viết tiếp được; trên trang hồ sơ của khách, nút "Gửi yêu cầu cho văn phòng" đổi thành "Xem các cuộc trao đổi" kèm câu tạm không nhận yêu cầu mới, số hotline vẫn hiện; trang "Yêu cầu" của khách đổi tiêu đề thành "Xem và trả lời các cuộc trao đổi" và mọi câu mời "gửi một yêu cầu mới" thành gọi hotline hoặc viết tiếp trong cuộc trao đổi còn mở |
 | Dung lượng tối đa một tệp tải lên | theo máy chủ (`UPLOAD_MAX_MB`, 20) | 1 MB tới trần của máy chủ (chỉ hạ được) |
 | Tự động nhắc khách nộp giấy tờ còn thiếu | Bật | chuông 14 ngày cho luật sư vẫn còn khi tắt |
 
 Chưa đổi thì hệ thống chạy đúng như trước; đã đổi thì giá trị trên giao diện thắng `.env`; nút "Đưa tất cả
-về mặc định" trả về giá trị của máy chủ.
+về mặc định" trả về giá trị của máy chủ (và luôn ghi một dòng vào Nhật ký hệ thống khi có giá trị đã đặt bị
+xoá).
 
 **Chỉ xem, không đổi trên giao diện:** "Vai trò & quyền" (bảng sáu vai × quyền; đổi vai của một người ở
 trang Nhân sự), "Bảo mật đăng nhập" (2FA bắt buộc, ai chưa cài, khoá đăng nhập, giới hạn IP, HTTPS/HSTS/CSP,
 quét virus, sao lưu gần nhất — bản cũ hơn 36 giờ hiện đỏ "Quá hạn", đúng như thẻ "Sao lưu" và thư giám sát
-08:00), thời hạn lưu trữ hồ sơ, hạn giữ dữ liệu người liên hệ — đó là luật hoặc
-cấu hình của máy chủ (`docs/CAI-DAT.md`).
+08:00), thời hạn lưu trữ hồ sơ, hạn giữ dữ liệu người liên hệ, các bậc nhắc mốc thời hạn, và **giờ làm việc
+của văn phòng** cùng ngưỡng nhắc việc và hồ sơ chờ nhận (24 giờ làm việc nhắc người nhận, 48 giờ báo người
+giao) — đó là luật hoặc cấu hình của máy chủ (`docs/CAI-DAT.md`). Thẻ **"Giờ làm việc & nhắc việc nội bộ"**
+của trang tổng dẫn tới đúng mục đọc-chỉ đó. Trang tổng còn có thẻ **"Kế toán nhập hợp đồng"** (mở trang
+Hợp đồng, nói bao nhiêu người nhập được) và **"Trang Tài liệu"** (bao nhiêu nhân sự mở được).
 
 **Thư điện tử:** trang nói thư đang đi qua máy chủ nào, từ địa chỉ nào; nút **"Gửi thư thử"** gửi một thư
 tới chính bạn (tối đa 3 lần mỗi 10 phút) — dùng mỗi khi đổi máy chủ thư.
