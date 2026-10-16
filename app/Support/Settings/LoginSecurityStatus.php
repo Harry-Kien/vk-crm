@@ -26,7 +26,8 @@ use Illuminate\Support\Collection;
  *  - quét virus: `vkcrm.clamav.enabled` (cùng khoá mà `AppServiceProvider` dùng để chọn `ClamAvScanner`
  *    hay `NullScanner`);
  *  - sao lưu ngoài máy chủ: `vkcrm.backup.rclone.remote` có đặt chưa, và
- *    `system_health.last_offsite_backup_at` (bản gần nhất ĐÃ XÁC MINH trên Google Drive).
+ *    `system_health.last_offsite_backup_at` (bản gần nhất ĐÃ XÁC MINH trên Google Drive); "quá hạn" là
+ *    {@see SystemHealth::offsiteBackupIsStale()} — luật duy nhất, cùng ngưỡng với lượt giám sát 08:00.
  */
 final class LoginSecurityStatus
 {
@@ -97,5 +98,16 @@ final class LoginSecurityStatus
     public static function lastOffsiteBackupAt(): ?Carbon
     {
         return SystemHealth::query()->where('singleton', 1)->first()?->last_offsite_backup_at;
+    }
+
+    /**
+     * Bản sao lưu ngoài máy chủ đã quá hạn (hay chưa từng có) — hỏi {@see SystemHealth::offsiteBackupIsStale()},
+     * không chép lại phép so ngưỡng: trang "Bảo mật đăng nhập" và thẻ "Sao lưu" của trang tổng đọc cùng
+     * câu trả lời này (rà soát cuối I2). Không có dòng `system_health` = chưa từng đẩy = quá hạn, và không
+     * tạo dòng.
+     */
+    public static function offsiteBackupIsStale(): bool
+    {
+        return SystemHealth::query()->where('singleton', 1)->first()?->offsiteBackupIsStale() ?? true;
     }
 }

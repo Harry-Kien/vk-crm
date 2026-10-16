@@ -100,6 +100,8 @@ return [
                 'status_none' => 'Chưa cấu hình đích sao lưu ngoài máy chủ',
                 'status_never' => 'Chưa có bản sao nào đã xác minh ngoài máy chủ',
                 'status_last' => 'Bản đã xác minh gần nhất: :at',
+                // Cùng luật "quá hạn" với dòng sao lưu của trang Bảo mật đăng nhập (SystemHealth::offsiteBackupIsStale()).
+                'status_stale' => 'Quá hạn — bản đã xác minh gần nhất: :at',
             ],
             'activity_log' => [
                 'title' => 'Nhật ký hệ thống',
@@ -288,6 +290,8 @@ return [
                 'not_configured' => 'Chưa cấu hình đích sao lưu ngoài máy chủ',
                 'never' => 'Chưa có bản nào đã xác minh',
                 'last' => 'Bản đã xác minh gần nhất: :at',
+                // Quá ngưỡng vkcrm.backup.rclone.max_age_hours (SystemHealth::offsiteBackupIsStale()) — cùng luật với thẻ "Sao lưu".
+                'stale' => 'Quá hạn — bản đã xác minh gần nhất: :at (ngưỡng :hours giờ)',
                 'where' => 'Đặt bằng BACKUP_RCLONE_REMOTE trong .env; xem hướng dẫn SAO-LUU-KHOI-PHUC.',
             ],
         ],

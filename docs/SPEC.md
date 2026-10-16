@@ -1971,7 +1971,9 @@ Nhắc thanh toán cho khách, Kho tài liệu, Kết nối AI…) giữ nguyên
   ngày "hồ sơ chưa cập nhật cho khách" (§6.4 — chuông 14 ngày không theo công tắc), thư nhắc khách nộp
   giấy tờ còn thiếu (§6.9 — chuông 14 ngày cho luật sư không theo công tắc), khách gửi yêu cầu MỚI trên
   cổng (§8.3 mục 7 — cuộc trao đổi đã có vẫn viết tiếp được; khối 7 của trang hồ sơ đổi nút thành "Xem
-  các cuộc trao đổi" kèm câu tạm không nhận, hotline vẫn hiện). Chưa lưu gì thì hệ thống chạy đúng như
+  các cuộc trao đổi" kèm câu tạm không nhận, hotline vẫn hiện; trang "Yêu cầu" không câu nào mời "gửi một
+  yêu cầu mới" — tiêu đề, cuộc trao đổi đã đóng, trang chưa có gì đều chỉ hotline hoặc cuộc trao đổi còn
+  mở). Chưa lưu gì thì hệ thống chạy đúng như
   trước; giá trị lưu trên giao diện thắng `.env`; "Đưa tất cả về mặc định" xoá chúng. Thời hạn lưu trữ hồ
   sơ (`RETENTION_YEARS`), hạn giữ dữ liệu người liên hệ (`PROSPECT_RETENTION_MONTHS`) và các ngưỡng của
   §6.4 chỉ HIỂN THỊ đọc-chỉ: chúng là luật hoặc đã gắn vào câu chữ gửi khách.

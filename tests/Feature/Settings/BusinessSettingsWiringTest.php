@@ -38,6 +38,8 @@ use App\Support\Settings\BusinessSettings;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Notifications\Livewire\Notifications;
+use Filament\Notifications\Notification;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Mail;
@@ -384,6 +386,87 @@ it('relabels the portal request button on the matter page when switched off, and
         ->and($after)->toContain(__('settings.business.portal_progress_requests_heading'))
         ->and($after)->toContain('href="'.e($requestsUrl).'"')
         ->and($after)->toContain('tel:'.$hotline);
+});
+
+/**
+ * Rà soát cuối I1: tắt công tắc thì trang "Yêu cầu" (MyRequests) không còn câu nào mời khách "gửi một
+ * yêu cầu mới" — tiêu đề trang, tiêu đề khối trên câu "tạm không nhận", câu trạng thái của cuộc trao đổi
+ * đã đóng, câu dưới cuộc trao đổi đã đóng, câu khi chưa có gì, và lời từ chối khi khách cố viết vào một
+ * cuộc trao đổi đã đóng. Mỗi câu chỉ hai việc khách làm được: gọi hotline, viết tiếp trong cuộc trao đổi
+ * còn mở. Câu kỳ vọng viết thẳng tiếng Việt (một khoá thiếu sẽ hiện nguyên chuỗi khoá, không lọt qua).
+ *
+ * Mutation probe: mỗi nhánh tắt trong `MyRequests::getHeading()`, `statusLine()`, view (tiêu đề khối,
+ * câu dưới luồng đã đóng, câu rỗng) và `ClientRequestNotOpen::closed()` — bỏ nhánh → vế "tắt" đỏ; đảo
+ * điều kiện → vế "mặc định" đỏ.
+ */
+it('drops every new-request promise from the portal requests page when switched off', function () {
+    [$matter, $account] = wiringPortalMatter();
+    $empty = Matter::factory()->for($matter->client)->create([
+        'is_published_to_portal' => true,
+        'lead_lawyer_id' => $matter->lead_lawyer_id,
+    ]);
+    $closed = ClientRequest::factory()->for($matter)->create([
+        'client_user_id' => $account->id,
+        'status' => ClientRequestStatus::Closed,
+    ]);
+
+    $page = fn (Matter $m): string => test()->actingAs($account, 'client')
+        ->get(MyRequests::getUrl(['record' => $m->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->getContent();
+
+    $offHeading = 'Xem và trả lời các cuộc trao đổi';
+    $offBlock = 'Tạm dừng nhận yêu cầu mới';
+    $offStatus = 'Việc này đã xong. Nếu còn điều cần hỏi, anh/chị gọi hotline của văn phòng hoặc viết tiếp trong một cuộc trao đổi còn mở.';
+    $offNotice = 'Cuộc trao đổi này đã kết thúc nên không viết thêm được nữa. Nếu còn điều cần hỏi, anh/chị gọi hotline của văn phòng hoặc viết tiếp trong một cuộc trao đổi còn mở.';
+    $offEmpty = 'Chưa có cuộc trao đổi nào về hồ sơ này. Văn phòng tạm không nhận yêu cầu mới qua cổng; khi cần hỏi, anh/chị gọi hotline của văn phòng.';
+
+    // Mặc định (công tắc bật): đúng câu của hôm nay, không câu nào của trạng thái tắt.
+    $before = $page($matter);
+    $beforeEmpty = $page($empty);
+
+    expect($before)->toContain('Gửi yêu cầu và xem trả lời')
+        ->and($before)->toContain('Gửi một yêu cầu mới')
+        ->and($before)->toContain('Việc này đã xong. Nếu còn điều cần hỏi, anh/chị gửi một yêu cầu mới.')
+        ->and($before)->toContain('anh/chị gửi một yêu cầu mới ở ô trên cùng')
+        ->and($beforeEmpty)->toContain('anh/chị dùng ô bên trên')
+        ->and($before)->not->toContain($offHeading)
+        ->and($before)->not->toContain($offBlock)
+        ->and($before)->not->toContain($offStatus)
+        ->and($before)->not->toContain($offNotice)
+        ->and($beforeEmpty)->not->toContain($offEmpty);
+
+    BusinessSettingsScreen::save(['client_requests' => false]);
+
+    $after = $page($matter);
+    $afterEmpty = $page($empty);
+
+    expect($after)->toContain($offHeading)
+        ->and($after)->toContain($offBlock)
+        ->and($after)->toContain($offStatus)
+        ->and($after)->toContain($offNotice)
+        ->and($afterEmpty)->toContain($offEmpty)
+        ->and($after)->not->toContain('Gửi yêu cầu và xem trả lời')
+        ->and($after)->not->toContain('Gửi một yêu cầu mới')
+        ->and($after.$afterEmpty)->not->toContain('gửi một yêu cầu mới')
+        ->and($afterEmpty)->not->toContain('ô bên trên');
+
+    // Lời từ chối khi khách vẫn cố viết vào cuộc trao đổi đã đóng (ô đã ẩn, request Livewire thẳng).
+    session()->forget(['filament.notifications', 'filament.claimed_notifications']);
+
+    wiringRequestsPage($account, $matter)
+        ->set('replies.'.$closed->getKey(), 'Còn một ý nữa.')
+        ->call('submitReply', $closed->getKey());
+
+    // Đọc thông báo đã gửi đúng cách `assertNotified` đọc (component Notifications của Filament), để so cả
+    // câu thân — `assertNotified(string)` chỉ so tiêu đề.
+    $tray = new Notifications;
+    $tray->mount();
+    $sent = $tray->notifications->map(fn (Notification $n): array => ['title' => $n->getTitle(), 'body' => $n->getBody()]);
+
+    expect($sent->pluck('title')->all())->toContain(__('actions.failed_title'))
+        ->and($sent->pluck('body')->all())->toContain($offNotice)
+        ->and(ClientRequestReply::query()->withoutGlobalScopes()->where('request_id', $closed->id)->count())->toBe(0);
 });
 
 // ---------------------------------------------------------------------------------------------

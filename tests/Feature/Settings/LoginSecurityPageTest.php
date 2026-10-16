@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Filament\Admin\Pages\Settings\LoginSecurityPage;
+use App\Filament\Admin\Pages\Settings\SettingsHub;
 use App\Models\SystemHealth;
 use App\Models\User;
 use App\Support\LoginThrottle;
@@ -132,4 +133,64 @@ it('is read-only', function () {
     $this->actingAs($this->admin, 'web');
 
     securityPage()->assertDontSeeHtml('wire:submit')->assertSee(__('settings.security.read_only'));
+});
+
+/** Tông và câu của huy hiệu đầu tiên sau một mốc `data-*` trong HTML trang thật. */
+function backupPill(string $html, string $anchor): array
+{
+    expect(preg_match('/'.preg_quote($anchor, '/').'.*?data-settings-pill="(\w+)"[^>]*>([^<]*)</s', $html, $m))->toBe(1);
+
+    return ['tone' => $m[1], 'text' => html_entity_decode(trim($m[2]))];
+}
+
+/**
+ * Rà soát cuối I2: một luật "bản sao lưu ngoài máy chủ quá hạn" — `SystemHealth::offsiteBackupIsStale()`
+ * (ngưỡng `vkcrm.backup.rclone.max_age_hours`, cùng đồng hồ với lượt giám sát 08:00). Trang "Bảo mật đăng
+ * nhập" và thẻ "Sao lưu" của trang tổng Cài đặt phải nói CÙNG một điều về cùng một bản: quá ngưỡng thì
+ * cả hai đỏ và trang nói "quá hạn"; trong ngưỡng thì cả hai xanh; nới ngưỡng thì cả hai theo.
+ *
+ * Mutation probe: trang bỏ nhánh `offsiteBackupIsStale()` → vế 37 giờ đỏ (trang xanh, thẻ đỏ); thẻ bỏ nhánh
+ * → vế 37 giờ đỏ ở thẻ; một trong hai viết cứng 36 thay vì đọc ngưỡng → vế ngưỡng 48 giờ đỏ.
+ */
+it('calls an off-site backup older than the max age overdue, on the page and on the hub card alike', function () {
+    $this->actingAs($this->admin, 'web');
+    config(['vkcrm.backup.rclone.remote' => 'gdrive:vkcrm', 'vkcrm.backup.rclone.max_age_hours' => 36]);
+
+    $read = function (): array {
+        $page = test()->get(LoginSecurityPage::getUrl(panel: 'admin'))->assertOk()->getContent();
+        $hub = test()->get(SettingsHub::getUrl(panel: 'admin'))->assertOk()->getContent();
+
+        return [backupPill($page, 'data-security-row="backup"'), backupPill($hub, 'data-settings-card="backup"')];
+    };
+
+    $old = now()->subHours(37)->startOfMinute();
+    SystemHealth::current()->forceFill(['last_offsite_backup_at' => $old])->save();
+    $at = $old->copy()->timezone(config('app.timezone'))->format('d/m/Y H:i');
+
+    [$page, $card] = $read();
+
+    expect($page['tone'])->toBe('danger')
+        ->and($card['tone'])->toBe('danger')
+        ->and($page['text'])->toBe("Quá hạn — bản đã xác minh gần nhất: {$at} (ngưỡng 36 giờ)")
+        ->and($card['text'])->toBe("Quá hạn — bản đã xác minh gần nhất: {$at}");
+
+    // Trong ngưỡng: cả hai xanh, câu "gần nhất" bình thường.
+    $fresh = now()->subHours(35)->startOfMinute();
+    SystemHealth::current()->forceFill(['last_offsite_backup_at' => $fresh])->save();
+    $freshAt = $fresh->copy()->timezone(config('app.timezone'))->format('d/m/Y H:i');
+
+    [$page, $card] = $read();
+
+    expect($page['tone'])->toBe('success')
+        ->and($card['tone'])->toBe('success')
+        ->and($page['text'])->toBe(__('settings.security.rows.backup.last', ['at' => $freshAt]))
+        ->and($card['text'])->toBe(__('settings.hub.cards.backup.status_last', ['at' => $freshAt]));
+
+    // Nới ngưỡng lên 48 giờ: bản 37 giờ lại trong hạn ở CẢ HAI nơi.
+    config(['vkcrm.backup.rclone.max_age_hours' => 48]);
+    SystemHealth::current()->forceFill(['last_offsite_backup_at' => $old])->save();
+
+    [$page, $card] = $read();
+
+    expect($page['tone'])->toBe('success')->and($card['tone'])->toBe('success');
 });

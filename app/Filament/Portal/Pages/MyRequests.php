@@ -142,6 +142,9 @@ class MyRequests extends Page
     /** @var Collection<int, ClientRequest>|null */
     private ?Collection $resolvedThreads = null;
 
+    /** Công tắc "khách gửi yêu cầu mới", đọc một lần mỗi request (cùng lý do `private` như hai ô trên). */
+    private ?bool $resolvedAcceptsNewRequests = null;
+
     /**
      * `{record}` nối vào đường dẫn ở đây chứ không ở `$slug`: `getRelativeRouteName()` dựng tên
      * route từ chính `getSlug()`, nên nhét tham số vào slug sẽ sinh ra một tên route mang dấu
@@ -180,9 +183,10 @@ class MyRequests extends Page
         return __('requests.portal.title', ['code' => $this->matter()->code]);
     }
 
+    /** Công tắc "khách gửi yêu cầu mới" tắt thì tiêu đề không hứa "Gửi yêu cầu" (làn st, rà soát cuối I1). */
     public function getHeading(): string|Htmlable
     {
-        return __('requests.portal.heading');
+        return $this->acceptsNewRequests() ? __('requests.portal.heading') : __('requests.portal.off.heading');
     }
 
     public function getSubheading(): string|Htmlable|null
@@ -273,11 +277,19 @@ class MyRequests extends Page
      * **Final review C-M5: câu của văn phòng phải đứng SAU lần viết cuối của khách.** Một câu trả
      * lời có trước câu khách hỏi thêm không trả lời câu hỏi thêm đó — "xem bên dưới" khi ấy chỉ
      * khách tới một câu cũ. Thứ tự đọc theo `id` của dòng trả lời (cùng thứ tự luồng hiện ra).
+     *
+     * **`closed` khi công tắc "khách gửi yêu cầu mới" tắt (làn st, rà soát cuối I1).** Câu mặc định mời
+     * khách "gửi một yêu cầu mới" — điều `OpenClientRequest` khi đó từ chối; câu `requests.portal.off.status_closed`
+     * chỉ hotline và cuộc trao đổi còn mở.
      */
     public function statusLine(ClientRequest $request): string
     {
         if ($request->status === ClientRequestStatus::Answered && ! $this->hasStaffReplyAfterClientsLastEntry($request)) {
             return __('requests.portal.status.answered_by_phone');
+        }
+
+        if ($request->status === ClientRequestStatus::Closed && ! $this->acceptsNewRequests()) {
+            return __('requests.portal.off.status_closed');
         }
 
         return __('requests.portal.status.'.$request->status->value);
@@ -414,10 +426,13 @@ class MyRequests extends Page
     /**
      * Ô "Gửi yêu cầu mới" chỉ hiện khi văn phòng còn nhận yêu cầu mới qua cổng (làn st, công tắc của
      * trang "Cài đặt nghiệp vụ"). Không phải cổng thật: {@see OpenClientRequest} hỏi lại công tắc.
+     *
+     * Rà soát cuối I1: cùng câu hỏi này chọn bản "tắt" của tiêu đề trang, tiêu đề khối, câu trạng thái
+     * `closed`, câu dưới cuộc trao đổi đã đóng và câu khi chưa có gì (`requests.portal.off.*`).
      */
     public function acceptsNewRequests(): bool
     {
-        return BusinessSettings::clientRequestsEnabled();
+        return $this->resolvedAcceptsNewRequests ??= BusinessSettings::clientRequestsEnabled();
     }
 
     /** Hotline văn phòng cho câu "tạm không nhận yêu cầu mới" — `null` khi chưa đặt. */

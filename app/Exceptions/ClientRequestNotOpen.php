@@ -4,6 +4,7 @@ namespace App\Exceptions;
 
 use App\Actions\Portal\ReplyToClientRequest;
 use App\Enums\ClientRequestStatus;
+use App\Support\Settings\BusinessSettings;
 use DomainException;
 
 /**
@@ -50,10 +51,17 @@ class ClientRequestNotOpen extends DomainException
         parent::__construct($message);
     }
 
-    /** Câu viết cho KHÁCH, vẽ trên cổng khách hàng. */
+    /**
+     * Câu viết cho KHÁCH, vẽ trên cổng khách hàng.
+     *
+     * Công tắc "khách gửi yêu cầu mới" tắt thì không có "ô trên cùng" và `OpenClientRequest` từ chối, nên
+     * câu chỉ hotline và cuộc trao đổi còn mở (`requests.portal.off.closed_notice`, làn st rà soát cuối I1).
+     */
     public static function closed(): self
     {
-        return new self(__('requests.portal.closed_notice'));
+        return new self(BusinessSettings::clientRequestsEnabled()
+            ? __('requests.portal.closed_notice')
+            : __('requests.portal.off.closed_notice'));
     }
 
     /**

@@ -3,9 +3,11 @@
 namespace App\Filament\Admin\Pages\Settings;
 
 use App\Filament\Admin\Concerns\IsSettingsPage;
+use App\Models\SystemHealth;
 use App\Support\Security\ContentSecurityPolicy;
 use App\Support\Settings\LoginSecurityStatus;
 use Filament\Pages\Page;
+use Illuminate\Support\Carbon;
 
 /**
  * Trang "Bảo mật đăng nhập" (làn st, mục 4 của brief) — trạng thái bảo mật ĐANG CHẠY, đọc-chỉ. Mỗi dòng
@@ -84,16 +86,33 @@ class LoginSecurityPage extends Page
                 __(LoginSecurityStatus::scansForViruses() ? 'settings.security.rows.clamav.on' : 'settings.security.rows.clamav.off'),
                 LoginSecurityStatus::scansForViruses() ? 'success' : 'warning',
             ),
-            $this->row('backup', match (true) {
-                ! LoginSecurityStatus::offsiteBackupConfigured() => __('settings.security.rows.backup.not_configured'),
-                $last === null => __('settings.security.rows.backup.never'),
-                default => __('settings.security.rows.backup.last', ['at' => $last->timezone(config('app.timezone'))->format('d/m/Y H:i')]),
-            }, match (true) {
-                ! LoginSecurityStatus::offsiteBackupConfigured() => 'warning',
-                $last === null => 'danger',
-                default => 'success',
-            }),
+            $this->backupRow($last),
         ];
+    }
+
+    /**
+     * Dòng "Sao lưu ngoài máy chủ". "Quá hạn" là {@see LoginSecurityStatus::offsiteBackupIsStale()} — tức
+     * {@see SystemHealth::offsiteBackupIsStale()}, cùng luật với thẻ "Sao lưu" của trang tổng
+     * (`SettingsCatalog::backupStatus()`): một bản đã xác minh nhưng cũ hơn ngưỡng là đỏ ở CẢ HAI nơi, không
+     * xanh ở đây và đỏ ở kia (rà soát cuối I2).
+     *
+     * @return array{key: string, label: string, value: string, tone: string, where: string}
+     */
+    private function backupRow(?Carbon $last): array
+    {
+        if (! LoginSecurityStatus::offsiteBackupConfigured()) {
+            return $this->row('backup', __('settings.security.rows.backup.not_configured'), 'warning');
+        }
+
+        if ($last === null) {
+            return $this->row('backup', __('settings.security.rows.backup.never'), 'danger');
+        }
+
+        $at = $last->timezone(config('app.timezone'))->format('d/m/Y H:i');
+
+        return LoginSecurityStatus::offsiteBackupIsStale()
+            ? $this->row('backup', __('settings.security.rows.backup.stale', ['at' => $at, 'hours' => SystemHealth::offsiteBackupMaxAgeHours()]), 'danger')
+            : $this->row('backup', __('settings.security.rows.backup.last', ['at' => $at]), 'success');
     }
 
     /** @return array{key: string, label: string, value: string, tone: string, where: string} */

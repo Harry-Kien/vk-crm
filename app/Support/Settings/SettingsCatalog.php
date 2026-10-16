@@ -16,7 +16,6 @@ use App\Filament\Admin\Pages\Settings\RolePermissionsPage;
 use App\Filament\Admin\Resources\MatterTypes\MatterTypeResource;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\MatterType;
-use App\Models\SystemHealth;
 use App\Models\User;
 use App\Support\Billing\ClientPaymentSettings;
 use App\Support\Mcp\McpSwitches;
@@ -151,7 +150,12 @@ final class SettingsCatalog
         ];
     }
 
-    /** @return array{0: string, 1: string} */
+    /**
+     * "Quá hạn" là {@see LoginSecurityStatus::offsiteBackupIsStale()} (tức `SystemHealth::offsiteBackupIsStale()`),
+     * cùng luật với dòng sao lưu của trang "Bảo mật đăng nhập" — không chép lại phép so ngưỡng (rà soát cuối I2).
+     *
+     * @return array{0: string, 1: string}
+     */
     private static function backupStatus(): array
     {
         if (! LoginSecurityStatus::offsiteBackupConfigured()) {
@@ -164,9 +168,10 @@ final class SettingsCatalog
             return [__('settings.hub.cards.backup.status_never'), 'danger'];
         }
 
-        return [
-            __('settings.hub.cards.backup.status_last', ['at' => $last->timezone(config('app.timezone'))->format('d/m/Y H:i')]),
-            $last->lt(now()->subHours(SystemHealth::offsiteBackupMaxAgeHours())) ? 'danger' : 'success',
-        ];
+        $at = $last->timezone(config('app.timezone'))->format('d/m/Y H:i');
+
+        return LoginSecurityStatus::offsiteBackupIsStale()
+            ? [__('settings.hub.cards.backup.status_stale', ['at' => $at]), 'danger']
+            : [__('settings.hub.cards.backup.status_last', ['at' => $at]), 'success'];
     }
 }
