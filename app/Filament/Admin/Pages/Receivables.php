@@ -186,12 +186,6 @@ class Receivables extends Page implements HasTable
     }
 
     /**
-     * Cùng cổng của {@see self::canAccess()}, hỏi về MỘT người cụ thể thay vì người đang đăng nhập —
-     * cho nơi cần biết "người này có mở được trang Công nợ không" khi không có phiên nào (thư nhắc
-     * đợt quá hạn, M9 Task 11, chọn liên kết theo từng người nhận). MỘT định nghĩa: `canAccess()`
-     * gọi thẳng hàm này, không có bản thứ hai để lệch.
-     */
-    /**
      * Đường dẫn tuyệt đối tới trang này đã lọc sẵn "Quá hạn" — MỘT chỗ cho ô "Quá hạn" của trang Doanh thu,
      * thư và thông báo đẩy "đợt quá hạn" (rà soát gộp làn rv, 2026-10-16): người bấm từ thư hay từ ô số đều
      * mở đúng danh sách quá hạn.
@@ -201,6 +195,12 @@ class Receivables extends Page implements HasTable
         return self::getUrl(['filters' => ['overdue' => ['isActive' => '1']]], panel: 'admin');
     }
 
+    /**
+     * Cùng cổng của {@see self::canAccess()}, hỏi về MỘT người cụ thể thay vì người đang đăng nhập —
+     * cho nơi cần biết "người này có mở được trang Công nợ không" khi không có phiên nào (thư nhắc
+     * đợt quá hạn, M9 Task 11, chọn liên kết theo từng người nhận). MỘT định nghĩa: `canAccess()`
+     * gọi thẳng hàm này, không có bản thứ hai để lệch.
+     */
     public static function canBeOpenedBy(User $user): bool
     {
         return $user->can(Permission::BillingView->value)

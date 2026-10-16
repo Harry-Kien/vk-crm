@@ -1642,7 +1642,7 @@ hosting.
 
 **Đính chính 2026-10-15 (làn tl, yêu cầu của chủ văn phòng: "Kho tài liệu … phải dễ dàng để có thể sử
 dụng được hiệu quả nhất").** Thêm trang **"Tài liệu"** (`App\Filament\Admin\Pages\DocumentLibrary`,
-`/admin/documents`): danh sách mọi tài liệu người xem được thấy, xuyên các vụ, mới nhất trước; tìm theo tên
+`/admin/documents`; gộp integ-4 2026-10-16: menu trái nhóm "Khách hàng & vụ việc", ngay sau "Vụ việc"): danh sách mọi tài liệu người xem được thấy, xuyên các vụ, mới nhất trước; tìm theo tên
 tài liệu, mã hồ sơ, tên khách; lọc theo vụ, loại vụ, nhóm, trạng thái, người tải lên, khoảng ngày tải lên,
 "vụ tôi phụ trách / có tên trong đội". Hành động chỉ có **Tải về** và **Mở vụ** (tab Tài liệu): tải lên, sửa,
 công bố, rút, chuyển nhóm, xoá vẫn chỉ ở tab Tài liệu của vụ (§7.2).
@@ -1969,7 +1969,8 @@ khoản thu, phụ lục, và dòng tổng đã thu / còn phải thu / quá h�
 hình tiền của kế toán là trang "Công nợ", không phải tab này.
 
 **Đính chính 2026-10-15 (làn kt).** Kế toán có thêm trang **"Hợp đồng"** cạnh "Công
-nợ": nhập hợp đồng giấy đã ký cho hồ sơ có sẵn bằng đúng form soạn/sửa bản nháp của
+nợ" (gộp integ-4 2026-10-16: nhóm "Tài chính" của menu trái, giữa "Công nợ" và "Nhắc thanh toán cho
+khách"): nhập hợp đồng giấy đã ký cho hồ sơ có sẵn bằng đúng form soạn/sửa bản nháp của
 tab này (một bản dùng chung), xoá bản nháp, kích hoạt với ngày ký, hoặc "Khách đã
 ký — kích hoạt luôn" trong một lần; dòng chỉ mang các cột rút gọn của §5 (bổ sung
 2026-10-15). Phụ lục, hoàn tất, huỷ, miễn, dời hạn, thư nhắc khách vẫn chỉ ở tab này.
@@ -2030,7 +2031,7 @@ liên hệ (Reply-To của mọi thư). Màu, logo, font **không** sửa đư�
   hàng đợi mang giá trị mới. Thông tin còn trống thì dòng của nó biến mất, không để lại nhãn treo.
 
 **Đính chính 2026-10-15 (làn st — trung tâm "Cài đặt", chủ văn phòng yêu cầu cùng ngày).** Thêm mục menu
-**"Cài đặt"** (`/admin/settings`), chỉ người có `settings.manage` (admin); người khác nhận 404, kể cả ở
+**"Cài đặt"** (`/admin/settings`; gộp integ-4 2026-10-16: mục đầu nhóm "Hệ thống" của menu trái), chỉ người có `settings.manage` (admin); người khác nhận 404, kể cả ở
 request cập nhật Livewire. Trang tổng có ô tìm (bỏ dấu) và bảy nhóm thẻ — Văn phòng, Người dùng & phân
 quyền, Vụ việc & tiếp nhận, Cổng khách hàng & thông báo, Tài chính, Tài liệu & lưu trữ, Trợ lý AI — mỗi
 thẻ một trạng thái thật và dẫn tới trang cài đặt của nó; các trang cài đặt sẵn có (Thông tin văn phòng,
