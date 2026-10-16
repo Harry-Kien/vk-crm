@@ -3,22 +3,30 @@
 namespace App\Filament\Admin\Pages;
 
 use App\Actions\Mcp\AiConnection;
+use App\Actions\Mcp\AiSetupSummary;
 use App\Actions\Mcp\DisconnectAiConnections;
 use App\Actions\Mcp\ListAiConnections;
 use App\Actions\Mcp\ListMcpAuditEntries;
+use App\Actions\Mcp\McpActivityReport;
 use App\Actions\Mcp\McpAuditEntry;
+use App\Actions\Mcp\SetAiAccessForMany;
 use App\Actions\Mcp\SetUserAiAccess;
 use App\Actions\Mcp\StaffAiSummary;
+use App\Actions\Mcp\SummarizeAiSetup;
+use App\Actions\Mcp\SummarizeMcpActivity;
 use App\Actions\Mcp\UpdateAiSettings;
 use App\Enums\AiAccessMode;
+use App\Enums\AiSetupStep;
 use App\Enums\Permission;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
+use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Models\User;
 use App\Support\ActivityPeople;
 use App\Support\Mcp\McpAccess;
 use App\Support\Mcp\McpSwitches;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
@@ -30,11 +38,15 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Enums\FiltersLayout;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 
@@ -59,6 +71,23 @@ use Livewire\Attributes\Locked;
  *     `#[Locked]`: trình duyệt không đặt được, chỉ nút "Kết nối" của bảng đặt.
  *  5. **Nhật ký MCP** — 100 dòng gần nhất, lọc theo người và theo tool ({@see ListMcpAuditEntries}),
  *     kèm ghi chú IP là IP của nền tảng.
+ *
+ * # Làn ai (2026-10-15): trình bày như một CRM quốc tế — không đổi luật nào của M11
+ *
+ * Chủ văn phòng hỏi trang "hoạt động như thế nào". Thêm, đều chỉ đọc hoặc gọi lại đúng Action cũ:
+ *
+ *  - **Thẻ trạng thái tổng** và **"Các bước để bắt đầu dùng"** ({@see SummarizeAiSetup}): TẮT / BẬT
+ *    chỉ đọc / BẬT đọc và ghi, cảnh báo vàng khi bật mà chưa ghi ngày nộp hồ sơ, bốn con số, sáu bước
+ *    ✓/○ theo trạng thái thật ({@see AiSetupStep}), mỗi bước một đường làm ngay;
+ *  - khối 1 thành **mục thu gọn** "Việc pháp lý trước khi dùng trên dữ liệu thật" — mở sẵn khi chưa ghi
+ *    ngày, đóng khi đã ghi; nội dung và ô ngày giữ nguyên;
+ *  - khối 2: **nhãn tiếng thường**, tên khoá kỹ thuật vào "Chi tiết kỹ thuật"; nút lưu mở **hộp xác
+ *    nhận** nói hậu quả ({@see self::confirmSwitchesAction()}) rồi gọi {@see self::saveSwitches()};
+ *  - khối 3: **huy hiệu màu**, lần dùng cuối "… trước", **bộ lọc nhanh** (cùng định nghĩa với các con số
+ *    của thẻ), **"Đổi chế độ" hàng loạt** ({@see SetAiAccessForMany}: mỗi người một lần gọi
+ *    {@see SetUserAiAccess});
+ *  - **"Hoạt động của trợ lý AI"** 7/30 ngày ({@see SummarizeMcpActivity}, kỳ ở {@see self::$activityDays},
+ *    `#[Locked]`, chỉ {@see self::showActivity()} đổi).
  *
  * # Cổng: `settings.manage`, hỏi ở MỌI request — kể cả request cập nhật Livewire
  *
@@ -91,6 +120,13 @@ class AiConnections extends Page implements HasTable
 
     /** @var array{user?: int|string|null, tool?: string|null} bộ lọc của khối Nhật ký MCP */
     public array $auditFilters = ['user' => null, 'tool' => null];
+
+    /**
+     * Kỳ của khối "Hoạt động của trợ lý AI" (làn ai): 7 hay 30 ngày. `#[Locked]` — chỉ nút chọn kỳ
+     * ({@see self::showActivity()}) đổi được, và chỉ sang một giá trị của {@see SummarizeMcpActivity::PERIODS}.
+     */
+    #[Locked]
+    public int $activityDays = SummarizeMcpActivity::DEFAULT_PERIOD;
 
     /** @var array<int, StaffAiSummary>|null tóm tắt theo lô cho trang bảng đang hiện, nhớ trong MỘT request */
     private ?array $overview = null;
@@ -144,11 +180,78 @@ class AiConnections extends Page implements HasTable
         return $schema
             ->statePath('switches')
             ->components([
-                Toggle::make('enabled')->label(__('ai_connections.admin.switches.enabled')),
+                Toggle::make('enabled')
+                    ->label(__('ai_connections.admin.switches.enabled'))
+                    ->helperText(__('ai_connections.admin.switches.enabled_help')),
                 Toggle::make('write_enabled')
                     ->label(__('ai_connections.admin.switches.write_enabled'))
-                    ->helperText(__('ai_connections.admin.switches.write_needs_enabled')),
+                    ->helperText(__('ai_connections.admin.switches.write_help')),
             ]);
+    }
+
+    /**
+     * Nút "Lưu công tắc" (làn ai): hộp xác nhận nói đúng hậu quả của điều SẮP đổi
+     * ({@see self::switchConsequences()}), rồi gọi {@see self::saveSwitches()} — hành vi lưu giữ nguyên
+     * (cùng Action, cùng kiểm tra, cùng audit). Hộp xác nhận chỉ là trình bày: `saveSwitches()` vẫn
+     * tự hỏi cổng.
+     */
+    public function confirmSwitchesAction(): Action
+    {
+        return Action::make('confirmSwitches')
+            ->label(__('ai_connections.admin.switches.save'))
+            ->requiresConfirmation()
+            ->modalIcon(Heroicon::OutlinedSparkles)
+            ->modalHeading(__('ai_connections.admin.switches.confirm.heading'))
+            ->modalDescription(fn (): HtmlString => new HtmlString(collect($this->switchConsequences())
+                ->map(fn (string $key): string => '<span style="display:block;margin-top:0.5rem;">'.e(__('ai_connections.admin.switches.confirm.'.$key)).'</span>')
+                ->implode('')))
+            ->modalSubmitActionLabel(__('ai_connections.admin.switches.confirm.submit'))
+            ->action(function (): void {
+                $this->guard();
+
+                $this->saveSwitches();
+            });
+    }
+
+    /**
+     * Khoá câu hậu quả (`ai_connections.admin.switches.confirm.*`) của việc lưu hai công tắc đang chọn
+     * trên form, so với giá trị ĐANG LƯU:
+     *
+     *  - công tắc đọc đổi → `server_on` / `server_off`;
+     *  - quyền ghi CÓ TÁC DỤNG (cả hai công tắc bật, {@see McpSwitches::writeEnabled()}) từ không thành
+     *    có → `write_on`; từ có thành không trong khi đọc vẫn bật → `write_off` (tắt đọc thì `server_off`
+     *    đã nói);
+     *  - công tắc ghi đổi khi đọc vẫn tắt (chưa có tác dụng) → `write_without_server` khi bật,
+     *    `write_off` khi tắt;
+     *  - không gì đổi → `unchanged`.
+     *
+     * @return list<string>
+     */
+    private function switchConsequences(): array
+    {
+        $enabled = (bool) ($this->switches['enabled'] ?? false);
+        $write = (bool) ($this->switches['write_enabled'] ?? false);
+        $wasEnabled = McpSwitches::enabled();
+        $wasWrite = McpSwitches::writeSwitchOn();
+
+        $writesBefore = $wasEnabled && $wasWrite;
+        $writesAfter = $enabled && $write;
+
+        $lines = [];
+
+        if ($enabled !== $wasEnabled) {
+            $lines[] = $enabled ? 'server_on' : 'server_off';
+        }
+
+        if ($writesAfter && ! $writesBefore) {
+            $lines[] = 'write_on';
+        } elseif ($writesBefore && ! $writesAfter && $enabled) {
+            $lines[] = 'write_off';
+        } elseif (! $enabled && $write !== $wasWrite) {
+            $lines[] = $write ? 'write_without_server' : 'write_off';
+        }
+
+        return $lines === [] ? ['unchanged'] : $lines;
     }
 
     public function assessmentForm(Schema $schema): Schema
@@ -193,19 +296,39 @@ class AiConnections extends Page implements HasTable
     }
 
     /**
+     * Nút chọn kỳ 7/30 ngày của khối "Hoạt động của trợ lý AI" (làn ai). Giá trị khác hai kỳ đó bị bỏ
+     * qua (kỳ giữ nguyên); hỏi lại cổng như mọi hành động thật.
+     */
+    public function showActivity(int $days): void
+    {
+        $this->guard();
+
+        if (in_array($days, SummarizeMcpActivity::PERIODS, true)) {
+            $this->activityDays = $days;
+        }
+    }
+
+    /**
      * Dữ liệu của view, tính ở mỗi lần render — hàm đọc là `protected`, không gọi được từ trình duyệt.
+     * Làn ai thêm thẻ trạng thái + các bước ({@see SummarizeAiSetup}) và khối hoạt động
+     * ({@see SummarizeMcpActivity}); cả hai là Action đọc-chỉ, tự hỏi quyền.
      *
-     * @return array{filedOn: ?string, selected: ?User, connections: list<AiConnection>, entries: list<McpAuditEntry>}
+     * @return array{filedOn: ?string, selected: ?User, connections: list<AiConnection>, entries: list<McpAuditEntry>, summary: AiSetupSummary, steps: list<AiSetupStep>, activity: McpActivityReport, mattersUrl: string}
      */
     protected function getViewData(): array
     {
         $selected = $this->selectedUser();
+        $summary = app(SummarizeAiSetup::class)->handle($this->actor());
 
         return [
-            'filedOn' => McpSwitches::transferAssessmentFiledOn()?->format('d/m/Y'),
+            'filedOn' => $summary->assessmentFiledOn?->format('d/m/Y'),
             'selected' => $selected,
             'connections' => $selected === null ? [] : app(ListAiConnections::class)->forUser($this->actor(), $selected),
             'entries' => $this->auditEntries(),
+            'summary' => $summary,
+            'steps' => AiSetupStep::cases(),
+            'activity' => app(SummarizeMcpActivity::class)->handle($this->actor(), $this->activityDays),
+            'mattersUrl' => MatterResource::getUrl('index'),
         ];
     }
 
@@ -231,16 +354,48 @@ class AiConnections extends Page implements HasTable
                         AiAccessMode::Read => 'info',
                         AiAccessMode::ReadWrite => 'warning',
                     }),
+                // Làn ai: huy hiệu màu — xanh khi đã cam kết đúng phiên bản, vàng khi chỉ có bản cũ, xám khi chưa.
                 TextColumn::make('acknowledged')
                     ->label(__('ai_connections.admin.columns.acknowledged'))
-                    ->state(fn (User $record): string => $this->acknowledgementText($this->summaryFor($record))),
+                    ->state(fn (User $record): string => $this->acknowledgementText($this->summaryFor($record)))
+                    ->badge()
+                    ->color(fn (User $record): string => match (true) {
+                        $this->summaryFor($record)->acknowledgedCurrent => 'success',
+                        $this->summaryFor($record)->acknowledgedAt !== null => 'warning',
+                        default => 'gray',
+                    }),
                 TextColumn::make('connections')
                     ->label(__('ai_connections.admin.columns.connections'))
-                    ->state(fn (User $record): int => $this->summaryFor($record)->connections),
+                    ->state(fn (User $record): int => $this->summaryFor($record)->connections)
+                    ->badge()
+                    ->color(fn (User $record): string => $this->summaryFor($record)->connections > 0 ? 'success' : 'gray'),
+                // Giá trị giữ ngày giờ đầy đủ (bộ lọc, test của M11); chữ hiện là "2 giờ trước", ngày giờ ở tooltip.
                 TextColumn::make('last_used_at')
                     ->label(__('ai_connections.admin.columns.last_used_at'))
                     ->state(fn (User $record): string => $this->summaryFor($record)->lastUsedAt?->format('d/m/Y H:i')
-                        ?? __('ai_connections.admin.never_used')),
+                        ?? __('ai_connections.admin.never_used'))
+                    ->formatStateUsing(fn (User $record): string => $this->summaryFor($record)->lastUsedAt?->diffForHumans()
+                        ?? __('ai_connections.admin.never_used'))
+                    ->tooltip(fn (User $record): ?string => $this->summaryFor($record)->lastUsedAt?->format('d/m/Y H:i')),
+            ])
+            ->filters([
+                // Làn ai: bộ lọc nhanh — cùng MỘT định nghĩa với con số của thẻ trạng thái.
+                Filter::make('enabled')
+                    ->label(__('ai_connections.staff.filters.enabled'))
+                    ->toggle()
+                    ->query(fn (Builder $query): Builder => SummarizeAiSetup::whereEnabled($query)),
+                Filter::make('not_acknowledged')
+                    ->label(__('ai_connections.staff.filters.not_acknowledged'))
+                    ->toggle()
+                    ->query(fn (Builder $query): Builder => SummarizeAiSetup::whereNotAcknowledgedCurrent($query)),
+                Filter::make('connected')
+                    ->label(__('ai_connections.staff.filters.connected'))
+                    ->toggle()
+                    ->query(fn (Builder $query): Builder => ListAiConnections::whereConnected($query)),
+            ])
+            ->filtersLayout(FiltersLayout::AboveContent)
+            ->toolbarActions([
+                $this->setAiAccessBulkAction(),
             ])
             ->recordActions([
                 $this->setAiAccessAction(),
@@ -291,6 +446,59 @@ class AiConnections extends Page implements HasTable
                 ));
 
                 $this->overview = null;
+            });
+    }
+
+    /**
+     * "Đổi chế độ" hàng loạt (làn ai) — {@see SetAiAccessForMany}: mỗi người đã chọn MỘT lần gọi
+     * {@see SetUserAiAccess} (cùng kiểm quyền, kiểm điều kiện, audit, thu hồi khi về "Tắt"); người không
+     * bật được bị bỏ qua và được nêu tên. Ô chọn có đủ ba chế độ: lọc theo từng người là việc của Action.
+     */
+    private function setAiAccessBulkAction(): BulkAction
+    {
+        return BulkAction::make('setAiAccessBulk')
+            ->label(__('ai_connections.staff.bulk.label'))
+            ->icon(Heroicon::OutlinedAdjustmentsHorizontal)
+            ->modalHeading(__('ai_connections.staff.bulk.heading'))
+            ->authorize(fn (): bool => Gate::forUser(Auth::user())->allows('viewAny', User::class))
+            ->schema([
+                Select::make('ai_access')
+                    ->label(__('ai_connections.admin.columns.ai_access'))
+                    ->options(collect(AiAccessMode::cases())->mapWithKeys(fn (AiAccessMode $mode): array => [$mode->value => $mode->label()])->all())
+                    ->helperText(__('ai_connections.staff.bulk.hint'))
+                    ->selectablePlaceholder(false)
+                    ->required(),
+            ])
+            ->deselectRecordsAfterCompletion()
+            ->action(function (BulkAction $action, Collection $records, array $data): void {
+                $this->guard();
+
+                $result = ['applied' => 0, 'skipped' => []];
+
+                $this->runAction($action, function () use ($records, $data, &$result): void {
+                    $result = app(SetAiAccessForMany::class)->handle(
+                        $records,
+                        AiAccessMode::from((string) $data['ai_access']),
+                        $this->actor(),
+                    );
+                });
+
+                $this->overview = null;
+
+                Notification::make()
+                    ->title(__('ai_connections.staff.bulk.done', ['count' => $result['applied']]))
+                    ->success()
+                    ->send();
+
+                if ($result['skipped'] !== []) {
+                    Notification::make()
+                        ->title(__('ai_connections.staff.bulk.skipped', [
+                            'count' => count($result['skipped']),
+                            'names' => implode(', ', $result['skipped']),
+                        ]))
+                        ->warning()
+                        ->send();
+                }
             });
     }
 

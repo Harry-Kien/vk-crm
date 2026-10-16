@@ -9,6 +9,7 @@ use App\Policies\UserPolicy;
 use App\Support\Mcp\ConsentRequest;
 use App\Support\Mcp\McpAccess;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
@@ -139,28 +140,70 @@ final class ListAiConnections
      */
     private function liveClientIds(array $userIds): array
     {
-        $now = now();
         $tokens = Passport::token()->newQuery();
-        $tokenTable = $tokens->getModel()->getTable();
-        $refreshTable = Passport::refreshToken()->newQuery()->getModel()->getTable();
 
         return $tokens
             ->whereIn('user_id', $userIds)
-            ->where(function (Builder $query) use ($now, $tokenTable, $refreshTable): void {
-                $query
-                    ->where(fn (Builder $live) => $live->where('revoked', false)->where('expires_at', '>', $now))
-                    ->orWhereExists(fn (QueryBuilder $refresh) => $refresh
-                        ->selectRaw('1')
-                        ->from($refreshTable)
-                        ->whereColumn("{$refreshTable}.access_token_id", "{$tokenTable}.id")
-                        ->where("{$refreshTable}.revoked", false)
-                        ->where("{$refreshTable}.expires_at", '>', $now));
-            })
+            ->where(self::liveToken($tokens->getModel()->getTable()))
             ->distinct()
             ->get(['user_id', 'client_id'])
             ->groupBy('user_id')
             ->map(fn (Collection $rows): array => $rows->pluck('client_id')->map(fn ($id): string => (string) $id)->unique()->values()->all())
             ->all();
+    }
+
+    /**
+     * Thu hẹp một truy vấn `users` về những người ĐANG CÓ ít nhất một kết nối — cùng MỘT định nghĩa
+     * với {@see self::forUser()} và {@see self::overview()} (docblock lớp, mục "Một kết nối"): một
+     * token sống ({@see self::liveToken()}) cho một client còn trong bảng và chưa thu hồi. Làn ai
+     * (2026-10-15): bộ lọc "Có kết nối" của bảng nhân sự và con số "đang có kết nối" của thẻ trạng
+     * thái ({@see SummarizeAiSetup}) dùng hàm này, nên không thể lệch với cột "Kết nối".
+     *
+     * Một câu `EXISTS` lồng, không nạp token nào lên PHP. Không hỏi quyền: chỉ thêm điều kiện vào truy
+     * vấn của người gọi, và người gọi đã hỏi quyền xem danh sách nhân sự.
+     *
+     * @param  Builder<User>  $users
+     * @return Builder<User>
+     */
+    public static function whereConnected(Builder $users): Builder
+    {
+        $tokenTable = Passport::token()->newQuery()->getModel()->getTable();
+        $clientTable = Passport::client()->newQuery()->getModel()->getTable();
+        $userKey = $users->getModel()->getQualifiedKeyName();
+
+        return $users->whereExists(fn (QueryBuilder $token) => $token
+            ->selectRaw('1')
+            ->from($tokenTable)
+            ->whereColumn("{$tokenTable}.user_id", $userKey)
+            ->where(self::liveToken($tokenTable))
+            ->whereExists(fn (QueryBuilder $client) => $client
+                ->selectRaw('1')
+                ->from($clientTable)
+                ->whereColumn("{$clientTable}.id", "{$tokenTable}.client_id")
+                ->where("{$clientTable}.revoked", false)));
+    }
+
+    /**
+     * Điều kiện "token sống" của MỘT dòng ở bảng `$tokenTable`: access token chưa thu hồi và chưa hết
+     * hạn, HOẶC có refresh token chưa thu hồi và chưa hết hạn (client sẽ làm mới). Dùng chung cho
+     * {@see self::liveClientIds()} và {@see self::whereConnected()}; cột luôn kèm tên bảng, vì trong
+     * {@see self::whereConnected()} điều kiện nằm trong một truy vấn con dưới truy vấn `users`.
+     */
+    private static function liveToken(string $tokenTable): Closure
+    {
+        $now = now();
+        $refreshTable = Passport::refreshToken()->newQuery()->getModel()->getTable();
+
+        return fn (Builder|QueryBuilder $query) => $query
+            ->where(fn (Builder|QueryBuilder $live) => $live
+                ->where("{$tokenTable}.revoked", false)
+                ->where("{$tokenTable}.expires_at", '>', $now))
+            ->orWhereExists(fn (QueryBuilder $refresh) => $refresh
+                ->selectRaw('1')
+                ->from($refreshTable)
+                ->whereColumn("{$refreshTable}.access_token_id", "{$tokenTable}.id")
+                ->where("{$refreshTable}.revoked", false)
+                ->where("{$refreshTable}.expires_at", '>', $now));
     }
 
     /**
