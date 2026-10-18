@@ -475,26 +475,34 @@ class ResolveStaffRecipients
 
     /**
      * Làn tk, Task 2 — người nhận lời báo CẦN NGƯỜI GIAO LÀM GÌ ĐÓ về một việc: việc bị trả lại
-     * (`staff.task.declined`), việc chưa ai nhận quá lâu, việc quá hạn (lịch `RemindPendingWork`). Người giao
+     * (`staff.task.declined`), việc chưa ai nhận quá lâu, việc quá hạn, việc sắp đến hạn mà người nhận không còn
+     * làm được (lịch `RemindPendingWork`). Người giao
      * nếu còn hợp lệ ({@see self::forTask()}); không thì — việc của một vụ — luật sư phụ trách HIỆN TẠI của vụ
      * (qua cùng `forTask()`), khi họ không phải chính người đang giữ việc; còn không nữa thì người quản lý
      * của vụ ({@see self::supervisorsFor()}, gộp làn tk 2026-10-16). Lý do: người giao rời vụ (bàn giao
      * sang người khác), nghỉ việc, hay bị vô hiệu — lời báo cần một người quyết định, và luật sư phụ trách
      * thấy mọi việc của vụ mình (`TaskPolicy::view`) và giao lại được (`TaskPolicy::reassign`).
      *
-     * Khác {@see self::forTask()} có chủ ý: lời báo "đã nhận", "đã hoàn thành" chỉ là tin cho chính người
-     * giao — chúng không qua đây. Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì
-     * rỗng (việc hiện ở danh sách "Công việc" của quản lý, và "Cần giao lại" khi việc đã bị trả lại —
-     * `Task::scopeNeedsReassignment()`).
+     * Tin cho người giao (làn fa1, phán quyết 7; vòng sửa 1 — rà soát Task 1, m4 + m5): từ làn fa1 các lời báo
+     * "đã nhận", "đã hoàn thành", "người nhận tự mở lại" (`TaskAlert::INFO_ONLY_KINDS`) cũng qua đây — để luật sư
+     * phụ trách nhận thay người giao đã đi — với `$decisionNeeded = false`: chúng chỉ là TIN, không cần ai quyết
+     * định gì, nên dừng TRƯỚC bước người quản lý của vụ. Không thì khi luật sư phụ trách chính là người giữ việc,
+     * mọi trưởng phòng (hay quản trị viên với vụ hạn chế) nhận một chuông + thư cho mỗi lần nhận/hoàn thành, với câu
+     * "hồ sơ anh/chị phụ trách" sai với họ. Lời báo cần người quyết định (bị trả lại, chưa được nhận, sắp đến hạn mà
+     * không còn người làm, quá hạn) giữ cả ba bước (`$decisionNeeded = true`, mặc định).
+     *
+     * Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì rỗng (việc hiện ở danh sách "Công
+     * việc" của quản lý, và "Cần giao lại" khi việc đã bị trả lại — `Task::scopeNeedsReassignment()`).
      *
      * Người nhận thay KHÔNG phải người giao (vòng sửa 1 của Task 2, I1): người gửi so người nhận với
      * `assigned_by` và dùng câu chữ "do :assigner giao" ({@see self::assignerName()}), đường dẫn về tab
      * "Công việc" của vụ — không "việc anh/chị giao", không tab "Tôi đã giao". Bàn giao vụ không đi đường này:
      * `MoveTasksOnHandover` đổi người giao sang lead mới, nên lead mới LÀ người giao.
      *
+     * @param  bool  $decisionNeeded  `false` cho một lời báo chỉ là tin: không rơi tới người quản lý của vụ (xem trên)
      * @return Collection<int, User>
      */
-    public function forTaskAssigner(Task $task): Collection
+    public function forTaskAssigner(Task $task, bool $decisionNeeded = true): Collection
     {
         $assigner = $this->forTask($task, [$task->assigner]);
 
@@ -515,8 +523,9 @@ class ResolveStaffRecipients
 
         // Gộp làn tk (2026-10-16): không còn người giao, và luật sư phụ trách chính là người đang giữ (trả lại)
         // việc hay không còn hợp lệ — người quản lý của vụ ({@see self::supervisorsFor()}: trưởng phòng; quản trị
-        // viên với vụ hạn chế) nhận lời báo, qua cùng cổng `forTask()`. Không ai quyết định thì việc nằm im.
-        if ($matter === null) {
+        // viên với vụ hạn chế) nhận lời báo, qua cùng cổng `forTask()`. Không ai quyết định thì việc nằm im. Lời báo
+        // chỉ là tin (`$decisionNeeded = false` — làn fa1, vòng sửa 1, m5) thì dừng ở đây.
+        if ($matter === null || ! $decisionNeeded) {
             return collect();
         }
 

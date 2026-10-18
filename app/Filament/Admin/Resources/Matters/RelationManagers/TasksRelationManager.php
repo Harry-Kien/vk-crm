@@ -114,7 +114,7 @@ class TasksRelationManager extends RelationManager
             ->schema(fn (): array => [
                 Select::make('assignee_id')
                     ->label(__('tasks.fields.assignee'))
-                    ->helperText(__('tasks.fields.assignee_help_matter'))
+                    ->helperText(self::assigneeHelp('tasks.fields.assignee_help_matter'))
                     ->options(fn (): array => app(TaskAssignees::class)->options($this->matter(), $this->taskActor()))
                     ->searchable()
                     ->required()

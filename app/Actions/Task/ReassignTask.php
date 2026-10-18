@@ -36,6 +36,14 @@ use Illuminate\Validation\ValidationException;
  * ghi `due_date_from`/`due_date_to` khi hạn đổi, và thư "được giao" của người mới mang hạn mới. Người bấm không
  * phải người giao (luật sư phụ trách hay quản lý chuyển việc của một người giao khác): người giao gốc nhận một
  * CHUÔNG {@see TaskAlert::REASSIGNED_BY_OTHER} nêu người nhận mới (job lọc qua `forTask()`).
+ *
+ * # Người gọi hàng loạt (làn fa1, vòng sửa 1 — cho làn fa2)
+ *
+ * `$notifyFormerHolder = false` bỏ ĐÚNG MỘT lời báo: chuông {@see TaskAlert::REASSIGNED_AWAY} cho người vừa mất việc.
+ * Dành cho người gọi chuyển NHIỀU việc của cùng một người một lượt (gỡ khỏi đội ngũ, nghỉ việc — làn fa2) và tự gửi
+ * cho người đó MỘT chuông tổng hợp: không có tham số này người cũ nhận n + 1 chuông. Mọi lời báo khác giữ nguyên —
+ * người mới vẫn nhận chuông + thư "được giao", người giao gốc vẫn nhận {@see TaskAlert::REASSIGNED_BY_OTHER}, nhật ký
+ * `task_reassigned` không đổi. Mặc định `true` (màn hình "Giao lại" một việc).
  */
 class ReassignTask
 {
@@ -47,10 +55,19 @@ class ReassignTask
      * @param  bool  $setDueDate  làn fa1: `true` thì hạn của việc thành `$dueDate` (rỗng = không hạn; một ngày đã
      *                            qua chỉ được khi đó đúng là hạn việc đang mang — `ValidatesTaskInput::cleanDueDate()`);
      *                            `false` (gọi từ nơi không có ô hạn) thì giữ hạn cũ
+     * @param  bool  $notifyFormerHolder  `false`: không xếp chuông {@see TaskAlert::REASSIGNED_AWAY} cho người vừa mất
+     *                                    việc — người gọi hàng loạt tự gửi một chuông tổng hợp (docblock lớp); mọi lời
+     *                                    báo khác không đổi
      */
-    public function handle(Task $task, User $actor, User $newAssignee, ?string $dueDate = null, bool $setDueDate = false): Task
-    {
-        return DB::transaction(function () use ($task, $actor, $newAssignee, $dueDate, $setDueDate): Task {
+    public function handle(
+        Task $task,
+        User $actor,
+        User $newAssignee,
+        ?string $dueDate = null,
+        bool $setDueDate = false,
+        bool $notifyFormerHolder = true,
+    ): Task {
+        return DB::transaction(function () use ($task, $actor, $newAssignee, $dueDate, $setDueDate, $notifyFormerHolder): Task {
             $fresh = $this->openTask($task, $actor);
 
             $this->authorizeTransition($fresh, $actor, 'reassign', TaskStatus::open());
@@ -97,7 +114,8 @@ class ReassignTask
 
             // Làn tk, Task 2 (rà soát Task 1, r1): người giao lại chính là người đang giữ (một quản lý giao
             // cho luật sư phụ trách, rồi luật sư đó chuyển tiếp) thì không tự báo mình.
-            if ($from !== TaskStatus::Declined && $previous !== $actor->getKey()) {
+            // Làn fa1, vòng sửa 1: người gọi hàng loạt tắt riêng lời này (docblock lớp, mục "Người gọi hàng loạt").
+            if ($notifyFormerHolder && $from !== TaskStatus::Declined && $previous !== $actor->getKey()) {
                 $this->queueNotice($fresh, TaskAlert::REASSIGNED_AWAY, $previous, $activity);
             }
 

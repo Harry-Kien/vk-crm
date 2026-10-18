@@ -57,8 +57,8 @@ use Illuminate\Support\Str;
  * "Giao việc" (nút tiêu đề, tên `create` = `TaskPolicy::create` — làn fa1: mọi nhân sự có `matter.view`): một
  * việc chung, hay — chọn ô "Vụ việc" — một việc của một vụ người giao được giao việc ({@see self::assignTaskAction()});
  * tab "Công việc" của từng vụ vẫn giao được như trước. Dòng mô tả đầu trang ({@see self::getSubheading()}) nói
- * trang chứa gì và hồ sơ chờ nhận nằm ở "Việc của tôi"; tab "Chờ tôi nhận" rỗng mà còn hồ sơ chờ nhận thì câu
- * rỗng chỉ đúng chỗ đó ({@see self::awaitingEmptyHint()}).
+ * trang chứa gì và — với người nhận hồ sơ ở "Việc của tôi" — hồ sơ chờ nhận nằm ở đó; tab "Chờ tôi nhận" rỗng mà
+ * còn hồ sơ chờ nhận thì câu rỗng chỉ đúng chỗ đó ({@see self::awaitingEmptyHint()}).
  */
 class ListTasks extends ListRecords
 {
@@ -66,6 +66,16 @@ class ListTasks extends ListRecords
     use ReportsActionFailures;
 
     protected static string $resource = TaskResource::class;
+
+    /**
+     * Kết quả {@see TaskAssignees::assignableMatters()} của request này (làn fa1, vòng sửa 1 — rà soát Task 1, m8): ô
+     * "Vụ việc" (options, visible) và {@see self::assignMatter()} (ô người nhận, lần lưu) cùng đọc nó, mỗi lần đọc là
+     * một cổng `assignOnMatter` cho từng vụ đang mở (quản trị viên: mọi vụ). Thuộc tính `protected` — Livewire không
+     * đưa nó vào trạng thái của component, nên mỗi request tính lại đúng một lần (quyền đổi giữa hai request vẫn thấy).
+     *
+     * @var array<int, string>|null
+     */
+    protected ?array $assignableMattersCache = null;
 
     public function getTitle(): string|Htmlable
     {
@@ -131,10 +141,24 @@ class ListTasks extends ListRecords
             ->paginated([10, 25, 50]);
     }
 
-    /** Làn fa1 (phán quyết 7): một dòng mô tả đầu trang — trang này chứa gì, hồ sơ chờ nhận nằm ở đâu. */
+    /**
+     * Làn fa1 (phán quyết 7): một dòng mô tả đầu trang — trang này chứa gì, hồ sơ chờ nhận nằm ở đâu. Vế "hồ sơ chờ
+     * nhận ở mục Việc của tôi" chỉ cho người nhận hồ sơ ở đó ({@see SeatInbox::onMyWork()} — luật sư, trợ lý, trưởng
+     * phòng; vòng sửa 1, m3): quản trị viên nhận hồ sơ ở tab "Đội ngũ", kế toán và kinh doanh không có mục đó.
+     */
     public function getSubheading(): string|Htmlable|null
     {
-        return __('tasks.page.subheading');
+        return __(SeatInbox::onMyWork($this->taskActor()) ? 'tasks.page.subheading' : 'tasks.page.subheading_short');
+    }
+
+    /**
+     * {@see TaskAssignees::assignableMatters()} một lần mỗi request — xem {@see self::$assignableMattersCache}.
+     *
+     * @return array<int, string>
+     */
+    private function assignableMatters(): array
+    {
+        return $this->assignableMattersCache ??= app(TaskAssignees::class)->assignableMatters($this->taskActor());
     }
 
     /**
@@ -182,15 +206,15 @@ class ListTasks extends ListRecords
                     ->label(__('tasks.assign.matter'))
                     ->placeholder(__('tasks.assign.matter_none'))
                     ->helperText(__('tasks.assign.matter_help'))
-                    ->options(fn (): array => app(TaskAssignees::class)->assignableMatters($this->taskActor()))
-                    ->visible(fn (): bool => app(TaskAssignees::class)->assignableMatters($this->taskActor()) !== [])
+                    ->options(fn (): array => $this->assignableMatters())
+                    ->visible(fn (): bool => $this->assignableMatters() !== [])
                     ->searchable()
                     ->native(false)
                     ->live()
                     ->afterStateUpdated(fn (Set $set): mixed => $set('assignee_id', null)),
                 Select::make('assignee_id')
                     ->label(__('tasks.fields.assignee'))
-                    ->helperText(fn (Get $get): string => __(filled($get('matter_id')) ? 'tasks.fields.assignee_help_matter' : 'tasks.fields.assignee_help_general'))
+                    ->helperText(fn (Get $get): string => self::assigneeHelp(filled($get('matter_id')) ? 'tasks.fields.assignee_help_matter' : 'tasks.fields.assignee_help_general'))
                     ->options(fn (Get $get): array => app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()))
                     ->searchable()
                     ->required()
@@ -221,7 +245,7 @@ class ListTasks extends ListRecords
      */
     private function assignMatter(mixed $matterId): ?Matter
     {
-        if (blank($matterId) || ! array_key_exists((int) $matterId, app(TaskAssignees::class)->assignableMatters($this->taskActor()))) {
+        if (blank($matterId) || ! array_key_exists((int) $matterId, $this->assignableMatters())) {
             return null;
         }
 

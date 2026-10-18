@@ -37,6 +37,16 @@ use Illuminate\Validation\ValidationException;
  * thay — `forTaskAssigner()`) nhận một chuông {@see TaskAlert::REOPENED_BY_HOLDER}: lời "đã hoàn thành" họ nhận
  * trước đó không còn đúng.
  *
+ * # Người giữ không còn giữ được việc (làn fa1, vòng sửa 1 — rà soát Task 1, m2)
+ *
+ * Người giao, luật sư phụ trách hay quản lý mở lại một việc mà người đã hoàn thành nó từ đó đã nghỉ, rời đội ngũ,
+ * sang "người theo dõi", trả lại hồ sơ hay không còn mở được hồ sơ: cùng lần hỏi của `RestoreTask` —
+ * {@see TaskAssignees::qualifies()} dưới khoá dòng người giữ. Việc vẫn về "Đang làm" (vẫn mang người giữ cũ, như mọi
+ * việc "Cần giao lại" — `Task::scopeNeedsReassignment()`), nhưng KHÔNG ai được báo "cần làm tiếp": người theo dõi vẫn
+ * xem được vụ nên bộ lọc người nhận của job không tự chặn được họ. Dòng `task_reopened` ghi `needs_reassignment`, và
+ * câu xong của màn hình nói việc hiện "Cần giao lại" (`tasks.reopen.success_needs_reassignment`), không hứa "họ được
+ * báo". Chính người giữ mở lại thì họ còn giữ được việc (`TaskPolicy::completedRecentlyBy()` hỏi `stillHolds`).
+ *
  * Số Hiệu suất: một việc mở lại không còn trong tập "đã hoàn thành" ({@see BuildTaskPerformance}, `Task::
  * scopeCompletedWithDueDateBetween()`) cho tới khi xong lần nữa; nếu đã quá hạn, nó vào mẫu số như mọi việc quá hạn
  * còn mở.
@@ -70,6 +80,10 @@ class ReopenTask
             $completedAt = $fresh->completed_at?->toDateTimeString();
             $note = $fresh->completion_note;
 
+            // Xem docblock lớp, mục "Người giữ không còn giữ được việc" — hỏi dưới khoá dòng của họ (sau vụ và việc).
+            $holder = User::query()->withTrashed()->whereKey($fresh->assignee_id)->lockForUpdate()->first();
+            $qualifies = $holder !== null && app(TaskAssignees::class)->qualifies($holder, $fresh->matter);
+
             $fresh->update([
                 'status' => TaskStatus::Accepted,
                 'accepted_at' => $fresh->accepted_at ?? now(),
@@ -85,11 +99,14 @@ class ReopenTask
                 'completed_at' => $completedAt,
                 'completion_note' => $note,
                 'by_holder' => $own,
+                'needs_reassignment' => ! $qualifies,
             ], causer: $actor);
 
-            $own
-                ? $this->queueNotice($fresh, TaskAlert::REOPENED_BY_HOLDER, $fresh->assigned_by, $activity)
-                : $this->queueNotice($fresh, TaskAlert::REOPENED, $fresh->assignee_id, $activity);
+            if ($own) {
+                $this->queueNotice($fresh, TaskAlert::REOPENED_BY_HOLDER, $fresh->assigned_by, $activity);
+            } elseif ($qualifies) {
+                $this->queueNotice($fresh, TaskAlert::REOPENED, $fresh->assignee_id, $activity);
+            }
 
             return $fresh;
         });

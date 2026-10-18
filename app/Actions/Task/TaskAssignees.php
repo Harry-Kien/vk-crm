@@ -67,7 +67,10 @@ class TaskAssignees
      *
      * Nhãn (làn fa1, phán quyết 3): tên, kèm số việc người đó đang giữ (chờ nhận, đang làm — `Task::held()`) và
      * số việc quá hạn (`Task::overdueToHandle()`), để người giao cân khối lượng — CHỈ đếm việc `$actor` xem được
-     * (`Task::visibleTo($actor)`): việc của một vụ hạn chế người giao không mở được không bao giờ lộ qua con số.
+     * (`Task::visibleTo($actor)`): việc của một vụ hạn chế người giao không mở được không bao giờ lộ qua con số. Vì
+     * vậy câu chữ nói đúng phạm vi đó ("… việc anh/chị thấy được", "không có việc nào anh/chị thấy được" — vòng sửa 1,
+     * I2), không như một sự thật tuyệt đối về đồng nghiệp; ô chọn thêm câu gợi ý `tasks.assign.workload_scope`
+     * (`ProvidesTaskActions::assigneeHelp()`).
      *
      * @return array<int, string>
      */

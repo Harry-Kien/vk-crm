@@ -38,6 +38,18 @@ use Spatie\Activitylog\Models\Activity;
  * người nhận còn xếp hàng hai lần gửi CÙNG một hộp thoại cho cùng một người, để câu chống trùng dưới đây
  * đọc được lần trước.
  *
+ * Giới hạn đã biết (làn fa1, vòng sửa 1 — rà soát Task 1, m12): lần đọc dòng nhật ký `task_assigned` của
+ * {@see self::sameSubmission()} là một lần đọc THƯỜNG (không khoá). Trên MariaDB/InnoDB, mức REPEATABLE READ chụp ảnh
+ * dữ liệu ở lần đọc thường đầu tiên của transaction — và trước khi chờ khoá người nhận, transaction đã đọc thường
+ * (tài khoản người giao còn hoạt động, quyền qua `Gate`). Hai lần gửi THẬT SỰ chồng nhau thì lần sau, khi được khoá
+ * người nhận, vẫn đọc ảnh cũ và không thấy dòng nhật ký lần trước vừa commit: hai việc. Không đổi sang đọc có khoá
+ * (`lockForUpdate`/`sharedLock`): `submission_key` nằm trong JSON, không có chỉ mục, nên lần đọc có khoá đặt khoá
+ * khoảng (gap lock) trên cả dải chỉ mục nó quét (người gây ra, hay `event, created_at`) — hai lần giao KHÁC nhau cùng
+ * lúc của cùng một người giao, cho hai người nhận (không cùng khoá người nhận), cùng giữ khoá khoảng đó rồi cùng chèn
+ * dòng `task_assigned`: deadlock, một lần giao thật hỏng. Rủi ro còn lại thấp và có từ trước (khoá cũ theo tiêu đề
+ * cũng vậy): Livewire xếp hàng các request của MỘT component ở trình duyệt, nên hai lần bấm cùng một hộp thoại tới
+ * máy chủ lần lượt — lần sau bắt đầu transaction SAU khi lần đầu đã commit, và thấy dòng nhật ký đó.
+ *
  * # Bấm trùng không tạo hai việc — theo hộp thoại, không theo tiêu đề (làn fa1, phán quyết 4)
  *
  * Màn hình sinh một mã một lần (`$submissionKey`, UUID) khi MỞ hộp thoại "Giao việc" và gửi kèm mỗi lần lưu.

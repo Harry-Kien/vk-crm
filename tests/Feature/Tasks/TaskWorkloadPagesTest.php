@@ -83,10 +83,11 @@ it('counts held, waiting, overdue and returned tasks and seats per person on The
 
     $leadForAdmin = tkOverviewRow($this->admin, $this->lead);
 
-    // Làn fa1 (phán quyết 5): việc quá hạn của vụ hạn chế nằm trên ghế luật sư phụ trách ĐÃ TRẢ LẠI (tkWorld) — người
-    // đó không còn giữ được việc (việc hiện "Cần giao lại"), nên không vào số quá hạn của họ; vẫn vào số chờ nhận.
+    // Làn fa1 (phán quyết 5; vòng sửa 1, m10): việc quá hạn của vụ hạn chế nằm trên ghế luật sư phụ trách ĐÃ TRẢ LẠI
+    // (tkWorld) — người đó không còn giữ được việc (việc hiện "Cần giao lại"), nên không vào số quá hạn lẫn số chờ
+    // nhận của họ: một định nghĩa "đang giữ" cho ba cột việc.
     expect([$leadForAdmin['tasksAwaiting'], $leadForAdmin['tasksOverdue'], $leadForAdmin['tasksReturned'], $leadForAdmin['seatsAwaiting'], $leadForAdmin['seatsReturned']])
-        ->toBe([1, 0, 2, 1, 1]);
+        ->toBe([0, 0, 2, 1, 1]);
 });
 
 it('prints the task columns and their explanations on the page, overdue and returned seats in red', function () {

@@ -328,7 +328,13 @@ it('neither queues nor sends a reminder to someone who can no longer open a rest
     Queue::fake();
     remindNow();
 
-    Queue::assertNotPushed(SendWorkReminder::class);
+    // Không lời nào tới hai người không còn mở được vụ. Làn fa1, vòng sửa 1 (I1): trợ lý không còn làm được việc,
+    // nên người giao được báo "chưa được nhận" ngay ở mốc 24 giờ — người giao (trưởng phòng) không mở được vụ hạn
+    // chế, luật sư phụ trách (mở được) nhận thay: đó là lời DUY NHẤT được xếp.
+    Queue::assertNotPushed(SendWorkReminder::class, fn (SendWorkReminder $job): bool => in_array($job->recipientId, [$this->assistant->id, $member->id, $this->manager->id], true));
+    Queue::assertPushed(SendWorkReminder::class, 1);
+    Queue::assertPushed(SendWorkReminder::class, fn (SendWorkReminder $job): bool => $job->recipientId === $this->lead->id
+        && $job->kind === RemindPendingWork::UNACCEPTED && $job->subjectId === $task->id);
 
     // Job xếp từ trước khi vụ siết hạn chế: không gửi.
     $resolver = app(ResolveStaffRecipients::class);

@@ -23,8 +23,8 @@ use Spatie\Activitylog\Models\Activity;
 /**
  * Lời báo của MỘT lần chuyển trạng thái của một việc nội bộ (làn tk, Task 1) cho MỘT người: chuông
  * ({@see TaskAlert}) rồi thư ({@see TaskNotice}) — chỉ các loại {@see self::MAILED_KINDS} có thư; "huỷ", "đã giao
- * cho người khác" và ba lời báo người giao của làn fa1 ("người nhận tự mở lại", "người khác giao lại / huỷ việc
- * anh/chị giao") chỉ là chuông. Các Action xếp job này `->afterCommit()` (M6.5 R2: thư không bao giờ gửi trong
+ * cho người khác" và bốn lời báo người giao của làn fa1 ("người nhận tự mở lại", "người khác giao lại / huỷ / khôi
+ * phục việc anh/chị giao") chỉ là chuông. Các Action xếp job này `->afterCommit()` (M6.5 R2: thư không bao giờ gửi trong
  * transaction).
  *
  * # Đọc lại mọi thứ khi chạy
@@ -46,7 +46,9 @@ use Spatie\Activitylog\Models\Activity;
  *     — qua `ResolveStaffRecipients::forTaskAssigner()` (làn tk, Task 2) trên người giao LÚC
  *     CHẠY, không phải `$recipientId` lúc xếp: bàn giao vụ giữa lúc xếp và lúc chạy đã chuyển việc sang
  *     lead mới; người giao đã rời vụ, nghỉ việc hay bị vô hiệu thì luật sư phụ trách hiện tại của vụ nhận
- *     thay — một việc bị trả lại cần một người giao lại, không được rơi vào khoảng trống.
+ *     thay — một việc bị trả lại cần một người giao lại, không được rơi vào khoảng trống. Ba loại chỉ là tin
+ *     ({@see TaskAlert::INFO_ONLY_KINDS}) dừng ở luật sư phụ trách, không rơi tới người quản lý của vụ
+ *     (`forTaskAssigner(decisionNeeded: false)` — làn fa1, vòng sửa 1, m5).
  *
  * # Người nhận thay người giao (vòng sửa 1 của Task 2 — I1)
  *
@@ -63,7 +65,7 @@ use Spatie\Activitylog\Models\Activity;
  *
  * # Lý do của lần đó (vòng sửa polish 1)
  *
- * Lời "bị trả lại", "huỷ" — và từ làn fa1 "mở lại", "khôi phục", "người khác huỷ việc anh/chị giao" — mang lý
+ * Lời "bị trả lại", "huỷ" — và từ làn fa1 "mở lại", "khôi phục", "người khác huỷ / khôi phục việc anh/chị giao" — mang lý
  * do của CHÍNH lần chuyển đó — đọc từ dòng nhật ký `$eventId` (`properties.reason`, `DeclineTask`/`CancelTask`/
  * `ReopenTask`/`RestoreTask` ghi), không từ dòng việc lúc job chạy: người giao có thể đã bấm "Giao lại" trước
  * khi job chạy, và `ReassignTask` xoá `decline_reason` trên dòng việc.
@@ -95,6 +97,7 @@ class SendTaskNotice implements ShouldQueue
     /** Các loại mang lý do của chính lần chuyển (`properties.reason` của dòng nhật ký). */
     private const REASON_KINDS = [
         TaskAlert::DECLINED, TaskAlert::CANCELLED, TaskAlert::CANCELLED_BY_OTHER, TaskAlert::REOPENED, TaskAlert::RESTORED,
+        TaskAlert::RESTORED_BY_OTHER,
     ];
 
     public int $tries = 5;
@@ -126,7 +129,10 @@ class SendTaskNotice implements ShouldQueue
 
         $user = (match (true) {
             $this->kind === TaskAlert::REASSIGNED_AWAY => $recipients->forFormerTaskHolder([$recipient]),
-            in_array($this->kind, TaskAlert::ON_BEHALF_KINDS, true) => $recipients->forTaskAssigner($task),
+            in_array($this->kind, TaskAlert::ON_BEHALF_KINDS, true) => $recipients->forTaskAssigner(
+                $task,
+                decisionNeeded: ! in_array($this->kind, TaskAlert::INFO_ONLY_KINDS, true),
+            ),
             default => $recipients->forTask($task, [$recipient]),
         })->first();
 

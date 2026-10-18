@@ -11,15 +11,16 @@ use Filament\Actions\Action;
 use Illuminate\Notifications\Notification;
 
 /**
- * Chuông của lịch nhắc VIỆC giao nội bộ (làn tk, Task 2) — năm loại nhắc của {@see RemindPendingWork}
- * (chờ nhận quá lâu, báo người giao chưa ai nhận, sắp đến hạn, quá hạn, báo người giao việc quá hạn). Chỉ
+ * Chuông của lịch nhắc VIỆC giao nội bộ (làn tk, Task 2) — sáu loại nhắc của {@see RemindPendingWork}
+ * (chờ nhận quá lâu, báo người giao chưa ai nhận, sắp đến hạn, quá hạn, báo người giao việc quá hạn; từ làn fa1
+ * vòng sửa 1 báo người giao việc sắp đến hạn mà người nhận không còn làm được). Chỉ
  * {@see SendWorkReminder} gửi nó, SAU khi đã lọc người nhận qua `ResolveStaffRecipients::forTask()` (còn
  * xem được việc — một việc của vụ hạn chế không bao giờ tới ai ngoài luật sư phụ trách và admin).
  *
  * Cùng khuôn {@see TaskAlert}: kênh `database`, `e()` mọi giá trị nội suy (tiêu đề việc là chữ người dùng
  * gõ), mang tiêu đề việc và mã vụ, không tên khách. `viewData.reminder_key` là khoá chống trùng của job.
  *
- * Người nhận thay người giao (vòng sửa 1, I1): hai loại báo người giao ({@see RemindPendingWork::
+ * Người nhận thay người giao (vòng sửa 1, I1): các loại báo người giao ({@see RemindPendingWork::
  * isAssignerKind()}) tới luật sư phụ trách hiện tại khi người giao đã rời vụ hay nghỉ việc mang
  * `$onBehalfOf` = tên người giao — câu `*_on_behalf` ("do :assigner giao") và nút về tab "Công việc" của vụ
  * (`TaskAlert::onBehalfUrl()`), không "việc anh/chị giao" và tab "Tôi đã giao" nơi việc đó không có.

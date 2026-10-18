@@ -15,7 +15,7 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 
 /**
- * Thư của lịch nhắc VIỆC giao nội bộ (làn tk, Task 2) — năm mẫu `staff.task.reminder.<loại>` (hằng
+ * Thư của lịch nhắc VIỆC giao nội bộ (làn tk, Task 2) — sáu mẫu `staff.task.reminder.<loại>` (hằng
  * `KIND_*`, cùng giá trị các hằng loại của {@see RemindPendingWork}). Chỉ {@see SendWorkReminder} gửi, sau
  * khi đã lọc người nhận (còn xem được việc) và hỏi lại điều kiện nhắc lúc gửi.
  *
@@ -23,13 +23,13 @@ use Illuminate\Mail\Mailables\Envelope;
  * mang tên việc hay mã vụ; thân thư mang tiêu đề việc, mã vụ, người nhận việc, hạn, mức ưu tiên — như
  * {@see TaskNotice}. Header `LEDGER_TIER` mang khoá của LẦN nhắc — một lượt nhắc chạy lại không gửi lần hai.
  *
- * Người nhận thay người giao (vòng sửa 1, I1): hai loại báo người giao tới luật sư phụ trách hiện tại khi
+ * Người nhận thay người giao (vòng sửa 1, I1): các loại báo người giao tới luật sư phụ trách hiện tại khi
  * người giao đã rời vụ hay nghỉ việc mang `$onBehalfOf` = tên người giao — tiêu đề, câu mở đầu, nút theo bộ
  * chữ `*_on_behalf`, thêm dòng "Người giao", đường dẫn về tab "Công việc" của vụ
  * (`TaskReminderAlert::urlFor()`). Cùng mẫu, cùng khoá sổ thư.
  *
  * Làn fa1 (phán quyết 5): `$needsReassignment` — người nhận việc không còn làm được việc này (việc hiện "Cần giao
- * lại") — thêm câu `tasks.reminder_needs_reassignment` vào câu mở đầu của hai loại báo người giao, như chuông.
+ * lại") — thêm câu `tasks.reminder_needs_reassignment` vào câu mở đầu của các loại báo người giao, như chuông.
  */
 class TaskReminder extends BrandedMailable
 {
@@ -42,6 +42,9 @@ class TaskReminder extends BrandedMailable
     public const KIND_OVERDUE = 'reminder.overdue';
 
     public const KIND_OVERDUE_ASSIGNER = 'reminder.overdue_assigner';
+
+    /** Làn fa1, vòng sửa 1 (I1): sắp đến hạn mà người nhận không còn làm được — báo người giao. */
+    public const KIND_DUE_SOON_ASSIGNER = 'reminder.due_soon_assigner';
 
     public const TEMPLATE_PREFIX = 'staff.task.';
 

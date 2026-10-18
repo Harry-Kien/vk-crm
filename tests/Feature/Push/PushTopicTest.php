@@ -505,6 +505,8 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.task.reminder.overdue',
         'staff.task.reminder.overdue_assigner',
         'staff.task.reminder.unaccepted',
+        // làn fa1 (vòng sửa 1, I1): báo người giao việc sắp đến hạn mà người nhận không còn làm được — không đẩy.
+        'staff.task.reminder.due_soon_assigner',
         // làn fa1 (2026-10-16): ba thư cho người đang giữ việc — đã sửa, mở lại, khôi phục — không đẩy; chuông
         // và thư cùng lúc là đủ (SPEC §9, đính chính 2026-10-16 làn fa1).
         'staff.task.updated',

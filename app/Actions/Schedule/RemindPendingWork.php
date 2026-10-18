@@ -22,8 +22,8 @@ use Throwable;
 
 /**
  * Lịch nhắc của luồng giao – nhận nội bộ (làn tk, Task 2; tác vụ `tasks.remind` của `routes/console.php`,
- * mỗi 30 phút, chỉ trong giờ làm việc). Ba loại nhắc (năm lời nhắc), mỗi lời MỘT lần cho mỗi (việc hay hồ sơ, người
- * nhận, khoá nhắc):
+ * mỗi 30 phút, chỉ trong giờ làm việc). Ba loại nhắc (sáu lời nhắc — lời thứ sáu, "sắp đến hạn" cho người giao, từ
+ * làn fa1 vòng sửa 1), mỗi lời MỘT lần cho mỗi (việc hay hồ sơ, người nhận, khoá nhắc):
  *
  *  1. **Chờ nhận quá lâu** — một việc "Chờ nhận", hay một hồ sơ (ghế trong đội ngũ vụ) chưa bấm "Đã nhận
  *     hồ sơ": sau {@see AcceptanceClock::REMIND_AFTER_HOURS} giờ làm việc nhắc người nhận
@@ -33,7 +33,8 @@ use Throwable;
  *  2. **Sắp đến hạn** — việc chờ nhận hay đang làm có hạn là hôm nay hoặc ngày mai: nhắc người nhận MỘT lần
  *     cho mỗi hạn (`reminder.due_soon`, khoá `due-soon@<hạn>`). Cửa sổ hai ngày, không đúng "ngày mai":
  *     tác vụ không chạy ngoài giờ làm việc, nên một hạn Thứ Hai vẫn được nhắc sáng Thứ Hai khi Chủ nhật
- *     không có lượt nào. Dời hạn là một hạn mới — nhắc lại cho hạn mới.
+ *     không có lượt nào. Dời hạn là một hạn mới — nhắc lại cho hạn mới. Người nhận không còn giữ được việc: người
+ *     giao nhận `reminder.due_soon_assigner` thay (xem đoạn "vòng sửa 1" dưới).
  *  3. **Quá hạn** — việc chờ nhận hay đang làm đã qua hạn: mỗi ngày làm việc một lần, nhắc người nhận
  *     (`reminder.overdue`) và báo người giao (`reminder.overdue_assigner`), khoá `overdue@<hôm nay>`.
  *
@@ -45,6 +46,22 @@ use Throwable;
  * cùng định nghĩa với số "quá hạn"): người đã sang "người theo dõi", đã trả lại hồ sơ hay không còn mở được hồ sơ
  * không được bảo bấm một nút họ không còn có. Việc đó hiện "Cần giao lại"; hai lời báo NGƯỜI GIAO (chưa được nhận,
  * quá hạn) vẫn đi như cũ — người giao được nhắc thay — kèm một câu nói rõ việc cần giao lại (`SendWorkReminder`).
+ *
+ * Làn fa1, vòng sửa 1 (rà soát Task 1, I1): người giao được nhắc thay ĐÚNG LÚC người nhận lẽ ra được nhắc, không đợi
+ * tới khi việc đã quá hạn hay đã chờ 48 giờ. "Không còn làm được" = {@see self::assigneeCanStillWork()} sai: không còn
+ * giữ được việc ({@see self::assigneeHoldsSeat()}), hay tài khoản đã bị vô hiệu / xoá (khi đó `forTask()` cũng bỏ họ
+ * khỏi lời nhắc người nhận):
+ *
+ *  - "sắp đến hạn": người nhận không còn làm được việc thì người giao (hay người nhận thay — {@see self::
+ *    taskAssignerAudience()}) nhận lời báo riêng {@see self::DUE_SOON_ASSIGNER} (`reminder.due_soon_assigner`, cùng
+ *    khoá `due-soon@<hạn>`, kèm câu "cần giao lại") — một hồ sơ toà án hạn ngày mai không được im lặng tới hôm sau;
+ *  - "chờ nhận": người nhận không còn làm được việc thì lời báo người giao `reminder.unaccepted` đi ngay ở mốc
+ *    {@see AcceptanceClock::REMIND_AFTER_HOURS} giờ làm việc (mốc của lời nhắc người nhận), không đợi
+ *    {@see AcceptanceClock::ESCALATE_AFTER_HOURS} — cùng khoá `awaiting@<assigned_at>`, nên mốc 48 giờ không gửi lần
+ *    hai ({@see self::taskThresholdFor()}).
+ *
+ * Cả hai được hỏi lại lúc gửi ({@see self::taskReminderHolds()}): người nhận đã làm lại được việc (xếp lại ghế, mở
+ * lại tài khoản) thì lời báo sớm cho người giao không đi.
  *
  * # Người nhận — không bao giờ lộ vụ hạn chế
  *
@@ -96,6 +113,11 @@ class RemindPendingWork
     public const OVERDUE_ASSIGNER = 'reminder.overdue_assigner';
 
     /**
+     * Làn fa1, vòng sửa 1 (I1): việc sắp đến hạn mà người nhận không còn giữ được — báo NGƯỜI GIAO (xem docblock lớp).
+     */
+    public const DUE_SOON_ASSIGNER = 'reminder.due_soon_assigner';
+
+    /**
      * Lời nhắc hồ sơ của lượt này, gom trước khi xếp: `[loại][id người nhận][id ghế] = khoá nhắc` — xem
      * docblock lớp, mục "Lời nhắc hồ sơ gộp theo người".
      *
@@ -135,8 +157,11 @@ class RemindPendingWork
             ->whereDate('tasks.due_date', '>=', today()->toDateString())
             ->whereDate('tasks.due_date', '<=', today()->addDay()->toDateString());
 
+        // Làn fa1, vòng sửa 1 (I1): người nhận không còn làm được việc thì người giao được báo thay — một lời trong hai.
         foreach ($dueSoon->get() as $task) {
-            $queued += $this->guarded(fn (): int => $this->queueForTask($task, self::DUE_SOON, self::dueSoonKey($task), [$task->assignee]));
+            $queued += $this->guarded(fn (): int => self::assigneeCanStillWork($task)
+                ? $this->queueForTask($task, self::DUE_SOON, self::dueSoonKey($task), [$task->assignee])
+                : $this->queueForTask($task, self::DUE_SOON_ASSIGNER, self::dueSoonKey($task), $this->taskAssignerAudience($task)));
         }
 
         // Việc còn giữ, đã qua hạn, trên vụ còn mở. Lời nhắc NGƯỜI NHẬN thêm vế "còn giữ được việc"
@@ -167,11 +192,13 @@ class RemindPendingWork
             self::AWAITING, self::UNACCEPTED => $task->status === TaskStatus::Pending
                 && $task->assigned_at !== null
                 && $key === self::awaitingKey($task->assigned_at)
-                && AcceptanceClock::fromConfig()->reached($task->assigned_at, self::thresholdFor($kind), $now),
-            self::DUE_SOON => self::isActive($task)
+                && AcceptanceClock::fromConfig()->reached($task->assigned_at, self::taskThresholdFor($task, $kind), $now),
+            self::DUE_SOON, self::DUE_SOON_ASSIGNER => self::isActive($task)
                 && $task->due_date !== null
                 && $key === self::dueSoonKey($task)
-                && $task->due_date->toDateString() >= $now->toDateString(),
+                && $task->due_date->toDateString() >= $now->toDateString()
+                // Làn fa1, vòng sửa 1 (I1): lời báo người giao chỉ khi người nhận VẪN không làm được việc.
+                && ($kind === self::DUE_SOON || ! self::assigneeCanStillWork($task)),
             self::OVERDUE, self::OVERDUE_ASSIGNER => self::isActive($task)
                 && $task->isOverdue()
                 && $key === self::overdueKey($now),
@@ -181,9 +208,9 @@ class RemindPendingWork
 
     /**
      * `$recipient` còn đúng là người lời nhắc `$kind` của `$task` nói tới (vòng sửa polish 1 — rà soát Task 2,
-     * m6 + n2): ba loại nhắc người nhận (chờ nhận, sắp đến hạn, quá hạn) chỉ tới người ĐANG giữ việc; hai loại
-     * báo người giao chỉ tới người đang ở trong {@see self::taskAssignerAudience()} (người giao, hay luật sư
-     * phụ trách nhận thay). Lượt chọn xếp đúng những người này; job hỏi lại lúc gửi — giữa hai lúc, việc có
+     * m6 + n2): ba loại nhắc người nhận (chờ nhận, sắp đến hạn, quá hạn) chỉ tới người ĐANG giữ việc; các loại
+     * báo người giao ({@see self::isAssignerKind()}) chỉ tới người đang ở trong {@see self::taskAssignerAudience()}
+     * (người giao, hay người nhận thay). Lượt chọn xếp đúng những người này; job hỏi lại lúc gửi — giữa hai lúc, việc có
      * thể đã được giao lại, hay bàn giao vụ đã đổi người giao.
      */
     public static function stillAddressedTo(Task $task, string $kind, User $recipient): bool
@@ -200,8 +227,8 @@ class RemindPendingWork
      * Người nhận của `$task` còn GIỮ ĐƯỢC việc (làn fa1, phán quyết 5) — `Task::scopeHeldBySeatedAssignee()`, MỘT
      * định nghĩa với số "quá hạn": không "người theo dõi", không ghế đã trả lại, còn mở được hồ sơ. Không còn thì
      * ba lời nhắc người nhận (chờ nhận, sắp đến hạn, quá hạn) không đi — họ không bấm "Đã nhận"/"Hoàn thành" được
-     * nữa (`TaskPolicy::stillHolds()`), việc hiện "Cần giao lại" — và lời báo người giao (chưa được nhận, quá hạn)
-     * nói rõ việc cần giao lại (`SendWorkReminder`).
+     * nữa (`TaskPolicy::stillHolds()`), việc hiện "Cần giao lại" — và lời báo người giao (chưa được nhận — từ mốc
+     * 24 giờ, sắp đến hạn, quá hạn; docblock lớp) nói rõ việc cần giao lại (`SendWorkReminder`).
      */
     public static function assigneeHoldsSeat(Task $task): bool
     {
@@ -209,6 +236,19 @@ class RemindPendingWork
             ->whereKey($task->getKey())
             ->heldBySeatedAssignee()
             ->exists();
+    }
+
+    /**
+     * Người nhận của `$task` còn LÀM ĐƯỢC việc — {@see self::assigneeHoldsSeat()} VÀ tài khoản còn hoạt động, chưa xoá
+     * (vế `inactive` của `Task::scopeNeedsReassignment()`). Không thì lời nhắc người nhận không tới ai
+     * (`ResolveStaffRecipients::forTask()` bỏ người đã nghỉ), nên người giao được báo sớm thay (làn fa1, vòng sửa 1 —
+     * docblock lớp): "sắp đến hạn" (`DUE_SOON_ASSIGNER`) và "chưa được nhận" từ mốc 24 giờ ({@see self::taskThresholdFor()}).
+     */
+    public static function assigneeCanStillWork(Task $task): bool
+    {
+        $assignee = User::query()->withTrashed()->find($task->assignee_id);
+
+        return $assignee !== null && $assignee->is_active && ! $assignee->trashed() && self::assigneeHoldsSeat($task);
     }
 
     /**
@@ -244,24 +284,37 @@ class RemindPendingWork
     }
 
     /**
-     * Loại nhắc báo NGƯỜI GIAO (chưa được nhận, quá hạn) — người nhận qua {@see self::taskAssignerAudience()},
-     * có thể là luật sư phụ trách nhận thay (vòng sửa 1, I1: câu chữ, đường dẫn của người nhận thay —
-     * `TaskReminderAlert::onBehalf()`).
+     * Loại nhắc báo NGƯỜI GIAO (chưa được nhận, quá hạn; từ làn fa1 vòng sửa 1 cả "sắp đến hạn" khi người nhận không
+     * còn giữ được việc) — người nhận qua {@see self::taskAssignerAudience()}, có thể là luật sư phụ trách nhận thay
+     * (vòng sửa 1 của làn tk, I1: câu chữ, đường dẫn của người nhận thay — `TaskReminderAlert::onBehalf()`).
      */
     public static function isAssignerKind(string $kind): bool
     {
-        return in_array($kind, [self::UNACCEPTED, self::OVERDUE_ASSIGNER], true);
+        return in_array($kind, [self::UNACCEPTED, self::OVERDUE_ASSIGNER, self::DUE_SOON_ASSIGNER], true);
     }
 
-    /** Ngưỡng giờ làm việc của một loại nhắc chờ nhận. */
+    /** Ngưỡng giờ làm việc của một loại nhắc chờ nhận (hồ sơ; việc qua {@see self::taskThresholdFor()}). */
     public static function thresholdFor(string $kind): int
     {
         return $kind === self::UNACCEPTED ? AcceptanceClock::ESCALATE_AFTER_HOURS : AcceptanceClock::REMIND_AFTER_HOURS;
     }
 
     /**
+     * Ngưỡng của một loại nhắc chờ nhận cho VIỆC `$task`: như {@see self::thresholdFor()}, trừ lời báo người giao
+     * `UNACCEPTED` về một việc mà người nhận không còn làm được ({@see self::assigneeCanStillWork()}; làn fa1, vòng
+     * sửa 1 — docblock lớp): mốc của lời nhắc người nhận, vì người nhận sẽ không bao giờ bấm "Đã nhận" được.
+     */
+    public static function taskThresholdFor(Task $task, string $kind): int
+    {
+        return $kind === self::UNACCEPTED && ! self::assigneeCanStillWork($task)
+            ? AcceptanceClock::REMIND_AFTER_HOURS
+            : self::thresholdFor($kind);
+    }
+
+    /**
      * Người nhận lời báo "cho người giao" của một việc — `ResolveStaffRecipients::forTaskAssigner()`: người
-     * giao nếu còn hợp lệ, không thì luật sư phụ trách hiện tại của vụ.
+     * giao nếu còn hợp lệ, không thì luật sư phụ trách hiện tại của vụ, không nữa thì người quản lý của vụ (mọi lời
+     * báo người giao của lịch là loại CẦN người quyết định).
      *
      * @return list<User>
      */
@@ -285,7 +338,8 @@ class RemindPendingWork
         $key = self::awaitingKey($task->assigned_at);
         $queued = $this->queueForTask($task, self::AWAITING, $key, [$task->assignee]);
 
-        if ($clock->reached($task->assigned_at, AcceptanceClock::ESCALATE_AFTER_HOURS)) {
+        // Làn fa1, vòng sửa 1 (I1): người nhận không còn làm được việc — người giao được báo ngay ở mốc 24 giờ.
+        if ($clock->reached($task->assigned_at, self::taskThresholdFor($task, self::UNACCEPTED))) {
             $queued += $this->queueForTask($task, self::UNACCEPTED, $key, $this->taskAssignerAudience($task));
         }
 

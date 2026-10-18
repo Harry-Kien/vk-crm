@@ -102,6 +102,8 @@ return [
         'staff.task.reminder.due_soon' => 'Nhắc nhân sự việc sắp đến hạn',
         'staff.task.reminder.overdue' => 'Nhắc nhân sự việc đã quá hạn',
         'staff.task.reminder.overdue_assigner' => 'Báo người giao việc đã quá hạn',
+        // làn fa1 (vòng sửa 1, I1): việc sắp đến hạn mà người nhận không còn làm được.
+        'staff.task.reminder.due_soon_assigner' => 'Báo người giao việc sắp đến hạn mà không còn người làm',
         'staff.task.matter.declined' => 'Báo người giao hồ sơ bị trả lại',
         'staff.task.matter.reminder.awaiting' => 'Nhắc nhân sự nhận hồ sơ đang chờ',
         'staff.task.matter.reminder.unaccepted' => 'Báo người giao hồ sơ chưa được nhận',

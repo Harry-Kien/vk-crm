@@ -2356,6 +2356,33 @@ Ba mẫu thư mới `staff.task.updated`, `staff.task.reopened`, `staff.task.res
 lại được) và KHÔNG đẩy (`PushTopicTest`): chuông và thư cùng lúc là đủ. Không migration mới, không tác vụ lịch mới,
 không quyền mới.
 
+**Đính chính 2026-10-18 (làn fa1, vòng sửa 1 — rà soát Task 1).** Bổ sung cho các luật 2026-10-16 ở trên:
+
+1. **Người giao được nhắc thay đúng lúc** (luật 5). Người nhận không còn làm được việc
+   (`RemindPendingWork::assigneeCanStillWork()` sai: không còn giữ được việc, hay tài khoản đã bị vô hiệu / xoá):
+   lượt "sắp đến hạn" gửi người giao (qua `forTaskAssigner()`) lời báo mới `reminder.due_soon_assigner` (thư nhắc
+   việc thứ sáu của `tasks.remind`, mẫu `staff.task.reminder.due_soon_assigner`, KHÔNG đẩy, khoá `due-soon@<hạn>`,
+   kèm câu "cần giao lại"), thay vì lời nhắc người nhận không tới ai; lời báo người giao `reminder.unaccepted` đi ngay ở mốc 24 giờ làm
+   việc (cùng khoá `awaiting@…`, mốc 48 giờ không gửi lần hai). Cả hai hỏi lại lúc gửi.
+2. **Tin cho người giao không rơi tới mọi trưởng phòng.** "Đã nhận", "đã hoàn thành", "người nhận tự mở lại"
+   (`TaskAlert::INFO_ONLY_KINDS`) đi `forTaskAssigner(decisionNeeded: false)`: người giao, hay luật sư phụ trách nhận
+   thay, không bao giờ bước `supervisorsFor()`; "bị trả lại" và các lời nhắc người giao giữ cả ba bước.
+3. **Khôi phục, mở lại.** Việc huỷ khi đang "Bị trả lại" khôi phục về "Bị trả lại" (`Task::cancelledFrom()`), không
+   báo người đã trả lại. "Mở lại" do người giao/lead/quản lý hỏi `TaskAssignees::qualifies()` người giữ như
+   `RestoreTask`: không còn hợp lệ thì không báo ai, việc hiện "Cần giao lại", dòng `task_reopened` ghi
+   `needs_reassignment`. Người khác khôi phục việc của một người giao: người giao gốc nhận chuông mới
+   `TaskAlert::RESTORED_BY_OTHER` kèm lý do (qua `forTask()`). Cổng "Khôi phục" tên `TaskPolicy::restoreCancelled`
+   (không trùng khả năng `restore` của xoá mềm — policy không có `restore`, nên cổng đó luôn từ chối).
+4. **Một định nghĩa "đang giữ".** `Task::scopeHeldBySeatedAssignee()` bỏ người đã xoá mềm (như `holdsSeat()`), và
+   ba cột việc của Theo dõi đội ngũ (đang làm, chờ nhận, quá hạn) cùng dùng nó; việc "Cần giao lại" chỉ ở dòng "Việc
+   cần giao lại".
+5. **Màn hình.** Nhãn số việc bên tên người nhận nói phạm vi ("… việc anh/chị thấy được"), kèm câu gợi ý dưới ô; dòng
+   đầu trang Công việc chỉ nói "hồ sơ chờ nhận ở mục Việc của tôi" với người có mục đó (`SeatInbox::onMyWork()`).
+6. **Cho người gọi hàng loạt** (làn fa2): `ReassignTask::handle(notifyFormerHolder: false)` bỏ đúng chuông
+   `REASSIGNED_AWAY` cho người vừa mất việc (người gọi gửi một chuông tổng hợp); mọi lời báo khác không đổi.
+
+Không migration, tác vụ lịch hay quyền mới.
+
 ---
 
 ## 10. Bảo mật — yêu cầu cụ thể

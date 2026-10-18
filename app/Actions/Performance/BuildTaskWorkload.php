@@ -33,6 +33,14 @@ use Illuminate\Support\Facades\Gate;
  * (`Task::held()`/`pendingAcceptance()`/`inProgress()`/`returned()`/`overdueToHandle()`/`needsReassignment()`, `MatterUser::
  * awaitingAcceptance()`/`returned()`) — tệp này không viết điều kiện nghiệp vụ nào (`NoSecondDefinitionTest`).
  *
+ * # Một định nghĩa "đang giữ" cho ba cột việc (làn fa1, vòng sửa 1 — rà soát Task 1, m10)
+ *
+ * "Việc đang làm", "Việc chờ nhận" và "Việc quá hạn" của MỘT người cùng thêm vế `Task::heldBySeatedAssignee()` (người
+ * đó còn giữ được việc: không "người theo dõi", chưa trả lại hồ sơ, còn mở được hồ sơ, chưa xoá) — vế mà
+ * `overdueToHandle()` đã có từ phán quyết 5. Trước đó cùng một hàng đếm việc của người không còn giữ ghế vào "chờ
+ * nhận" (1) nhưng không vào "quá hạn" (0). Việc đó không phải việc người này còn làm được: nó hiện "Cần giao lại" và
+ * vào dòng "Việc cần giao lại: n" ({@see self::needsReassignment()}), một lần, không vào ô của ai.
+ *
  * # Phòng thủ
  *
  * Hỏi `viewPerformance` cho từng `$subject` như {@see BuildTeamWorkload}; ném {@see AuthorizationException}
@@ -61,8 +69,9 @@ final class BuildTaskWorkload
         $tasks = fn () => Task::query()->visibleTo($viewer);
         $seats = fn () => MatterUser::query()->onOpenMattersListableBy($viewer);
 
-        $inProgress = BuildTeamWorkload::countPer($tasks()->inProgress(), 'tasks.assignee_id');
-        $awaiting = BuildTeamWorkload::countPer($tasks()->pendingAcceptance(), 'tasks.assignee_id');
+        // Xem docblock lớp, mục "Một định nghĩa 'đang giữ' cho ba cột việc".
+        $inProgress = BuildTeamWorkload::countPer($tasks()->inProgress()->heldBySeatedAssignee(), 'tasks.assignee_id');
+        $awaiting = BuildTeamWorkload::countPer($tasks()->pendingAcceptance()->heldBySeatedAssignee(), 'tasks.assignee_id');
         $overdue = BuildTeamWorkload::countPer($tasks()->overdueToHandle(), 'tasks.assignee_id');
         $returned = BuildTeamWorkload::countPer($tasks()->returned(), 'tasks.assigned_by');
         $seatsAwaiting = BuildTeamWorkload::countPer($seats()->awaitingAcceptance(), 'matter_user.user_id');

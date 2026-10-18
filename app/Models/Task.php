@@ -273,28 +273,37 @@ class Task extends Model
      * "Trả lại" ghế đó, và còn mở được vụ — bản SQL của `TaskAssignees::holdsSeat()` (cùng ba vế; phủ định của các
      * vế `off_team` / `seat_declined` / `off_access` của {@see self::scopeNeedsReassignment()}). Không hỏi
      * `is_active`, như `holdsSeat()`: người đã nghỉ không nhận lời nhắc nào (`ResolveStaffRecipients::forTask()`),
-     * và hàng của họ ẩn khỏi Theo dõi đội ngũ.
+     * và hàng của họ ẩn khỏi Theo dõi đội ngũ. Người đã XOÁ MỀM thì không giữ việc nào (làn fa1, vòng sửa 1 — rà soát
+     * Task 1, m6): `holdsSeat()` đi qua `$matter->team()` — quan hệ tới `User`, mang scope xoá mềm — nên người đã xoá
+     * không ngồi ghế nào; bản SQL hỏi thẳng `users.deleted_at`. Vế này áp cả cho việc chung (người đã xoá không làm
+     * được việc chung — vế `inactive` của {@see self::scopeNeedsReassignment()}).
      *
-     * MỘT định nghĩa cho số "quá hạn" ({@see self::scopeOverdueToHandle()}), cho lượt chọn VÀ lần hỏi lại lúc gửi
-     * của ba lời nhắc người nhận (`RemindPendingWork`: chờ nhận, sắp đến hạn, quá hạn), và cho phần "việc còn giữ
-     * đã quá hạn" của tỉ lệ đúng hạn (`BuildTaskPerformance`). Một việc không qua vế này hiện "Cần giao lại";
-     * lời nhắc cho NGƯỜI GIAO (chưa được nhận, quá hạn) không qua vế này — người giao được nhắc thay.
+     * MỘT định nghĩa cho số "quá hạn" ({@see self::scopeOverdueToHandle()}), cho cột "Việc đang làm" / "Việc chờ nhận"
+     * của Theo dõi đội ngũ (`BuildTaskWorkload`, vòng sửa 1 — m10), cho lượt chọn VÀ lần hỏi lại lúc gửi của ba lời
+     * nhắc người nhận (`RemindPendingWork`: chờ nhận, sắp đến hạn, quá hạn), và cho phần "việc còn giữ đã quá hạn"
+     * của tỉ lệ đúng hạn (`BuildTaskPerformance`). Một việc không qua vế này hiện "Cần giao lại"; lời nhắc cho NGƯỜI
+     * GIAO (chưa được nhận, sắp đến hạn, quá hạn) không qua vế này — người giao được nhắc thay.
      */
     public function scopeHeldBySeatedAssignee(Builder $query): Builder
     {
-        return $query->where(fn (Builder $holds): Builder => $holds
-            ->whereNull($this->qualifyColumn('matter_id'))
-            ->orWhere(fn (Builder $onMatter): Builder => $onMatter
-                ->whereExists(fn (QueryBuilder $seat): QueryBuilder => $seat
-                    ->selectRaw('1')
-                    ->from('matter_user')
-                    ->whereColumn('matter_user.matter_id', $this->qualifyColumn('matter_id'))
-                    ->whereColumn('matter_user.user_id', $this->qualifyColumn('assignee_id'))
-                    ->whereIn('matter_user.role_in_matter', self::workingSeats())
-                    ->where(fn (QueryBuilder $notReturned): QueryBuilder => $notReturned
-                        ->whereNotNull('matter_user.accepted_at')
-                        ->orWhereNull('matter_user.declined_at')))
-                ->whereNot(fn (Builder $blocked): Builder => $blocked->whereCannotOpenMatter('assignee_id'))));
+        return $query->whereExists(fn (QueryBuilder $person): QueryBuilder => $person
+            ->selectRaw('1')
+            ->from('users')
+            ->whereColumn('users.id', $this->qualifyColumn('assignee_id'))
+            ->whereNull('users.deleted_at'))
+            ->where(fn (Builder $holds): Builder => $holds
+                ->whereNull($this->qualifyColumn('matter_id'))
+                ->orWhere(fn (Builder $onMatter): Builder => $onMatter
+                    ->whereExists(fn (QueryBuilder $seat): QueryBuilder => $seat
+                        ->selectRaw('1')
+                        ->from('matter_user')
+                        ->whereColumn('matter_user.matter_id', $this->qualifyColumn('matter_id'))
+                        ->whereColumn('matter_user.user_id', $this->qualifyColumn('assignee_id'))
+                        ->whereIn('matter_user.role_in_matter', self::workingSeats())
+                        ->where(fn (QueryBuilder $notReturned): QueryBuilder => $notReturned
+                            ->whereNotNull('matter_user.accepted_at')
+                            ->orWhereNull('matter_user.declined_at')))
+                    ->whereNot(fn (Builder $blocked): Builder => $blocked->whereCannotOpenMatter('assignee_id'))));
     }
 
     /**
@@ -537,7 +546,7 @@ class Task extends Model
     /**
      * Id người đã bấm "Huỷ việc" lần gần nhất — người gây ra dòng nhật ký `task_cancelled` mới nhất của việc này
      * (dòng nhật ký không bao giờ sửa; bảng `tasks` không có cột người huỷ). `null`: chưa từng huỷ, hay dòng không
-     * có người gây ra. Cổng "Khôi phục" (`TaskPolicy::restore`, làn fa1) đọc nó — chỉ trên việc đang "Đã huỷ".
+     * có người gây ra. Cổng "Khôi phục" (`TaskPolicy::restoreCancelled`, làn fa1) đọc nó — chỉ trên việc đang "Đã huỷ".
      */
     public function cancelledBy(): ?int
     {
@@ -549,6 +558,23 @@ class Task extends Model
             ->value('causer_id');
 
         return $causer === null ? null : (int) $causer;
+    }
+
+    /**
+     * Trạng thái của việc LÚC bị huỷ lần gần nhất — `properties.from` của cùng dòng nhật ký `task_cancelled` mới nhất
+     * mà {@see self::cancelledBy()} đọc (`CancelTask` ghi). `null`: chưa từng huỷ, hay dòng không mang `from`. "Khôi
+     * phục" (`RestoreTask`, làn fa1 vòng sửa 1 — m1) đọc nó: việc huỷ khi đang "Bị trả lại" trở về "Bị trả lại".
+     */
+    public function cancelledFrom(): ?TaskStatus
+    {
+        $row = Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('event', 'task_cancelled')
+            ->latest('id')
+            ->first();
+
+        return TaskStatus::tryFrom((string) $row?->getExtraProperty('from', ''));
     }
 
     public function isOverdue(): bool

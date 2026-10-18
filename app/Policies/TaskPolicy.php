@@ -195,8 +195,13 @@ class TaskPolicy
      * nhật ký `task_cancelled` gần nhất của việc), luật sư phụ trách hiện tại của vụ, hoặc quản lý/quản trị; người
      * đó phải còn xem được việc. Người giao mà KHÔNG phải người đã huỷ (luật sư phụ trách hay quản lý huỷ việc của
      * họ) thì không: họ đã được báo việc bị huỷ, kèm lý do. Như {@see self::reopen()}, không hỏi vụ còn mở.
+     *
+     * Tên `restoreCancelled`, KHÔNG `restore` (làn fa1, vòng sửa 1 — rà soát Task 1, m9): `restore` là khả năng của
+     * Laravel/Filament cho khôi phục XOÁ MỀM (`Task` dùng `SoftDeletes`) — một `RestoreAction`/`TrashedFilter` thêm vào
+     * `TaskResource` sau này sẽ hỏi `restore` và không được mở bằng cổng của "Khôi phục việc đã huỷ". Policy không có
+     * `restore()`, nên cổng đó luôn từ chối (như `delete`/`forceDelete`: không ai xoá một việc).
      */
-    public function restore(User|ClientUser $user, Task $task): bool
+    public function restoreCancelled(User|ClientUser $user, Task $task): bool
     {
         if (! $user instanceof User || $task->status !== TaskStatus::Cancelled || ! $this->view($user, $task)) {
             return false;

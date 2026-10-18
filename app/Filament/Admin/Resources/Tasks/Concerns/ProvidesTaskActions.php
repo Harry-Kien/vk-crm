@@ -12,6 +12,7 @@ use App\Actions\Task\RestoreTask;
 use App\Actions\Task\TaskAssignees;
 use App\Actions\Task\UpdateTask;
 use App\Enums\TaskPriority;
+use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Task;
 use App\Models\User;
@@ -95,7 +96,10 @@ trait ProvidesTaskActions
                     ->maxLength(Task::REASON_MAX_LENGTH)
                     ->rows(3),
             ])
-            ->successNotificationTitle(__('tasks.reopen.success'))
+            // Làn fa1, vòng sửa 1 (m2): người giữ không còn giữ được việc thì không ai được báo — câu xong nói "Cần giao lại".
+            ->successNotificationTitle(fn (Task $record): string => __(Task::query()->whereKey($record->getKey())->needsReassignment()->exists()
+                ? 'tasks.reopen.success_needs_reassignment'
+                : 'tasks.reopen.success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(ReopenTask::class)->handle($record, $this->taskActor(), $data['reason'] ?? null),
@@ -103,8 +107,9 @@ trait ProvidesTaskActions
     }
 
     /**
-     * "Khôi phục" một việc đã huỷ — `TaskPolicy::restore` (chính người đã huỷ, luật sư phụ trách, quản lý). Lý do
-     * bắt buộc. Câu báo xong nói rõ khi người nhận cũ không còn nhận được việc (việc hiện "Cần giao lại").
+     * "Khôi phục" một việc đã huỷ — `TaskPolicy::restoreCancelled` (chính người đã huỷ, luật sư phụ trách, quản lý).
+     * Lý do bắt buộc. Câu báo xong nói rõ khi việc về "Bị trả lại" (huỷ lúc đang bị trả lại — làn fa1, vòng sửa 1, m1)
+     * hay khi người nhận cũ không còn nhận được việc (việc hiện "Cần giao lại").
      */
     protected function restoreTaskAction(): Action
     {
@@ -112,7 +117,7 @@ trait ProvidesTaskActions
             ->label(__('tasks.restore.action'))
             ->icon(Heroicon::OutlinedArrowUturnUp)
             ->color('warning')
-            ->authorize(fn (Task $record): bool => Gate::allows('restore', $record))
+            ->authorize(fn (Task $record): bool => Gate::allows('restoreCancelled', $record))
             ->modalHidden(fn (Task $record): bool => self::onClosedMatter($record))
             ->modalHeading(__('tasks.restore.heading'))
             ->modalDescription(__('tasks.restore.description'))
@@ -125,9 +130,11 @@ trait ProvidesTaskActions
                     ->maxLength(Task::REASON_MAX_LENGTH)
                     ->rows(3),
             ])
-            ->successNotificationTitle(fn (Task $record): string => __(Task::query()->whereKey($record->getKey())->needsReassignment()->exists()
-                ? 'tasks.restore.success_needs_reassignment'
-                : 'tasks.restore.success'))
+            ->successNotificationTitle(fn (Task $record): string => __(match (true) {
+                Task::query()->find($record->getKey())?->status === TaskStatus::Declined => 'tasks.restore.success_declined',
+                Task::query()->whereKey($record->getKey())->needsReassignment()->exists() => 'tasks.restore.success_needs_reassignment',
+                default => 'tasks.restore.success',
+            }))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(RestoreTask::class)->handle($record, $this->taskActor(), (string) ($data['reason'] ?? '')),
@@ -279,6 +286,7 @@ trait ProvidesTaskActions
             ->schema(fn (Task $record): array => [
                 Select::make('assignee_id')
                     ->label(__('tasks.fields.assignee'))
+                    ->helperText(self::assigneeHelp($record->matter_id === null ? 'tasks.fields.assignee_help_general' : 'tasks.fields.assignee_help_matter'))
                     ->options(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record))
                     ->searchable()
                     ->required()
@@ -302,6 +310,17 @@ trait ProvidesTaskActions
                     setDueDate: true,
                 ),
             ));
+    }
+
+    /**
+     * Câu gợi ý của một ô chọn người nhận (`$key` — ai nhận được) cộng câu phạm vi của số việc bên mỗi tên
+     * (`tasks.assign.workload_scope` — làn fa1, vòng sửa 1, I2): nhãn của {@see TaskAssignees::options()} chỉ đếm việc
+     * người giao xem được, nên người giao phải đọc được giới hạn đó ngay trên màn hình. Chung cho "Giao việc" (trang
+     * Công việc, tab "Công việc" của vụ) và "Giao lại".
+     */
+    protected static function assigneeHelp(string $key): string
+    {
+        return __($key).' '.__('tasks.assign.workload_scope');
     }
 
     /**

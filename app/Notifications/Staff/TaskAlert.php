@@ -13,8 +13,8 @@ use Illuminate\Support\Facades\Lang;
 
 /**
  * Chuông TRONG HỆ THỐNG của luồng giao việc nội bộ (làn tk, Task 1) — một lớp cho mọi loại lời báo
- * (hằng số dưới đây; làn fa1 thêm sáu loại: sửa, mở lại, người nhận tự mở lại, khôi phục, và hai lời báo người
- * giao gốc khi người khác giao lại / huỷ việc của họ). Chỉ {@see SendTaskNotice} gửi nó, SAU khi đã lọc người
+ * (hằng số dưới đây; làn fa1 thêm bảy loại: sửa, mở lại, người nhận tự mở lại, khôi phục, và ba lời báo người
+ * giao gốc khi người khác giao lại / huỷ / khôi phục việc của họ). Chỉ {@see SendTaskNotice} gửi nó, SAU khi đã lọc người
  * nhận: đang hoạt động, còn xem được việc (`ResolveStaffRecipients::forTask()`; các loại
  * {@see self::ON_BEHALF_KINDS} qua `forTaskAssigner()`, cùng bộ lọc đó); riêng loại {@see self::REASSIGNED_AWAY}
  * chỉ cần đang hoạt động (`ResolveStaffRecipients::forFormerTaskHolder()`).
@@ -80,11 +80,24 @@ class TaskAlert extends Notification
     public const CANCELLED_BY_OTHER = 'cancelled_by_other';
 
     /**
+     * Luật sư phụ trách / quản lý KHÔI PHỤC việc người giao gốc đã giao (thường sau một {@see self::CANCELLED_BY_OTHER})
+     * — chuông cho người giao gốc, kèm lý do (làn fa1, vòng sửa 1, m7).
+     */
+    public const RESTORED_BY_OTHER = 'restored_by_other';
+
+    /**
      * Các loại báo NGƯỜI GIAO đi qua `ResolveStaffRecipients::forTaskAssigner()` — người giao đã rời vụ hay nghỉ
-     * thì luật sư phụ trách (hay người quản lý vụ) nhận thay, với câu `*_on_behalf` (làn fa1, phán quyết 7: thêm
-     * "đã nhận", "đã hoàn thành" và "người nhận tự mở lại").
+     * thì luật sư phụ trách nhận thay, với câu `*_on_behalf` (làn fa1, phán quyết 7: thêm "đã nhận", "đã hoàn thành"
+     * và "người nhận tự mở lại"). Chỉ "bị trả lại" còn rơi tiếp tới người quản lý của vụ — xem {@see self::INFO_ONLY_KINDS}.
      */
     public const ON_BEHALF_KINDS = [self::DECLINED, self::ACCEPTED, self::COMPLETED, self::REOPENED_BY_HOLDER];
+
+    /**
+     * Phần của {@see self::ON_BEHALF_KINDS} chỉ là TIN cho người giao, không cần ai quyết định (làn fa1, vòng sửa 1 —
+     * rà soát Task 1, m5): `forTaskAssigner(decisionNeeded: false)` — người giao, hay luật sư phụ trách nhận thay, không
+     * bao giờ mọi trưởng phòng.
+     */
+    public const INFO_ONLY_KINDS = [self::ACCEPTED, self::COMPLETED, self::REOPENED_BY_HOLDER];
 
     /**
      * @param  string  $kind  một trong các hằng số của lớp

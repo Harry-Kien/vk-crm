@@ -454,6 +454,18 @@ return [
                 'body' => 'Việc ":title" do :assigner giao cho :who đã quá hạn :detail ngày. :assigner không còn theo dõi '
                     .'việc này nên anh/chị nhận thay.',
             ],
+            // làn fa1 (vòng sửa 1, I1): việc sắp đến hạn mà người nhận không còn làm được — báo người giao
+            // (RemindPendingWork::DUE_SOON_ASSIGNER); câu "cần giao lại" nối sau.
+            'due_soon_assigner' => [
+                'title' => 'Một việc anh/chị giao sắp đến hạn mà không còn người làm',
+                'body' => 'Việc ":title" giao cho :who đến hạn ngày :detail.',
+            ],
+            'due_soon_assigner_on_behalf' => [
+                'title' => 'Một việc trên hồ sơ anh/chị phụ trách sắp đến hạn mà không còn người làm',
+                'body' => 'Việc ":title" do :assigner giao cho :who đến hạn ngày :detail. :assigner không còn theo dõi '
+                    .'việc này nên anh/chị nhận thay.',
+            ],
+            // hết khối làn fa1
         ],
         'email' => [
             'assignee' => 'Người nhận việc',
@@ -465,6 +477,9 @@ return [
                 'overdue_assigner' => 'Một việc anh/chị giao đã quá hạn',
                 'unaccepted_on_behalf' => 'Một việc trên hồ sơ anh/chị phụ trách chưa được nhận',
                 'overdue_assigner_on_behalf' => 'Một việc trên hồ sơ anh/chị phụ trách đã quá hạn',
+                // làn fa1 (vòng sửa 1, I1)
+                'due_soon_assigner' => 'Một việc anh/chị giao sắp đến hạn mà không còn người làm',
+                'due_soon_assigner_on_behalf' => 'Một việc trên hồ sơ anh/chị phụ trách sắp đến hạn mà không còn người làm',
             ],
             'headline' => [
                 'awaiting' => 'Việc dưới đây đã chờ anh/chị nhận :detail (tính theo giờ làm việc).',
@@ -476,6 +491,10 @@ return [
                     .'(tính theo giờ làm việc). :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
                 'overdue_assigner_on_behalf' => 'Việc do :assigner giao cho :name trên hồ sơ anh/chị phụ trách đã quá hạn '
                     .':detail ngày. :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
+                // làn fa1 (vòng sửa 1, I1)
+                'due_soon_assigner' => 'Việc anh/chị giao cho :name đến hạn ngày :detail.',
+                'due_soon_assigner_on_behalf' => 'Việc do :assigner giao cho :name trên hồ sơ anh/chị phụ trách đến hạn ngày '
+                    .':detail. :assigner không còn theo dõi việc này nên anh/chị nhận thay.',
             ],
             'action' => [
                 'awaiting' => 'Mở mục Công việc để bấm "Đã nhận" hoặc "Trả lại"',
@@ -485,6 +504,9 @@ return [
                 'overdue_assigner' => 'Mở mục Công việc — tab "Tôi đã giao"',
                 'unaccepted_on_behalf' => 'Mở tab Công việc của hồ sơ',
                 'overdue_assigner_on_behalf' => 'Mở tab Công việc của hồ sơ',
+                // làn fa1 (vòng sửa 1, I1)
+                'due_soon_assigner' => 'Mở mục Công việc — tab "Tôi đã giao"',
+                'due_soon_assigner_on_behalf' => 'Mở tab Công việc của hồ sơ',
             ],
         ],
     ],
@@ -509,9 +531,10 @@ return [
             'seatsReturned' => 'Hồ sơ trả lại',
         ],
         'explain' => [
-            'tasksInProgress' => 'Số việc giao nội bộ người này đã bấm "Đã nhận", chưa hoàn thành — trong các việc anh/chị được xem.',
-            'tasksAwaiting' => 'Số việc giao cho người này chưa bấm "Đã nhận" hay "Trả lại".',
-            'tasksOverdue' => 'Số việc người này đang giữ (chờ nhận hoặc đang làm) đã qua hạn — việc chung hay việc của hồ sơ còn mở; việc của hồ sơ đã kết thúc không tính (chỉ còn huỷ được, và không được nhắc).',
+            // Làn fa1, vòng sửa 1 (m10): ba cột việc cùng một nghĩa "đang giữ" — không tính việc "Cần giao lại".
+            'tasksInProgress' => 'Số việc giao nội bộ người này đã bấm "Đã nhận", chưa hoàn thành — trong các việc anh/chị được xem. Không tính việc "Cần giao lại" vì người này đã sang người theo dõi, trả lại hay không còn mở được hồ sơ.',
+            'tasksAwaiting' => 'Số việc giao cho người này chưa bấm "Đã nhận" hay "Trả lại". Không tính việc "Cần giao lại" vì người này đã sang người theo dõi, trả lại hay không còn mở được hồ sơ.',
+            'tasksOverdue' => 'Số việc người này đang giữ (chờ nhận hoặc đang làm) đã qua hạn — việc chung hay việc của hồ sơ còn mở; việc của hồ sơ đã kết thúc không tính (chỉ còn huỷ được, và không được nhắc), việc "Cần giao lại" cũng không.',
             'tasksReturned' => 'Số việc NGƯỜI NÀY ĐÃ GIAO bị người nhận trả lại, đang chờ người này giao lại hoặc huỷ.',
             'seatsAwaiting' => 'Số hồ sơ đang mở người này vừa được giao vào đội ngũ (hay nhận bàn giao làm luật sư phụ trách) mà chưa bấm "Đã nhận hồ sơ".',
             'seatsReturned' => 'Số hồ sơ đang mở người này đã trả lại kèm lý do — cần quản lý hoặc luật sư phụ trách phân công lại (gỡ khỏi đội ngũ, hay bàn giao vụ cho người khác).',
@@ -549,6 +572,8 @@ return [
     // :where là một câu của `seat.where`.
     'page' => [
         'subheading' => 'Mọi việc anh/chị giao hoặc được giao; hồ sơ chờ nhận ở mục Việc của tôi.',
+        // Vòng sửa 1 (m3): người không nhận hồ sơ ở "Việc của tôi" (quản trị viên, kế toán, kinh doanh — SeatInbox).
+        'subheading_short' => 'Mọi việc anh/chị giao hoặc được giao.',
         'awaiting_empty_seats' => 'Anh/chị đang có :count hồ sơ chờ nhận — bấm "Đã nhận hồ sơ" :where.',
     ],
 
@@ -557,9 +582,11 @@ return [
         'matter' => 'Vụ việc',
         'matter_none' => 'Việc chung (không thuộc vụ nào)',
         'matter_help' => 'Để trống nếu là việc chung. Chỉ các vụ đang mở anh/chị được giao việc.',
-        // Nhãn kèm tên mỗi người nhận — chỉ đếm việc anh/chị xem được.
-        'workload' => 'đang giữ :held việc, :overdue quá hạn',
-        'workload_none' => 'chưa giữ việc nào',
+        // Nhãn kèm tên mỗi người nhận — chỉ đếm việc anh/chị xem được (vòng sửa 1, I2: câu nói rõ phạm vi đó, và
+        // `workload_scope` nối sau câu gợi ý của ô "Giao cho" — ProvidesTaskActions::assigneeHelp()).
+        'workload' => 'đang giữ :held việc anh/chị thấy được, :overdue quá hạn',
+        'workload_none' => 'không có việc nào anh/chị thấy được',
+        'workload_scope' => 'Số việc bên mỗi tên chỉ tính những việc anh/chị xem được — người đó có thể còn giữ việc trên hồ sơ khác.',
     ],
 
     // "Giao lại": ô hạn khi hạn cũ đã qua.
@@ -571,13 +598,15 @@ return [
     'reopen' => [
         'action' => 'Mở lại',
         'heading' => 'Yêu cầu làm lại việc này?',
-        'description' => 'Việc trở về "Đang làm" cho cùng người nhận, và họ được báo kèm nhận xét của anh/chị.',
+        'description' => 'Việc trở về "Đang làm" cho cùng người nhận, và họ được báo kèm nhận xét của anh/chị. Nếu họ không còn giữ được việc (đã nghỉ, rời đội ngũ, trả lại hồ sơ), việc hiện "Cần giao lại" để anh/chị giao người khác.',
         'heading_own' => 'Mở lại việc anh/chị vừa báo hoàn thành?',
         'description_own' => 'Dùng khi bấm "Hoàn thành" nhầm. Việc trở về "Đang làm"; người giao được báo.',
         'reason_help' => 'Bắt buộc — điều chưa đạt, cần làm thêm gì.',
         'reason_help_own' => 'Không bắt buộc.',
         'submit' => 'Mở lại',
         'success' => 'Đã mở lại việc — việc trở về "Đang làm".',
+        // Vòng sửa 1 (m2): người giữ không còn giữ được việc — không ai được báo.
+        'success_needs_reassignment' => 'Đã mở lại việc, nhưng người nhận không còn giữ được việc này: việc hiện "Cần giao lại" — hãy bấm "Giao lại".',
         'errors' => [
             'matter_closed' => 'Hồ sơ của việc này đã kết thúc nên không mở lại được việc. Nếu còn việc phải làm, hãy mở lại hồ sơ trước (trưởng phòng hoặc quản trị viên).',
         ],
@@ -587,11 +616,13 @@ return [
     'restore' => [
         'action' => 'Khôi phục',
         'heading' => 'Khôi phục việc đã huỷ?',
-        'description' => 'Việc trở về "Chờ nhận" cho người nhận cũ (nếu họ còn nhận được việc), và họ được báo kèm lý do.',
+        'description' => 'Việc trở về "Chờ nhận" cho người nhận cũ (nếu họ còn nhận được việc), và họ được báo kèm lý do. Việc bị huỷ khi đang "Bị trả lại" thì trở về "Bị trả lại" để anh/chị giao người khác.',
         'reason_help' => 'Bắt buộc — ví dụ huỷ nhầm, khách vẫn cần.',
         'submit' => 'Khôi phục',
         'success' => 'Đã khôi phục việc — người nhận cũ được báo.',
         'success_needs_reassignment' => 'Đã khôi phục việc, nhưng người nhận cũ không còn nhận được việc này: việc hiện "Cần giao lại" — hãy bấm "Giao lại".',
+        // Vòng sửa 1 (m1): việc bị huỷ khi đang "Bị trả lại" — người đã trả lại không bị đẩy việc lần nữa.
+        'success_declined' => 'Đã khôi phục việc về "Bị trả lại" (người nhận cũ đã trả lại việc này) — hãy bấm "Giao lại" để giao người khác.',
         'errors' => [
             'matter_closed' => 'Hồ sơ của việc này đã kết thúc nên không khôi phục được việc. Nếu còn việc phải làm, hãy mở lại hồ sơ trước (trưởng phòng hoặc quản trị viên).',
         ],
@@ -630,6 +661,11 @@ return [
         'cancelled_by_other' => [
             'title' => 'Việc anh/chị giao đã bị huỷ',
             'body' => ':who đã huỷ việc ":title". Lý do: :reason',
+        ],
+        // Vòng sửa 1 (m7): người khác khôi phục việc anh/chị giao (đối xứng với cancelled_by_other).
+        'restored_by_other' => [
+            'title' => 'Việc anh/chị giao đã được khôi phục',
+            'body' => ':who đã khôi phục việc ":title" — việc trở lại mục "Tôi đã giao" của anh/chị. Lý do: :reason',
         ],
         'accepted_on_behalf' => [
             'title' => 'Một việc trên hồ sơ anh/chị phụ trách đã được nhận',
