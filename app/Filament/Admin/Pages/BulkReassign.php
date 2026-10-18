@@ -400,6 +400,10 @@ class BulkReassign extends Page
     /**
      * Câu tóm tắt việc của `$userId` — chỉ trên hồ sơ người bấm `manageTeam` được ({@see self::manageableOpenMatters()};
      * một vụ hạn chế người bấm không quản lý không góp vào con số nào), cộng việc chung. Chỉ số lượng.
+     *
+     * Gộp integ-fa (rà soát chéo, mục 8): hồ sơ người đó đang PHỤ TRÁCH không vào con số nào — {@see TransferStaffWork}
+     * bỏ qua chúng (dòng kết quả `is_lead`: phần "Bàn giao" chuyển chúng), nên con số của hộp xác nhận bằng đúng điều
+     * sẽ chuyển.
      */
     private function staffSummary(int $userId): string
     {
@@ -411,7 +415,9 @@ class BulkReassign extends Page
 
         $matterIds = array_values(array_intersect(
             app(TransferStaffWork::class)->matterIds($user),
-            $this->manageableOpenMatters()->modelKeys(),
+            $this->manageableOpenMatters()
+                ->reject(fn (Matter $matter): bool => $matter->lead_lawyer_id === $user->getKey())
+                ->modelKeys(),
         ));
         $work = OpenTaskWork::forUser($user);
         $counted = fn ($rows): int => $rows->filter(fn ($row): bool => $row->matter_id === null || in_array($row->matter_id, $matterIds, true))->count();

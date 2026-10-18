@@ -37,6 +37,8 @@ class LeadChangeAlert extends Notification
      * @param  string|null  $url  hồ sơ duy nhất người nhận còn mở được; `null`: danh sách hồ sơ
      * @param  bool  $opens  người nhận còn mở được MỌI hồ sơ của lời báo — sai thì câu nói họ đã rời đội ngũ và
      *                       việc nội bộ của họ trên đó cũng đã chuyển
+     * @param  bool  $mixedFrom  gộp integ-fa (rà soát chéo, mục 13): các hồ sơ có người phụ trách cũ KHÁC nhau — `$codes`
+     *                           đã mang tên người cũ của từng hồ sơ, câu {@see self::LEAD_CHANGED} không nêu `$from` chung
      */
     public function __construct(
         private readonly string $kind,
@@ -48,6 +50,7 @@ class LeadChangeAlert extends Notification
         private readonly string $key,
         private readonly ?string $url = null,
         private readonly bool $opens = true,
+        private readonly bool $mixedFrom = false,
     ) {}
 
     /** @return array<int, string> */
@@ -69,6 +72,7 @@ class LeadChangeAlert extends Notification
 
         $variant = match (true) {
             $this->count > 1 && $this->codes === [] => 'many_hidden',
+            $this->count > 1 && $this->mixedFrom && $this->kind === self::LEAD_CHANGED => 'many_mixed',
             $this->count > 1 => $this->opens ? 'many' : 'many_left',
             $this->codes === [] => 'hidden',
             default => $this->opens ? 'one' : 'one_left',

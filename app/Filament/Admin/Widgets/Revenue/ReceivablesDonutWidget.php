@@ -75,6 +75,15 @@ use Illuminate\Support\Facades\Auth;
  * phụ trách hôm nay), nên tổng không còn là "giá trị đã ký của MỘT tập vụ việc" nữa, và một dòng
  * đối chiếu lúc đó sẽ so sánh hai thứ không cùng bản chất.
  *
+ * # Hồ sơ đã huỷ (gộp integ-fa, rà soát chéo 2026-10-18, mục 12)
+ *
+ * Lát "đã thu" đếm cả khoản thu (chưa huỷ) trên hồ sơ đã huỷ — `withTrashed()` + `listableBy()`, đúng luật của ô "Đã
+ * thu" đầu trang (`CollectedRevenue`): tiền đã về là sự thật kế toán, và hai con số "đã thu" trên cùng một trang không
+ * được lệch nhau vì một hồ sơ đã huỷ. Các phần khác giữ như cũ (giá trị đã ký cùng tập với ô "Hợp đồng ký mới" —
+ * `SignedContracts` — chỉ hồ sơ chưa huỷ; còn phải thu / quá hạn từ `OpenReceivables`). Từ làn fa3, "Huỷ hồ sơ mở nhầm"
+ * từ chối hồ sơ còn khoản thu chưa huỷ (`CancelMatter`), nên chỉ dữ liệu từ trước đó có khoản thu trên hồ sơ đã huỷ;
+ * trên dữ liệu đó dòng đối chiếu "giá trị đã ký" có thể nhỏ hơn tổng ba lát đúng bằng phần ấy.
+ *
  * Bộ ba màu đã kiểm chứng máy (kế hoạch M9): đã thu `#0ca30c`, còn phải thu chưa tới hạn `#4a73bd`,
  * quá hạn `#d03b3b` — từ làn rv đọc từ `App\Support\Billing\RevenueColours`, chung với ô số đầu trang.
  */
@@ -243,13 +252,16 @@ class ReceivablesDonutWidget extends ChartWidget
             ->first();
         $writtenOff = (int) ($writtenOffRow?->agg ?? 0);
 
+        // Gộp integ-fa (rà soát chéo, mục 12): tiền đã thu trên hồ sơ ĐÃ HUỶ vẫn là tiền đã về — cùng luật `withTrashed()`
+        // + `listableBy()` của ô "Đã thu" (`CollectedRevenue`), nên hai con số "đã thu" của trang không lệch nhau vì một
+        // hồ sơ đã huỷ. Xem docblock lớp, mục "Hồ sơ đã huỷ".
         $collected = (int) Payment::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereNull('voided_at')
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('attributed_lawyer_id', $v))
             ->whereHas('instalment.contract', fn (Builder $q) => $contractPeriodScope($q)
                 ->whereIn('status', $reconciledStatuses)
-                ->whereHas('matter', $baseMatterScope))
+                ->whereHas('matter', fn (Builder $matter): Builder => $baseMatterScope($matter->withTrashed())))
             ->sum('amount');
 
         // C1: còn phải thu — CHỈ từ BillingSummary::pendingInstalmentsQuery() (chỉ hợp đồng

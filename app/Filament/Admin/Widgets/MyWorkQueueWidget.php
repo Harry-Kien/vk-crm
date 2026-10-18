@@ -2,7 +2,9 @@
 
 namespace App\Filament\Admin\Widgets;
 
+use App\Enums\Permission;
 use App\Enums\TaskStatus;
+use App\Filament\Admin\Pages\DocumentLibrary;
 use App\Filament\Admin\Pages\TeamMember;
 use App\Filament\Admin\Resources\Tasks\TaskResource;
 use App\Filament\Admin\Widgets\Tasks\MatterAssignmentsAwaitingMeWidget;
@@ -27,7 +29,11 @@ use Illuminate\Support\Facades\Gate;
  *    trang đó là 404, nên ô này không có mặt và không vào số của họ — quản trị viên nhận hồ sơ trên tab
  *    "Đội ngũ" của vụ, nơi chuông và thư nhắc của họ trỏ tới;
  *  - việc tôi giao bị trả lại → tab "Tôi đã giao" lọc sẵn trạng thái "Bị trả lại" (tab đó còn liệt kê việc
- *    đang mở và việc vừa xong).
+ *    đang mở và việc vừa xong);
+ *  - văn bản chờ tôi duyệt (gộp integ-fa, rà soát chéo 2026-10-18, mục 17) → trang "Tài liệu" lọc sẵn "Chờ tôi duyệt"
+ *    (`DocumentLibrary::awaitingApprovalIds()` — MỘT định nghĩa cho ô và bộ lọc: văn bản nhóm B đang chờ duyệt mà người
+ *    xem qua cổng `DocumentPolicy::publish` của nút duyệt). CHỈ cho người có `document.publish` (người duyệt được) — ô
+ *    không có mặt với người khác.
  *
  * Mỗi con số đếm ĐÚNG tập dòng mà đường dẫn của ô mở ra: cùng `Task::visibleTo()` thu hẹp theo người xem,
  * cùng scope của tab và bộ lọc trong đường dẫn ({@see self::countsFor()}, {@see self::links()} —
@@ -46,7 +52,7 @@ use Illuminate\Support\Facades\Gate;
 class MyWorkQueueWidget extends StatsOverviewWidget
 {
     /** Màu của một ô khi số khác không. */
-    private const COLORS = ['awaiting' => 'warning', 'overdue' => 'danger', 'seats' => 'warning', 'returned' => 'danger'];
+    private const COLORS = ['awaiting' => 'warning', 'overdue' => 'danger', 'seats' => 'warning', 'returned' => 'danger', 'approvals' => 'warning'];
 
     protected static ?int $sort = 2;
 
@@ -105,7 +111,8 @@ class MyWorkQueueWidget extends StatsOverviewWidget
 
     /**
      * Các con số của `$user`, theo thứ tự ô — xem docblock lớp. Khoá `seats` chỉ có khi `$user` mở được
-     * "Việc của tôi" ({@see SeatInbox::onMyWork()}).
+     * "Việc của tôi" ({@see SeatInbox::onMyWork()}); khoá `approvals` chỉ khi `$user` duyệt được văn bản
+     * ({@see self::approves()}).
      *
      * @return array<string, int>
      */
@@ -118,14 +125,21 @@ class MyWorkQueueWidget extends StatsOverviewWidget
             'overdue' => $mine()->where('tasks.assignee_id', $user->getKey())->overdueToHandle()->count(),
             ...(SeatInbox::onMyWork($user) ? ['seats' => MatterAssignmentsAwaitingMeWidget::seats($user)->count()] : []),
             'returned' => $mine()->where('tasks.assigned_by', $user->getKey())->returned()->count(),
+            ...(self::approves($user) ? ['approvals' => count(DocumentLibrary::awaitingApprovalIds($user))] : []),
         ];
+    }
+
+    /** Người duyệt được văn bản nhóm B và mở được trang "Tài liệu" — ô "Văn bản chờ tôi duyệt" có mặt (mục 17). */
+    private static function approves(User $user): bool
+    {
+        return DocumentLibrary::canBeOpenedBy($user) && Gate::forUser($user)->allows(Permission::DocumentPublish->value);
     }
 
     /**
      * Đường dẫn của từng ô — tab và bộ lọc (`?filters[…]`, cùng tên bộ lọc của `ListTasks::table()`) để
      * trang mở ra đúng tập dòng của con số (docblock lớp).
      *
-     * @return array{awaiting: string, overdue: string, seats: string, returned: string}
+     * @return array{awaiting: string, overdue: string, seats: string, returned: string, approvals: string}
      */
     public static function links(User $user): array
     {
@@ -143,6 +157,9 @@ class MyWorkQueueWidget extends StatsOverviewWidget
             'returned' => TaskResource::getUrl('index', [
                 'tab' => 'assigned',
                 'filters' => ['status' => ['values' => [TaskStatus::Declined->value]]],
+            ], panel: 'admin'),
+            'approvals' => DocumentLibrary::getUrl([
+                'filters' => [DocumentLibrary::AWAITING_MY_APPROVAL => ['isActive' => true]],
             ], panel: 'admin'),
         ];
     }

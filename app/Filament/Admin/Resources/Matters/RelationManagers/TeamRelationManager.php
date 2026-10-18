@@ -297,6 +297,28 @@ class TeamRelationManager extends RelationManager
             return [];
         }
 
+        $lines = $held->map(fn (Task $task): string => e(__('internal_flow.team_removal.task_line', [
+            'title' => $task->title,
+            'status' => $task->status->label(),
+            'due' => $task->due_date === null ? '' : __('internal_flow.team_removal.task_due', ['date' => $task->due_date->format('d/m/Y')]),
+        ])));
+        $heading = Text::make(new HtmlString(e(__('internal_flow.team_removal.tasks_heading', ['count' => $held->count()])).'<br>'.$lines->implode('<br>')));
+
+        // Gộp integ-fa (rà soát chéo, mục 9): hồ sơ đã kết thúc — "Giao lại" không chạy được ở đó (`TaskPolicy::reassign`
+        // đòi hồ sơ đang mở), nên chỉ còn "Để Cần giao lại". `RemoveTeamMember` hỏi lại.
+        if (! $matter->isOpen()) {
+            return [
+                $heading,
+                Select::make('task_recipient_id')
+                    ->label(__('internal_flow.team_removal.recipient'))
+                    ->helperText(__('internal_flow.team_removal.closed_leave_only'))
+                    ->options([RemoveTeamMember::LEAVE_FOR_REASSIGNMENT => __('internal_flow.team_removal.leave')])
+                    ->default(RemoveTeamMember::LEAVE_FOR_REASSIGNMENT)
+                    ->required()
+                    ->native(false),
+            ];
+        }
+
         $actor = Auth::user();
         $assignees = app(TaskAssignees::class);
         $candidates = $assignees->eligible($matter, $actor);
@@ -314,14 +336,9 @@ class TeamRelationManager extends RelationManager
                 ? __('internal_flow.team_removal.take_over', ['name' => $user->name])
                 : $user->name])
             ->all();
-        $lines = $held->map(fn (Task $task): string => e(__('internal_flow.team_removal.task_line', [
-            'title' => $task->title,
-            'status' => $task->status->label(),
-            'due' => $task->due_date === null ? '' : __('internal_flow.team_removal.task_due', ['date' => $task->due_date->format('d/m/Y')]),
-        ])));
 
         return [
-            Text::make(new HtmlString(e(__('internal_flow.team_removal.tasks_heading', ['count' => $held->count()])).'<br>'.$lines->implode('<br>'))),
+            $heading,
             Select::make('task_recipient_id')
                 ->label(__('internal_flow.team_removal.recipient'))
                 ->helperText(__('internal_flow.team_removal.recipient_hint'))

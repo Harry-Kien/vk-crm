@@ -189,12 +189,14 @@ it('counts a task still overdue at the end of the period against the person, not
     foreach (['2026-09-05', '2026-09-10', '2026-09-15', '2026-09-20', '2026-09-25'] as $due) {
         Task::factory()->forMatter($this->matter)->status(TaskStatus::Completed)->create([
             'assignee_id' => $this->assistant->id, 'assigned_by' => $this->lead->id,
-            'due_date' => $due, 'completed_at' => $due.' 09:00:00',
+            'due_date' => $due, 'completed_at' => $due.' 09:00:00', 'assigned_at' => '2026-09-01 09:00:00',
         ]);
     }
-    // Quá hạn từ 10/9, vẫn đang làm: tính là trễ trong tháng 9.
+    // Quá hạn từ 10/9, vẫn đang làm: tính là trễ trong tháng 9. (Giao trước hạn — gộp integ-fa: việc nhận sau hạn
+    // không vào tỉ lệ.)
     Task::factory()->forMatter($this->matter)->status(TaskStatus::Accepted)->create([
         'assignee_id' => $this->assistant->id, 'assigned_by' => $this->lead->id, 'due_date' => '2026-09-10',
+        'assigned_at' => '2026-09-01 09:00:00',
     ]);
     // Không tính: đã huỷ; bị trả lại (không còn trong tay); hạn ngoài kỳ; vụ đã kết thúc.
     Task::factory()->forMatter($this->matter)->status(TaskStatus::Cancelled)->create([

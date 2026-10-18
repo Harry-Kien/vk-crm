@@ -131,6 +131,38 @@ class DocumentLibrary extends Page implements HasTable
         return static::canAccess();
     }
 
+    /** Tên bộ lọc "Chờ tôi duyệt" (gộp integ-fa, rà soát chéo, mục 17) — ô số trên bảng điều khiển trỏ tới nó. */
+    public const AWAITING_MY_APPROVAL = 'awaiting_my_approval';
+
+    /**
+     * Id các văn bản "chờ tôi duyệt" của `$viewer` (gộp integ-fa, rà soát chéo 2026-10-18, mục 17): văn bản nhóm B
+     * (`DocumentGroup::Issued`) đang "Chờ duyệt" (`DocumentStatus::PendingApproval`), trong tập trang này cho người đó
+     * thấy (`ListVisibleDocuments`), mà người đó QUA ĐÚNG CỔNG của nút duyệt — `DocumentPolicy::publish`, cổng của
+     * `MarkDocumentSignedFiled` ("Đánh dấu đã ký, đã nộp") và của "Trả về bản nháp". Cổng hỏi từng văn bản (MỘT luật,
+     * không viết lại bằng SQL); tập văn bản đang chờ duyệt nhỏ. Bộ lọc của trang và ô số "Văn bản chờ tôi duyệt" của bảng
+     * điều khiển (`MyWorkQueueWidget`) cùng đọc hàm này.
+     *
+     * @return list<int>
+     */
+    public static function awaitingApprovalIds(User $viewer): array
+    {
+        if (! static::canBeOpenedBy($viewer)) {
+            return [];
+        }
+
+        $gate = Gate::forUser($viewer);
+
+        return app(ListVisibleDocuments::class)->query($viewer)
+            ->where('documents.group', DocumentGroup::Issued->value)
+            ->where('documents.status', DocumentStatus::PendingApproval->value)
+            ->with('matter')
+            ->get()
+            ->filter(fn (Document $document): bool => $gate->allows('publish', $document))
+            ->map(fn (Document $document): int => (int) $document->getKey())
+            ->values()
+            ->all();
+    }
+
     /** Xem docblock lớp, mục "Cổng" — 404 ở mount VÀ ở mọi request cập nhật Livewire. */
     public function boot(): void
     {
@@ -254,6 +286,15 @@ class DocumentLibrary extends Page implements HasTable
                         filled($data['from'] ?? null) ? Indicator::make(__('document_library.filters.indicator_from', ['date' => CarbonImmutable::parse($data['from'])->format('d/m/Y')]))->removeField('from') : null,
                         filled($data['until'] ?? null) ? Indicator::make(__('document_library.filters.indicator_until', ['date' => CarbonImmutable::parse($data['until'])->format('d/m/Y')]))->removeField('until') : null,
                     ]))),
+                // Gộp integ-fa (rà soát chéo, mục 17): văn bản nhóm B đang chờ duyệt mà CHÍNH người xem duyệt được — xem
+                // {@see self::awaitingApprovalIds()}. Chỉ hiện với người có `document.publish`.
+                Filter::make(self::AWAITING_MY_APPROVAL)
+                    ->label(__('document_library.filters.awaiting_my_approval'))
+                    ->toggle()
+                    ->visible(fn (): bool => Auth::user() instanceof User && Gate::allows(Permission::DocumentPublish->value))
+                    ->query(fn (Builder $query): Builder => Auth::user() instanceof User
+                        ? $query->whereKey(static::awaitingApprovalIds(Auth::user()))
+                        : $query->whereRaw('1 = 0')),
             ])
             ->recordActions([
                 $this->downloadAction(),

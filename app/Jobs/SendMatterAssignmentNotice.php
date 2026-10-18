@@ -46,14 +46,24 @@ class SendMatterAssignmentNotice implements ShouldQueue
 
     public int $tries = 5;
 
+    /**
+     * Làn fa2, phán quyết 4: kèm thư "được giao hồ sơ" (chỉ `OpenMatter`). Gộp integ-fa (rà soát chéo 2026-10-18, mục 5):
+     * KHÔNG phải thuộc tính `readonly` khai trong hàm dựng — job xếp trước bản cập nhật (payload không có khoá này) được
+     * unserialize bằng giá trị mặc định ở đây; một thuộc tính `readonly` không có giá trị mặc định, nên nó sẽ ở trạng
+     * thái chưa khởi tạo và `handle()` ném lỗi "must not be accessed before initialization".
+     */
+    public bool $withMail = false;
+
     public function __construct(
         public readonly int $matterId,
         public readonly int $memberId,
         public readonly string $kind,
         public readonly int $recipientId,
         public readonly int $eventId,
-        public readonly bool $withMail = false,
-    ) {}
+        bool $withMail = false,
+    ) {
+        $this->withMail = $withMail;
+    }
 
     /** @return list<int> */
     public function backoff(): array

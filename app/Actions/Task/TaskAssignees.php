@@ -10,6 +10,7 @@ use App\Enums\TaskStatus;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -92,10 +93,26 @@ class TaskAssignees
         $overdue = BuildTeamWorkload::countPer(Task::query()->visibleTo($actor)->overdueToHandle()->whereIn('tasks.assignee_id', $ids), 'tasks.assignee_id');
 
         return $people
-            ->mapWithKeys(fn (User $user): array => [$user->getKey() => $user->name.' — '.(($held[$user->getKey()] ?? 0) === 0
+            ->mapWithKeys(fn (User $user): array => [$user->getKey() => $user->name.self::LABEL_SEPARATOR.(($held[$user->getKey()] ?? 0) === 0
                 ? __('tasks.assign.workload_none')
                 : __('tasks.assign.workload', ['held' => $held[$user->getKey()], 'overdue' => $overdue[$user->getKey()] ?? 0]))])
             ->all();
+    }
+
+    /** Giữa tên và câu khối lượng việc trong nhãn của {@see self::options()}. */
+    public const LABEL_SEPARATOR = ' — ';
+
+    /**
+     * Tìm trong nhãn của {@see self::options()} (gộp integ-fa, rà soát chéo 2026-10-18, mục 19): cùng phép so không
+     * dấu của `LetterD::filterOptions()`, nhưng CHỈ trên phần tên — gõ "dang" hay "viec" không được ra mọi người chỉ vì
+     * câu "đang giữ … việc" đứng sau tên. Ba ô chọn người nhận việc (trang Công việc, tab Công việc của vụ, "Giao lại").
+     *
+     * @param  array<int|string, string>  $options
+     * @return array<int|string, string>
+     */
+    public static function searchOptions(array $options, ?string $search): array
+    {
+        return LetterD::filterOptions($options, $search, nameBefore: self::LABEL_SEPARATOR);
     }
 
     /**

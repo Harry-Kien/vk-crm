@@ -37,7 +37,8 @@ use Throwable;
  *     không có lượt nào. Dời hạn là một hạn mới — nhắc lại cho hạn mới. Người nhận không còn giữ được việc: người
  *     giao nhận `reminder.due_soon_assigner` thay (xem đoạn "vòng sửa 1" dưới).
  *  3. **Quá hạn** — việc chờ nhận hay đang làm đã qua hạn: mỗi ngày làm việc một lần, nhắc người nhận
- *     (`reminder.overdue`) và báo người giao (`reminder.overdue_assigner`), khoá `overdue@<hôm nay>`.
+ *     (`reminder.overdue`) và báo người giao (`reminder.overdue_assigner`), khoá `overdue@<hôm nay>`. Việc riêng (người
+ *     giao = người giữ) chỉ có lời nhắc người nhận — gộp integ-fa, rà soát chéo mục 3 ({@see self::isOwnTask()}).
  *
  * Việc "Bị trả lại" không nhắc (người giao đã được báo, nó nằm ở "Tôi đã giao"); việc của vụ đã kết thúc
  * hay đã huỷ không nhắc (không còn việc gì để làm trên vụ — người giao huỷ hay hoàn tất nó).
@@ -169,9 +170,11 @@ class RemindPendingWork
         // (`queueForTask()` → `Task::scopeHeldBySeatedAssignee()`), nên tới đúng tập `Task::scopeOverdueToHandle()` —
         // CÙNG định nghĩa "quá hạn" với ô của bảng điều khiển và Theo dõi đội ngũ; lời báo NGƯỜI GIAO không có vế đó
         // (làn fa1, phán quyết 5: người nhận không còn giữ được việc thì người giao được nhắc thay).
+        // Gộp integ-fa (rà soát chéo, mục 3): việc riêng (người giao = người giữ) không có lời báo người giao — người giữ
+        // đã nhận lời nhắc quá hạn của chính họ ({@see self::isOwnTask()}).
         foreach (self::liveTasks()->held()->overdue()->get() as $task) {
             $queued += $this->guarded(fn (): int => $this->queueForTask($task, self::OVERDUE, self::overdueKey(), [$task->assignee])
-                + $this->queueForTask($task, self::OVERDUE_ASSIGNER, self::overdueKey(), $this->taskAssignerAudience($task)));
+                + (self::isOwnTask($task) ? 0 : $this->queueForTask($task, self::OVERDUE_ASSIGNER, self::overdueKey(), $this->taskAssignerAudience($task))));
         }
 
         return ['queued' => $queued];
@@ -202,7 +205,9 @@ class RemindPendingWork
                 && ($kind === self::DUE_SOON || ! self::assigneeCanStillWork($task)),
             self::OVERDUE, self::OVERDUE_ASSIGNER => self::isActive($task)
                 && $task->isOverdue()
-                && $key === self::overdueKey($now),
+                && $key === self::overdueKey($now)
+                // Gộp integ-fa (rà soát chéo, mục 3): việc đã thành việc riêng giữa lúc xếp và lúc gửi — không báo người giao.
+                && ($kind === self::OVERDUE || ! self::isOwnTask($task)),
             default => false,
         };
     }
@@ -508,6 +513,16 @@ class RemindPendingWork
     private static function activeTasks(): Builder
     {
         return self::liveTasks()->whereIn('tasks.status', [TaskStatus::Pending->value, TaskStatus::Accepted->value]);
+    }
+
+    /**
+     * Việc RIÊNG — người giao chính là người đang giữ (nhận thay, "Giao lại" về người đã giao, bàn giao vụ — gộp
+     * integ-fa). Lời nhắc quá hạn tới người giữ là đủ: không có lời báo "quá hạn" cho người giao, và (qua
+     * `ResolveStaffRecipients::forTaskAssigner()`) không lời báo nào của việc riêng rơi tới người quản lý của vụ.
+     */
+    public static function isOwnTask(Task $task): bool
+    {
+        return $task->assigned_by !== null && $task->assigned_by === $task->assignee_id;
     }
 
     private static function isActive(Task $task): bool

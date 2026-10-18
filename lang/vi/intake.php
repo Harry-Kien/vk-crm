@@ -313,6 +313,15 @@ return [
         'done_new_client' => 'Đã tạo hồ sơ khách hàng mới cho người liên hệ.',
     ],
 
+    // Gộp integ-fa (rà soát chéo 2026-10-18, mục 15): chuông tin App\Notifications\Staff\IntakeConvertedAlert cho người
+    // tư vấn của bản ghi khi người khác chuyển nó thành hồ sơ. :intake, :who, :matter, :lead đã escape ở chuông.
+    'converted_alert' => [
+        'title' => 'Bản ghi tiếp nhận anh/chị tư vấn đã thành hồ sơ',
+        'body' => ':who đã chuyển bản ghi tiếp nhận :intake thành hồ sơ :matter — luật sư phụ trách: :lead.',
+        'body_hidden' => ':who đã chuyển bản ghi tiếp nhận :intake thành một hồ sơ anh/chị không mở được.',
+        'open' => 'Mở hồ sơ',
+    ],
+
     /*
      * M10 Task 5 (R5) — nhắc một lần liên hệ chưa ai gọi lại quá ngưỡng phản hồi: thư
      * `staff.intake_unanswered`, thông báo trong hệ thống, và cách nói một khoảng chờ (thư, chuông,

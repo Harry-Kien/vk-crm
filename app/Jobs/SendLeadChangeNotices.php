@@ -36,7 +36,9 @@ use Spatie\Activitylog\Models\Activity;
  *
  * # Một chuông mỗi người cho cả lô, chống trùng khi thử lại
  *
- * Gộp theo người nhận: một chuông cho mọi hồ sơ của lô. Khoá `lead@<id các dòng nhật ký>` nằm ở
+ * Gộp theo người nhận: một chuông cho mọi hồ sơ của lô. Gộp integ-fa (rà soát chéo, mục 13): lô có nhiều người phụ trách
+ * cũ (thành viên ngồi ở hồ sơ của hai người khác nhau) — mỗi mã trong chuông `LEAD_CHANGED` kèm người phụ trách cũ của
+ * chính hồ sơ đó (`internal_flow.lead_change.code_from`), câu không nêu một tên "từ" chung. Khoá `lead@<id các dòng nhật ký>` nằm ở
  * `viewData.lead_change_key`; chuông đã có khoá đó thì không gửi lại.
  */
 class SendLeadChangeNotices implements ShouldQueue
@@ -62,7 +64,7 @@ class SendLeadChangeNotices implements ShouldQueue
         $key = 'lead@'.implode('-', array_values($this->events));
         $actorName = (string) User::query()->withTrashed()->whereKey($this->actorId)->value('name');
 
-        /** @var array<string, array{user: User, kind: string, codes: list<string>, count: int, from: string, to: string, url: ?string, opens: bool}> $notices */
+        /** @var array<string, array{user: User, kind: string, codes: list<string>, froms: list<string>, count: int, from: string, to: string, url: ?string, opens: bool}> $notices */
         $notices = [];
 
         foreach ($this->events as $matterId => $eventId) {
@@ -105,34 +107,43 @@ class SendLeadChangeNotices implements ShouldQueue
                 continue;
             }
 
+            // Gộp integ-fa (rà soát chéo, mục 13): lô có NHIỀU người phụ trách cũ — mỗi mã kèm người phụ trách cũ của
+            // chính nó, không gán cho mọi hồ sơ tên người cũ của hồ sơ đầu tiên.
+            $mixed = count(array_unique($notice['froms'])) > 1;
+            $codes = $mixed
+                ? array_map(fn (string $code, string $from): string => __('internal_flow.lead_change.code_from', ['code' => $code, 'from' => $from]), $notice['codes'], $notice['froms'])
+                : $notice['codes'];
+
             $user->notify(new LeadChangeAlert(
                 $notice['kind'],
-                $notice['codes'],
+                $codes,
                 $notice['count'],
-                $notice['from'],
+                $mixed ? '' : $notice['from'],
                 $notice['to'],
                 $actorName,
                 $key,
                 $notice['count'] === 1 ? $notice['url'] : null,
                 $notice['opens'],
+                mixedFrom: $mixed,
             ));
         }
     }
 
     /**
-     * @param  array<string, array{user: User, kind: string, codes: list<string>, count: int, from: string, to: string, url: ?string, opens: bool}>  $notices
+     * @param  array<string, array{user: User, kind: string, codes: list<string>, froms: list<string>, count: int, from: string, to: string, url: ?string, opens: bool}>  $notices
      * @param  bool  $named  mã hồ sơ được phép hiện với người này (docblock lớp)
      * @param  bool  $opens  người này còn mở được hồ sơ — nút "Mở" trỏ tới nó
      */
     private function add(array &$notices, User $user, string $kind, Matter $matter, bool $named, bool $opens, string $from, string $to): void
     {
         $slot = $user->getKey().'|'.$kind;
-        $notices[$slot] ??= ['user' => $user, 'kind' => $kind, 'codes' => [], 'count' => 0, 'from' => $from, 'to' => $to, 'url' => null, 'opens' => true];
+        $notices[$slot] ??= ['user' => $user, 'kind' => $kind, 'codes' => [], 'froms' => [], 'count' => 0, 'from' => $from, 'to' => $to, 'url' => null, 'opens' => true];
         $notices[$slot]['count']++;
         $notices[$slot]['opens'] = $notices[$slot]['opens'] && $opens;
 
         if ($named) {
             $notices[$slot]['codes'][] = (string) $matter->code;
+            $notices[$slot]['froms'][] = $from;
         }
 
         if ($opens) {

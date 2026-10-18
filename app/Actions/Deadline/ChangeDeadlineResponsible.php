@@ -71,8 +71,8 @@ class ChangeDeadlineResponsible
 
     /**
      * @param  bool  $notify  làn fa2, vòng sửa 1 (I2): `false` — không báo người giữ mốc mới (chuông + thư
-     *                        `staff.deadline_assigned`); chỉ {@see TransferStaffWork} truyền `false`,
-     *                        vì nó gửi MỘT lời báo tổng hợp cho cả lô
+     *                        `staff.deadline_assigned`) và (gộp integ-fa, mục 16) không báo người giữ cũ; chỉ
+     *                        {@see TransferStaffWork} truyền `false`, vì nó gửi MỘT lời báo tổng hợp cho cả lô
      *
      * @throws AuthorizationException
      * @throws ValidationException
@@ -144,6 +144,8 @@ class ChangeDeadlineResponsible
             // commit — job đọc lại mốc và người nhận lúc chạy (docblock `SendDeadlineAssignmentNotice`).
             if ($notify) {
                 $this->queueAssignmentNotice($fresh, $lockedNewResponsible, $actor, $changed, $previous === null ? null : (int) $previous);
+                // Gộp integ-fa (rà soát chéo, mục 16): người giữ cũ biết mốc đã sang tay ai.
+                $this->queueHandedAwayNotice($fresh, $lockedNewResponsible, $actor, $changed, $previous === null ? null : (int) $previous);
             }
 
             return $fresh;

@@ -213,7 +213,7 @@ it('refuses to reopen a task of a closed matter, with a plain sentence, even fro
 
 it('no longer counts a reopened task as completed on time, until it is completed again', function () {
     $this->travelTo('2026-10-31 09:00:00');
-    $task = fa1Done(['completed_at' => '2026-10-19 10:00:00', 'due_date' => '2026-10-20']);
+    $task = fa1Done(['completed_at' => '2026-10-19 10:00:00', 'due_date' => '2026-10-20', 'assigned_at' => '2026-10-16 09:00:00']);
     $period = PerformancePeriod::fromFilters(['period' => PerformancePeriod::THIS_MONTH]);
     $ratio = fn () => app(BuildTaskPerformance::class)->handle($this->manager, collect([$this->assistant]), $period)['rows'][$this->assistant->id]['taskOnTime'];
 

@@ -21,6 +21,7 @@ use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Tasks\ReassignmentDueDate;
 use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
@@ -447,7 +448,9 @@ class TransferStaffWork
     /**
      * MỌI lời gọi {@see ReassignTask} của lần chuyển (vòng sửa 1, I2; nối cờ khi gộp integ-fa): không lời báo từng việc
      * nào — người nhận, người cũ và người giao đều có lời báo tổng hợp của {@see SendStaffWorkTransferNotices} — và
-     * người nhận là chính người bấm thì nhận thay (`takeOver`: "Đang làm", không bước "Đã nhận").
+     * người nhận là chính người bấm thì nhận thay (`takeOver`: "Đang làm", không bước "Đã nhận"). Gộp integ-fa (rà soát
+     * chéo, mục 2): hạn đã qua không đi theo việc — hạn mới theo {@see ReassignmentDueDate::suggest()}, cùng luật ô "Hạn"
+     * của "Giao lại".
      */
     private function reassignTask(Task $task, User $actor, User $to): void
     {
@@ -455,6 +458,8 @@ class TransferStaffWork
             $task,
             $actor,
             $to,
+            ReassignmentDueDate::suggest($task),
+            setDueDate: true,
             notifyFormerHolder: false,
             notifyNewHolder: false,
             notifyAssigner: false,

@@ -505,15 +505,21 @@ class ResolveStaffRecipients
      *
      * Người giao đang tự giữ việc (gộp integ-fa: họ nhận thay việc mình đã giao — `ReassignTask` `takeOver` — hay việc
      * được "Giao lại" về chính họ): lời báo cho người giao là lời báo về việc CỦA CHÍNH họ, nên bước người giao bị bỏ
-     * và chuỗi đi tiếp như khi người giao đã đi — luật sư phụ trách (khi không phải người giữ), rồi người quản lý của vụ
-     * với lời báo cần người quyết định. Việc chung thì rỗng.
+     * và chuỗi đi tiếp như khi người giao đã đi — luật sư phụ trách (khi không phải người giữ). Gộp integ-fa (rà soát chéo
+     * 2026-10-18, mục 3): việc riêng KHÔNG BAO GIỜ rơi tới người quản lý của vụ, kể cả lời báo cần người quyết định —
+     * người giữ chính là người quyết định việc của mình (họ "Giao lại" hay "Huỷ" bằng quyền người giao), và một việc riêng
+     * của luật sư phụ trách (bàn giao vụ biến việc lead cũ tự giữ, và việc lead cũ đã giao cho lead mới, thành việc riêng
+     * của lead mới — `MoveTasksOnHandover`) không được thành một chuông + thư cho mọi trưởng phòng. Người giữ việc riêng
+     * không làm được việc nữa (nghỉ, mất ghế): việc hiện "Cần giao lại" (`Task::scopeNeedsReassignment()`). Việc chung
+     * thì rỗng.
      *
      * @param  bool  $decisionNeeded  `false` cho một lời báo chỉ là tin: không rơi tới người quản lý của vụ (xem trên)
      * @return Collection<int, User>
      */
     public function forTaskAssigner(Task $task, bool $decisionNeeded = true): Collection
     {
-        $assigner = $task->assigned_by === $task->assignee_id ? collect() : $this->forTask($task, [$task->assigner]);
+        $own = $task->assigned_by === $task->assignee_id;
+        $assigner = $own ? collect() : $this->forTask($task, [$task->assigner]);
 
         if ($assigner->isNotEmpty() || $task->matter_id === null) {
             return $assigner;
@@ -533,8 +539,9 @@ class ResolveStaffRecipients
         // Gộp làn tk (2026-10-16): không còn người giao, và luật sư phụ trách chính là người đang giữ (trả lại)
         // việc hay không còn hợp lệ — người quản lý của vụ ({@see self::supervisorsFor()}: trưởng phòng; quản trị
         // viên với vụ hạn chế) nhận lời báo, qua cùng cổng `forTask()`. Không ai quyết định thì việc nằm im. Lời báo
-        // chỉ là tin (`$decisionNeeded = false` — làn fa1, vòng sửa 1, m5) thì dừng ở đây.
-        if ($matter === null || ! $decisionNeeded) {
+        // chỉ là tin (`$decisionNeeded = false` — làn fa1, vòng sửa 1, m5) thì dừng ở đây; việc riêng cũng vậy (gộp
+        // integ-fa, rà soát chéo mục 3 — docblock).
+        if ($matter === null || ! $decisionNeeded || $own) {
             return collect();
         }
 

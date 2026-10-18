@@ -349,7 +349,7 @@ it('keeps a collected payment with the old lawyer after handover, but moves the 
 // Vụ xoá mềm không xuất hiện; khoản thu đã huỷ không được cộng.
 // =================================================================================================
 
-it('excludes a soft-deleted matters contract and a voided payment from every total', function () {
+it('counts money collected on a soft-deleted matter like the "Đã thu" card, and never a voided payment', function () {
     // Vụ còn dư nợ KHÔNG xoá mềm được (M9 Task 5, MatterHasOutstandingBalance) — nên để trashed
     // được, đợt của nó phải thu ĐỦ trước (outstanding = 0), rồi mới `delete()`. Bản thân test vẫn
     // đo đúng điều cần đo: một hợp đồng ĐÃ THU ĐỦ trên một vụ trashed không được cộng vào "đã thu"
@@ -374,10 +374,11 @@ it('excludes a soft-deleted matters contract and a voided payment from every tot
     $this->actingAs($this->lawyer, 'web');
     $data = widgetData(ReceivablesDonutWidget::class);
 
-    // Vụ xoá mềm (15tr) không tính; khoản thu đã huỷ (9tr) không cộng vào "đã thu" — cả khoản đó
-    // vẫn là "còn phải thu" (huỷ khoản thu không huỷ đợt).
+    // Gộp integ-fa (rà soát chéo 2026-10-18, mục 12): khoản thu trên vụ đã xoá mềm (15tr) VẪN là tiền đã về — lát
+    // "đã thu" tính nó như ô "Đã thu" (`CollectedRevenue`: `withTrashed()` + `listableBy()`). Khoản thu đã huỷ (9tr)
+    // không cộng vào "đã thu" — cả khoản đó vẫn là "còn phải thu" (huỷ khoản thu không huỷ đợt).
     [$collected, $notYetDue, $overdueAmount] = $data['datasets'][0]['data'];
-    expect($collected)->toBe(0)
+    expect($collected)->toBe(15_000_000)
         ->and($notYetDue + $overdueAmount)->toBe(9_000_000);
 });
 

@@ -29,6 +29,9 @@ use Illuminate\Foundation\Queue\Queueable;
  *    "được giao" của từng việc) — {@see TeamDepartureAlert::TASKS_HANDLED}, một chuông mỗi người cho mọi việc của họ.
  *    Gộp integ-fa: đây là lời báo DUY NHẤT người giao nhận về lần gỡ (`RemoveTeamMember` gọi "Giao lại" với
  *    `notifyAssigner: false`); người nhận thay là chính người bấm (nhận thay) thì câu nói các việc đã ở "Đang làm".
+ *    Gộp integ-fa (rà soát chéo, mục 6): với việc ĐÃ CHUYỂN lời báo chỉ là tin (`forTaskAssigner(decisionNeeded:
+ *    false)` — dừng ở luật sư phụ trách, không rơi tới người quản lý của vụ); việc để "Cần giao lại" cần người quyết
+ *    định nên giữ cả chuỗi.
  *
  * # Chống trùng khi thử lại
  *
@@ -93,8 +96,10 @@ class SendTeamDepartureNotices implements ShouldQueue
         /** @var array<int, array{user: User, moved: int, left: int}> $assigners */
         $assigners = [];
 
+        // Gộp integ-fa (rà soát chéo, mục 6): việc đã chuyển — lời báo chỉ là TIN (đã có người giữ mới), không rơi tới
+        // người quản lý của vụ; việc để "Cần giao lại" cần một người quyết định — giữ cả chuỗi.
         foreach ($this->stillAsLeft() as [$task, $moved]) {
-            foreach ($recipients->forTaskAssigner($task) as $user) {
+            foreach ($recipients->forTaskAssigner($task, decisionNeeded: ! $moved) as $user) {
                 if (in_array($user->getKey(), [$this->actorId, $this->memberId, $this->recipientId], true)) {
                     continue;
                 }

@@ -14,7 +14,9 @@ return [
         'task_due' => ', hạn :date',
         'pending_seat' => 'Người này chưa bấm "Đã nhận hồ sơ" — gỡ khỏi đội ngũ là rút lại lời giao ghế này.',
         'recipient' => 'Chuyển các việc này cho',
-        'recipient_hint' => 'Mỗi việc chuyển sang người được chọn ở trạng thái "Chờ nhận" (như nút "Giao lại"): người đó và người giao việc được báo. Chọn "Tôi nhận" thì các việc sang ngay "Đang làm" của anh/chị. Chọn "Để Cần giao lại" thì các việc ở lại, hiện ở bộ lọc "Cần giao lại" của trang Công việc để giao sau.',
+        'recipient_hint' => 'Mỗi việc chuyển sang người được chọn ở trạng thái "Chờ nhận" (như nút "Giao lại"): người đó và người giao việc được báo. Việc đã quá hạn được đặt hạn mới — hôm nay cộng số ngày người cũ đã có, như ô "Hạn" của nút "Giao lại". Chọn "Tôi nhận" thì các việc sang ngay "Đang làm" của anh/chị. Chọn "Để Cần giao lại" thì các việc ở lại, hiện ở bộ lọc "Cần giao lại" của trang Công việc để giao sau.',
+        // Gộp integ-fa (rà soát chéo, mục 9): hồ sơ đã kết thúc — "Giao lại" không chạy trên hồ sơ đó.
+        'closed_leave_only' => 'Hồ sơ đã kết thúc nên không chuyển việc cho người khác được nữa: các việc ở lại và hiện ở bộ lọc "Cần giao lại" (người giao hay luật sư phụ trách huỷ chúng nếu không còn cần).',
         'leave' => 'Để "Cần giao lại" (giao sau)',
         'choose_recipient' => 'Người này còn giữ :count việc nội bộ trên hồ sơ: hãy chọn người nhận thay, hoặc chọn "Để Cần giao lại".',
         'recipient_is_member' => 'Không thể chuyển việc cho chính người đang bị gỡ khỏi đội ngũ.',
@@ -40,6 +42,17 @@ return [
         ],
     ],
 
+    // Gộp integ-fa (rà soát chéo 2026-10-18, mục 10): chuông App\Notifications\Staff\MatterCancelledTasksAlert
+    // (App\Jobs\SendMatterCancelledTaskNotices) sau "Huỷ hồ sơ mở nhầm". :matter, :who đã escape ở chuông.
+    'matter_cancelled' => [
+        'title' => 'Một hồ sơ có việc của anh/chị đã bị huỷ',
+        'body' => ':who đã huỷ :matter (hồ sơ mở nhầm) — việc của anh/chị trên hồ sơ này tạm ẩn khỏi trang Công việc và thôi được nhắc: :items. Khôi phục hồ sơ thì các việc trở lại như cũ.',
+        'held' => ':count việc anh/chị đang giữ',
+        'assigned' => ':count việc anh/chị đã giao',
+        'and' => '; ',
+        'open' => 'Mở trang Công việc',
+    ],
+
     // làn fa2 — phán quyết 2: việc nội bộ còn dở trong luật nghỉ việc / tạm khoá / xoá / đổi chức danh
     // (App\Support\OpenTaskWork, App\Actions\User\Concerns\GuardsStaffOffboarding, EditUser "Khoá truy cập ngay").
     'offboarding' => [
@@ -62,7 +75,7 @@ return [
         'submit' => 'Chuyển việc nội bộ và ghế',
         'results' => [
             'done' => 'Đã chuyển: :tasks việc đang giữ, :followed việc đã giao (đổi người giao), :deadlines mốc hạn, :requests yêu cầu của khách; :seats ghế mới trong đội ngũ.',
-            'is_lead' => 'Người này đang phụ trách hồ sơ này — dùng phần "Bàn giao" ở trên (bàn giao vụ chuyển cả việc của luật sư phụ trách cũ).',
+            'is_lead' => 'Người này đang phụ trách hồ sơ này — dùng phần "Bàn giao" ở trên: bàn giao vụ (không giữ làm cộng sự) chuyển việc người này đang giữ trên hồ sơ sang luật sư mới, và đổi người giao của việc người này đã giao sang luật sư mới (việc luật sư mới đang giữ thành việc riêng của họ). Việc chính luật sư mới đã giao cho người này thì ở lại, hiện "Cần giao lại".',
             'general' => 'Việc chung (không thuộc hồ sơ): đã chuyển :moved / :count việc đang giữ; :followed việc đã giao đổi người giao.',
             // làn fa2, vòng sửa 1 (minor 3): "Giao lại" từ chối một số việc (ví dụ người nhận là chính người bấm).
             'tasks_failed' => ':count việc nội bộ không chuyển được: :reason Các việc này ở "Cần giao lại" — hãy giao lại ở tab "Công việc" của hồ sơ.',
@@ -176,7 +189,11 @@ return [
             'title' => 'Hồ sơ đổi luật sư phụ trách',
             'body_one' => 'Hồ sơ :code đổi luật sư phụ trách: :from → :to (do :who bàn giao). Từ nay anh/chị báo cáo công việc của hồ sơ này cho :to.',
             'body_many' => ':count hồ sơ anh/chị tham gia đổi luật sư phụ trách từ :from sang :to (do :who bàn giao): :codes. Từ nay anh/chị báo cáo công việc của các hồ sơ này cho :to.',
+            // Gộp integ-fa (rà soát chéo, mục 13): các hồ sơ của lô có người phụ trách cũ khác nhau — :codes mang tên
+            // người cũ của từng hồ sơ (code_from).
+            'body_many_mixed' => ':count hồ sơ anh/chị tham gia đổi luật sư phụ trách sang :to (do :who bàn giao): :codes. Từ nay anh/chị báo cáo công việc của các hồ sơ này cho :to.',
         ],
+        'code_from' => ':code (trước đây :from phụ trách)',
     ],
 
     // làn fa2 — phán quyết 6: App\Notifications\Staff\DeadlineAssignedAlert và App\Mail\Staff\DeadlineAssigned
@@ -201,6 +218,15 @@ return [
             ],
             'action' => 'Mở tab "Mốc thời hạn" của hồ sơ',
         ],
+    ],
+
+    // Gộp integ-fa (rà soát chéo 2026-10-18, mục 16): App\Notifications\Staff\DeadlineHandedAwayAlert
+    // (App\Jobs\SendDeadlineHandedAwayNotice) — người giữ mốc CŨ. :name, :code, :to, :who đã escape ở chuông.
+    'deadline_handed_away' => [
+        'title' => 'Một mốc anh/chị phụ trách đã chuyển cho người khác',
+        'body' => ':who đã chuyển mốc ":name" của hồ sơ :code cho :to phụ trách. Anh/chị không còn nhận lời nhắc của mốc này.',
+        'body_hidden' => ':who đã chuyển một mốc thời hạn anh/chị phụ trách cho người khác. Anh/chị không còn nhận lời nhắc của mốc này.',
+        'open' => 'Mở tab Mốc thời hạn',
     ],
 
     // làn fa2 — phán quyết 7: vòng trình duyệt văn bản nội bộ nhóm B. App\Notifications\Staff\DocumentReviewAlert,

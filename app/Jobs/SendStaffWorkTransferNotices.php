@@ -37,7 +37,8 @@ use Illuminate\Support\Facades\Mail;
  *    bấm. Không thư (cùng mức `TeamDepartureAlert::MEMBER_LEFT`).
  *  - Gộp integ-fa (I-A của rà soát cuối làn fa2): NGƯỜI GIAO của các việc đã chuyển — với mỗi việc còn đúng như lần
  *    chuyển để lại (người nhận vẫn giữ), người giao hay người nhận thay họ (`ResolveStaffRecipients::forTaskAssigner()`
- *    — chỉ người mở được việc), trừ người bấm, người cũ và người nhận: MỘT chuông
+ *    — chỉ người mở được việc; `decisionNeeded: false` — gộp integ-fa, rà soát chéo mục 6: việc đã có người giữ mới,
+ *    lời báo chỉ là tin, không rơi tới người quản lý của vụ), trừ người bấm, người cũ và người nhận: MỘT chuông
  *    {@see StaffWorkTransferAlert::ASSIGNER} mỗi người cho mọi việc của họ trong lô — cùng luật
  *    `SendTeamDepartureNotices` (`TASKS_HANDLED`) của một lần gỡ thành viên.
  *
@@ -204,7 +205,9 @@ class SendStaffWorkTransferNotices implements ShouldQueue
         $assigners = [];
 
         foreach ($tasks as $task) {
-            foreach ($recipients->forTaskAssigner($task) as $user) {
+            // Gộp integ-fa (rà soát chéo, mục 6): việc đã có người giữ mới — lời báo chỉ là tin, không rơi tới người
+            // quản lý của vụ.
+            foreach ($recipients->forTaskAssigner($task, decisionNeeded: false) as $user) {
                 if (in_array($user->getKey(), [$this->actorId, $this->fromId, $this->toId], true)) {
                     continue;
                 }

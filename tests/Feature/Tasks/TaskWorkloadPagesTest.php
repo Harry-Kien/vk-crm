@@ -139,8 +139,10 @@ it('shows my own task numbers on my page, in the same words as the team page', f
 
 function tkCompleted(Matter $matter, User $assignee, User $assigner, string $due, string $done): Task
 {
+    // Gộp integ-fa (rà soát chéo, mục 2): giao TRƯỚC hạn — việc nhận sau hạn không vào tỉ lệ đúng hạn.
     return tkTask($matter, $assignee, $assigner, TaskStatus::Completed, [
         'due_date' => $due, 'completed_at' => Carbon::parse($done), 'accepted_at' => Carbon::parse($done),
+        'assigned_at' => Carbon::parse($due)->subDays(5),
     ]);
 }
 

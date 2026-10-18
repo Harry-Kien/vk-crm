@@ -13,6 +13,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\OpenWork;
+use App\Support\Tasks\ReassignmentDueDate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -187,6 +188,12 @@ class RemoveTeamMember
             $moved = [];
 
             if ($held->isNotEmpty() && $taskRecipient !== null) {
+                // Gộp integ-fa (rà soát chéo, mục 9): "Giao lại" chỉ chạy trên hồ sơ đang mở (`TaskPolicy::reassign`).
+                // Hồ sơ đã kết thúc: việc chỉ còn để "Cần giao lại" — nói thẳng thay vì câu từ chối chung của "Giao lại".
+                if (! $locked->isOpen()) {
+                    throw ValidationException::withMessages(['task_recipient_id' => [__('internal_flow.team_removal.closed_leave_only')]]);
+                }
+
                 if ($taskRecipient->is($member)) {
                     throw ValidationException::withMessages(['task_recipient_id' => [__('internal_flow.team_removal.recipient_is_member')]]);
                 }
@@ -235,6 +242,8 @@ class RemoveTeamMember
      * {@see SendTeamDepartureNotices} — nên `notifyFormerHolder: false` (không chuông `REASSIGNED_AWAY` từng việc) và
      * `notifyAssigner: false` (không chuông `REASSIGNED_BY_OTHER` từng việc). Người nhận thay vẫn nhận chuông + thư
      * "được giao" của từng việc — trừ khi đó là chính người bấm: `takeOver`, việc sang "Đang làm" của họ, không tự báo.
+     * Gộp integ-fa (rà soát chéo, mục 2): hạn đã qua không đi theo việc — hạn mới theo
+     * {@see ReassignmentDueDate::suggest()}, cùng luật ô "Hạn" của "Giao lại".
      */
     private function reassignHeldTask(Task $task, User $actor, User $recipient): void
     {
@@ -242,6 +251,8 @@ class RemoveTeamMember
             $task,
             $actor,
             $recipient,
+            ReassignmentDueDate::suggest($task),
+            setDueDate: true,
             notifyFormerHolder: false,
             notifyAssigner: false,
             takeOver: $recipient->is($actor),

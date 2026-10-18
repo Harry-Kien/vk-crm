@@ -146,15 +146,20 @@ final class LetterD
      * người nhận của "Bàn giao hàng loạt", người của "Thêm thành viên" theo vai), nơi người gọi tự dựng `$options` trong
      * closure `getSearchResultsUsing` của mình (có `Get`, `$record`) bằng ĐÚNG hàm của `->options()`.
      *
+     * `$nameBefore` (gộp integ-fa, rà soát chéo, mục 19): nhãn mang thêm chữ sau tên (ô chọn người nhận việc: "Tên — đang
+     * giữ 3 việc …") — chỉ so phần đứng TRƯỚC lần xuất hiện cuối của chuỗi này.
+     *
      * @param  array<int|string, string>  $options
      * @return array<int|string, string>
      */
-    public static function filterOptions(array $options, ?string $search): array
+    public static function filterOptions(array $options, ?string $search, ?string $nameBefore = null): array
     {
         $words = preg_split('/\s+/u', (string) Normalizer::name($search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
-        return array_filter($options, function (mixed $label) use ($words): bool {
-            $haystack = (string) Normalizer::name((string) $label);
+        return array_filter($options, function (mixed $label) use ($words, $nameBefore): bool {
+            $label = (string) $label;
+            $cut = $nameBefore === null || $nameBefore === '' ? false : strrpos($label, $nameBefore);
+            $haystack = (string) Normalizer::name($cut === false ? $label : substr($label, 0, $cut));
 
             foreach ($words as $word) {
                 if (! str_contains($haystack, $word)) {

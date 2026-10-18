@@ -17,6 +17,7 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\Search\LetterD;
+use App\Support\Tasks\ReassignmentDueDate;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
@@ -297,7 +298,8 @@ trait ProvidesTaskActions
                     ->options(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record))
                     ->searchable()
                     // Gộp integ-fa (làn fa3): "doan" ra "Đoàn" trong ĐÚNG danh sách trên (`ReassignTask` hỏi lại).
-                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record)))
+                    // Gộp integ-fa (rà soát chéo, mục 19): chỉ so phần TÊN của nhãn, không phần "đang giữ … việc".
+                    ->getSearchResultsUsing(fn (?string $search): array => TaskAssignees::searchOptions(app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record), $search))
                     ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
@@ -334,23 +336,13 @@ trait ProvidesTaskActions
     }
 
     /**
-     * Hạn điền sẵn khi "Giao lại" (làn fa1): không hạn thì không hạn; hạn còn ở hôm nay hay tương lai thì giữ; hạn
-     * đã qua thì gợi ý hôm nay cộng đúng số ngày người giữ cũ có (từ lúc giao tới hạn cũ, ít nhất một ngày) — người
-     * mới có cùng khoảng thời gian để làm.
+     * Hạn điền sẵn khi "Giao lại" (làn fa1) — {@see ReassignmentDueDate::suggest()}: không hạn thì không hạn; hạn còn ở
+     * hôm nay hay tương lai thì giữ; hạn đã qua thì gợi ý hôm nay cộng đúng số ngày người giữ cũ có. Gộp integ-fa: cùng
+     * luật là hạn mới của mọi đường chuyển hàng loạt.
      */
     private static function suggestedDueDate(Task $record): ?string
     {
-        $due = $record->due_date;
-
-        if ($due === null || $due->toDateString() >= today()->toDateString()) {
-            return $due?->toDateString();
-        }
-
-        $given = $record->assigned_at === null
-            ? 1
-            : (int) $record->assigned_at->copy()->setTimezone((string) config('app.timezone'))->startOfDay()->diffInDays($due->copy()->startOfDay());
-
-        return today()->addDays(max(1, $given))->toDateString();
+        return ReassignmentDueDate::suggest($record);
     }
 
     protected function cancelTaskAction(): Action

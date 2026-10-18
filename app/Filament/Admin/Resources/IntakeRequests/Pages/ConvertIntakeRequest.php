@@ -62,7 +62,9 @@ use Livewire\Attributes\Locked;
  *
  * **Không gõ lại:** người liên hệ, các bên đối lập (chỉ hiện tên và vai — định danh đi thẳng từ bản
  * ghi), vai của khách (`contact_role`), lĩnh vực, câu chuyện (thành ghi chú nội bộ, sửa được), tiêu
- * đề gợi ý, luật sư phụ trách (chính người bấm). Ngoại lệ duy nhất là số căn cước thô của khách
+ * đề gợi ý, luật sư phụ trách (người tư vấn của bản ghi khi họ đủ quyền phụ trách hồ sơ, không thì chính người bấm —
+ * gộp integ-fa, rà soát chéo mục 15; người tư vấn không phải luật sư phụ trách được báo bằng một chuông tin —
+ * `SendIntakeConvertedNotice`). Ngoại lệ duy nhất là số căn cước thô của khách
  * (R3) — tuỳ chọn.
  *
  * **Hai lượt xác nhận/ghi đè, sao lại đúng khuôn `CreateMatter`:** lượt 1 bấm chuyển đổi →
@@ -426,6 +428,20 @@ class ConvertIntakeRequest extends Page
         $this->data['confirm_existing_client'] = false;
     }
 
+    /**
+     * Luật sư phụ trách điền sẵn (gộp integ-fa, rà soát chéo, mục 15): người được giao bản ghi tiếp nhận nếu họ có trong
+     * {@see CreateMatter::leadLawyerOptions()} (đang hoạt động, có `matter.transitionStage`), không thì người bấm.
+     * `private`: xem cảnh báo về phương thức công khai của component Livewire ở các trang khác.
+     */
+    private static function defaultLead(IntakeRequest $intake, User $actor): int
+    {
+        $handler = $intake->assigned_to === null ? null : (int) $intake->assigned_to;
+
+        return $handler !== null && array_key_exists($handler, CreateMatter::leadLawyerOptions())
+            ? $handler
+            : (int) $actor->getKey();
+    }
+
     /** Chỉ để HIỂN THỊ — cổng thật ở `OpenMatter` (`ConflictOverride`). */
     public function canOverrideRedConflict(): bool
     {
@@ -483,7 +499,10 @@ class ConvertIntakeRequest extends Page
             'client_role' => $intake->contact_role?->value,
             'matter_type_id' => $type?->getKey(),
             // Ai có `intake.convert` hôm nay cũng có `matter.transitionStage` (ô chọn dưới chỉ nhận người đó).
-            'lead_lawyer_id' => $this->actor()->getKey(),
+            // Gộp integ-fa (rà soát chéo, mục 15): mặc định là người tư vấn của bản ghi (người được giao nó) khi họ có
+            // trong ô chọn luật sư phụ trách; không thì chính người bấm. Người khác người bấm thì ghế chờ họ nhận và họ
+            // nhận chuông + thư "được giao hồ sơ" như khi mở vụ (`OpenMatter`).
+            'lead_lawyer_id' => self::defaultLead($intake, $this->actor()),
             'title' => Str::limit($type === null
                 ? (string) $name
                 : __('intake.convert.default_title', ['name' => $name, 'type' => $type->name]), 250, ''),

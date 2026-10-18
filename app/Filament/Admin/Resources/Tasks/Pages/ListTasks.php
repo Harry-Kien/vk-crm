@@ -229,7 +229,7 @@ class ListTasks extends ListRecords
                     ->helperText(fn (Get $get): string => self::assigneeHelp(filled($get('matter_id')) ? 'tasks.fields.assignee_help_matter' : 'tasks.fields.assignee_help_general'))
                     ->options(fn (Get $get): array => app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()))
                     ->searchable()
-                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => LetterD::filterOptions(
+                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => TaskAssignees::searchOptions(
                         app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()),
                         $search,
                     ))

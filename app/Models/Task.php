@@ -214,6 +214,23 @@ class Task extends Model
             && $this->completed_at->copy()->setTimezone((string) config('app.timezone'))->toDateString() <= $this->due_date->toDateString();
     }
 
+    /**
+     * Việc người đang giữ đã nhận KHÔNG SAU ngày hạn (gộp integ-fa, rà soát chéo 2026-10-18, mục 2): ngày giao
+     * (`assigned_at`, theo `APP_TIMEZONE` — cột lưu giờ địa phương) không sau ngày hạn, hay không có mốc giao. Một việc
+     * được giao (lại) cho người này khi hạn đã qua thì người đó chưa bao giờ có cơ hội làm kịp — tỉ lệ "Việc hoàn thành
+     * đúng hạn" (`BuildTaskPerformance`) bỏ nó khỏi cả tử lẫn mẫu, thay vì tính một việc trễ cho người vừa nhận. Từ bản
+     * sửa này các đường chuyển hàng loạt không còn để người mới nhận hạn đã qua (`ReassignmentDueDate`), nhưng "Giao
+     * lại" vẫn cho giữ đúng hạn cũ đã qua (`ValidatesTaskInput::cleanDueDate()`), và dữ liệu cũ có những việc như vậy.
+     */
+    public function scopeAssignedByDueDate(Builder $query): Builder
+    {
+        $assigned = $this->qualifyColumn('assigned_at');
+
+        return $query->where(fn (Builder $inTime): Builder => $inTime
+            ->whereNull($assigned)
+            ->orWhereRaw('DATE('.$assigned.') <= DATE('.$this->qualifyColumn('due_date').')'));
+    }
+
     /** "Chờ tôi nhận": giao cho `$user`, chưa ai bấm "Đã nhận". */
     public function scopeAwaitingAcceptanceBy(Builder $query, User $user): Builder
     {
@@ -275,9 +292,11 @@ class Task extends Model
      * Người nhận còn GIỮ ĐƯỢC việc (làn fa1, phán quyết 5 — kiểm tra luồng nội bộ 2026-10-16): việc chung, hay việc
      * của một vụ mà người nhận ngồi một ghế giữ việc ({@see self::workingSeats()}: không "người theo dõi"), chưa
      * "Trả lại" ghế đó, và còn mở được vụ — bản SQL của `TaskAssignees::holdsSeat()` (cùng ba vế; phủ định của các
-     * vế `off_team` / `seat_declined` / `off_access` của {@see self::scopeNeedsReassignment()}). Không hỏi
-     * `is_active`, như `holdsSeat()`: người đã nghỉ không nhận lời nhắc nào (`ResolveStaffRecipients::forTask()`),
-     * và hàng của họ ẩn khỏi Theo dõi đội ngũ. Người đã XOÁ MỀM thì không giữ việc nào (làn fa1, vòng sửa 1 — rà soát
+     * vế `off_team` / `seat_declined` / `off_access` của {@see self::scopeNeedsReassignment()}). Gộp integ-fa (rà soát
+     * chéo 2026-10-18, mục 7): CŨNG hỏi `users.is_active` — phủ định của vế `inactive` — nên tập này là bản SQL của
+     * `RemindPendingWork::assigneeCanStillWork()` / `TaskAssignees::qualifies()`, và một việc không bao giờ vừa là "quá
+     * hạn" của người giữ (ô bảng điều khiển, bộ lọc "Chỉ việc quá hạn", mẫu của tỉ lệ đúng hạn) vừa là "Cần giao lại".
+     * Trước bản sửa, việc quá hạn của người bị tạm khoá nằm ở cả hai. Người đã XOÁ MỀM thì không giữ việc nào (làn fa1, vòng sửa 1 — rà soát
      * Task 1, m6): `holdsSeat()` đi qua `$matter->team()` — quan hệ tới `User`, mang scope xoá mềm — nên người đã xoá
      * không ngồi ghế nào; bản SQL hỏi thẳng `users.deleted_at`. Vế này áp cả cho việc chung (người đã xoá không làm
      * được việc chung — vế `inactive` của {@see self::scopeNeedsReassignment()}).
@@ -294,7 +313,8 @@ class Task extends Model
             ->selectRaw('1')
             ->from('users')
             ->whereColumn('users.id', $this->qualifyColumn('assignee_id'))
-            ->whereNull('users.deleted_at'))
+            ->whereNull('users.deleted_at')
+            ->where('users.is_active', true))
             ->where(fn (Builder $holds): Builder => $holds
                 ->whereNull($this->qualifyColumn('matter_id'))
                 ->orWhere(fn (Builder $onMatter): Builder => $onMatter

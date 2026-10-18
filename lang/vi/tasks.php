@@ -563,6 +563,9 @@ return [
         'seats_hint' => 'Bấm "Đã nhận hồ sơ" hoặc "Trả lại"',
         'returned' => 'Việc tôi giao bị trả lại',
         'returned_hint' => 'Giao lại cho người khác hoặc huỷ',
+        // Gộp integ-fa (rà soát chéo 2026-10-18, mục 17): mở trang "Tài liệu" lọc sẵn "Chờ tôi duyệt".
+        'approvals' => 'Văn bản chờ tôi duyệt',
+        'approvals_hint' => 'Bấm "Đánh dấu đã ký, đã nộp" hoặc "Trả về bản nháp"',
     ],
 
     // =============================================================================================

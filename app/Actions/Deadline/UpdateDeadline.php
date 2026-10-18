@@ -234,6 +234,8 @@ class UpdateDeadline
 
                 if ($holder !== null) {
                     $this->queueAssignmentNotice($fresh, $holder, $actor, $changed, $before['responsible_user_id'] === null ? null : (int) $before['responsible_user_id']);
+                    // Gộp integ-fa (rà soát chéo, mục 16): người giữ cũ biết mốc đã sang tay ai.
+                    $this->queueHandedAwayNotice($fresh, $holder, $actor, $changed, $before['responsible_user_id'] === null ? null : (int) $before['responsible_user_id']);
                 }
             }
 

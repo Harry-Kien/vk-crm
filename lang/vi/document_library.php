@@ -52,6 +52,8 @@ return [
         'uploaded_until' => 'Đến ngày',
         'indicator_from' => 'Tải lên từ :date',
         'indicator_until' => 'Tải lên đến :date',
+        // Gộp integ-fa (rà soát chéo 2026-10-18, mục 17): văn bản nhóm B đang chờ duyệt mà người xem duyệt được.
+        'awaiting_my_approval' => 'Chờ tôi duyệt',
     ],
 
     'actions' => [

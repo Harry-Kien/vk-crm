@@ -42,7 +42,7 @@ it('counts what waits for me, my overdue work, my seats to accept and my returne
     $other->addTeamMember($this->assistant, MatterRole::Assistant, assignedBy: $this->lead);
 
     expect(MyWorkQueueWidget::countsFor($this->assistant))->toBe(['awaiting' => 2, 'overdue' => 1, 'seats' => 1, 'returned' => 0])
-        ->and(MyWorkQueueWidget::countsFor($this->lead))->toBe(['awaiting' => 0, 'overdue' => 0, 'seats' => 0, 'returned' => 1]);
+        ->and(MyWorkQueueWidget::countsFor($this->lead))->toBe(['awaiting' => 0, 'overdue' => 0, 'seats' => 0, 'returned' => 1, 'approvals' => 0]);
 
     $this->actingAs($this->assistant, 'web');
 

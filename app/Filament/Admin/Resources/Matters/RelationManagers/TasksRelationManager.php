@@ -119,7 +119,7 @@ class TasksRelationManager extends RelationManager
                     ->options(fn (): array => app(TaskAssignees::class)->options($this->matter(), $this->taskActor()))
                     ->searchable()
                     // Gộp integ-fa (làn fa3): "dinh" ra "Đinh" trong ĐÚNG danh sách trên (`AssignTask` hỏi lại).
-                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => app(TaskAssignees::class)->options($this->matter(), $this->taskActor())))
+                    ->getSearchResultsUsing(fn (?string $search): array => TaskAssignees::searchOptions(app(TaskAssignees::class)->options($this->matter(), $this->taskActor()), $search))
                     ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),

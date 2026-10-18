@@ -577,19 +577,24 @@ it('flags a returned task whose assigner is still active but can no longer open 
         ->and(tkFfReason($held))->toBeNull();
 });
 
-it('flags a task the old lead gave the new lead when the new lead returns it after the handover', function () {
+/*
+ * Gộp integ-fa (rà soát chéo 2026-10-18, mục 1): việc lead cũ giao cho lead mới thành việc RIÊNG của lead mới khi bàn
+ * giao (người giao đổi sang lead mới) — trước đó nó giữ người giao là lead cũ, và lead mới trả lại thì nó thành "Cần
+ * giao lại" vì người giao không còn mở được hồ sơ. Nay không có ai để trả về: không nút "Trả lại", không "Cần giao lại".
+ */
+it('makes a task the old lead gave the new lead the new lead\'s own task after the handover, with nobody to return it to', function () {
     $newLead = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Bình']);
     $this->matter->addTeamMember($newLead, MatterRole::Associate);
     $given = tkFfTask($this->matter, $newLead, $this->lead, extra: ['title' => 'Việc lead cũ giao']);
 
     tkFfHandOver($this->matter, $this->manager, $newLead);
-    expect($given->fresh()->assigned_by)->toBe($this->lead->id);
+    expect($given->fresh()->assigned_by)->toBe($newLead->id);
 
     $this->actingAs($newLead, 'web');
     $this->livewire(TasksAwaitingMeWidget::class)
-        ->callTableAction('decline', $given, data: ['reason' => 'Tự làm không kịp.'])
-        ->assertHasNoTableActionErrors();
+        ->assertCanSeeTableRecords([$given])
+        ->assertTableActionHidden('decline', $given);
 
-    tkFfNeedsReassignment($this->manager)->assertCanSeeTableRecords([$given]);
-    expect(tkFfReason($given))->toBe('assigner_off_access');
+    tkFfNeedsReassignment($this->manager)->assertCanNotSeeTableRecords([$given]);
+    expect(tkFfReason($given))->toBeNull();
 });
