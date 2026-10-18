@@ -264,6 +264,9 @@ return [
             'filters' => [
                 'matter_code' => 'Mã hồ sơ',
             ],
+            // làn fa3 (2026-10-16, mục 1): khoản thu của hồ sơ đã huỷ trước luật mới vẫn là tiền đã về.
+            'cancelled_matter' => 'Hồ sơ đã huỷ — tiền đã về vẫn được tính vào doanh thu',
+            // hết khối làn fa3
         ],
     ],
 

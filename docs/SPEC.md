@@ -839,6 +839,31 @@ Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu c
   đã kết thúc, chưa tiêu huỷ, tới một ngày sau hôm nay và sau hạn hiện có, tối đa 365 ngày kể từ hôm
   nay, lý do bắt buộc, ghi `client_access_extended`. Lần đồng bộ lại khi vụ vẫn đóng giữ ngày muộn
   hơn giữa ngày tính lại và ngày đã gia hạn; mở lại vụ vẫn đưa cột về NULL.
+- *Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ, mục tiền).* `CancelMatter` còn từ chối hồ sơ
+  **đã có khoản thu chưa huỷ** trên bất kỳ hợp đồng nào của nó (đang hiệu lực, đã hoàn tất hay đã huỷ —
+  `BillingSummary::collectedForMatter()`), trước câu "còn dư nợ": tiền đã về là sự thật kế toán, và trước
+  luật này hồ sơ huỷ được trong khi vẫn mang tiền đã thu — khoản đó rời khỏi Doanh thu, P7 và "Khoản thu
+  gần đây", và không ai huỷ được nó (cổng tiền đóng trên vụ đã xoá mềm). Một đường duy nhất, có nhật ký ở
+  mỗi bước: kế toán huỷ các khoản thu (ghi lý do) và ghi lại vào đúng hồ sơ, rồi mới huỷ hồ sơ; không có
+  chức năng "chuyển khoản thu sang hồ sơ khác". Câu từ chối nói số khoản, tổng tiền và cách làm; hộp thoại
+  "Huỷ hồ sơ mở nhầm" hiện đúng câu đó trước khi bấm (người có `billing.view`). Câu "còn dư nợ" nay chỉ
+  đường huỷ hợp đồng (bỏ "thu nốt, miễn"). Hồ sơ đã huỷ TRƯỚC luật này mà còn khoản thu: `CollectedRevenue`
+  (ô "Đã thu", biểu đồ theo tháng, P7), biểu đồ theo đợt/giai đoạn, bộ lọc luật sư của trang Doanh thu
+  (nhánh "được ghi doanh thu") và "Khoản thu gần đây" đọc vụ kèm `withTrashed()` — tiền vẫn được
+  tính, dòng chi tiết có nhãn "Hồ sơ đã huỷ", không nút huỷ khoản thu (khôi phục hồ sơ trước); phạm vi
+  `listableBy()` không đổi, nên vụ hạn chế đã huỷ vẫn không lộ.
+  *Bổ sung fix round 1 (làn fa3, 2026-10-18).* (a) Khoản thu chưa huỷ nằm trên hợp đồng **đã hoàn tất** không huỷ
+  được (`ContractStatus::allowsPaymentVoid()`, chốt chặn của `VoidPayment`), và hợp đồng đã hoàn tất không huỷ hay
+  đưa về nháp được — nên với hồ sơ đó câu "kế toán huỷ khoản thu" là một ngõ cụt. `CancelMatter` nói câu riêng
+  (`actions.cancel_matter.payments_on_completed`, `BillingSummary::collectedOnCompletedForMatter()`): hồ sơ không có
+  đường huỷ như hồ sơ mở nhầm; đóng hồ sơ (giai đoạn kết thúc) thay vì huỷ, rồi mở hồ sơ mới cho đúng khách hàng
+  hoặc loại vụ việc; tiền đã thu ở lại hồ sơ này. *Fix round 2 (I-A):* đóng thôi chưa đủ — hồ sơ đã công bố vẫn hiện
+  trên cổng của khách đang gắn với nó, kèm hợp đồng đã hoàn tất và khoản thu (`Contract::scopeShownToClient`), và một
+  giai đoạn kết thúc có công bố gửi thư cho khách đó. Câu nói thêm: trước hết bấm "Tắt công bố portal" ở đầu trang vụ
+  việc, rồi "Chuyển giai đoạn" sang giai đoạn kết thúc mà không bật "Công bố cho khách ngay". Câu này đứng trước câu kia; hộp thoại hiện đúng câu đó
+  (`CancelMatter::paymentsRefusal()`, một chuỗi). (b) Câu "đã có khoản thu" nói luôn bước sau: huỷ hợp đồng nếu còn
+  hiệu lực, rồi mới huỷ hồ sơ. (c) Hook `Matter::deleting` chặn thêm xoá mềm vụ còn khoản thu chưa huỷ
+  (`MatterHasRecordedPayments`, sau câu dư nợ) — phòng thủ chiều sâu cho mọi đường xoá mềm sau này.
 - *Đính chính 2026-10-15 (làn fi A3).* "Khôi phục: lý do bắt buộc" ở trên chưa đủ. Trong lúc hồ sơ nằm
   ở "đã huỷ", luật sư phụ trách có thể đã nghỉ việc, bị khoá truy cập hay đổi sang chức danh không phụ
   trách vụ được (luật chặn nghỉ việc không thấy hồ sơ đã huỷ). Khi người phụ trách không còn xử lý được
@@ -1004,13 +1029,19 @@ quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồ
 >
 > | Quyền | admin | manager | lawyer | assistant | accountant | sales |
 > |---|---|---|---|---|---|---|
-> | `contract.enter` (nhập hợp đồng đã ký cho vụ có sẵn: soạn bản nháp, sửa và xoá bản nháp, kích hoạt với ngày ký) | ✓ | — | — | — | ✓ | — |
+> | `contract.enter` (nhập hợp đồng đã ký cho vụ có sẵn: soạn bản nháp, sửa và xoá bản nháp, kích hoạt với ngày ký, đưa về bản nháp hợp đồng chính mình đã kích hoạt) | ✓ | — | — | — | ✓ | — |
 >
-> **Gồm gì, không gồm gì.** `ContractPolicy::create` (soạn bản nháp), `updateDraft` (sửa bản nháp và lịch thu của nó), `delete` (xoá bản nháp — chỉ được khi còn nháp, chưa có khoản thu, như mọi người), `activate` (kích hoạt với ngày ký) đòi "thấy tiền của vụ" (định nghĩa trên) **và** (`contract.manage` **hoặc** `contract.enter`). Mọi quyết định thương mại trên hợp đồng đã ký — ký phụ lục (kể cả đổi số tiền hay huỷ một đợt), hoàn tất, huỷ hợp đồng (`ContractPolicy::update`), miễn một đợt, dời hạn, gửi thư nhắc khách (`InstalmentPolicy`) — **vẫn chỉ `contract.manage`**: kế toán nhập đúng tờ giấy đã ký, không tự đổi điều khoản. Trước bổ sung này `update` còn là cổng của sửa nháp và kích hoạt; hai việc đó nay có ability riêng. Bảng M9 ở trên đọc là: `contract.manage` = soạn, kích hoạt, ký phụ lục, huỷ; **soạn và kích hoạt** thì người có `contract.enter` cũng làm được.
+> **Gồm gì, không gồm gì.** `ContractPolicy::create` (soạn bản nháp), `updateDraft` (sửa bản nháp và lịch thu của nó), `delete` (xoá bản nháp — chỉ được khi còn nháp, chưa có khoản thu, như mọi người), `activate` (kích hoạt với ngày ký) đòi "thấy tiền của vụ" (định nghĩa trên) **và** (`contract.manage` **hoặc** `contract.enter`). Mọi quyết định thương mại trên hợp đồng đã ký — ký phụ lục (kể cả đổi số tiền hay huỷ một đợt), hoàn tất, huỷ hợp đồng (`ContractPolicy::update`), miễn một đợt, dời hạn, gửi thư nhắc khách (`InstalmentPolicy`) — **vẫn chỉ `contract.manage`**: kế toán nhập đúng tờ giấy đã ký và chỉ sửa lại lần nhập của chính mình (đưa về bản nháp hợp đồng chính mình đã kích hoạt, sửa, kích hoạt lại — đính chính fix round 2 làn fa3 dưới), không đổi điều khoản của hợp đồng người khác đã ghi nhận. Trước bổ sung này `update` còn là cổng của sửa nháp và kích hoạt; hai việc đó nay có ability riêng. Bảng M9 ở trên đọc là: `contract.manage` = soạn, kích hoạt, ký phụ lục, huỷ; **soạn và kích hoạt** thì người có `contract.enter` cũng làm được.
 >
-> **Ranh giới của kế toán không đổi.** Kế toán vẫn không có `matter.view`: trang vụ việc vẫn 404. Màn hình nhập là trang **"Hợp đồng"** (§7, cạnh "Công nợ"): danh sách vụ theo đúng tầm nhìn tiền (`Matter::listableBy` — vụ `restricted` không có, vụ đã huỷ không có), mỗi dòng mã hồ sơ, loại vụ việc, tên khách hàng, **luật sư phụ trách**, số và trạng thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** tiêu đề, ghi chú, tài liệu, bên đối lập (DTO readonly `AccountantContractRow`). Tên luật sư phụ trách là điểm nới rộng có chủ đích: người kế toán hỏi lại khi tờ giấy không rõ, và người nhận chuông dưới đây; tên nhân sự không phải nội dung hồ sơ. Form nhập là **đúng** form của tab tiền (một bản dùng chung), cộng công tắc "Khách đã ký — kích hoạt luôn" (mặc định tắt): bật thì soạn và kích hoạt trong **một** transaction — lệch tổng hay ngày ký ở tương lai thì không lưu gì. Trang mở cho ai có `billing.view` và (`contract.enter` hoặc `contract.manage`); trang chủ của người có `contract.enter` có ô "Hồ sơ chưa có hợp đồng" / "Hợp đồng còn nháp", trang Công nợ có nút "Nhập hợp đồng cho hồ sơ".
+> **Ranh giới của kế toán không đổi.** Kế toán vẫn không có `matter.view`: trang vụ việc vẫn 404. Màn hình nhập là trang **"Hợp đồng"** (§7, cạnh "Công nợ"): danh sách vụ theo đúng tầm nhìn tiền (`Matter::listableBy` — vụ `restricted` không có, vụ đã huỷ không có), mỗi dòng mã hồ sơ, loại vụ việc, tên khách hàng, **luật sư phụ trách**, số và trạng thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** tiêu đề, ghi chú, tài liệu, bên đối lập (DTO readonly `AccountantContractRow`). Tên luật sư phụ trách là điểm nới rộng có chủ đích: người kế toán hỏi lại khi tờ giấy không rõ, và người nhận chuông dưới đây; tên nhân sự không phải nội dung hồ sơ. Form nhập là **đúng** form của tab tiền (một bản dùng chung), cộng công tắc "Khách đã ký — kích hoạt luôn" (mặc định tắt): bật thì soạn và kích hoạt trong **một** transaction — lệch tổng hay ngày ký ở tương lai thì không lưu gì. Trang mở cho ai có `billing.view` và (`contract.enter` hoặc `contract.manage`); trang chủ của người có `contract.enter` có ô "Hồ sơ cần nhập hợp đồng" (đính chính 2026-10-16, §7.1) / "Hợp đồng còn nháp", trang Công nợ có nút "Nhập hợp đồng cho hồ sơ".
 >
 > **Báo luật sư phụ trách.** Ai không phải luật sư phụ trách (kế toán, trưởng phòng, quản trị viên) nhập, kích hoạt hay nhập-và-kích-hoạt hợp đồng của vụ thì luật sư phụ trách nhận **một dòng chuông** ("Kế toán X đã nhập hợp đồng HD-… cho hồ sơ VK-… (tổng …, n đợt) — anh/chị kiểm tra lại."), gửi sau commit. Người nhận (đính chính 2026-10-16, gộp integ-4): luật sư phụ trách khi họ còn hoạt động, còn thấy tiền của vụ và không phải chính người nhập; không thì **mọi** người quản lý của vụ (`ResolveStaffRecipients::supervisorsFor()`: trưởng phòng; quản trị viên với vụ hạn chế) trừ người nhập; luật sư phụ trách tự nhập hợp đồng của vụ mình (việc hằng ngày) thì không ai nhận chuông; không bao giờ chính người nhập. Không thư: không thư nội bộ nào của vòng đời hợp đồng tồn tại. Nhật ký hoạt động ghi người nhập (`contract_drafted`, `contract_activated`). Máy chủ đã có dữ liệu nhận quyền mới qua `php artisan db:seed --force` (`RolesAndPermissionsSeeder`).
+>
+> **Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ, phán quyết controller).**
+> - **Đưa về bản nháp** (`RevertContractToDraft`, ability `ContractPolicy::revertToDraft` — `contract.manage` **hoặc** `contract.enter` trên vụ thấy được tiền, người chỉ có `contract.enter` thì chỉ hợp đồng chính mình đã kích hoạt (fix round 2, dưới); không quyền mới, không chạy lại seeder). Sửa một lần kích hoạt nhầm (ngày ký, thuế suất, giá trị, lịch thu) thay cho "huỷ rồi nhập lại": hợp đồng `active` về `draft`, `signed_at`/`activated_by` về rỗng, đợt `on_signing`/`stage` mất hạn và dấu kích hoạt (đợt `due_date` giữ ngày); lý do bắt buộc (≥ 20 ký tự), nhật ký `contract_reverted_to_draft` (lý do, ngày ký và người kích hoạt cũ); cổng khách thôi hiện hợp đồng (khách chỉ thấy `active`/`completed`). **Chỉ khi** — kiểm trên hàng đã khoá `matters` → `contracts` → `instalments` → `payments`, rồi `contract_amendments` — không còn khoản thu **chưa huỷ** nào, chưa có phụ lục, không đợt nào đang không `pending` hay từng được miễn / bỏ miễn / dời hạn (nhật ký của chính các đợt). Khoản thu **đã huỷ** không chặn: nó ở lại trên đợt của nó; "Sửa bản nháp" (`UpdateDraftContract`) giữ đợt mang lịch sử đó và ghi đè tại chỗ bằng dòng cùng vị trí, lịch thu mới ngắn hơn vị trí của nó thì từ chối. Có ở tab "Hợp đồng và thanh toán" và trên dòng của trang "Hợp đồng".
+> - **Báo luật sư phụ trách** (cùng người nhận, cùng chuông, không bao giờ chính người làm, luật sư phụ trách tự làm vụ mình thì không ai) mở rộng thêm ba việc: đưa về bản nháp, **sửa bản nháp** và **xoá bản nháp** (kế toán sửa/xoá bản nháp của luật sư). Chuông không chép lý do.
+> - *Bổ sung fix round 1 (2026-10-18).* "Đưa về bản nháp" từ chối thêm khi **hồ sơ đã kết thúc** (`ContractNotRevertible::matterClosed()`, đọc trên hàng `matters` đã khoá): hợp đồng của hồ sơ đã đóng giữ nguyên như đã ký — sửa bằng phụ lục hoặc huỷ hợp đồng. Hộp thoại nói thêm: thư nhắc và thư báo đã gửi cho khách theo hợp đồng này không thu hồi được. Nút **Xoá bản nháp** không hiện trên bản nháp mang lịch sử khoản thu đã huỷ (`Contract::hasPayments()`, ở cả tab tiền lẫn trang "Hợp đồng") — xoá chắc chắn bị `Contract::assertDestroyable()` từ chối; bản nháp đó sửa rồi kích hoạt lại. Chuông "sửa bản nháp" chỉ gửi khi **điều khoản tiền đổi** (giá trị, thuế suất, số đợt, và mỗi đợt: số tiền, mốc kích hoạt, giai đoạn, số ngày sau mốc, ngày đến hạn cố định — `UpdateDraftContract::moneyTerms()`); lưu lại y nguyên, đổi tên đợt hay ghi chú thì không chuông (nhật ký vẫn ghi).
+> - *Bổ sung fix round 2 (2026-10-18) — phán quyết controller 2026-10-18, chờ chủ văn phòng xác nhận.* **Ai đưa về bản nháp được.** Đưa về rồi sửa bản nháp đổi được tổng, thuế suất và lịch thu của một hợp đồng đã ký mà không có phụ lục nào, nên: `contract.manage` (luật sư, trưởng phòng, quản trị viên) đưa về được mọi hợp đồng đủ điều kiện trên vụ mình thấy tiền; người có `contract.enter` mà **không** có `contract.manage` (kế toán) chỉ hợp đồng chính mình đã kích hoạt (`contracts.activated_by` = người đó; hợp đồng không rõ người kích hoạt thì không). `ContractPolicy::revertToDraft` trả lời câu này (nút ẩn ở tab "Hợp đồng và thanh toán" lẫn trang "Hợp đồng"); `RevertContractToDraft` hỏi lại trên hàng `contracts` đã khoá — sau "thấy tiền của vụ", trạng thái và hồ sơ chưa kết thúc — và từ chối bằng câu nói ai đã kích hoạt, nhờ luật sư phụ trách hoặc trưởng phòng (`ContractNotRevertible::notOwnActivation()`). Kế toán kích hoạt, người khác đưa về rồi kích hoạt lại: hợp đồng thành của người kích hoạt sau. Nút "Đưa về bản nháp" cũng không hiện trên hồ sơ đã kết thúc (Action vẫn từ chối hộp thoại đã mở trước khi hồ sơ đóng). Chủ văn phòng có thể đổi phán quyết này (ví dụ: một khoảng thời gian sau kích hoạt thay cho "chính mình").
 
 **Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
 **chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
@@ -1733,6 +1764,20 @@ hosting.
   `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
   `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
 
+**Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ: gõ không dấu chữ "đ").** Câu "`đ` khác `d`" ở trên
+không còn đúng cho người dùng: mọi cột so theo collation của trang Tìm kiếm (mã, tiêu đề, tên khách, số thụ
+lý, tiêu đề tài liệu), của trang **Tài liệu** (tên tài liệu, tên khách, ô chọn vụ theo mã/tiêu đề) và ô tìm
+của trang **Hợp đồng** của kế toán (mã hồ sơ, tên khách) đổi
+`đ`/`Đ` → `d`/`D` ở **cả hai vế** trước khi so (`App\Support\Search\LetterD`: `REPLACE(REPLACE(cột, 'đ', 'd'),
+'Đ', 'D') LIKE ?` với chuỗi tìm đã đổi cùng cách, ký tự `%`/`_` người gõ được thoát). Trên MariaDB vì thế gõ
+không dấu ra đủ: **"Dang" ra "Đặng"**, "dat dai" ra "đất đai", "QD" ra "QĐ" (`test:mariadb` của `SearchPageTest`,
+`DocumentLibraryPageTest` và `ContractEntryPageTest` chứng minh). Tên các bên vẫn so trên `name_normalized`: `Normalizer::name()` đổi
+`đ` → `d` qua `Str::ascii` từ M1 (không đổi từ đó), nên **không có cột chuẩn hoá đã lưu nào phải tính lại** —
+không migration, không lệnh một lần. Bước đổi chữ làm câu tìm bỏ index của các cột đó; câu tìm vốn đã duyệt
+bảng (sáu nguồn trong một `OR`, ở trên). Tầm nhìn không đổi: `listableBy()` áp như trước.
+
+**Bổ sung fix round 1 (làn fa3, 2026-10-18) — nơi tìm không phân biệt `đ`/`d`.** (1) Chữ `ð`/`Ð` (U+00F0/U+00D0, chữ eth mà một số bộ gõ và bộ chuyển mã cũ gõ thay `Đ`) cũng như `d`: `LetterD` đổi bốn ký tự (`đ`, `Đ`, `ð`, `Ð`) ở cả hai vế, `Normalizer::name()` vốn đã gộp chúng. (2) Ngoài trang Tìm kiếm, trang Tài liệu và ô tìm của trang Hợp đồng, ô tìm của **các danh sách chính** cũng vậy (`LetterD::searchable()`, cùng phép `REPLACE … LIKE ?` có thoát `%`/`_`): **Khách hàng** (mã, tên), **Vụ việc** (mã, khách hàng, loại vụ việc, tiêu đề — chỉ người có `matter.view` —, luật sư phụ trách), **Tiếp nhận** (mã, tên người liên hệ), **Nhân sự** (tên, số thẻ luật sư), **Tài khoản cổng khách** (khách hàng, tên), tab **Các bên** (tên). Điều kiện chỉ thu hẹp truy vấn của danh sách: `listableBy()` và chính sách của resource không đổi (vụ hạn chế vẫn không ra). Trên MariaDB "Dang" ra "Đặng"; trên SQLite chữ chỉ mang dấu `đ` ra (như trên). (3) Ô chọn tìm trên máy chủ trong **đúng** danh sách tuỳ chọn cũ (`LetterD::searchOptions()`, so qua `Normalizer::name()` — bỏ mọi dấu trên mọi CSDL, mọi từ người gõ phải có mặt): ô **Khách hàng** và **Luật sư phụ trách** của form mở vụ, ô **Luật sư phụ trách** (bộ lọc) của trang Doanh thu, ô **Người thực hiện** của Nhật ký hoạt động; `->options()` giữ nguyên nên luật `in:` của Filament và lớp kiểm tra thứ hai ở `CreateMatter` không đổi. **Chưa áp** (làn khác giữ tệp, việc tích hợp sau): trang **Việc được giao** (`TaskColumns`: tiêu đề, mã hồ sơ; bộ lọc vụ/người được giao/người giao của `ListTasks`) và ô chọn luật sư của **Bàn giao hàng loạt** (`BulkReassign`). Ô tìm của "Thư đã gửi" (người nhận là địa chỉ thư/số điện thoại, mẫu là khoá) và bộ lọc mã hồ sơ không cần. (4) Phán quyết mục 3 ban đầu đòi "tính lại các cột chuẩn hoá đã lưu": **không có migration đó — cố ý**, vì đã kiểm rằng mọi cột `*_name_normalized` chỉ được ghi qua `Normalizer::name()` (đã đổi `đ` → `d` từ M1) nên một lần tính lại không đổi giá trị nào (CAI-DAT, "Bản cập nhật làn fa3").
+
 **Đính chính 2026-10-15 (làn tl, yêu cầu của chủ văn phòng: "Kho tài liệu … phải dễ dàng để có thể sử
 dụng được hiệu quả nhất").** Thêm trang **"Tài liệu"** (`App\Filament\Admin\Pages\DocumentLibrary`,
 `/admin/documents`; gộp integ-4 2026-10-16: menu trái nhóm "Khách hàng & vụ việc", ngay sau "Vụ việc"): danh sách mọi tài liệu người xem được thấy, xuyên các vụ, mới nhất trước; tìm theo tên
@@ -1750,7 +1795,7 @@ công bố, rút, chuyển nhóm, xoá vẫn chỉ ở tab Tài liệu của v�
   (5 phút, ký cho người bấm, ghi `document_downloads` — §10.4); không đường tắt nào tới tệp.
 - **Bổ sung 2026-10-16 (vòng sửa polish 1).** Ô tìm tên khách tìm đúng tập khách mà cột "Khách hàng"
   hiện, kể cả khách đã xoá mềm, và so như trang Tìm kiếm ở trên: theo collation của `clients.name` (bảng
-  `clients` không có cột chuẩn hoá; `đ` khác `d` trên MariaDB). Bộ lọc "Vụ việc" mở sẵn 200 vụ mới nhất
+  `clients` không có cột chuẩn hoá; từ làn fa3, `đ` như `d` — đính chính 2026-10-16 ở trên). Bộ lọc "Vụ việc" mở sẵn 200 vụ mới nhất
   và tìm trên máy chủ theo mã hồ sơ hoặc tiêu đề trong cùng tập `listableBy()`, nên mọi vụ người xem thấy
   đều chọn được.
 - Trang "Tìm kiếm" ở trên **không đổi**: nó đã tìm *vụ việc* theo tiêu đề tài liệu cùng luật quyền; trang
@@ -2028,6 +2073,16 @@ vụ không thu phí, vẫn được đếm); "Hợp đồng còn nháp" là v�
 (`Matter::contract`, bản mới nhất). Vụ có hợp đồng hiện hành đã huỷ không vào ô nào — trang lọc "Đã huỷ"
 để nhập lại phần còn phải thu (QUY-TRINH, "Kế toán nhập hợp đồng"). Hai ô chỉ đếm: không mã hồ sơ, không
 tên khách; mỗi ô là một liên kết tới trang "Hợp đồng" lọc sẵn đúng trạng thái đó.
+
+**Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ: ô "Hồ sơ chưa có hợp đồng" không khớp "Cần
+nhập").** Ô đầu đổi thành **"Hồ sơ cần nhập hợp đồng"** và đếm ĐÚNG luật của bộ lọc mặc định của trang
+"Hợp đồng" — một hàm, `ContractEntry::whereNeedsContract()`: hồ sơ **đang mở** (`closed_at` rỗng) chưa từng
+có hợp đồng nào **hoặc** có hợp đồng hiện hành đã huỷ — đúng những dòng có nút "Nhập hợp đồng". Hai điểm
+trên kia vì thế không còn đúng: vụ đã đóng mà chưa từng có hợp đồng **không** còn được đếm (không còn là việc
+phải nhập), và vụ có hợp đồng hiện hành đã huỷ **được** đếm (kế toán nhập lại phần còn phải thu). Dưới số có
+một dòng nói luật đó; liên kết mở trang lọc sẵn "Cần nhập hợp đồng" (`ContractEntry::STATUS_TO_ENTER`). Bộ lọc
+mặc định của trang là "Cần nhập hợp đồng" + "Nháp"; trạng thái "Chưa có hợp đồng" (chưa từng có hợp đồng nào,
+kể cả vụ đã đóng) vẫn chọn được. Ô "Hợp đồng còn nháp" không đổi.
 
 ### 7.2 Resource `Matter`
 

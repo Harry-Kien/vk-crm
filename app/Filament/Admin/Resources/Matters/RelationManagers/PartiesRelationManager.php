@@ -21,6 +21,7 @@ use App\Support\ConflictMatch;
 use App\Support\ConflictOverride;
 use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
+use App\Support\Search\LetterD;
 use App\Support\UpdateMatterPartyResult;
 use Closure;
 use DomainException;
@@ -394,7 +395,7 @@ class PartiesRelationManager extends RelationManager
                     ->formatStateUsing(fn (PartyRole $state): string => $state->label()),
                 TextColumn::make('name')
                     ->label(__('matters.party_fields.name'))
-                    ->searchable(),
+                    ->searchable(query: LetterD::searchable('name')),
                 IconColumn::make('is_our_client')
                     ->label(__('matters.party_fields.is_our_client'))
                     ->boolean(),

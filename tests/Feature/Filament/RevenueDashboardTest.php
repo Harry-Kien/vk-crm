@@ -358,7 +358,9 @@ it('excludes a soft-deleted matters contract and a voided payment from every tot
     $trashedContract = Contract::factory()->for($trashedMatter)->active()->create(['total_amount' => 15_000_000, 'signed_at' => today()->toDateString()]);
     $trashedInstalment = Instalment::factory()->for($trashedContract)->create(['amount' => 15_000_000, 'due_date' => today()->subDays(2)->toDateString(), 'status' => InstalmentStatus::Paid]);
     Payment::factory()->for($trashedInstalment)->create(['amount' => 15_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
-    $trashedMatter->delete();
+    // Làn fa3, fix round 1 (m9): vụ còn khoản thu chưa huỷ không xoá mềm được nữa (`Matter::deleting`) — dựng
+    // một vụ đã huỷ TỪ TRƯỚC luật đó, không qua hook.
+    $trashedMatter->forceFill(['deleted_at' => now()])->saveQuietly();
 
     $liveMatter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
     $contract = Contract::factory()->for($liveMatter)->active()->create(['total_amount' => 9_000_000, 'signed_at' => today()->toDateString()]);

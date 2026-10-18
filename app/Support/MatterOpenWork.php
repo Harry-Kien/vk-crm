@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Actions\Matter\CancelMatter;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Permission;
@@ -95,14 +96,29 @@ final class MatterOpenWork
     }
 
     /**
-     * Các dòng cho hộp thoại "Huỷ hồ sơ mở nhầm": mốc chưa xong, số tài liệu, và việc vụ đang được
-     * công bố trên cổng khách.
+     * Các dòng cho hộp thoại "Huỷ hồ sơ mở nhầm": khoản thu đã ghi (chặn việc huỷ), mốc chưa xong, số
+     * tài liệu, và việc vụ đang được công bố trên cổng khách.
+     *
+     * Làn fa3 (2026-10-16, mục 1): khoản thu CHƯA HUỶ trên mọi hợp đồng của vụ đứng đầu, bằng ĐÚNG câu từ
+     * chối của `CancelMatter` (`CancelMatter::paymentsRefusal()` — fix round 1, I1: câu riêng khi khoản thu nằm
+     * trên hợp đồng đã hoàn tất, nơi không huỷ được khoản thu) — người bấm biết trước khi bấm rằng hồ sơ chưa
+     * huỷ được và phải làm gì. Chỉ cho người có `billing.view` (cùng luật dòng dư nợ của `closingLines()`).
      *
      * @return list<string>
      */
-    public static function cancellingLines(Matter $matter): array
+    public static function cancellingLines(Matter $matter, ?User $viewer = null): array
     {
-        $lines = self::deadlineLines($matter);
+        $lines = [];
+
+        if ($viewer !== null && $viewer->can(Permission::BillingView->value)) {
+            $refusal = CancelMatter::paymentsRefusal($matter);
+
+            if ($refusal !== null) {
+                $lines[] = $refusal;
+            }
+        }
+
+        $lines = [...$lines, ...self::deadlineLines($matter)];
 
         $documents = Document::query()
             ->withoutGlobalScope(ClientPortalScope::class)

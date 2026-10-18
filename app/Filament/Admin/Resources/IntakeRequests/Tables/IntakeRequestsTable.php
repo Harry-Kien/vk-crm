@@ -8,6 +8,7 @@ use App\Enums\IntakeStatus;
 use App\Enums\Permission;
 use App\Models\IntakeRequest;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Contracts\HasTable;
@@ -77,12 +78,12 @@ class IntakeRequestsTable
             ->columns([
                 TextColumn::make('code')
                     ->label(__('intake.fields.code'))
-                    ->searchable(),
+                    ->searchable(query: LetterD::searchable('code')),
                 TextColumn::make('contact_name')
                     ->label(__('intake.fields.contact_name'))
                     // Tên chỉ rỗng sau khi ẩn danh (bắt buộc lúc ghi) — M10 Task 7.
                     ->placeholder(__('intake.anonymise.placeholder'))
-                    ->searchable(),
+                    ->searchable(query: LetterD::searchable('contact_name')),
                 TextColumn::make('contact_phone')
                     ->label(__('intake.fields.contact_phone'))
                     // Làn fa (mục nhỏ): tìm được theo SĐT gõ kiểu nào cũng được — xem `searchPhone()`.

@@ -32,15 +32,22 @@ use Illuminate\Support\Facades\Gate;
  *     rồi xoá hợp đồng (hook `Contract::deleting` hỏi lại bước 3 — vô hại).
  *  5. `Audit::record('contract_draft_deleted', …, $actor)` bên trong transaction, **gắn vào VỤ
  *     VIỆC** (hàng `contracts` không còn để trỏ tới), mang mã hợp đồng, giá trị và số đợt đã xoá.
+ *
+ * **Sau commit** (làn fa3, 2026-10-16, mục 5): người xoá không phải luật sư phụ trách (kế toán, trưởng
+ * phòng) thì luật sư phụ trách nhận một dòng chuông ({@see NotifyLeadLawyerOfContractEntry},
+ * `DRAFT_DELETED`); luật sư phụ trách tự xoá bản nháp vụ mình thì không ai.
  */
 class DeleteDraftContract
 {
     use LocksBillingRows;
     use ReadsWithoutPortalScope;
 
+    public function __construct(private NotifyLeadLawyerOfContractEntry $notifier) {}
+
     public function handle(User $actor, Contract $contract): void
     {
-        $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor): void {
+        /** @var array{0: Contract, 1: int} $deleted hàng hợp đồng vừa xoá (trong bộ nhớ) và số đợt đã xoá */
+        $deleted = $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor): array {
             Gate::forUser($actor)->authorize('delete', $locked);
 
             $locked->assertDestroyable();
@@ -56,6 +63,14 @@ class DeleteDraftContract
                 'total_amount' => $locked->total_amount,
                 'instalment_count' => $instalments->count(),
             ], $actor);
+
+            return [$locked, $instalments->count()];
         });
+
+        // Làn fa3 (mục 5), SAU commit: người xoá không phải luật sư phụ trách thì luật sư phụ trách được báo —
+        // mã, giá trị và số đợt của bản nháp vừa xoá (hàng đã xoá còn trong bộ nhớ, không đọc lại).
+        [$contractRow, $instalmentCount] = $deleted;
+
+        $this->notifier->handle($actor, $contractRow, NotifyLeadLawyerOfContractEntry::DRAFT_DELETED, $instalmentCount);
     }
 }

@@ -1638,6 +1638,36 @@ Sau khi lên bản: một nhân sự còn giữ việc nội bộ (hay đã giao
 vô hiệu hoá / xoá / đổi sang Kế toán hay Nhân viên kinh doanh cho tới khi chuyển xong — dùng phần "Việc nội bộ và
 ghế" của màn hình "Bàn giao hàng loạt" (nút mở hộp xác nhận nêu các con số và bắt nhập lý do, ghi vào nhật ký).
 
+### Bản cập nhật làn fa3: tiền và tìm kiếm (kiểm tra luồng nội bộ 2026-10-16)
+
+Không migration, không tác vụ lịch, không quyền mới, không biến `.env` — chuỗi lệnh nâng cấp ở trên là đủ.
+"Đưa về bản nháp" dùng ability mới `ContractPolicy::revertToDraft` dựng trên quyền SẴN CÓ (`contract.manage`
+hoặc `contract.enter`), nên không cần chạy lại seeder vì bản này. Tìm không dấu chữ "đ" ("Dang" ra "Đặng")
+đổi chữ ngay lúc tìm, ở cả hai vế: **không có cột chuẩn hoá đã lưu nào phải tính lại** — cột
+`name_normalized` của các bên đã đổi "đ" → "d" từ M1, không lệnh một lần nào cần chạy.
+
+**Không có migration tính lại cột chuẩn hoá — cố ý, khác với phán quyết ban đầu (mục 3: "tính lại các cột chuẩn
+hoá đã lưu").** Đã kiểm trước khi bỏ: mọi cột chuẩn hoá tên (`matter_parties.name_normalized`,
+`intake_parties.name_normalized`, `intake_requests.contact_name_normalized` và `organization_name_normalized`) chỉ
+được ghi bởi hook `saving` của model qua `Normalizer::name()`, hàm đã đổi "đ"/"ð" → "d" (qua `Str::ascii`) từ lần
+commit đầu (M1); đường ghi thẳng duy nhất đặt NULL (ẩn danh hoá tiếp nhận); không seeder, lệnh hay migration nào
+ghi các cột đó. Một lần tính lại sẽ không đổi giá trị nào, nên không có gì phải chạy trên máy chủ.
+
+Sau khi lên bản:
+
+1. Hồ sơ đã có khoản thu (chưa huỷ) không còn huỷ được bằng "Huỷ hồ sơ mở nhầm": kế toán huỷ khoản thu
+   (ghi lý do) và ghi lại vào đúng hồ sơ trước. Hồ sơ đã huỷ TỪ TRƯỚC bản này mà còn khoản thu: tiền đó nay
+   hiện lại ở "Đã thu" và biểu đồ theo đợt/giai đoạn của trang Doanh thu, cột doanh thu của trang Hiệu suất (kỳ đã qua có thể đổi số so
+   với ảnh chụp cũ) và ở "Khoản thu gần đây" với nhãn "Hồ sơ đã huỷ".
+2. Ô trang chủ của kế toán đổi thành "Hồ sơ cần nhập hợp đồng": đếm hồ sơ đang mở chưa có hợp đồng hoặc
+   hợp đồng đã huỷ (hồ sơ đã kết thúc không còn được đếm) — số có thể khác số cũ.
+3. Ô tìm của các danh sách Khách hàng, Vụ việc, Tiếp nhận, Nhân sự, Tài khoản cổng khách, tab Các bên, và các ô
+   chọn Khách hàng / Luật sư phụ trách của form mở vụ, bộ lọc luật sư của trang Doanh thu và "Người thực hiện" của
+   Nhật ký hoạt động: gõ không dấu chữ "đ" nay ra ("Dang" ra "Đặng"). Trang Việc được giao và Bàn giao hàng loạt
+   chưa có (bản sau).
+4. Hồ sơ có khoản thu trên hợp đồng **đã hoàn tất** không huỷ được bằng "Huỷ hồ sơ mở nhầm" (khoản thu đó không
+   huỷ được); câu từ chối nói đóng hồ sơ thay vì huỷ. "Đưa về bản nháp" không làm được trên hồ sơ đã kết thúc.
+
 ### Nâng cấp hỏng: quay lại bản trước
 
 Dùng khi một dòng của khối thứ hai trong "Nâng cấp lên bản mới" hỏng và không sửa được ngay. Đưa máy

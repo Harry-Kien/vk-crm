@@ -19,7 +19,11 @@ use Illuminate\Database\Eloquent\Builder;
  *    (cột `date` trên SQLite lưu `Y-m-d 00:00:00`; cận trên ngày trần làm rơi tiền về đúng ngày cuối kỳ,
  *    bài học M9 Task 13);
  *  - vụ của khoản thu nằm trong `Matter::listableBy($viewer)` (P3 của M9: tầm nhìn áp cả cho số tổng hợp,
- *    nên trưởng phòng không thấy tiền của vụ `restricted`).
+ *    nên trưởng phòng không thấy tiền của vụ `restricted`) — **kể cả vụ đã huỷ (xoá mềm)**, làn fa3
+ *    (2026-10-16, mục 1, phán quyết controller): tiền đã về là sự thật kế toán. Từ làn fa3 `CancelMatter`
+ *    không còn huỷ được hồ sơ có khoản thu chưa huỷ; hồ sơ đã huỷ TRƯỚC luật đó mà còn khoản thu vẫn được
+ *    đếm ở "Đã thu", biểu đồ theo tháng và P7. `withTrashed()` chỉ gỡ `SoftDeletingScope`; mọi nhánh của
+ *    `listableBy()` (vụ hạn chế, đội ngũ, `matter.viewAny`) giữ nguyên.
  *
  * Bộ lọc luật sư (`attributed_lawyer_id`, P2 của M9: "luật sư phụ trách LÚC THU") và lĩnh vực của trang
  * Doanh thu vẫn nằm ở widget, gắn THÊM vào truy vấn trả về; P7 của M13 quy về người bằng `GROUP BY` cùng
@@ -38,7 +42,7 @@ final class CollectedRevenue
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereNull('voided_at')
             ->whereBetween('paid_on', $bounds)
-            ->whereHas('instalment.contract.matter', fn (Builder $matters): Builder => $matters->listableBy($viewer));
+            ->whereHas('instalment.contract.matter', fn (Builder $matters): Builder => $matters->withTrashed()->listableBy($viewer));
     }
 
     /**
@@ -49,7 +53,8 @@ final class CollectedRevenue
      * hai điều kiện này nằm trong widget; tách nguyên văn ra đây để ô số không viết lại chúng.
      *
      * Một khoản thu thuộc đúng một vụ, nên `whereHas` lĩnh vực thứ hai tương đương với điều kiện nằm trong
-     * cùng closure `listableBy`.
+     * cùng closure `listableBy` — và cũng `withTrashed()` như closure đó (làn fa3), để lọc theo lĩnh vực
+     * không bỏ lại tiền của vụ đã huỷ.
      *
      * @param  array{0: string, 1: string}  $bounds
      * @return Builder<Payment>
@@ -59,6 +64,6 @@ final class CollectedRevenue
         return self::query($viewer, $bounds)
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('attributed_lawyer_id', $v))
             ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q
-                ->whereHas('instalment.contract.matter', fn (Builder $mq) => $mq->where('matter_type_id', $v)));
+                ->whereHas('instalment.contract.matter', fn (Builder $mq) => $mq->withTrashed()->where('matter_type_id', $v)));
     }
 }

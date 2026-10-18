@@ -18,7 +18,13 @@ use Illuminate\Support\Facades\Notification;
  * hoạt ({@see ActivateContract}) hay nhập-và-kích-hoạt ({@see EnterSignedContract}) hợp đồng của vụ,
  * luật sư phụ trách nhận MỘT dòng chuông {@see ContractEnteredByColleague} để kiểm lại con số.
  *
- * - **Gọi SAU khi transaction tiền đã commit** — ba Action trên gọi lớp này sau `moneyTransaction()`,
+ * Làn fa3 (2026-10-16, mục 2 + 5): cùng chuông, cùng người nhận cho ba việc nữa trên hợp đồng của vụ —
+ * đưa một hợp đồng kích hoạt nhầm về bản nháp ({@see RevertContractToDraft}, `REVERTED`), sửa bản nháp
+ * ({@see UpdateDraftContract}, `DRAFT_UPDATED`) và xoá bản nháp ({@see DeleteDraftContract},
+ * `DRAFT_DELETED`). Hợp đồng vừa xoá không còn đợt để đếm, nên người gọi truyền số đợt đã xoá
+ * (`$instalmentCount`); mọi việc khác đếm đợt hiện có.
+ *
+ * - **Gọi SAU khi transaction tiền đã commit** — các Action trên gọi lớp này sau `moneyTransaction()`,
  *   không bên trong nó: một lần chạy lại transaction (xung đột khoá, `LocksBillingRows`) không gửi hai
  *   lần, và một lần rollback không để lại chuông về một hợp đồng không tồn tại.
  * - **Người nhận (gộp integ-4, mục D — sửa khoảng hở m7 của làn kt):** luật sư phụ trách, khi họ còn
@@ -48,9 +54,19 @@ class NotifyLeadLawyerOfContractEntry
 
     public const ENTERED = 'entered';
 
+    /** Làn fa3: hợp đồng kích hoạt nhầm vừa được đưa về bản nháp ({@see RevertContractToDraft}). */
+    public const REVERTED = 'reverted';
+
+    /** Làn fa3: bản nháp vừa được sửa ({@see UpdateDraftContract}). */
+    public const DRAFT_UPDATED = 'draft_updated';
+
+    /** Làn fa3: bản nháp vừa bị xoá ({@see DeleteDraftContract}) — người gọi truyền số đợt đã xoá. */
+    public const DRAFT_DELETED = 'draft_deleted';
+
     public function __construct(private readonly ResolveStaffRecipients $recipients) {}
 
-    public function handle(User $actor, Contract $contract, string $event): void
+    /** @param  int|null  $instalmentCount  số đợt để nói trong chuông; `null` = đếm đợt hiện có của hợp đồng */
+    public function handle(User $actor, Contract $contract, string $event, ?int $instalmentCount = null): void
     {
         $matter = $this->scopelessly(Matter::query())->find($contract->matter_id);
 
@@ -88,7 +104,7 @@ class NotifyLeadLawyerOfContractEntry
             'contract' => $contract->code,
             'matter' => $matter->code,
             'total' => Money::format($contract->total_amount),
-            'count' => $contract->instalments()->count(),
+            'count' => $instalmentCount ?? $contract->instalments()->count(),
             'date' => $contract->signed_at?->format('d/m/Y') ?? '—',
         ], (int) $matter->getKey(), (int) $contract->getKey()));
     }

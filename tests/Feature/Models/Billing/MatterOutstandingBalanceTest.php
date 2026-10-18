@@ -3,6 +3,7 @@
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Exceptions\MatterHasOutstandingBalance;
+use App\Exceptions\MatterHasRecordedPayments;
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
@@ -45,17 +46,21 @@ it('names the outstanding amount and the number of instalments still owing, in v
     );
 });
 
-/** Cặp dương: một vụ việc dư nợ bằng 0 (thu đủ) xoá mềm được bình thường. */
-it('lets a matter whose instalments are all fully collected be soft deleted', function () {
+/**
+ * Làn fa3, fix round 1 (m9): trước đây là cặp dương "thu đủ thì xoá mềm được". Dư nợ bằng 0 vẫn không
+ * phải câu dư nợ — nhưng tiền đã về không được biến mất khỏi báo cáo, nên hook nay chặn bằng
+ * `MatterHasRecordedPayments` (cùng luật `CancelMatter`). Cặp dương còn lại: miễn tường minh, ngay dưới.
+ */
+it('refuses to soft delete a matter whose instalments are all fully collected, because the money was received', function () {
     $matter = Matter::factory()->create();
     $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000]);
     $instalment = Instalment::factory()->for($contract)->create(['amount' => 10_000_000, 'status' => InstalmentStatus::Pending]);
     Payment::factory()->for($instalment)->create(['amount' => 10_000_000]);
     $instalment->fill(['status' => InstalmentStatus::Paid])->save();
 
-    $matter->delete();
+    expect(fn () => $matter->delete())->toThrow(MatterHasRecordedPayments::class);
 
-    expect($matter->fresh()->trashed())->toBeTrue();
+    expect($matter->fresh()->trashed())->toBeFalse();
 });
 
 /** Miễn tường minh là đường thoát nợ hợp lệ — dư nợ về 0 thì xoá được. */
@@ -96,4 +101,18 @@ it('still refuses to soft delete a matter that is already closed but still carri
     Instalment::factory()->for($contract)->create(['amount' => 10_000_000, 'status' => InstalmentStatus::Pending]);
 
     expect(fn () => $matter->delete())->toThrow(MatterHasOutstandingBalance::class);
+});
+
+/**
+ * Làn fa3, fix round 2 (mC): câu dư nợ của hook không còn mời "thu nốt" — thu thêm thì vụ mang khoản thu chưa
+ * huỷ và hook bước sau (`MatterHasRecordedPayments`) từ chối. Câu chỉ đúng đường của `CancelMatter`: kế toán
+ * huỷ khoản thu đã ghi (nếu có), huỷ hợp đồng, rồi mới xoá.
+ */
+it('mC: the outstanding-balance line points at the path the payments rule leaves open, not at collecting the rest', function () {
+    $text = __('exceptions.matter_has_outstanding_balance', ['code' => 'VK-1', 'amount' => '1 ₫', 'count' => 1]);
+
+    expect($text)->not->toContain('Thu nốt')
+        ->not->toContain('miễn')
+        ->toContain('huỷ hợp đồng')
+        ->toContain('huỷ các khoản thu');
 });

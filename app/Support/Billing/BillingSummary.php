@@ -171,4 +171,61 @@ final class BillingSummary
             ."where c.matter_id = matters.id and c.status = '".ContractStatus::Active->value."' "
             ."and i.status = '".InstalmentStatus::Pending->value."'), 0)";
     }
+
+    /**
+     * Làn fa3 (2026-10-16, mục 1): tiền ĐÃ VỀ của MỘT vụ việc — mọi khoản thu CHƯA HUỶ (`voided_at`
+     * rỗng) trên MỌI hợp đồng của vụ, bất kể trạng thái hợp đồng (đang hiệu lực, đã hoàn tất, đã huỷ):
+     * huỷ hợp đồng không huỷ khoản thu nào (`CancelContract`), nên tiền trên một hợp đồng đã huỷ vẫn là
+     * tiền khách đã trả. `App\Actions\Matter\CancelMatter` từ chối huỷ hồ sơ khi số đếm khác không, và
+     * hộp thoại "Huỷ hồ sơ mở nhầm" (`MatterOpenWork::cancellingLines()`) nói đúng hai con số này.
+     *
+     * Đọc bảng thẳng (`DB::table`), không qua model: không `ClientPortalScope`, không `SoftDeletingScope`
+     * (hợp đồng và đợt không xoá mềm; khoản thu không bao giờ bị xoá — `Payment::deleting`).
+     *
+     * @return array{amount: int, count: int}
+     */
+    public static function collectedForMatter(int $matterId): array
+    {
+        $row = DB::table('payments')
+            ->join('instalments', 'instalments.id', '=', 'payments.instalment_id')
+            ->join('contracts', 'contracts.id', '=', 'instalments.contract_id')
+            ->where('contracts.matter_id', $matterId)
+            ->whereNull('payments.voided_at')
+            ->selectRaw('count(*) as payment_count, coalesce(sum(payments.amount), 0) as payment_total')
+            ->first();
+
+        return [
+            'amount' => (int) ($row->payment_total ?? 0),
+            'count' => (int) ($row->payment_count ?? 0),
+        ];
+    }
+
+    /**
+     * Làn fa3, fix round 1 (I1): phần của {@see self::collectedForMatter()} nằm trên hợp đồng ĐÃ HOÀN TẤT —
+     * khoản thu chưa huỷ ở đó KHÔNG huỷ được trong hệ thống (`ContractStatus::allowsPaymentVoid()`, chốt chặn
+     * của `VoidPayment`), và hợp đồng đã hoàn tất không huỷ hay đưa về nháp được (`CancelContract`,
+     * `RevertContractToDraft` chỉ nhận `active`). `CancelMatter` dùng con số này để nói thật: hồ sơ đó không
+     * có đường huỷ như hồ sơ mở nhầm. `contracts` là mã của các hợp đồng đó (theo id). Cùng cách đọc bảng thẳng.
+     *
+     * @return array{amount: int, count: int, contracts: list<string>}
+     */
+    public static function collectedOnCompletedForMatter(int $matterId): array
+    {
+        $rows = DB::table('payments')
+            ->join('instalments', 'instalments.id', '=', 'payments.instalment_id')
+            ->join('contracts', 'contracts.id', '=', 'instalments.contract_id')
+            ->where('contracts.matter_id', $matterId)
+            ->where('contracts.status', ContractStatus::Completed->value)
+            ->whereNull('payments.voided_at')
+            ->groupBy('contracts.id', 'contracts.code')
+            ->orderBy('contracts.id')
+            ->selectRaw('contracts.code as contract_code, count(*) as payment_count, coalesce(sum(payments.amount), 0) as payment_total')
+            ->get();
+
+        return [
+            'amount' => (int) $rows->sum(fn (object $row): int => (int) $row->payment_total),
+            'count' => (int) $rows->sum(fn (object $row): int => (int) $row->payment_count),
+            'contracts' => $rows->map(fn (object $row): string => (string) $row->contract_code)->values()->all(),
+        ];
+    }
 }

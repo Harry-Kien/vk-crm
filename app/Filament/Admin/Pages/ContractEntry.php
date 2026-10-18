@@ -6,6 +6,7 @@ use App\Actions\Billing\ActivateContract;
 use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\EnterSignedContract;
+use App\Actions\Billing\RevertContractToDraft;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Enums\ContractStatus;
 use App\Enums\NavigationGroup;
@@ -21,9 +22,11 @@ use App\Policies\ContractPolicy;
 use App\Support\Billing\AccountantContractRow;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
+use App\Support\Search\LetterD;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Utilities\Get;
@@ -59,8 +62,12 @@ use UnitEnum;
  * tiền của vụ nào" của `ChecksBillingAccess`: quản trị viên thấy mọi vụ, luật sư thấy vụ trong đội; vụ
  * `restricted` chỉ hiện với quản trị viên và luật sư phụ trách vụ đó (còn `matter.view`) — kế toán không
  * bao giờ thấy, trưởng phòng chỉ thấy vụ hạn chế mình phụ trách. Lời dẫn `contract_entry.scope_note` nói
- * đúng điều này cho mọi người mở trang. Mặc định lọc "Chưa có hợp đồng" + "Nháp" — đúng những hồ sơ còn
- * việc phải nhập.
+ * đúng điều này cho mọi người mở trang. Mặc định lọc "Cần nhập hợp đồng" + "Nháp" — đúng những hồ sơ còn
+ * việc phải nhập. "Cần nhập hợp đồng" là MỘT luật, {@see self::whereNeedsContract()} (làn fa3, 2026-10-16,
+ * mục 4): hồ sơ đang mở, chưa có hợp đồng nào hoặc hợp đồng hiện hành đã huỷ — đúng những dòng có nút "Nhập
+ * hợp đồng" (trừ hồ sơ đã kết thúc); ô "Hồ sơ cần nhập hợp đồng" của {@see ContractsToEnterWidget} đếm bằng
+ * chính hàm đó. Bộ lọc trạng thái "Chưa có hợp đồng" (`STATUS_NONE`) vẫn có, nghĩa hẹp: chưa từng có hợp
+ * đồng nào, kể cả hồ sơ đã kết thúc.
  *
  * # Dữ liệu chỉ đi qua {@see AccountantContractRow}
  *
@@ -92,7 +99,9 @@ use UnitEnum;
  * hộp thoại của nút đã mở trên dòng đó: khi ấy trạng thái đổi ở tab khác không làm nút tự ẩn, Action
  * từ chối bằng câu của nó ({@see self::isOpenDialog()}; "Nhập hợp đồng" cũng vậy). **Ghi khoản thu**
  * (hợp đồng đang hiệu lực) là một liên kết sang trang Công nợ, lọc sẵn mã hồ sơ — chỉ hiện khi người
- * xem mở được trang đó.
+ * xem mở được trang đó. **Đưa về bản nháp** ({@see RevertContractToDraft}, làn fa3 2026-10-16) chỉ hiện
+ * trên hợp đồng hiện hành đang hiệu lực (cùng ngoại lệ hộp thoại đang mở): sửa một lần kích hoạt nhầm —
+ * Action từ chối khi đã có khoản thu chưa huỷ, phụ lục, hay đợt từng được miễn/dời hạn.
  *
  * Mỗi nút hỏi `Gate` CÓ NGỮ CẢNH trên đúng dòng (`create` với vụ; `updateDraft`, `delete`, `activate`
  * với hợp đồng — {@see ContractPolicy}); Action hỏi lại trên hàng đã khoá. Lỗi của Action ra qua
@@ -114,6 +123,12 @@ class ContractEntry extends Page implements HasTable
 
     /** Giá trị của bộ lọc trạng thái cho "vụ chưa có hợp đồng nào". */
     public const STATUS_NONE = 'none';
+
+    /** Làn fa3: giá trị của bộ lọc trạng thái cho "Cần nhập hợp đồng" — {@see self::whereNeedsContract()}. */
+    public const STATUS_TO_ENTER = 'to_enter';
+
+    /** Fix round 2 (mE): cột EXISTS "có khoản thu nào trên hợp đồng" nạp cùng hợp đồng hiện hành — {@see self::hasPaymentHistory()}. */
+    private const PAYMENT_HISTORY = 'has_payment_history';
 
     protected string $view = 'filament.admin.pages.contract-entry';
 
@@ -186,7 +201,8 @@ class ContractEntry extends Page implements HasTable
                 TextColumn::make('matter_code')
                     ->label(__('contract_entry.columns.matter_code'))
                     ->state(fn (Matter $record): string => static::rowFor($record)->matterCode)
-                    ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('matters.code', 'like', '%'.$search.'%')),
+                    // Làn fa3: "đ" như "d", "%"/"_" người gõ được thoát (`LetterD`, cùng trang Tìm kiếm và Tài liệu).
+                    ->searchable(query: fn (Builder $query, string $search): Builder => LetterD::whereContains($query, 'matters.code', $search)),
                 TextColumn::make('matter_type_name')
                     ->label(__('contract_entry.columns.matter_type'))
                     ->state(fn (Matter $record): string => static::rowFor($record)->matterTypeName),
@@ -195,7 +211,7 @@ class ContractEntry extends Page implements HasTable
                     ->state(fn (Matter $record): string => static::rowFor($record)->clientName)
                     ->searchable(query: fn (Builder $query, string $search): Builder => $query->whereHas(
                         'client',
-                        fn (Builder $client) => $client->withTrashed()->where('name', 'like', '%'.$search.'%'),
+                        fn (Builder $client) => LetterD::whereContains($client->withTrashed(), $client->qualifyColumn('name'), $search),
                     )),
                 TextColumn::make('lead_lawyer_name')
                     ->label(__('contract_entry.columns.lead_lawyer'))
@@ -230,7 +246,7 @@ class ContractEntry extends Page implements HasTable
                     ->label(__('contract_entry.filters.contract_status'))
                     ->multiple()
                     ->options(static::statusOptions())
-                    ->default([self::STATUS_NONE, ContractStatus::Draft->value])
+                    ->default([self::STATUS_TO_ENTER, ContractStatus::Draft->value])
                     // Đợt polish (m4): tìm lại dòng của một hộp thoại đang mở KHÔNG qua bộ lọc này —
                     // xem `isOpenDialog()`. Tập dòng vẫn là `listableBy()` (truy vấn gốc của bảng).
                     ->excludeWhenResolvingRecord()
@@ -254,6 +270,7 @@ class ContractEntry extends Page implements HasTable
                 $this->enterContractAction(),
                 $this->updateDraftAction(),
                 $this->activateAction(),
+                $this->revertToDraftAction(),
                 $this->deleteDraftAction(),
                 $this->recordPaymentLink(),
             ])
@@ -281,8 +298,23 @@ class ContractEntry extends Page implements HasTable
                 'matterType' => fn ($query) => $query->withTrashed(),
                 'client' => fn ($query) => $query->withTrashed(),
                 'leadLawyer' => fn ($query) => $query->withTrashed(),
-                'contract',
+                // Fix round 2 (mE, làn fa3): nút "Xoá bản nháp" hỏi "có lịch sử khoản thu (kể cả đã huỷ) không" trên
+                // mỗi dòng nháp — một EXISTS trong câu nạp hợp đồng thay vì một truy vấn `hasPayments()` mỗi dòng.
+                'contract' => fn ($query) => $query->withExists([
+                    'instalments as '.self::PAYMENT_HISTORY => fn ($instalments) => $instalments->whereHas('payments'),
+                ]),
             ]);
+    }
+
+    /**
+     * Có khoản thu nào (kể cả đã huỷ) trên hợp đồng hiện hành của dòng — đúng câu của `Contract::hasPayments()`,
+     * đọc cột EXISTS đã nạp ({@see self::rowsQuery()}); dòng được nạp theo đường khác thì hỏi thẳng.
+     */
+    private static function hasPaymentHistory(Contract $contract): bool
+    {
+        $loaded = $contract->getAttribute(self::PAYMENT_HISTORY);
+
+        return $loaded === null ? $contract->hasPayments() : (bool) $loaded;
     }
 
     /**
@@ -310,6 +342,7 @@ class ContractEntry extends Page implements HasTable
     private static function statusOptions(): array
     {
         return [
+            self::STATUS_TO_ENTER => __('contract_entry.status.to_enter'),
             self::STATUS_NONE => __('contract_entry.status.none'),
             ...collect(ContractStatus::cases())
                 ->mapWithKeys(fn (ContractStatus $status): array => [$status->value => $status->label()])
@@ -319,7 +352,8 @@ class ContractEntry extends Page implements HasTable
 
     /**
      * Lọc theo trạng thái của hợp đồng HIỆN HÀNH (`Matter::contract()`, bản mới nhất). Không chọn gì thì
-     * không lọc. "Chưa có hợp đồng" là `whereDoesntHave('contracts')` — vụ chưa từng có hợp đồng nào.
+     * không lọc. "Cần nhập hợp đồng" là {@see self::whereNeedsContract()}; "Chưa có hợp đồng" là
+     * `whereDoesntHave('contracts')` — vụ chưa từng có hợp đồng nào. Các giá trị đã chọn gộp bằng HOẶC.
      *
      * `$values` là chuỗi kể cả khi bộ lọc đến từ query string (`#[Url]`): ô chọn nhiều của Filament bỏ
      * mọi giá trị không nằm trong `statusOptions()` khi điền bộ lọc từ URL, nên một mảng lồng tự chế
@@ -337,6 +371,10 @@ class ContractEntry extends Page implements HasTable
         $statuses = array_values(array_filter($values, fn (string $value): bool => ContractStatus::tryFrom($value) !== null));
 
         return $query->where(function (Builder $inner) use ($values, $statuses): void {
+            if (in_array(self::STATUS_TO_ENTER, $values, true)) {
+                $inner->orWhere(fn (Builder $toEnter): Builder => static::whereNeedsContract($toEnter));
+            }
+
             if (in_array(self::STATUS_NONE, $values, true)) {
                 $inner->orWhereDoesntHave('contracts');
             }
@@ -345,6 +383,27 @@ class ContractEntry extends Page implements HasTable
                 $inner->orWhereHas('contract', fn (Builder $contract) => $contract->whereIn('status', $statuses));
             }
         });
+    }
+
+    /**
+     * Làn fa3 (2026-10-16, mục 4) — luật "Cần nhập hợp đồng", MỘT định nghĩa cho bộ lọc mặc định của trang
+     * và cho ô "Hồ sơ cần nhập hợp đồng" trên trang chủ ({@see ContractsToEnterWidget}): hồ sơ ĐANG MỞ
+     * (`Matter::scopeOpen()`, một định nghĩa của "đang mở"; vụ đã huỷ vốn nằm ngoài `listableBy()` của người gọi) mà chưa có hợp đồng nào, hoặc
+     * hợp đồng HIỆN HÀNH (`Matter::contract()`, bản mới nhất) đã huỷ — tức hồ sơ chưa có hợp đồng nào đang
+     * sống, đúng những dòng có nút "Nhập hợp đồng". Hồ sơ đã kết thúc không còn là việc phải nhập: hợp đồng
+     * (nếu có) đã được ghi từ trước, và một hồ sơ cũ chưa từng có hợp đồng (khi bắt đầu dùng hệ thống) không
+     * nằm mãi trong việc của kế toán. Chỉ thêm điều kiện, không tự áp tầm nhìn: người gọi đã `listableBy()`.
+     *
+     * @param  Builder<Matter>  $matters
+     * @return Builder<Matter>
+     */
+    public static function whereNeedsContract(Builder $matters): Builder
+    {
+        return $matters
+            ->open()
+            ->where(fn (Builder $either): Builder => $either
+                ->whereDoesntHave('contracts')
+                ->orWhereHas('contract', fn (Builder $contract) => $contract->where('status', ContractStatus::Cancelled->value)));
     }
 
     /**
@@ -530,6 +589,42 @@ class ContractEntry extends Page implements HasTable
             ));
     }
 
+    /**
+     * Làn fa3 (2026-10-16, mục 2): "Đưa về bản nháp" cho hợp đồng hiện hành đang hiệu lực — xem docblock lớp.
+     * `->authorize()` hỏi `ContractPolicy::revertToDraft` trên đúng hợp đồng của dòng; Action hỏi lại trên
+     * hàng đã khoá và nói "không" (khoản thu, phụ lục, miễn/dời hạn) qua {@see ReportsActionFailures}.
+     */
+    private function revertToDraftAction(): Action
+    {
+        return Action::make('revertToDraft')
+            ->label(__('billing_corrections.revert.label'))
+            ->icon(Heroicon::OutlinedArrowUturnLeft)
+            ->color('warning')
+            ->modalHeading(__('billing_corrections.revert.heading'))
+            ->modalDescription(fn (Matter $record): string => __('billing_corrections.revert.description', ['code' => $record->contract?->code ?? '—']))
+            // Fix round 2 (mB): không mời trên hồ sơ đã kết thúc (Action từ chối — `ContractNotRevertible::matterClosed()`).
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action)
+                || ($record->contract?->status === ContractStatus::Active && ! $record->isClosed()))
+            // Fix round 2 (I-B): `revertToDraft` nay đọc `activated_by` (người chỉ có `contract.enter` — chỉ hợp đồng chính
+            // mình đã kích hoạt), nên nút ẩn trên hợp đồng người khác kích hoạt. Khi hộp thoại ĐANG MỞ thì hỏi tầng
+            // "ai thử được" (`activate`: thấy tiền của vụ + `contract.manage`/`contract.enter`, không đọc trạng thái) —
+            // cùng lý do với `isOpenDialog()`: người khác vừa đưa về hay kích hoạt lại thì Action (hỏi lại `revertToDraft`
+            // trên hàng đã khoá) nói vì sao, thay vì lần bấm biến mất. Không mở rộng quyền: Action vẫn từ chối.
+            ->authorize(fn (Action $action, Matter $record): bool => $record->contract !== null
+                && Gate::allows($this->isOpenDialog($action) ? 'activate' : 'revertToDraft', $record->contract))
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('billing.tab.fields.reason'))
+                    ->helperText(__('billing_corrections.revert.reason_help'))
+                    ->required(),
+            ])
+            ->successNotificationTitle(__('billing_corrections.revert.success'))
+            ->action(fn (Action $action, Matter $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(RevertContractToDraft::class)->handle(Auth::user(), $record->contract, $data['reason'] ?? ''),
+            ));
+    }
+
     private function deleteDraftAction(): Action
     {
         return Action::make('deleteDraft')
@@ -539,7 +634,11 @@ class ContractEntry extends Page implements HasTable
             ->requiresConfirmation()
             ->modalHeading(__('billing.tab.actions.delete_draft_heading'))
             ->modalDescription(__('billing.tab.actions.delete_draft_description'))
-            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action) || $record->contract?->status === ContractStatus::Draft)
+            // Fix round 1 (m6, làn fa3): bản nháp mang lịch sử khoản thu đã huỷ (một lần kích hoạt nhầm đã được
+            // "Đưa về bản nháp") không xoá được — `Contract::assertDestroyable()`; nút không mời một việc chắc chắn
+            // bị từ chối. Bản nháp đó sửa rồi kích hoạt lại.
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action)
+                || ($record->contract?->status === ContractStatus::Draft && ! self::hasPaymentHistory($record->contract)))
             ->authorize(fn (Matter $record): bool => $record->contract !== null && Gate::allows('delete', $record->contract))
             ->successNotificationTitle(__('billing.tab.actions.delete_draft_success'))
             ->action(fn (Action $action, Matter $record) => $this->runAction(

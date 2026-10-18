@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
 use App\Support\MatterStaleness;
+use App\Support\Search\LetterD;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
@@ -34,21 +35,21 @@ class MattersTable
             ->columns([
                 TextColumn::make('code')
                     ->label(__('matters.fields.code'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('code'))
                     ->sortable(),
                 TextColumn::make('client.name')
                     ->label(__('matters.fields.client'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('client.name'))
                     ->sortable(),
                 TextColumn::make('matterType.name')
                     ->label(__('matters.fields.matter_type'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('matterType.name'))
                     ->sortable(),
                 // Kế toán có matter.viewAny nhưng không có matter.view: danh sách rút gọn, ẩn
                 // nội dung vụ việc (SPEC §5).
                 TextColumn::make('title')
                     ->label(__('matters.fields.title'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('title'))
                     ->visible(fn (): bool => (bool) Auth::user()?->can(Permission::MatterView->value)),
                 TextColumn::make('summary_for_client')
                     ->label(__('matters.fields.summary_for_client'))
@@ -62,7 +63,7 @@ class MattersTable
                     ->color(fn (Matter $record): string => $record->currentStage()?->is_terminal ? 'success' : 'info'),
                 TextColumn::make('leadLawyer.name')
                     ->label(__('matters.fields.lead_lawyer'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('leadLawyer.name'))
                     ->sortable(),
                 // "12 ngày trước", tô vàng khi > 10 ngày, đỏ khi > 14 (SPEC §7.2).
                 //

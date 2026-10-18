@@ -68,6 +68,11 @@ use Illuminate\Support\Facades\DB;
  * `payments.attributed_lawyer_id`** ("luật sư phụ trách lúc thu") — cùng nghĩa với
  * `RevenueOverTimeWidget`, vì đây cũng là một biểu đồ tiền ĐÃ THU.
  *
+ * **Kể cả vụ đã huỷ (xoá mềm)** — làn fa3 (2026-10-16, mục 1): cùng tập khoản thu với
+ * `App\Support\Billing\CollectedRevenue` (ô "Đã thu", biểu đồ theo thời gian), nên tổng các bó bằng ô "Đã
+ * thu" cả khi một hồ sơ đã huỷ từ trước luật của `CancelMatter` còn mang khoản thu. `withTrashed()` chỉ gỡ
+ * `SoftDeletingScope`; `listableBy()` (vụ hạn chế) giữ nguyên.
+ *
  * Cột một chuỗi, một màu `#4a73bd`, không chú giải.
  */
 class RevenueByStageWidget extends ChartWidget
@@ -175,6 +180,7 @@ class RevenueByStageWidget extends ChartWidget
         // PHP rồi nhồi vào `whereIn` — tránh một danh sách id dài tràn ra một câu SQL khổng lồ khi
         // văn phòng có nhiều vụ việc.
         $matterIdsQuery = Matter::query()
+            ->withTrashed()
             ->listableBy($user)
             ->when($filters->practiceAreaId, fn ($q, int $v) => $q->where('matter_type_id', $v))
             ->select('id');

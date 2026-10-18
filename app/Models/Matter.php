@@ -8,6 +8,7 @@ use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role as StaffRole;
 use App\Exceptions\MatterHasOutstandingBalance;
+use App\Exceptions\MatterHasRecordedPayments;
 use App\Exceptions\MatterNotDestroyable;
 use App\Exceptions\MatterRecordDestroyed;
 use App\Exceptions\StageNotConfigured;
@@ -117,6 +118,15 @@ class Matter extends Model
 
             if ($balance['amount'] > 0) {
                 throw MatterHasOutstandingBalance::make($matter, $balance['amount'], $balance['count']);
+            }
+
+            // Làn fa3, fix round 1 (m9): phòng thủ chiều sâu cho luật "tiền đã về" của `CancelMatter` — vụ còn khoản
+            // thu chưa huỷ trên bất kỳ hợp đồng nào thì không xoá mềm được (MỘT định nghĩa,
+            // BillingSummary::collectedForMatter()). Hỏi sau dư nợ để lời cũ vẫn ra khi vụ còn cả hai.
+            $collected = BillingSummary::collectedForMatter((int) $matter->getKey());
+
+            if ($collected['count'] > 0) {
+                throw MatterHasRecordedPayments::make($matter, $collected['amount'], $collected['count']);
             }
         });
     }
