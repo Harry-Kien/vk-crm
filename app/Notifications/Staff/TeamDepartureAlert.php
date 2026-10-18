@@ -18,7 +18,8 @@ use Illuminate\Notifications\Notification;
  *    trang "Công việc" (những việc họ còn giữ), cùng chỗ của `TaskAlert::REASSIGNED_AWAY`.
  *  - {@see self::TASKS_HANDLED}: gửi người giao của các việc đó (hay người nhận thay họ —
  *    `ResolveStaffRecipients::forTaskAssigner()`, đã lọc người mở được việc) — n việc đã chuyển cho X, hay đang "Cần
- *    giao lại". Nút "Mở" về tab "Công việc" của hồ sơ.
+ *    giao lại". Nút "Mở" về tab "Công việc" của hồ sơ. Gộp integ-fa: người nhận thay là chính người bấm (`$takenOver`
+ *    — `ReassignTask` `takeOver`) thì câu `body_taken`: việc đã sang "Đang làm" của họ, không phải "Chờ nhận".
  *
  * Kênh `database`, không `ShouldQueue`, `e()` mọi giá trị nội suy. Không tên khách, không tiêu đề hồ sơ.
  * `viewData.team_departure_key` là khoá chống trùng của job.
@@ -33,6 +34,7 @@ class TeamDepartureAlert extends Notification
      * @param  string|null  $code  mã hồ sơ được phép hiện; `null`: câu chung "một hồ sơ"
      * @param  int  $moved  số việc đã chuyển cho `$to`
      * @param  int  $left  số việc để "Cần giao lại"
+     * @param  bool  $takenOver  gộp integ-fa: người nhận thay chính là người bấm (việc sang "Đang làm")
      */
     public function __construct(
         private readonly string $kind,
@@ -44,6 +46,7 @@ class TeamDepartureAlert extends Notification
         private readonly int $left,
         private readonly string $to,
         private readonly string $key,
+        private readonly bool $takenOver = false,
     ) {}
 
     /** @return array<int, string> */
@@ -56,7 +59,7 @@ class TeamDepartureAlert extends Notification
     public function toDatabase(object $notifiable): array
     {
         $variant = match (true) {
-            $this->moved > 0 => 'moved',
+            $this->moved > 0 => $this->takenOver && $this->kind === self::TASKS_HANDLED ? 'taken' : 'moved',
             $this->left > 0 => 'left',
             default => 'plain',
         };

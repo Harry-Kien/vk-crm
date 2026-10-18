@@ -509,20 +509,23 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
    hay đang làm), hộp thoại liệt kê các việc đó và bắt chọn **người nhận thay** (mặc định luật sư phụ trách, nếu
    họ nhận được việc) hoặc **"Để Cần giao lại"**. Ghế còn chờ nhận thì hộp thoại nói rõ gỡ là rút lại lời giao.
    Người nhận thay nhận chuông + thư "được giao" cho từng việc (như nút "Giao lại"); người giao các việc đó được
-   báo một chuông ("đã chuyển cho …" hay "đang Cần giao lại"); người bị gỡ nhận **một** chuông tổng hợp "Anh/chị
+   báo **một** chuông ("đã chuyển cho …" hay "đang Cần giao lại"); người bị gỡ nhận **một** chuông tổng hợp "Anh/chị
    đã rời đội ngũ hồ sơ … — n việc đã chuyển / chờ giao lại", nên không ai làm tiếp một việc đã sang tay người
-   khác (khi việc được chuyển, nút "Giao lại" vẫn gửi thêm cho họ chuông chung "một việc đã giao cho người khác"
-   của từng việc, không tên việc). Hồ sơ hạn chế mà người bị gỡ không mở được thì chuông của họ không ghi mã.
-   Luật sư phụ trách gỡ trợ lý của chính mình thì thấy tên mình trong ô người nhận thay nhưng ô không chọn sẵn:
-   việc nội bộ không tự giao cho mình được (luật của trang Công việc) — chọn chính mình thì hộp thoại nói rõ điều đó
-   và không gỡ; hãy chọn một đồng nghiệp hay "Để Cần giao lại".
+   khác — không thêm chuông nào của từng việc cho người bị gỡ hay người giao (gộp 2026-10-18). Hồ sơ hạn chế mà
+   người bị gỡ không mở được thì chuông của họ không ghi mã. Các việc trong hộp thoại hiện mỗi việc một dòng.
+   Người bấm ngồi một ghế làm việc của hồ sơ (luật sư phụ trách gỡ trợ lý của chính mình) thấy chính mình trong ô
+   với nhãn **"Tôi nhận (… — sang Đang làm)"**, và luật sư phụ trách vẫn là lựa chọn mặc định kể cả khi chính họ
+   bấm: chọn mình thì các việc sang ngay "Đang làm" của mình (nhận thay — không có bước "Đã nhận", không tự báo
+   mình). Ở trang Công việc ("Giao việc", "Giao lại") vẫn không ai tự giao việc cho mình được.
 2. **Nghỉ việc, khoá truy cập, xoá, đổi chức danh**: việc nội bộ còn dở (đang giữ, đã giao cho người khác còn
    mở, hồ sơ được giao chờ nhận) **chặn** vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi
    việc dở khác, và câu chặn chỉ đường. **Khoá truy cập ngay** nêu ba con số đó trong hộp xác nhận và ghi vào
    nhật ký. Màn hình **"Bàn giao hàng loạt"** có thêm phần **"Việc nội bộ và ghế"**: chọn người cần chuyển việc
    (cả trợ lý, chuyên viên, luật sư cộng sự — người không phụ trách vụ nào) và người nhận; trên từng hồ sơ, người
    nhận vào đội ngũ thay ghế (chờ bấm "Đã nhận hồ sơ"), việc người cũ đang giữ chuyển sang "Chờ nhận", việc người
-   cũ đã giao đổi người giao (sang người nhận; việc chính người nhận đang giữ thì sang người bấm), mốc hạn và yêu
+   cũ đã giao đổi người giao (sang người nhận; việc chính người nhận đang giữ, hay trên hồ sơ người nhận không mở
+   được, thì sang người bấm — dòng kết quả nói riêng số việc đó; người bấm chính là người giữ việc thì việc thành
+   việc riêng của họ; không việc nào bị bỏ qua im lặng), mốc hạn và yêu
    cầu của khách chuyển theo, người cũ rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng
    luật. Mỗi hồ sơ một dòng kết quả. Hồ sơ người đó đang phụ trách thì dùng phần "Bàn giao" ở trên. Chỉ việc chung
    và việc trên hồ sơ đang mở được đếm: việc còn sót trên hồ sơ đã kết thúc hay đã huỷ không chặn nghỉ việc.
@@ -530,12 +533,16 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
    của nhân sự đó). Chỉ ghế làm việc (luật sư cộng sự, trợ lý) mới chuyển sang người nhận; ghế "người theo dõi" hay
    ghế người cũ đã trả lại thì chỉ gỡ. Việc để "Cần giao lại" sau một lần gỡ khỏi đội ngũ cũng chuyển được ở đây:
    người nhận được thêm vào đội ngũ hồ sơ đó. Trưởng phòng có thể chọn chính mình làm người nhận (nhận ghế, mốc hạn,
-   yêu cầu của khách); riêng việc nội bộ thì không tự giao cho mình được — các việc đó ở lại "Cần giao lại", dòng
-   kết quả nói rõ, phần còn lại vẫn chuyển. Hồ sơ hạn chế trưởng phòng không quản lý được không hiện gì ngoài một
+   yêu cầu của khách, và cả việc nội bộ — trưởng phòng **nhận thay**: các việc sang ngay "Đang làm" của mình, rồi
+   cho nghỉ việc được ngay). Hồ sơ hạn chế trưởng phòng không quản lý được không hiện gì ngoài một
    dòng "còn n hồ sơ cần quản trị viên chuyển". Người nhận nhận **một** chuông và **một** thư tổng hợp cho cả lô
    (bao nhiêu hồ sơ, việc nội bộ, mốc hạn, yêu cầu của khách, ghế mới — thay cho chuông, thư của từng ghế, từng
-   mốc), người cũ **một** chuông; người bấm tự nhận thì không tự báo mình. (Tới khi gộp với làn công việc, mỗi việc
-   nội bộ chuyển đi vẫn có thêm chuông + thư "được giao" của nút "Giao lại".)
+   mốc, từng việc). Chuông và thư đó **liệt kê từng mốc hạn** đã sang tay người nhận — tên mốc, hồ sơ, hạn, còn bao
+   nhiêu ngày, mức độ — vì lời nhắc theo lịch đã gửi cho người cũ không gửi lại; mốc còn từ 1 ngày trở xuống (bậc nhắc
+   cuối), hôm nay hay đã quá hạn có dấu **GẤP** đứng đầu. Hồ sơ hạn chế người nhận không mở được thì dòng mốc chỉ ghi
+   "Một mốc hạn — một hồ sơ" kèm hạn và mức độ. Người cũ nhận **một** chuông; người giao của các việc nội bộ đã chuyển
+   (hay luật sư phụ trách nhận thay họ) nhận **một** chuông cho mọi việc của họ trong lô; người bấm tự nhận thì không
+   tự báo mình.
 3. **Bàn giao hàng loạt từ màn hình cho nghỉ việc**: công tắc "Giữ luật sư cũ trong đội ngũ" tắt sẵn; mở thường
    thì bật sẵn, và câu gợi ý nói rõ "giữ làm cộng sự thì việc nội bộ người đó đang giữ KHÔNG chuyển".
 4. **Mở vụ, hay chuyển lead thành vụ, với luật sư phụ trách là người khác**: hồ sơ hiện ở khối "Hồ sơ chờ tôi
@@ -556,6 +563,11 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
    trưởng phòng tự trình khi luật sư phụ trách không duyệt được thì quản trị viên được báo. "Đánh dấu đã ký, đã nộp" →
    người trình nhận chuông. **"Trả về bản nháp" bắt buộc lý do**, và người trình nhận chuông kèm lý do để biết
    cần sửa gì.
+8. **Việc riêng sau một lần nhận thay** (gộp 2026-10-18): người nhận thay chính là người đã giao việc đó (hay một
+   lần "Giao lại" trả việc về người đã giao nó) thì việc thành việc riêng của họ: không hiện ở "Tôi đã giao" (đã ở
+   "Chờ tôi nhận" / "Đang làm"), không có nút "Trả lại" (không có ai để trả về — họ "Giao lại" hay "Huỷ" được), và
+   lời báo cho người giao về việc đó (đã hoàn thành, quá hạn…) tới luật sư phụ trách của hồ sơ — hay trưởng phòng
+   khi cần người quyết định — không tới chính họ.
 
 Người giao việc đã rời vụ hay nghỉ việc mà không qua bàn giao (ví dụ một luật sư cộng sự nghỉ) thì lời báo
 "bị trả lại" và các lời nhắc cho người giao (chưa được nhận, sắp đến hạn, quá hạn) đi tới luật sư phụ trách hiện tại của

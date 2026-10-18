@@ -113,18 +113,17 @@ use Illuminate\Validation\ValidationException;
  * Rời đội ngũ thì người đó (không có quyền xem mọi vụ) không còn thấy việc của vụ — việc "Chờ nhận"/"Đang làm" của
  * họ không được biến mất im lặng. Còn giữ việc thì caller PHẢI chọn: `$taskRecipient` (người nhận thay — mỗi việc đi
  * qua "Giao lại" có sẵn, {@see ReassignTask}, trong CÙNG transaction, sau khoá dòng vụ: người mới nhận chuông + thư
- * "được giao", người bị gỡ nhận chuông chung `REASSIGNED_AWAY` của từng việc; người nhận thay phải hợp lệ như mọi lần
- * giao lại), hoặc `$leaveForReassignment` (việc ở lại, hiện "Cần giao lại" — `Task::scopeNeedsReassignment()`). Không
+ * "được giao"; người nhận thay phải hợp lệ như mọi lần giao lại), hoặc `$leaveForReassignment` (việc ở lại, hiện "Cần giao lại" — `Task::scopeNeedsReassignment()`). Không
  * chọn gì thì từ chối, không gỡ. Việc "Bị trả lại" đã về tay người giao — không thuộc lựa chọn này.
  *
  * Sau commit, {@see SendTeamDepartureNotices}: người bị gỡ nhận MỘT chuông "đã rời đội ngũ hồ sơ … — n việc đã
  * chuyển / chờ giao lại", và người giao của các việc đó (hay người nhận thay họ — `forTaskAssigner()`) nhận một
  * chuông cho các việc của mình. Dòng `team_member_removed` ghi số việc đã chuyển, số việc để lại, người nhận thay.
  *
- * Vòng sửa 1 (minor 2): người nhận thay có thể là chính người bấm (luật sư phụ trách gỡ trợ lý của mình) — Action
- * không tự chặn mà để "Giao lại" quyết: hôm nay `ReassignTask` không cho ai tự giao việc cho mình, nên lời từ chối
- * của nó được dịch sang câu `internal_flow.team_removal.self_refused` dưới ô chọn, và không gỡ gì. Mọi lời gọi
- * `ReassignTask` đi qua MỘT chỗ, {@see self::reassignHeldTask()} (chỗ nối cờ "không báo người giữ cũ" của làn fa1).
+ * Vòng sửa 1 (minor 2), gộp integ-fa: người nhận thay có thể là chính người bấm (luật sư phụ trách gỡ trợ lý của mình)
+ * — họ NHẬN THAY (`ReassignTask` `takeOver`): các việc sang "Đang làm" của họ, không tự báo mình; "Giao lại" vẫn hỏi họ
+ * có giữ được việc không (ghế giữ việc), lời từ chối hiện dưới ô chọn và không gỡ gì. Mọi lời gọi `ReassignTask` đi
+ * qua MỘT chỗ, {@see self::reassignHeldTask()} (cờ lời báo: xem đó).
  * `$notify = false` (chỉ {@see TransferStaffWork}): không xếp {@see SendTeamDepartureNotices} — người gọi tự gửi
  * MỘT lời báo tổng hợp cho cả lô.
  */
@@ -196,10 +195,8 @@ class RemoveTeamMember
                     try {
                         $this->reassignHeldTask($task, $actor, $taskRecipient);
                     } catch (ValidationException $exception) {
-                        // Vòng sửa 1 (minor 2): "Giao lại" từ chối người bấm tự nhận — một câu nói rõ luật đó.
-                        throw ValidationException::withMessages(['task_recipient_id' => $taskRecipient->is($actor)
-                            ? [__('internal_flow.team_removal.self_refused')]
-                            : collect($exception->errors())->flatten()->all()]);
+                        // Lời từ chối của "Giao lại" (người nhận thay không giữ được việc) — dưới đúng ô chọn.
+                        throw ValidationException::withMessages(['task_recipient_id' => collect($exception->errors())->flatten()->all()]);
                     }
 
                     $moved[] = $task->getKey();
@@ -233,14 +230,21 @@ class RemoveTeamMember
     }
 
     /**
-     * MỘT chỗ gọi {@see ReassignTask} của lần gỡ (vòng sửa 1, minor 1 / phán quyết 1: người bị gỡ chỉ nhận MỘT chuông
-     * chung — {@see SendTeamDepartureNotices}). Người nhận thay vẫn nhận chuông + thư "được giao" của từng việc; người
-     * giao vẫn được báo.
+     * MỘT chỗ gọi {@see ReassignTask} của lần gỡ (vòng sửa 1, minor 1 / phán quyết 1; nối cờ khi gộp integ-fa):
+     * người bị gỡ chỉ nhận MỘT chuông chung, và người giao MỘT chuông cho mọi việc của họ — cả hai từ
+     * {@see SendTeamDepartureNotices} — nên `notifyFormerHolder: false` (không chuông `REASSIGNED_AWAY` từng việc) và
+     * `notifyAssigner: false` (không chuông `REASSIGNED_BY_OTHER` từng việc). Người nhận thay vẫn nhận chuông + thư
+     * "được giao" của từng việc — trừ khi đó là chính người bấm: `takeOver`, việc sang "Đang làm" của họ, không tự báo.
      */
     private function reassignHeldTask(Task $task, User $actor, User $recipient): void
     {
-        // integ: pass notifyFormerHolder: false once fa1 is merged — người bị gỡ đã có chuông "đã rời đội ngũ"; hôm nay
-        // ReassignTask còn gửi thêm một chuông REASSIGNED_AWAY mỗi việc (test "rings the removed member once…").
-        app(ReassignTask::class)->handle($task, $actor, $recipient);
+        app(ReassignTask::class)->handle(
+            $task,
+            $actor,
+            $recipient,
+            notifyFormerHolder: false,
+            notifyAssigner: false,
+            takeOver: $recipient->is($actor),
+        );
     }
 }

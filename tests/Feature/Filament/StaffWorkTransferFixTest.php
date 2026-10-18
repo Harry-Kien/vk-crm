@@ -152,7 +152,7 @@ it('sends one digest bell and one digest mail to the recipient, and one bell to 
         ->and($handed[0]['body'])->toContain('Trợ lý Nhận')->toContain('VK-2026-DS-0701');
 });
 
-it('counts the moved tasks in the digest — while ReassignTask still sends its own per-task notices (integ: update once fa1 is merged)', function () {
+it('counts the moved tasks in the digest — the only notice: no per-task bell or mail of "Giao lại" (gộp integ-fa)', function () {
     fa2r1Task($this->assistant, $this->first);
     fa2r1Task($this->assistant, $this->second, TaskStatus::Pending);
 
@@ -161,12 +161,12 @@ it('counts the moved tasks in the digest — while ReassignTask still sends its 
     expect(fa2r1Bells($this->successor, StaffWorkTransferAlert::class)[0]['body'])
         ->toContain(__('internal_flow.staff_work.digest.tasks', ['count' => 2]));
 
-    // integ: khi TransferStaffWork::reassignTask() truyền notifyFormerHolder: false, notifyNewHolder: false (fa1),
-    // đổi ba kỳ vọng dưới đây thành 0 — lời báo tổng hợp ở trên là lời báo duy nhất.
-    expect(collect(fa2r1Bells($this->successor, TaskAlert::class))->count())->toBe(2)
-        ->and(collect(fa2r1Bells($this->assistant, TaskAlert::class))->count())->toBe(2);
+    // Gộp integ-fa: TransferStaffWork::reassignTask() truyền notifyFormerHolder: false, notifyNewHolder: false,
+    // notifyAssigner: false — lời báo tổng hợp ở trên (và chuông người giao của lô) là lời báo duy nhất.
+    expect(collect(fa2r1Bells($this->successor, TaskAlert::class))->count())->toBe(0)
+        ->and(collect(fa2r1Bells($this->assistant, TaskAlert::class))->count())->toBe(0);
 
-    Mail::assertSent(TaskNotice::class, 2);
+    Mail::assertNotSent(TaskNotice::class);
 });
 
 it('names a restricted matter in the leaver\'s digest only when they can still open it, otherwise only counts it', function () {
@@ -269,7 +269,7 @@ it('only hands over working seats — an observer or returned seat of the leaver
         ->and(Activity::query()->where('event', 'staff_work_transferred')->sole()->getExtraProperty('seats_moved'))->toBe(1);
 });
 
-it('lets the department head take over the leaver\'s seats, deadlines and requests themselves, and says why the tasks could not follow', function () {
+it('lets the department head take over the leaver\'s seats, deadlines, requests and tasks themselves — the tasks go straight to "Đang làm" (gộp integ-fa)', function () {
     $task = fa2r1Task($this->assistant, $this->first);
     $deadline = Deadline::factory()->for($this->second)->create(['responsible_user_id' => $this->assistant->id, 'is_completed' => false]);
     $request = ClientRequest::factory()->create(['matter_id' => $this->second->id, 'assigned_to' => $this->assistant->id, 'status' => ClientRequestStatus::InProgress]);
@@ -284,18 +284,19 @@ it('lets the department head take over the leaver\'s seats, deadlines and reques
     expect($deadline->fresh()->responsible_user_id)->toBe($this->head->id)
         ->and($request->fresh()->assigned_to)->toBe($this->head->id)
         ->and($this->second->team()->whereKey($this->head->id)->exists())->toBeTrue()
-        ->and($task->fresh()->assignee_id)->toBe($this->assistant->id);
+        // Gộp integ-fa (I-B của rà soát cuối làn fa2): người bấm nhận thay — việc sang "Đang làm" của họ.
+        ->and($task->fresh()->assignee_id)->toBe($this->head->id)
+        ->and($task->fresh()->status)->toBe(TaskStatus::Accepted);
 
     $first = collect($page->get('staffResults'))->firstWhere('matterId', $this->first->id);
     $second = collect($page->get('staffResults'))->firstWhere('matterId', $this->second->id);
 
-    expect($first['success'])->toBeFalse()
-        ->and($first['message'])->toContain(__('internal_flow.staff_work.results.tasks_failed', ['count' => 1, 'reason' => __('tasks.validation.self_assign')]))
+    expect($first['success'])->toBeTrue()
         ->and($second['success'])->toBeTrue()
-        // Việc không chuyển được ở lại "Cần giao lại" — không biến mất khỏi danh sách nào.
-        ->and(Task::query()->needsReassignment()->pluck('id')->all())->toContain($task->id)
+        ->and(Task::query()->needsReassignment()->pluck('id')->all())->not->toContain($task->id)
         // Người bấm tự nhận thì không tự báo mình.
-        ->and(fa2r1Bells($this->head, StaffWorkTransferAlert::class))->toBe([]);
+        ->and(fa2r1Bells($this->head, StaffWorkTransferAlert::class))->toBe([])
+        ->and(fa2r1Bells($this->head, TaskAlert::class))->toBe([]);
 });
 
 it('asks for confirmation with the counts and a mandatory reason, and logs the reason', function () {

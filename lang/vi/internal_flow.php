@@ -14,12 +14,12 @@ return [
         'task_due' => ', hạn :date',
         'pending_seat' => 'Người này chưa bấm "Đã nhận hồ sơ" — gỡ khỏi đội ngũ là rút lại lời giao ghế này.',
         'recipient' => 'Chuyển các việc này cho',
-        'recipient_hint' => 'Mỗi việc chuyển sang người được chọn ở trạng thái "Chờ nhận" (như nút "Giao lại"): người đó và người giao việc được báo. Chọn "Để Cần giao lại" thì các việc ở lại, hiện ở bộ lọc "Cần giao lại" của trang Công việc để giao sau.',
+        'recipient_hint' => 'Mỗi việc chuyển sang người được chọn ở trạng thái "Chờ nhận" (như nút "Giao lại"): người đó và người giao việc được báo. Chọn "Tôi nhận" thì các việc sang ngay "Đang làm" của anh/chị. Chọn "Để Cần giao lại" thì các việc ở lại, hiện ở bộ lọc "Cần giao lại" của trang Công việc để giao sau.',
         'leave' => 'Để "Cần giao lại" (giao sau)',
         'choose_recipient' => 'Người này còn giữ :count việc nội bộ trên hồ sơ: hãy chọn người nhận thay, hoặc chọn "Để Cần giao lại".',
         'recipient_is_member' => 'Không thể chuyển việc cho chính người đang bị gỡ khỏi đội ngũ.',
-        // làn fa2, vòng sửa 1 (minor 2): người bấm chọn chính mình — "Giao lại" không cho ai tự giao việc cho mình.
-        'self_refused' => 'Việc nội bộ không giao được cho chính người đang thao tác (luật "không tự giao việc cho mình" của trang Công việc). Hãy chọn một đồng nghiệp khác, hoặc "Để Cần giao lại".',
+        // Gộp integ-fa: người bấm tự nhận các việc (ReassignTask takeOver) — nhãn của chính họ trong ô người nhận thay.
+        'take_over' => 'Tôi nhận (:name — sang "Đang làm")',
         'needs_reassignment_marker' => 'Cần giao lại',
         'matter_named' => 'hồ sơ :code',
         'matter_hidden' => 'một hồ sơ',
@@ -33,6 +33,8 @@ return [
         'tasks_handled' => [
             'title' => 'Người giữ việc đã rời đội ngũ hồ sơ',
             'body_moved' => ':member đã rời đội ngũ :matter (do :who gỡ): :count việc họ đang giữ đã chuyển cho :to ở trạng thái "Chờ nhận".',
+            // Gộp integ-fa: người gỡ tự nhận các việc (ReassignTask takeOver).
+            'body_taken' => ':member đã rời đội ngũ :matter (do :who gỡ): :who đã tự nhận :count việc họ đang giữ, ở trạng thái "Đang làm".',
             'body_left' => ':member đã rời đội ngũ :matter (do :who gỡ): :count việc họ đang giữ hiện ở "Cần giao lại" — hãy giao lại ở tab "Công việc" của hồ sơ.',
             'body_plain' => ':member đã rời đội ngũ :matter (do :who gỡ).',
         ],
@@ -51,7 +53,7 @@ return [
     // (App\Filament\Admin\Pages\BulkReassign, App\Actions\Matter\TransferStaffWork).
     'staff_work' => [
         'heading' => 'Việc nội bộ và ghế của một nhân sự',
-        'description' => 'Cho người sắp nghỉ hay bị khoá mà không (chỉ) là luật sư phụ trách — trợ lý, chuyên viên, luật sư cộng sự. Trên từng hồ sơ đang mở: người nhận vào đội ngũ thay ghế của người này (chờ người nhận bấm "Đã nhận hồ sơ"), việc nội bộ người này đang giữ chuyển sang người nhận ở trạng thái "Chờ nhận", việc người này đã giao đổi người giao, mốc hạn và yêu cầu của khách chuyển theo, rồi người này rời đội ngũ. Việc chung (không thuộc hồ sơ) người này đang giữ cũng chuyển. Hồ sơ người này phụ trách thì dùng phần "Bàn giao" ở trên.',
+        'description' => 'Cho người sắp nghỉ hay bị khoá mà không (chỉ) là luật sư phụ trách — trợ lý, chuyên viên, luật sư cộng sự. Trên từng hồ sơ đang mở: người nhận vào đội ngũ thay ghế của người này (chờ người nhận bấm "Đã nhận hồ sơ"), việc nội bộ người này đang giữ chuyển sang người nhận ở trạng thái "Chờ nhận" (anh/chị tự làm người nhận thì sang ngay "Đang làm" của anh/chị), việc người này đã giao đổi người giao, mốc hạn và yêu cầu của khách chuyển theo, rồi người này rời đội ngũ. Việc chung (không thuộc hồ sơ) người này đang giữ cũng chuyển. Hồ sơ người này phụ trách thì dùng phần "Bàn giao" ở trên.',
         'fields' => [
             'user_id' => 'Nhân sự cần chuyển việc',
             'recipient_id' => 'Người nhận việc',
@@ -65,6 +67,12 @@ return [
             // làn fa2, vòng sửa 1 (minor 3): "Giao lại" từ chối một số việc (ví dụ người nhận là chính người bấm).
             'tasks_failed' => ':count việc nội bộ không chuyển được: :reason Các việc này ở "Cần giao lại" — hãy giao lại ở tab "Công việc" của hồ sơ.',
             'general_failed' => ':count việc chung không chuyển được: :reason Hãy giao lại trên trang Công việc.',
+            // Gộp integ-fa (M-a, M-b của rà soát cuối làn fa2): việc đã giao đổi người giao sang chính người bấm, và việc
+            // không đổi được (người bấm chính là người cần chuyển việc).
+            'followed_by_you' => ':count việc người này đã giao chuyển sang anh/chị theo dõi (người nhận không mở được hồ sơ, hoặc chính người nhận đang giữ việc đó).',
+            'followed_stuck' => ':count việc người này đã giao chưa đổi được người giao (người nhận không theo dõi được, và anh/chị chính là người cần chuyển việc) — hãy chọn người nhận khác, hoặc "Giao lại" / "Huỷ" các việc đó.',
+            // Gộp integ-fa (minor của rà soát cuối làn fa2): một bước trên hồ sơ từ chối vì quyền đã đổi giữa chừng.
+            'refused' => 'Một bước trên hồ sơ này bị từ chối vì quyền đã đổi giữa chừng — không có gì trên hồ sơ này được chuyển. Hãy tải lại trang rồi thử lại.',
             // làn fa2, vòng sửa 1 (I1): hồ sơ người bấm không quản lý được đội ngũ — không mã, không tiêu đề, không id.
             'unmanaged' => 'Còn :count hồ sơ có ghế hoặc việc của người này mà anh/chị không quản lý được đội ngũ — cần quản trị viên chuyển.',
         ],
@@ -95,6 +103,13 @@ return [
             'requests' => ':count yêu cầu của khách',
             'seats' => ':count ghế mới trong đội ngũ',
             'open' => 'Mở',
+            // Gộp integ-fa (C1 của rà soát cuối làn fa2): một dòng mỗi mốc đã sang tay người nhận (chuông và thư). :name,
+            // :matter, :due, :severity là chữ thô (chuông escape cả dòng). "unnamed": hồ sơ hạn chế người nhận không mở
+            // được — không tên mốc, không mã.
+            'deadlines_heading' => 'Các mốc hạn đã sang tay anh/chị (lời nhắc theo lịch đã gửi cho người cũ không gửi lại):',
+            'deadline_line' => ':name — :matter — :due — mức độ: :severity',
+            'deadline_unnamed' => 'Một mốc hạn',
+            'deadline_urgent' => 'GẤP (hạn trong :days ngày tới, hôm nay hay đã qua — lời nhắc cuối có thể đã gửi cho người cũ):',
             'received' => [
                 'title' => 'Anh/chị nhận việc của một đồng nghiệp',
                 'body' => ':who đã chuyển cho anh/chị việc của :from trên :matters: :items. Việc nội bộ chờ anh/chị bấm "Đã nhận" trên trang Công việc; ghế mới chờ anh/chị bấm "Đã nhận hồ sơ".',
@@ -106,6 +121,13 @@ return [
                 'body_general' => ':who đã chuyển việc chung (không thuộc hồ sơ) của anh/chị cho :to: :items. Anh/chị không cần làm tiếp các việc này.',
                 'body_seats_only' => ':who đã gỡ anh/chị khỏi đội ngũ :matters khi chuyển việc của anh/chị cho :to.',
             ],
+            // Gộp integ-fa (I-A của rà soát cuối làn fa2): người giao (hay người nhận thay họ) của các việc đã chuyển.
+            'assigner' => [
+                'title' => 'Việc anh/chị theo dõi đã sang tay người khác',
+                'body' => ':who đã chuyển cho :to :items của :from mà anh/chị theo dõi, trên :matters.',
+                'body_general' => ':who đã chuyển cho :to :items chung (không thuộc hồ sơ) của :from mà anh/chị theo dõi.',
+                'body_mixed' => ':who đã chuyển cho :to :items của :from mà anh/chị theo dõi, trên :matters và việc chung (không thuộc hồ sơ).',
+            ],
             'email' => [
                 'subject' => 'Anh/chị nhận việc của một đồng nghiệp',
                 'headline' => ':who đã chuyển cho anh/chị việc nội bộ, ghế trong đội ngũ, mốc hạn và yêu cầu của khách của :from. Mỗi việc, mỗi mốc không có thư riêng — thư này thay cho chúng.',
@@ -113,10 +135,12 @@ return [
                     'from' => 'Việc của',
                     'matters' => 'Hồ sơ',
                     'tasks' => 'Việc nội bộ (Chờ nhận)',
-                    'followed' => 'Việc đã giao (anh/chị theo dõi)',
+                    'followed' => 'Việc đã giao (nay anh/chị theo dõi)',
                     'deadlines' => 'Mốc hạn',
                     'requests' => 'Yêu cầu của khách',
                     'seats' => 'Ghế mới trong đội ngũ',
+                    // Gộp integ-fa (C1): nhãn của mỗi dòng mốc hạn.
+                    'deadline_item' => 'Mốc',
                 ],
                 'action' => 'Mở trang Công việc',
             ],

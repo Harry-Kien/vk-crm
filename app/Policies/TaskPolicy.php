@@ -116,10 +116,14 @@ class TaskPolicy
     /**
      * "Trả lại" (kèm lý do): người nhận, khi việc chờ nhận hoặc đang làm — kể cả người không còn giữ được
      * việc (đã sang "người theo dõi"…): trả việc về cho người giao là đúng việc họ nên làm.
+     *
+     * Trừ khi người nhận CHÍNH là người giao (gộp integ-fa — việc riêng sau một lần nhận thay, `ReassignTask`): không có
+     * ai để trả về; họ "Giao lại" hay "Huỷ" bằng quyền người giao ({@see self::manages()}).
      */
     public function decline(User|ClientUser $user, Task $task): bool
     {
         return $this->isAssignee($user, $task)
+            && $task->assigned_by !== $user->getKey()
             && in_array($task->status, [TaskStatus::Pending, TaskStatus::Accepted], true);
     }
 

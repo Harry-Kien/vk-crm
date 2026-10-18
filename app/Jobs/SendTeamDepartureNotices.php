@@ -27,6 +27,8 @@ use Illuminate\Foundation\Queue\Queueable;
  *    gỡ vẫn giữ, chưa ai xử lý), người giao của nó hay người nhận thay họ (`ResolveStaffRecipients::forTaskAssigner()`
  *    — chỉ người mở được việc, nên vụ hạn chế không lộ), trừ người bấm, người bị gỡ và người nhận thay (họ đã có chuông
  *    "được giao" của từng việc) — {@see TeamDepartureAlert::TASKS_HANDLED}, một chuông mỗi người cho mọi việc của họ.
+ *    Gộp integ-fa: đây là lời báo DUY NHẤT người giao nhận về lần gỡ (`RemoveTeamMember` gọi "Giao lại" với
+ *    `notifyAssigner: false`); người nhận thay là chính người bấm (nhận thay) thì câu nói các việc đã ở "Đang làm".
  *
  * # Chống trùng khi thử lại
  *
@@ -113,6 +115,8 @@ class SendTeamDepartureNotices implements ShouldQueue
                 $row['left'],
                 $toName,
                 $key,
+                // Gộp integ-fa: người bấm tự nhận các việc (ReassignTask takeOver) — chúng ở "Đang làm" của họ.
+                takenOver: $this->recipientId !== null && $this->recipientId === $this->actorId,
             ), $key);
         }
     }

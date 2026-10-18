@@ -232,10 +232,14 @@ class Task extends Model
      * "Tôi đã giao": việc `$user` giao còn mở (kể cả việc bị trả lại chờ giao lại), cộng việc đã HOÀN
      * THÀNH trong {@see self::RECENTLY_COMPLETED_DAYS} ngày qua — lời báo "đã hoàn thành" (chuông, thư)
      * trỏ về đây, và người giao đọc ghi chú kết quả ở đúng chỗ họ theo dõi việc. Việc đã huỷ thì không.
+     * Việc `$user` tự giữ (gộp integ-fa: người giao = người giữ — nhận thay việc mình đã giao, `ReassignTask`
+     * `takeOver`, hay một lần "Giao lại" trả việc về người đã giao nó) không ở đây: nó là việc của chính họ, ở "Chờ tôi
+     * nhận" / "Đang làm".
      */
     public function scopeAssignedBy(Builder $query, User $user): Builder
     {
         return $query->where($this->qualifyColumn('assigned_by'), $user->getKey())
+            ->where($this->qualifyColumn('assignee_id'), '!=', $user->getKey())
             ->where(fn (Builder $tracked): Builder => $tracked
                 ->whereIn($this->qualifyColumn('status'), TaskStatus::openValues())
                 ->orWhere(fn (Builder $done): Builder => $done

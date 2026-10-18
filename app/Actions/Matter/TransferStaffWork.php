@@ -24,6 +24,7 @@ use App\Support\Audit;
 use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -42,6 +43,11 @@ use Throwable;
  * bên dưới), trước mọi đọc hay ghi khác của hồ sơ đó. Hồ sơ không qua (một vụ hạn chế với trưởng phòng) không có dòng
  * kết quả riêng, không id, mã hay tiêu đề nào rời khỏi Action: chỉ MỘT dòng chung "còn n hồ sơ cần quản trị viên
  * chuyển", và không góp vào lời báo hay dòng nhật ký nào ngoài con số đó.
+ *
+ * Gộp integ-fa (minor của rà soát cuối làn fa2): mã và tiêu đề của một hồ sơ chỉ được đọc SAU khi câu hỏi đó qua
+ * ({@see self::$cleared}). Một lỗi bất ngờ TRƯỚC đó (hồ sơ biến mất, câu hỏi quyền hỏng) cho một dòng đỏ không id, mã
+ * hay tiêu đề; một lời từ chối quyền của một Action con SAU đó (quyền đổi giữa chừng) là dòng đỏ của chính hồ sơ ấy
+ * (`results.refused`), không bao giờ là "cần quản trị viên chuyển" — người bấm quản lý được hồ sơ đó.
  * Hồ sơ người đó đang PHỤ TRÁCH thì bỏ qua (dòng kết quả nói dùng phần "Bàn giao" ở trên — lần bàn giao vụ chuyển cả
  * việc của luật sư phụ trách cũ).
  *
@@ -50,7 +56,7 @@ use Throwable;
  * Mỗi hồ sơ, trong MỘT transaction mà câu đầu tiên là khoá dòng `matters` (mọi Action được gọi sau cũng khoá dòng đó
  * trước — cùng thứ tự toàn cục), qua đúng các Action có sẵn, nên mọi cổng của chúng giữ nguyên:
  *
- *  1. `manageTeam` của người bấm, hỏi lại dưới khoá;
+ *  1. `manageTeam` của người bấm, hỏi dưới khoá;
  *  2. ghế cho người nhận (vòng sửa 1, I3 + minor 4): người đó ngồi một ghế GIỮ VIỆC chưa trả lại, hay còn giữ việc
  *     trên hồ sơ (kể cả việc "Cần giao lại" sau một lần gỡ — họ không còn ghế), mà người nhận chưa có ghế giữ việc hợp
  *     lệ ({@see TaskAssignees::holdsSeat()}) → người nhận vào đội ngũ ({@see AddTeamMember}, vai {@see self::roleFor()};
@@ -58,9 +64,10 @@ use Throwable;
  *     bấm "Đã nhận hồ sơ"). Người đó chỉ có ghế "người theo dõi" / ghế đã trả lại mà còn mốc hay yêu cầu của khách:
  *     người nhận chưa ở đội ngũ thì vào với ghế giữ việc — mốc và yêu cầu đòi người giữ ở trong đội ngũ. Ghế "người
  *     theo dõi" / đã trả lại của người đó KHÔNG được "chuyển" — chỉ gỡ ở bước 6;
- *  3. việc người đó đang giữ → {@see ReassignTask} từng việc ({@see self::reassignTask()}). "Giao lại" từ chối một việc
- *     (người nhận là chính người bấm — luật "không tự giao việc cho mình" — hay không giữ được việc) thì VIỆC ĐÓ ở lại,
- *     các bước khác vẫn chạy, dòng kết quả (đỏ) nói số việc và câu của "Giao lại" (vòng sửa 1, minor 3);
+ *  3. việc người đó đang giữ → {@see ReassignTask} từng việc ({@see self::reassignTask()}). Người nhận là chính người
+ *     bấm (gộp integ-fa): người bấm NHẬN THAY — `takeOver`, việc sang thẳng "Đang làm" của họ. "Giao lại" từ chối một
+ *     việc (người nhận không giữ được việc) thì VIỆC ĐÓ ở lại, các bước khác vẫn chạy, dòng kết quả (đỏ) nói số việc
+ *     và câu của "Giao lại" (vòng sửa 1, minor 3);
  *  4. việc còn mở người đó đã giao → đổi người giao ({@see self::moveAssigner()}, cùng khuôn
  *     {@see MoveTasksOnHandover::transferAssigner()} nhưng lý do {@see self::TRANSFER_REASON});
  *  5. mốc chưa xong → {@see ChangeDeadlineResponsible}; yêu cầu của khách chưa đóng → {@see TriageClientRequest::assign()};
@@ -69,18 +76,20 @@ use Throwable;
  *
  * Một bước khác bước 3 từ chối thì CẢ hồ sơ đó quay lại, kèm câu tiếng Việt của bước đó; hồ sơ khác vẫn chạy. Cuối
  * cùng, việc CHUNG (không thuộc hồ sơ): việc người đó đang giữ → {@see self::reassignTask()} từng việc (từ chối thì ở
- * lại, dòng kết quả nói rõ); việc người đó đã giao còn mở → đổi người giao (bước 4, một transaction).
+ * lại, dòng kết quả nói rõ); việc người đó đã giao còn mở → đổi người giao (bước 4, một transaction; hỏng thì dòng việc
+ * chung đỏ, còn nhật ký và lời báo của các phần đã chuyển vẫn ghi — gộp integ-fa).
  *
- * Người nhận có thể là chính người bấm (vòng sửa 1, minor 3: trưởng phòng tự nhận ghế, mốc, yêu cầu của trợ lý nghỉ);
- * việc nội bộ thì theo luật của "Giao lại" (bước 3).
+ * Người nhận có thể là chính người bấm (vòng sửa 1, minor 3: trưởng phòng tự nhận ghế, mốc, yêu cầu của trợ lý nghỉ;
+ * gộp integ-fa: cả việc nội bộ, bước 3).
  *
- * # Một lời báo cho cả lô (vòng sửa 1, I2)
+ * # Một lời báo cho cả lô (vòng sửa 1, I2; gộp integ-fa)
  *
- * `AddTeamMember`, `ChangeDeadlineResponsible`, `RemoveTeamMember` chạy với `notify: false`; sau lô, MỘT
- * {@see SendStaffWorkTransferNotices} (`->afterCommit()`): người nhận một chuông + một thư tổng hợp, người cũ một
- * chuông. `ReassignTask` hôm nay chưa có cờ đó (làn fa1) — mọi lời gọi nó đi qua MỘT chỗ, {@see self::reassignTask()},
- * và lời báo tổng hợp đã đếm các việc, để sau khi gộp nó là lời báo duy nhất. `TriageClientRequest::assign()` không
- * báo ai.
+ * `AddTeamMember`, `ChangeDeadlineResponsible`, `RemoveTeamMember` chạy với `notify: false`, và `ReassignTask` với
+ * `notifyFormerHolder: false, notifyNewHolder: false, notifyAssigner: false` ({@see self::reassignTask()}); sau lô,
+ * MỘT {@see SendStaffWorkTransferNotices} (`->afterCommit()`): người nhận một chuông + một thư tổng hợp (liệt kê TỪNG
+ * mốc hạn đã sang tay họ — tên, hồ sơ, hạn, số ngày còn lại, mức độ — thay cho thư "được giao mốc" của từng mốc), người
+ * cũ một chuông, và mỗi người giao của các việc đã chuyển (hay người nhận thay họ) MỘT chuông cho mọi việc của họ trong
+ * lô. Payload mang id các việc và các mốc đã chuyển. `TriageClientRequest::assign()` không báo ai.
  *
  * # Lý do, nhật ký
  *
@@ -92,7 +101,8 @@ use Throwable;
  * thay đổi.
  *
  * Sau một lần chạy trọn không dòng đỏ, `OpenTaskWork` của người đó không còn gì trên hồ sơ đang mở hay việc chung (trừ
- * hồ sơ họ phụ trách — phần "Bàn giao") — nên luật nghỉ việc ({@see GuardsStaffOffboarding}) cho qua.
+ * hồ sơ họ phụ trách — phần "Bàn giao") — nên luật nghỉ việc ({@see GuardsStaffOffboarding}) cho qua. Một việc đã giao
+ * không đổi được người giao không bao giờ nằm im sau một dòng xanh (gộp integ-fa, {@see self::moveAssigner()}).
  */
 class TransferStaffWork
 {
@@ -103,6 +113,12 @@ class TransferStaffWork
 
     /** Trần lý do chuyển việc (ghi vào `properties` của dòng nhật ký) — cùng trần ô lý do "Bàn giao" của màn hình. */
     public const REASON_MAX = 5000;
+
+    /**
+     * Hồ sơ đang xét đã qua `manageTeam` của người bấm dưới khoá (gộp integ-fa) — chỉ khi đó dòng kết quả được mang mã
+     * và tiêu đề của nó. Đặt lại `null` trước mỗi hồ sơ.
+     */
+    private ?Matter $cleared = null;
 
     /**
      * @return list<array{matterId: int|null, success: bool, message: string, matterCode: string|null, matterTitle: string|null}>
@@ -127,55 +143,73 @@ class TransferStaffWork
         }
 
         $results = [];
-        $totals = ['tasks' => 0, 'followed' => 0, 'deadlines' => 0, 'requests' => 0, 'seats' => 0, 'seats_removed' => 0, 'failed' => 0];
+        $totals = ['tasks' => 0, 'followed' => 0, 'followed_by_actor' => 0, 'deadlines' => 0, 'requests' => 0, 'seats' => 0, 'seats_removed' => 0, 'failed' => 0, 'stuck' => 0];
         $unmanaged = 0;
         $changedMatterIds = [];
         $failedMatters = 0;
+        $movedTaskIds = [];
+        $movedDeadlineIds = [];
 
         foreach ($this->matterIds($from) as $matterId) {
-            $matter = $this->scopelessly(Matter::query())->find($matterId);
-
-            if ($matter === null) {
-                $unmanaged++;
-
-                continue;
-            }
+            $this->cleared = null;
 
             try {
-                $outcome = DB::transaction(fn (): array => $this->transferOnMatter($matter, $from, $to, $actor));
+                $outcome = DB::transaction(fn (): ?array => $this->transferOnMatter($matterId, $from, $to, $actor));
+
+                if ($outcome === null) {
+                    // Hồ sơ người bấm không quản lý được đội ngũ (I1), hay đã biến mất — chỉ được đếm, xem docblock lớp.
+                    $unmanaged++;
+
+                    continue;
+                }
 
                 foreach (array_keys($totals) as $key) {
                     $totals[$key] += $outcome[$key];
                 }
 
-                if ($outcome['tasks'] + $outcome['followed'] + $outcome['deadlines'] + $outcome['requests'] + $outcome['seats'] + $outcome['seats_removed'] > 0) {
-                    $changedMatterIds[] = (int) $matter->getKey();
+                $movedTaskIds = [...$movedTaskIds, ...$outcome['task_ids']];
+                $movedDeadlineIds = [...$movedDeadlineIds, ...$outcome['deadline_ids']];
+
+                if ($outcome['tasks'] + $outcome['followed'] + $outcome['followed_by_actor'] + $outcome['deadlines'] + $outcome['requests'] + $outcome['seats'] + $outcome['seats_removed'] > 0) {
+                    $changedMatterIds[] = $matterId;
                 }
 
-                $message = __('internal_flow.staff_work.results.done', $outcome);
+                $message = __('internal_flow.staff_work.results.done', Arr::only($outcome, ['tasks', 'followed', 'deadlines', 'requests', 'seats']));
+
+                if ($outcome['followed_by_actor'] > 0) {
+                    $message .= ' '.__('internal_flow.staff_work.results.followed_by_you', ['count' => $outcome['followed_by_actor']]);
+                }
 
                 if ($outcome['failed'] > 0) {
-                    $failedMatters++;
                     $message .= ' '.__('internal_flow.staff_work.results.tasks_failed', ['count' => $outcome['failed'], 'reason' => $outcome['reason']]);
                 }
 
-                $results[] = $this->row($matter, $outcome['failed'] === 0, $message);
+                if ($outcome['stuck'] > 0) {
+                    $message .= ' '.__('internal_flow.staff_work.results.followed_stuck', ['count' => $outcome['stuck']]);
+                }
+
+                $success = $outcome['failed'] + $outcome['stuck'] === 0;
+                $failedMatters += $success ? 0 : 1;
+                $results[] = $this->row($success, $message);
             } catch (AuthorizationException) {
-                // Hồ sơ người bấm không quản lý được đội ngũ (I1) — chỉ được đếm, xem docblock lớp.
-                $unmanaged++;
+                // Gộp integ-fa: một Action con từ chối SAU khi người bấm đã qua `manageTeam` — quyền đổi giữa chừng. Hồ sơ
+                // quay lại; dòng đỏ của chính hồ sơ (chưa qua cổng thì không mã — {@see self::row()}).
+                $failedMatters++;
+                $results[] = $this->row(false, __('internal_flow.staff_work.results.refused'));
             } catch (ValidationException $exception) {
                 $failedMatters++;
-                $results[] = $this->row($matter, false, collect($exception->errors())->flatten()->implode(' '));
+                $results[] = $this->row(false, collect($exception->errors())->flatten()->implode(' '));
             } catch (DomainException $exception) {
                 $failedMatters++;
-                $results[] = $this->row($matter, false, $exception->getMessage());
+                $results[] = $this->row(false, $exception->getMessage());
             } catch (Throwable $exception) {
                 report($exception);
                 $failedMatters++;
-                $results[] = $this->row($matter, false, __('reassign.bulk.results.unexpected_error'));
+                $results[] = $this->row(false, __('reassign.bulk.results.unexpected_error'));
             }
         }
 
+        $this->cleared = null;
         $general = $this->scopelessly(Task::query())->whereNull('matter_id')->where('assignee_id', $from->getKey())->held()->orderBy('id')->get();
         $generalMoved = 0;
         $generalRefusals = [];
@@ -184,6 +218,7 @@ class TransferStaffWork
             try {
                 $this->reassignTask($task, $actor, $to);
                 $generalMoved++;
+                $movedTaskIds[] = (int) $task->getKey();
             } catch (ValidationException $exception) {
                 $generalRefusals[] = (string) collect($exception->errors())->flatten()->first();
             } catch (AuthorizationException|DomainException $exception) {
@@ -195,17 +230,39 @@ class TransferStaffWork
         }
 
         // Việc chung `$from` đã giao còn mở: người nhận việc mở được mọi việc chung họ theo dõi (`TaskPolicy::view` —
-        // người giao là người liên quan), nên `$toMayFollow` luôn đúng ở đây.
-        $generalFollowed = DB::transaction(fn (): int => $this->moveAssigner(null, $from, $to, $actor, true));
+        // người giao là người liên quan), nên `$toMayFollow` luôn đúng ở đây. Gộp integ-fa: trong `try` — hỏng ở đây
+        // không được nuốt nhật ký và lời báo của những gì đã chuyển ở trên.
+        $generalFollowFailed = false;
 
-        if ($general->isNotEmpty() || $generalFollowed > 0) {
-            $message = __('internal_flow.staff_work.results.general', ['moved' => $generalMoved, 'count' => $general->count(), 'followed' => $generalFollowed]);
+        try {
+            $generalFollow = DB::transaction(fn (): array => $this->moveAssigner(null, $from, $to, $actor, true));
+        } catch (Throwable $exception) {
+            report($exception);
+            $generalFollow = ['to' => 0, 'actor' => 0, 'stuck' => 0];
+            $generalFollowFailed = true;
+        }
+
+        if ($general->isNotEmpty() || array_sum($generalFollow) > 0 || $generalFollowFailed) {
+            $message = __('internal_flow.staff_work.results.general', ['moved' => $generalMoved, 'count' => $general->count(), 'followed' => $generalFollow['to']]);
+
+            if ($generalFollow['actor'] > 0) {
+                $message .= ' '.__('internal_flow.staff_work.results.followed_by_you', ['count' => $generalFollow['actor']]);
+            }
 
             if ($generalRefusals !== []) {
                 $message .= ' '.__('internal_flow.staff_work.results.general_failed', ['count' => count($generalRefusals), 'reason' => collect($generalRefusals)->unique()->implode(' ')]);
             }
 
-            $results[] = ['matterId' => null, 'success' => $generalRefusals === [], 'message' => $message, 'matterCode' => null, 'matterTitle' => null];
+            if ($generalFollow['stuck'] > 0) {
+                $message .= ' '.__('internal_flow.staff_work.results.followed_stuck', ['count' => $generalFollow['stuck']]);
+            }
+
+            if ($generalFollowFailed) {
+                $message .= ' '.__('reassign.bulk.results.unexpected_error');
+            }
+
+            $generalOk = $generalRefusals === [] && $generalFollow['stuck'] === 0 && ! $generalFollowFailed;
+            $results[] = ['matterId' => null, 'success' => $generalOk, 'message' => $message, 'matterCode' => null, 'matterTitle' => null];
         }
 
         if ($unmanaged > 0) {
@@ -214,14 +271,15 @@ class TransferStaffWork
 
         $counts = [
             'tasks' => $totals['tasks'] + $generalMoved,
-            'followed' => $totals['followed'] + $generalFollowed,
+            'followed' => $totals['followed'] + $generalFollow['to'],
             'deadlines' => $totals['deadlines'],
             'requests' => $totals['requests'],
             'seats' => $totals['seats'],
         ];
+        $followedByActor = $totals['followed_by_actor'] + $generalFollow['actor'];
 
         // Vòng sửa 1, minor 9: không gì thay đổi thì không có dòng "đã chuyển" nào, không lời báo nào.
-        if (array_sum($counts) + $totals['seats_removed'] === 0) {
+        if (array_sum($counts) + $totals['seats_removed'] + $followedByActor === 0) {
             return $results;
         }
 
@@ -230,6 +288,7 @@ class TransferStaffWork
             'reason' => $reason,
             'tasks_moved' => $counts['tasks'],
             'tasks_followed' => $counts['followed'],
+            'tasks_followed_by_actor' => $followedByActor,
             'deadlines_moved' => $counts['deadlines'],
             'client_requests_moved' => $counts['requests'],
             'seats_moved' => $counts['seats'],
@@ -238,6 +297,8 @@ class TransferStaffWork
             'matters_failed' => $failedMatters,
             'matters_unmanaged' => $unmanaged,
             'tasks_not_moved' => $totals['failed'] + count($generalRefusals),
+            'assigners_not_moved' => $totals['stuck'] + $generalFollow['stuck'],
+            ...($generalFollowFailed ? ['general_assigners_failed' => true] : []),
         ], $actor);
 
         if ($event !== null) {
@@ -248,6 +309,8 @@ class TransferStaffWork
                 (int) $event->getKey(),
                 $changedMatterIds,
                 $counts,
+                $movedTaskIds,
+                $movedDeadlineIds,
             )->afterCommit();
         }
 
@@ -278,15 +341,20 @@ class TransferStaffWork
     }
 
     /**
-     * Bước 1–6 của docblock lớp trên một hồ sơ (gọi trong transaction của hồ sơ đó).
+     * Bước 1–6 của docblock lớp trên một hồ sơ (gọi trong transaction của hồ sơ đó). `null`: hồ sơ không còn, hay người
+     * bấm không quản lý được đội ngũ của nó — không đọc gì thêm, không ghi gì.
      *
-     * @return array{tasks: int, followed: int, deadlines: int, requests: int, seats: int, seats_removed: int, failed: int, reason: string}
+     * @return array{tasks: int, followed: int, followed_by_actor: int, deadlines: int, requests: int, seats: int, seats_removed: int, failed: int, stuck: int, reason: string, task_ids: list<int>, deadline_ids: list<int>}|null
      */
-    private function transferOnMatter(Matter $matter, User $from, User $to, User $actor): array
+    private function transferOnMatter(int $matterId, User $from, User $to, User $actor): ?array
     {
-        $locked = $this->scopelessly(Matter::query())->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
+        $locked = $this->scopelessly(Matter::query())->whereKey($matterId)->lockForUpdate()->first();
 
-        Gate::forUser($actor)->authorize('manageTeam', $locked);
+        if ($locked === null || ! Gate::forUser($actor)->allows('manageTeam', $locked)) {
+            return null;
+        }
+
+        $this->cleared = $locked;
 
         if ($locked->lead_lawyer_id === $from->getKey()) {
             throw new DomainException(__('internal_flow.staff_work.results.is_lead'));
@@ -307,13 +375,13 @@ class TransferStaffWork
             $seats = $this->seatRecipient($locked, $actor, $to, MatterRole::Associate);
         }
 
-        $moved = 0;
+        $moved = [];
         $refusals = [];
 
         foreach ($held as $task) {
             try {
                 $this->reassignTask($task, $actor, $to);
-                $moved++;
+                $moved[] = (int) $task->getKey();
             } catch (ValidationException $exception) {
                 // "Giao lại" từ chối việc này (savepoint của nó đã quay lại) — việc ở lại, hồ sơ chạy tiếp (minor 3).
                 $refusals[] = (string) collect($exception->errors())->flatten()->first();
@@ -338,14 +406,18 @@ class TransferStaffWork
         }
 
         return [
-            'tasks' => $moved,
-            'followed' => $followed,
+            'tasks' => count($moved),
+            'followed' => $followed['to'],
+            'followed_by_actor' => $followed['actor'],
             'deadlines' => $deadlines->count(),
             'requests' => $requests->count(),
             'seats' => $seats,
             'seats_removed' => $removed,
             'failed' => count($refusals),
+            'stuck' => $followed['stuck'],
             'reason' => collect($refusals)->unique()->implode(' '),
+            'task_ids' => $moved,
+            'deadline_ids' => array_map(intval(...), $deadlines->modelKeys()),
         ];
     }
 
@@ -372,27 +444,40 @@ class TransferStaffWork
             && ($seat->accepted_at !== null || $seat->declined_at === null);
     }
 
-    /** MỌI lời gọi {@see ReassignTask} của lần chuyển (vòng sửa 1, I2) — một chỗ để nối cờ lời báo của làn fa1. */
+    /**
+     * MỌI lời gọi {@see ReassignTask} của lần chuyển (vòng sửa 1, I2; nối cờ khi gộp integ-fa): không lời báo từng việc
+     * nào — người nhận, người cũ và người giao đều có lời báo tổng hợp của {@see SendStaffWorkTransferNotices} — và
+     * người nhận là chính người bấm thì nhận thay (`takeOver`: "Đang làm", không bước "Đã nhận").
+     */
     private function reassignTask(Task $task, User $actor, User $to): void
     {
-        // integ: pass notifyFormerHolder: false, notifyNewHolder: false once fa1 is merged — lời báo tổng hợp
-        // (SendStaffWorkTransferNotices) đã đếm các việc này. Hôm nay ReassignTask còn gửi chuông + thư "được giao"
-        // cho `$to` và chuông REASSIGNED_AWAY cho người cũ, mỗi việc một lần (test "counts the moved tasks…").
-        app(ReassignTask::class)->handle($task, $actor, $to);
+        app(ReassignTask::class)->handle(
+            $task,
+            $actor,
+            $to,
+            notifyFormerHolder: false,
+            notifyNewHolder: false,
+            notifyAssigner: false,
+            takeOver: $to->is($actor),
+        );
     }
 
     /**
      * Bước 4 của docblock lớp: việc còn mở (chờ nhận, đang làm, bị trả lại) `$from` đã giao cho NGƯỜI KHÁC — trên
      * `$locked` (đã khoá, gọi trong transaction của hồ sơ), hay việc chung khi `$locked` là `null` — đổi người giao:
-     * sang `$to` khi `$to` mở được việc (`$toMayFollow`) và không phải chính người giữ việc (người giao không tự theo
-     * dõi việc mình giữ); không thì sang người bấm (trưởng phòng / quản trị viên — cổng `bulkReassign`, quản lý được
-     * mọi việc) khi người bấm không giữ việc đó. Trạng thái, người nhận, hạn, lý do trả lại giữ nguyên. Mỗi việc một
-     * dòng `task_assigner_changed` (cùng khoá với {@see MoveTasksOnHandover::transferAssigner()}, `reason` =
+     * sang `$to` khi `$to` mở được việc (`$toMayFollow`) và không phải chính người giữ việc (việc `$to` giữ thì một
+     * người KHÁC theo dõi); không thì sang người bấm (trưởng phòng / quản trị viên — cổng `bulkReassign`, quản lý được
+     * mọi việc). Gộp integ-fa (M-b của rà soát cuối làn fa2): KHÔNG việc nào bị bỏ qua im lặng — người bấm chính là
+     * người giữ việc (không còn ai khác để theo dõi) thì việc thành việc riêng của họ (người giao = người giữ; cùng luật
+     * của lần nhận thay, `ReassignTask`). Chỉ khi người bấm chính là `$from` (không ai khác để sang) việc mới ở lại —
+     * được đếm ở `stuck`, và dòng kết quả đỏ. Trạng thái, người nhận, hạn, lý do trả lại giữ nguyên. Mỗi việc đổi một dòng
+     * `task_assigner_changed` (cùng khoá với {@see MoveTasksOnHandover::transferAssigner()}, `reason` =
      * {@see self::TRANSFER_REASON}). Không chuông: người giữ việc không đổi gì phải làm.
      *
-     * @return int số việc đã đổi người giao
+     * @return array{to: int, actor: int, stuck: int} số việc đổi người giao sang `$to`, sang người bấm (khi người bấm
+     *                                                không phải `$to`), và số việc không đổi được
      */
-    private function moveAssigner(?Matter $locked, User $from, User $to, User $actor, bool $toMayFollow): int
+    private function moveAssigner(?Matter $locked, User $from, User $to, User $actor, bool $toMayFollow): array
     {
         $tasks = $this->scopelessly(Task::query())
             ->when(
@@ -406,16 +491,14 @@ class TransferStaffWork
             ->orderBy('id')
             ->lockForUpdate()
             ->get();
-        $moved = 0;
+        $counts = ['to' => 0, 'actor' => 0, 'stuck' => 0];
 
         foreach ($tasks as $task) {
-            $assigner = match (true) {
-                $toMayFollow && $task->assignee_id !== $to->getKey() => $to,
-                $task->assignee_id !== $actor->getKey() => $actor,
-                default => null,
-            };
+            $assigner = $toMayFollow && $task->assignee_id !== $to->getKey() ? $to : $actor;
 
-            if ($assigner === null) {
+            if ($assigner->is($from)) {
+                $counts['stuck']++;
+
                 continue;
             }
 
@@ -429,10 +512,10 @@ class TransferStaffWork
                 'reason' => self::TRANSFER_REASON,
             ], causer: $actor);
 
-            $moved++;
+            $counts[$assigner->is($to) ? 'to' : 'actor']++;
         }
 
-        return $moved;
+        return $counts;
     }
 
     /**
@@ -451,15 +534,22 @@ class TransferStaffWork
         return $role;
     }
 
-    /** @return array{matterId: int, success: bool, message: string, matterCode: string|null, matterTitle: string|null} */
-    private function row(Matter $matter, bool $success, string $message): array
+    /**
+     * Dòng kết quả của hồ sơ đang xét. Mã, tiêu đề và id chỉ khi người bấm đã qua `manageTeam` của nó dưới khoá
+     * ({@see self::$cleared}); không thì một dòng không id, mã hay tiêu đề (gộp integ-fa — xem docblock lớp).
+     *
+     * @return array{matterId: int|null, success: bool, message: string, matterCode: string|null, matterTitle: string|null}
+     */
+    private function row(bool $success, string $message): array
     {
+        $matter = $this->cleared;
+
         return [
-            'matterId' => (int) $matter->getKey(),
+            'matterId' => $matter === null ? null : (int) $matter->getKey(),
             'success' => $success,
             'message' => $message,
-            'matterCode' => $matter->code,
-            'matterTitle' => $matter->title,
+            'matterCode' => $matter?->code,
+            'matterTitle' => $matter?->title,
         ];
     }
 }

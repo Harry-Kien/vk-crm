@@ -19,8 +19,11 @@ use Illuminate\Mail\Mailables\Envelope;
  * {@see StaffWorkTransferAlert::RECEIVED}, cùng mã hồ sơ đã lọc (vụ hạn chế người nhận không mở được chỉ đếm).
  *
  * Tiêu đề không mang mã hồ sơ, tên người hay tên khách (hiện trên màn hình khoá); thân thư mang mã hồ sơ đã lọc và
- * các con số. Không bản ghi liên quan (lô trải trên nhiều hồ sơ) — dòng sổ thư chỉ quản trị viên thấy.
- * `LEDGER_TIER` mang khoá của lần chuyển. Không gửi lại được từ nhật ký thư (`ResendTargets::NOT_RESENDABLE`).
+ * các con số, và (gộp integ-fa — C1 của rà soát cuối làn fa2) một dòng "Mốc hạn" cho TỪNG mốc đã sang tay người nhận
+ * (`$deadlineLines`, job dựng: tên mốc, hồ sơ, hạn, số ngày còn lại, mức độ, dấu GẤP) — thư này thay cho thư
+ * `staff.deadline_assigned` của từng mốc. Không bản ghi liên quan (lô trải trên nhiều hồ sơ) — dòng sổ thư chỉ quản
+ * trị viên thấy. `LEDGER_TIER` mang khoá của lần chuyển. Không gửi lại được từ nhật ký thư
+ * (`ResendTargets::NOT_RESENDABLE`).
  */
 class StaffWorkTransferred extends BrandedMailable
 {
@@ -29,6 +32,7 @@ class StaffWorkTransferred extends BrandedMailable
     /**
      * @param  list<string>  $codes
      * @param  array{tasks: int, followed: int, deadlines: int, requests: int, seats: int}  $counts
+     * @param  list<string>  $deadlineLines  gộp integ-fa: chữ thô, một dòng mỗi mốc
      */
     public function __construct(
         public User $recipient,
@@ -38,6 +42,7 @@ class StaffWorkTransferred extends BrandedMailable
         public int $hidden,
         public array $counts,
         public string $ledgerKey,
+        public array $deadlineLines = [],
     ) {}
 
     protected function template(): string
@@ -69,6 +74,10 @@ class StaffWorkTransferred extends BrandedMailable
             if (($this->counts[$part] ?? 0) > 0) {
                 $details[] = ['label' => __("internal_flow.staff_work.digest.email.fields.{$part}"), 'value' => (string) $this->counts[$part]];
             }
+        }
+
+        foreach ($this->deadlineLines as $line) {
+            $details[] = ['label' => __('internal_flow.staff_work.digest.email.fields.deadline_item'), 'value' => $line];
         }
 
         return new Content(

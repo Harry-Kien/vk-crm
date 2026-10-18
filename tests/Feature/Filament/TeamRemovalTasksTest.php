@@ -223,31 +223,34 @@ it('counts for the assigner only the tasks still waiting when the notice goes ou
         ->and(fa2DepartureBells($this->associate)[0]['body'])->toContain(': 1 việc');
 });
 
-// Làn fa2, Task 1, vòng sửa 1 (minor 2): luật sư phụ trách gỡ trợ lý của chính mình — họ có trong ô người nhận thay,
-// nhưng không là lựa chọn mặc định khi chính họ bấm (luật "không tự giao việc cho mình" của "Giao lại"); chọn chính
-// mình thì một câu rõ ràng, không gỡ gì.
-it('offers the lead lawyer themselves when they remove their own assistant, with no default, and explains the task rule if chosen', function () {
+// Làn fa2, Task 1, vòng sửa 1 (minor 2) — gộp integ-fa: luật sư phụ trách gỡ trợ lý của chính mình — họ có trong ô
+// người nhận thay với nhãn "Tôi nhận (… — sang Đang làm)", và vẫn là lựa chọn mặc định; chọn thì các việc sang "Đang
+// làm" của họ (ReassignTask takeOver), không tự báo mình.
+it('offers the lead lawyer themselves as "Tôi nhận" when they remove their own assistant, as the default, and takes the tasks over', function () {
     $this->actingAs($this->lead, 'web');
 
     fa2TeamTab($this->matter)
         ->mountTableAction('removeMember', $this->assistant)
-        ->assertFormFieldExists('task_recipient_id', fn (Select $field): bool => array_key_exists($this->lead->id, $field->getOptions())
+        ->assertFormFieldExists('task_recipient_id', fn (Select $field): bool => ($field->getOptions()[$this->lead->id] ?? null) === __('internal_flow.team_removal.take_over', ['name' => 'Luật sư Khang'])
             && array_key_exists($this->other->id, $field->getOptions()))
-        ->assertTableActionDataSet(['task_recipient_id' => null]);
+        ->assertTableActionDataSet(['task_recipient_id' => $this->lead->id]);
 
-    $component = fa2TeamTab($this->matter)
+    fa2TeamTab($this->matter)
         ->callTableAction('removeMember', $this->assistant, data: ['task_recipient_id' => $this->lead->id])
-        ->assertHasTableActionErrors(['task_recipient_id']);
+        ->assertHasNoTableActionErrors();
 
-    expect(collect($component->errors()->get('mountedActions.0.data.task_recipient_id'))->implode(' '))
-        ->toBe(__('internal_flow.team_removal.self_refused'))
-        ->and($this->matter->team()->whereKey($this->assistant->id)->exists())->toBeTrue()
-        ->and($this->pending->fresh()->assignee_id)->toBe($this->assistant->id);
+    foreach ([$this->pending, $this->accepted] as $task) {
+        expect($task->fresh()->assignee_id)->toBe($this->lead->id)
+            ->and($task->fresh()->status)->toBe(TaskStatus::Accepted);
+    }
+
+    expect($this->matter->team()->whereKey($this->assistant->id)->exists())->toBeFalse()
+        ->and($this->lead->notifications()->where('type', TaskAlert::class)->count())->toBe(0);
 });
 
-// integ: khi RemoveTeamMember::reassignHeldTask() truyền notifyFormerHolder: false (fa1), người bị gỡ chỉ còn MỘT
-// chuông (TeamDepartureAlert) — đổi kỳ vọng REASSIGNED_AWAY dưới đây thành 0.
-it('rings the removed member once for the removal — plus, until fa1 is merged, ReassignTask\'s own per-task bell', function () {
+// Gộp integ-fa: RemoveTeamMember::reassignHeldTask() truyền notifyFormerHolder: false — người bị gỡ chỉ còn MỘT chuông
+// (TeamDepartureAlert); notifyAssigner: false — người giao chỉ còn chuông "đã rời đội ngũ" (TASKS_HANDLED).
+it('rings the removed member once for the removal, and the assigner once, with no per-task bell of "Giao lại"', function () {
     $this->actingAs($this->manager, 'web');
 
     fa2TeamTab($this->matter)
@@ -255,5 +258,7 @@ it('rings the removed member once for the removal — plus, until fa1 is merged,
         ->assertHasNoTableActionErrors();
 
     expect(fa2DepartureBells($this->assistant))->toHaveCount(1)
-        ->and($this->assistant->notifications()->where('type', TaskAlert::class)->count())->toBe(2);
+        ->and($this->assistant->notifications()->where('type', TaskAlert::class)->count())->toBe(0)
+        ->and(fa2DepartureBells($this->associate))->toHaveCount(1)
+        ->and($this->associate->notifications()->where('type', TaskAlert::class)->count())->toBe(0);
 });

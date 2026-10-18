@@ -7,6 +7,7 @@ use App\Actions\Matter\ReassignMatters;
 use App\Actions\Matter\TransferStaffWork;
 use App\Enums\NavigationGroup;
 use App\Enums\Role as StaffRole;
+use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
@@ -96,6 +97,8 @@ use UnitEnum;
  */
 class BulkReassign extends Page
 {
+    use ReportsActionFailures;
+
     protected string $view = 'filament.admin.pages.bulk-reassign';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowsRightLeft;
@@ -248,7 +251,7 @@ class BulkReassign extends Page
                     ->required()
                     ->maxLength(TransferStaffWork::REASON_MAX),
             ])
-            ->action(fn (array $data) => $this->runStaffTransfer((string) ($data['reason'] ?? '')));
+            ->action(fn (Action $action, array $data) => $this->runStaffTransfer($action, (string) ($data['reason'] ?? '')));
     }
 
     /** Câu của hộp xác nhận: ai → ai, kèm các con số; chưa chọn đủ hai người thì nhắc chọn trước. */
@@ -266,8 +269,12 @@ class BulkReassign extends Page
         return __('internal_flow.staff_work.confirm.description', ['from' => $from, 'to' => $to, 'summary' => $this->staffSummary($fromId)]);
     }
 
-    /** Hỏi lại Gate và hai ô chọn, rồi gọi {@see TransferStaffWork}. `private`: xem docblock lớp. */
-    private function runStaffTransfer(string $reason): void
+    /**
+     * Hỏi lại Gate và hai ô chọn, rồi gọi {@see TransferStaffWork}. `private`: xem docblock lớp. Gộp integ-fa (minor của
+     * rà soát cuối làn fa2): lời từ chối của chính Action đi qua `ReportsActionFailures::runAction()` — khoá `reason`
+     * hiện dưới ô lý do của hộp xác nhận, khoá `recipient_id` (ô ở ngoài hộp, sau lớp phủ) đi bằng một thông báo.
+     */
+    private function runStaffTransfer(Action $action, string $reason): void
     {
         abort_unless(static::canAccess(), 404);
 
@@ -280,12 +287,14 @@ class BulkReassign extends Page
         /** @var User $actor */
         $actor = Auth::user();
 
-        $this->staffResults = app(TransferStaffWork::class)->handle(
-            User::query()->withTrashed()->findOrFail($fromId),
-            User::query()->findOrFail($toId),
-            $actor,
-            $reason,
-        );
+        $this->runAction($action, function () use ($fromId, $toId, $actor, $reason): void {
+            $this->staffResults = app(TransferStaffWork::class)->handle(
+                User::query()->withTrashed()->findOrFail($fromId),
+                User::query()->findOrFail($toId),
+                $actor,
+                $reason,
+            );
+        });
 
         // Lô vừa đổi đội ngũ / việc: danh sách người và câu tóm tắt của lần vẽ tiếp theo đọc lại.
         $this->manageableOpenMattersMemo = null;

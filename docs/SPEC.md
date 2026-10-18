@@ -1295,8 +1295,9 @@ còn lại tính lúc gửi (`App\Jobs\SendDeadlineAssignmentNotice`, sau commit
 được hồ sơ, mốc còn chưa xong, vụ còn mở, người giữ mốc vẫn là họ). `reminders_sent` thuộc về mốc, không thuộc
 người: bậc đã gửi cho người giữ cũ không gửi lại — lời báo này mang đúng điều bậc gần nhất nói, một lần; các bậc
 sau tới người mới như thường. Tự giao cho mình thì không báo. Bàn giao vụ không đi đường này: thư tổng hợp bàn
-giao đã liệt kê các mốc chuyển sang lead mới; "Chuyển việc nội bộ và ghế" (Bàn giao hàng loạt) cũng không — thư
-tổng hợp `staff.work_transferred` đếm các mốc (vòng sửa 1, 2026-10-18). Thư của một mốc vừa THÊM không nói tới lời
+giao đã liệt kê các mốc chuyển sang lead mới; "Chuyển việc nội bộ và ghế" (Bàn giao hàng loạt) cũng không — chuông
+và thư tổng hợp `staff.work_transferred` liệt kê TỪNG mốc với cùng các điều đó, mốc trong bậc nhắc cuối có dấu "GẤP"
+(vòng sửa 1, 2026-10-18; gộp integ-fa). Thư của một mốc vừa THÊM không nói tới lời
 nhắc đã gửi (chưa có lời nào); chỉ thư của một mốc đổi người giữ nói.
 
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
@@ -1478,20 +1479,25 @@ không còn gì để chặn.
   (mặc định luật sư phụ trách nếu hợp lệ) hoặc "Để Cần giao lại"; không chọn thì không gỡ. Người nhận thay đi qua
   "Giao lại" (`ReassignTask`) từng việc, trong cùng transaction sau khoá dòng vụ. Sau commit
   (`SendTeamDepartureNotices`): người bị gỡ nhận MỘT chuông tổng hợp "đã rời đội ngũ hồ sơ … — n việc đã chuyển /
-  chờ giao lại" (vụ hạn chế họ không mở được: không mã; `ReassignTask` vẫn gửi họ chuông chung `REASSIGNED_AWAY`
-  không tên việc của từng việc đã chuyển), người giao các việc đó (hay người nhận thay họ, `forTaskAssigner()`)
-  nhận một chuông. Mốc hạn và yêu cầu của khách vẫn chặn gỡ như trước. Vòng sửa 1 (2026-10-18): người bấm ngồi
-  một ghế giữ việc (luật sư phụ trách gỡ trợ lý của mình) cũng có trong ô người nhận thay, nhưng không là mặc định
-  khi chính họ bấm — "Giao lại" không cho ai tự giao việc cho mình, nên chọn chính mình thì một câu nói rõ luật đó
-  và không gỡ gì.
+  chờ giao lại" (vụ hạn chế họ không mở được: không mã), người giao các việc đó (hay người nhận thay họ,
+  `forTaskAssigner()`) nhận một chuông — gộp 2026-10-18: không thêm chuông từng việc nào cho hai người đó
+  (`ReassignTask` với `notifyFormerHolder: false, notifyAssigner: false`). Mốc hạn và yêu cầu của khách vẫn chặn gỡ
+  như trước. Vòng sửa 1 (2026-10-18), gộp integ-fa: người bấm ngồi một ghế giữ việc (luật sư phụ trách gỡ trợ lý
+  của mình) cũng có trong ô người nhận thay, nhãn "Tôi nhận (… — sang Đang làm)", và luật sư phụ trách vẫn là mặc
+  định kể cả khi chính họ bấm; chọn mình là NHẬN THAY (`ReassignTask` `takeOver`): việc sang thẳng "Đang làm"
+  (`accepted_at` = lúc nhận), dòng `task_reassigned` ghi `taken_over: true`, không chuông/thư cho chính họ, nhưng
+  vẫn phải giữ được việc (`TaskAssignees::qualifies()`). "Giao việc" / "Giao lại" trên trang Công việc vẫn cấm tự
+  giao. Danh sách việc trong hộp thoại: mỗi việc một dòng.
 - **Việc nội bộ trong luật nghỉ việc** (`App\Support\OpenTaskWork`): việc đang giữ, việc đã giao còn mở, hồ sơ chờ
   nhận — chỉ việc chung và việc trên hồ sơ đang mở (đúng tập chuyển được; việc sót trên hồ sơ đã kết thúc / đã huỷ
   không chặn) — chặn vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi việc dở khác; "Khoá
   truy cập ngay" nêu và ghi nhật ký ba con số đó. Màn hình hàng loạt có thêm phần **"Việc nội bộ và ghế"**
   (`TransferStaffWork`, cùng cổng `bulkReassign` của màn hình — hỏi lại trong chính Action) cho người KHÔNG phải luật sư phụ trách: trên từng hồ sơ đang mở (mỗi hồ sơ một
   transaction, khoá dòng vụ trước), người nhận vào đội ngũ thay ghế (chờ nhận), việc đang giữ qua "Giao lại", việc
-  đã giao đổi người giao (sang người nhận; việc chính người nhận giữ thì sang người bấm — dòng
-  `task_assigner_changed`, `reason = staff_work_transferred`), mốc hạn và yêu cầu của khách chuyển theo, người cũ
+  đã giao đổi người giao (sang người nhận; việc chính người nhận giữ, hay người nhận không mở được, thì sang người
+  bấm — dòng `task_assigner_changed`, `reason = staff_work_transferred`; gộp integ-fa: không việc nào bị bỏ qua im
+  lặng — người bấm chính là người giữ thì việc thành việc riêng của họ, người bấm chính là người cũ thì việc ở lại
+  và dòng kết quả đỏ), mốc hạn và yêu cầu của khách chuyển theo, người cũ
   rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng luật.
   Hồ sơ người đó phụ trách thì chỉ đường phần "Bàn giao". Liên kết tới màn hình này đi kèm câu chặn cả khi người đó
   chỉ còn việc nội bộ.
@@ -1501,15 +1507,28 @@ không còn gì để chặn.
   gỡ); người nhận được ghế giữ việc khi người cũ còn ghế giữ việc HAY còn giữ việc trên hồ sơ (kể cả việc "Cần giao
   lại" sau một lần gỡ) — ghế "người theo dõi" hay đã trả lại của người nhận thành ghế giữ việc chờ nhận; người cũ
   chỉ còn mốc / yêu cầu của khách thì người nhận chưa ở đội ngũ vào đội ngũ. (c) Người nhận có thể là chính người
-  bấm (trưởng phòng tự nhận ghế, mốc, yêu cầu); việc nội bộ theo luật của "Giao lại" — việc bị từ chối ở lại "Cần
-  giao lại", dòng kết quả nói rõ, phần còn lại vẫn chuyển. (d) Nút mở hộp xác nhận nêu ai → ai và các con số, bắt
+  bấm (trưởng phòng tự nhận ghế, mốc, yêu cầu; gộp integ-fa: cả việc nội bộ — nhận thay, `takeOver`, sang "Đang
+  làm"); việc "Giao lại" từ chối (người nhận không giữ được việc) ở lại "Cần giao lại", dòng kết quả nói rõ, phần
+  còn lại vẫn chuyển. (d) Nút mở hộp xác nhận nêu ai → ai và các con số, bắt
   lý do (tối đa 5000 ký tự), ghi vào dòng `staff_work_transferred` — dòng này chỉ ghi khi có thay đổi, kèm số hồ sơ
   lỗi / ngoài quyền và số việc không chuyển được. (e) **Một lời báo cho cả lô**: chuông "được giao ghế", chuông + thư
   "được giao mốc", chuông "đã rời đội ngũ" của từng hồ sơ không gửi; sau lô người nhận nhận MỘT chuông + MỘT thư
   `staff.work_transferred` (bao nhiêu hồ sơ — mã hồ sơ chỉ khi vụ không hạn chế hay họ mở được, còn lại chỉ đếm —,
   việc nội bộ, việc đã giao, mốc, yêu cầu, ghế mới), người cũ MỘT chuông (`SendStaffWorkTransferNotices`). Người bấm
-  tự nhận thì không tự báo mình. Chuông + thư "được giao" của từng việc nội bộ (của "Giao lại") còn gửi tới khi gộp
-  với làn công việc (cờ không báo của `ReassignTask`).
+  tự nhận thì không tự báo mình. Gộp integ-fa (2026-10-18): "Giao lại" của lô chạy với `notifyFormerHolder: false,
+  notifyNewHolder: false, notifyAssigner: false` — không chuông/thư nào của từng việc. (f) **Gộp integ-fa — rà soát
+  cuối làn fa2.** Chuông và thư của người nhận liệt kê TỪNG mốc đã sang tay họ (tên mốc, hồ sơ, hạn và số ngày còn
+  lại — `DeadlineAssignedAlert::dueLine()`, mức độ), theo hạn; mốc còn `min(CheckDeadlines::TIERS)` ngày trở xuống,
+  hôm nay hay đã quá hạn mở đầu bằng dấu "GẤP" (lời nhắc bậc cuối có thể đã gửi cho người cũ — `reminders_sent`
+  thuộc về mốc); hồ sơ hạn chế người nhận không mở được lúc gửi: "Một mốc hạn — một hồ sơ" (không tên mốc, không
+  mã), hạn và mức độ vẫn hiện. Người giao của các việc đã chuyển (hay người nhận thay họ, `forTaskAssigner()`), trừ
+  người bấm, người cũ và người nhận, nhận MỘT chuông `StaffWorkTransferAlert::ASSIGNER` mỗi người cho cả lô (payload
+  mang id việc và mốc đã chuyển). Số "việc đã giao" của thư chỉ đếm việc đổi người giao sang người nhận; việc sang
+  người bấm có câu riêng trên dòng kết quả, và dòng nhật ký ghi `tasks_followed_by_actor`, `assigners_not_moved`. Mã
+  và tiêu đề hồ sơ chỉ vào dòng kết quả SAU khi người bấm qua `manageTeam` dưới khoá; lỗi trước đó cho một dòng đỏ
+  không mã; lời từ chối quyền của một Action con sau đó là dòng đỏ "quyền đã đổi giữa chừng" của chính hồ sơ (không
+  phải "cần quản trị viên chuyển"). Đổi người giao của việc chung hỏng thì dòng việc chung đỏ, nhật ký và lời báo vẫn
+  ghi. Lời từ chối của chính Action (lý do, người nhận) hiện dưới ô lý do hay bằng thông báo.
 - **Công tắc "Giữ luật sư cũ làm cộng sự"** của màn hình hàng loạt TẮT sẵn khi mở từ màn hình cho nghỉ việc
   (`?from=`), bật sẵn khi mở thường; câu gợi ý (cả nút "Bàn giao" một vụ) nói rõ giữ làm cộng sự thì việc nội bộ
   người đó đang giữ KHÔNG chuyển.
@@ -2457,7 +2476,15 @@ không quyền mới.
 5. **Màn hình.** Nhãn số việc bên tên người nhận nói phạm vi ("… việc anh/chị thấy được"), kèm câu gợi ý dưới ô; dòng
    đầu trang Công việc chỉ nói "hồ sơ chờ nhận ở mục Việc của tôi" với người có mục đó (`SeatInbox::onMyWork()`).
 6. **Cho người gọi hàng loạt** (làn fa2): `ReassignTask::handle(notifyFormerHolder: false)` bỏ đúng chuông
-   `REASSIGNED_AWAY` cho người vừa mất việc (người gọi gửi một chuông tổng hợp); mọi lời báo khác không đổi.
+   `REASSIGNED_AWAY` cho người vừa mất việc (người gọi gửi một chuông tổng hợp); mọi lời báo khác không đổi. Gộp
+   integ-fa (2026-10-18), cùng luật "một cờ bỏ đúng một lời báo": `notifyNewHolder: false` (chuông + thư "được giao"
+   của người mới — `TransferStaffWork`), `notifyAssigner: false` (`REASSIGNED_BY_OTHER` của người giao gốc — cả hai
+   người gọi hàng loạt đã báo người giao một chuông cho cả lần đó). `takeOver: true` (chỉ `RemoveTeamMember` và
+   `TransferStaffWork`): người mới là người bấm thì nhận thay — bỏ luật tự giao, vẫn hỏi `qualifies()`, việc sang
+   "Đang làm" (`accepted_at` = `assigned_at` = lúc nhận), dòng `task_reassigned` có `taken_over: true`, không tự báo.
+   Người giao giữ nguyên kể cả khi người nhận chính là người giao: việc RIÊNG (người giao = người giữ) không ở "Tôi
+   đã giao" (`Task::scopeAssignedBy()`), không "Trả lại" được (`TaskPolicy::decline`), và `forTaskAssigner()` bỏ bước
+   người giao — lời báo cho người giao tới luật sư phụ trách / người quản lý của vụ như khi người giao đã đi.
 7. **Vòng sửa 2 (rà soát cuối của làn).** Số "đang giữ" bên tên người nhận (luật 1 của 2026-10-16) là
    `Task::held()->heldBySeatedAssignee()` — cùng định nghĩa của số quá hạn và Theo dõi đội ngũ (mục 4 ở trên).
    "Sửa" (`UpdateTask`) hỏi `TaskAssignees::qualifies()` người giữ dưới khoá như "Mở lại": không còn hợp lệ thì không

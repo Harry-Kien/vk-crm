@@ -503,12 +503,17 @@ class ResolveStaffRecipients
      * "Công việc" của vụ — không "việc anh/chị giao", không tab "Tôi đã giao". Bàn giao vụ không đi đường này:
      * `MoveTasksOnHandover` đổi người giao sang lead mới, nên lead mới LÀ người giao.
      *
+     * Người giao đang tự giữ việc (gộp integ-fa: họ nhận thay việc mình đã giao — `ReassignTask` `takeOver` — hay việc
+     * được "Giao lại" về chính họ): lời báo cho người giao là lời báo về việc CỦA CHÍNH họ, nên bước người giao bị bỏ
+     * và chuỗi đi tiếp như khi người giao đã đi — luật sư phụ trách (khi không phải người giữ), rồi người quản lý của vụ
+     * với lời báo cần người quyết định. Việc chung thì rỗng.
+     *
      * @param  bool  $decisionNeeded  `false` cho một lời báo chỉ là tin: không rơi tới người quản lý của vụ (xem trên)
      * @return Collection<int, User>
      */
     public function forTaskAssigner(Task $task, bool $decisionNeeded = true): Collection
     {
-        $assigner = $this->forTask($task, [$task->assigner]);
+        $assigner = $task->assigned_by === $task->assignee_id ? collect() : $this->forTask($task, [$task->assigner]);
 
         if ($assigner->isNotEmpty() || $task->matter_id === null) {
             return $assigner;
