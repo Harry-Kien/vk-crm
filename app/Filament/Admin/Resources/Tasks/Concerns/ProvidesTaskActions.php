@@ -108,8 +108,9 @@ trait ProvidesTaskActions
 
     /**
      * "Khôi phục" một việc đã huỷ — `TaskPolicy::restoreCancelled` (chính người đã huỷ, luật sư phụ trách, quản lý).
-     * Lý do bắt buộc. Câu báo xong nói rõ khi việc về "Bị trả lại" (huỷ lúc đang bị trả lại — làn fa1, vòng sửa 1, m1)
-     * hay khi người nhận cũ không còn nhận được việc (việc hiện "Cần giao lại").
+     * Lý do bắt buộc. Câu báo xong nói rõ khi việc về "Bị trả lại" (huỷ lúc đang bị trả lại — làn fa1, vòng sửa 1, m1),
+     * khi người nhận cũ không còn nhận được việc (việc hiện "Cần giao lại"), hay khi người bấm là chính người nhận cũ
+     * (việc về "Đang làm" cho họ — vòng sửa 2, c4).
      */
     protected function restoreTaskAction(): Action
     {
@@ -133,6 +134,8 @@ trait ProvidesTaskActions
             ->successNotificationTitle(fn (Task $record): string => __(match (true) {
                 Task::query()->find($record->getKey())?->status === TaskStatus::Declined => 'tasks.restore.success_declined',
                 Task::query()->whereKey($record->getKey())->needsReassignment()->exists() => 'tasks.restore.success_needs_reassignment',
+                // Làn fa1, vòng sửa 2 (c4): người bấm là người nhận cũ — việc về "Đang làm" cho chính họ, không ai được báo.
+                Task::query()->find($record->getKey())?->assignee_id === $this->taskActor()->getKey() => 'tasks.restore.success_own',
                 default => 'tasks.restore.success',
             }))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
@@ -251,7 +254,10 @@ trait ProvidesTaskActions
                 ...$this->taskDetailFields(),
                 Hidden::make('mounted_updated_at'),
             ])
-            ->successNotificationTitle(__('tasks.actions.edit_success'))
+            // Làn fa1, vòng sửa 2 (c2): người giữ không còn giữ được việc thì không ai được báo — câu xong nói "Cần giao lại".
+            ->successNotificationTitle(fn (Task $record): string => __(Task::query()->whereKey($record->getKey())->held()->needsReassignment()->exists()
+                ? 'tasks.actions.edit_success_needs_reassignment'
+                : 'tasks.actions.edit_success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(UpdateTask::class)->handle(

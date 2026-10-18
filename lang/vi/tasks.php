@@ -124,6 +124,8 @@ return [
         'edit_submit' => 'Lưu',
         // Làn fa1 (phán quyết 1): người đang giữ việc được báo điều đã đổi.
         'edit_success' => 'Đã lưu thay đổi. Người đang giữ việc (nếu có) được báo bằng chuông và thư điều đã đổi.',
+        // Vòng sửa 2 (c2): người giữ không còn giữ được việc — không ai được báo.
+        'edit_success_needs_reassignment' => 'Đã lưu thay đổi. Người nhận không còn giữ được việc này nên không ai được báo: việc hiện "Cần giao lại" — hãy bấm "Giao lại".',
         'reassign' => 'Giao lại',
         'reassign_heading' => 'Giao lại việc này cho người khác',
         'reassign_submit' => 'Giao lại',
@@ -620,6 +622,8 @@ return [
         'reason_help' => 'Bắt buộc — ví dụ huỷ nhầm, khách vẫn cần.',
         'submit' => 'Khôi phục',
         'success' => 'Đã khôi phục việc — người nhận cũ được báo.',
+        // Vòng sửa 2 (c4): người bấm là chính người nhận cũ.
+        'success_own' => 'Đã khôi phục việc — việc trở về "Đang làm" cho anh/chị.',
         'success_needs_reassignment' => 'Đã khôi phục việc, nhưng người nhận cũ không còn nhận được việc này: việc hiện "Cần giao lại" — hãy bấm "Giao lại".',
         // Vòng sửa 1 (m1): việc bị huỷ khi đang "Bị trả lại" — người đã trả lại không bị đẩy việc lần nữa.
         'success_declined' => 'Đã khôi phục việc về "Bị trả lại" (người nhận cũ đã trả lại việc này) — hãy bấm "Giao lại" để giao người khác.',

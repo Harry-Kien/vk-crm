@@ -65,8 +65,10 @@ class TaskAssignees
      * `id => nhãn` cho ô chọn người nhận — {@see self::eligible()}. Khi GIAO LẠI `$replacing`, người đang
      * giữ việc chỉ còn trong danh sách nếu họ đã trả lại (cùng luật {@see ReassignTask}).
      *
-     * Nhãn (làn fa1, phán quyết 3): tên, kèm số việc người đó đang giữ (chờ nhận, đang làm — `Task::held()`) và
-     * số việc quá hạn (`Task::overdueToHandle()`), để người giao cân khối lượng — CHỈ đếm việc `$actor` xem được
+     * Nhãn (làn fa1, phán quyết 3): tên, kèm số việc người đó đang giữ (chờ nhận, đang làm — `Task::held()` mà người
+     * đó còn giữ được, `Task::scopeHeldBySeatedAssignee()`: cùng định nghĩa "đang giữ" của số quá hạn và của Theo dõi
+     * đội ngũ — vòng sửa 2, F1; việc "Cần giao lại" vì người đó không vào) và số việc quá hạn
+     * (`Task::overdueToHandle()`), để người giao cân khối lượng — CHỈ đếm việc `$actor` xem được
      * (`Task::visibleTo($actor)`): việc của một vụ hạn chế người giao không mở được không bao giờ lộ qua con số. Vì
      * vậy câu chữ nói đúng phạm vi đó ("… việc anh/chị thấy được", "không có việc nào anh/chị thấy được" — vòng sửa 1,
      * I2), không như một sự thật tuyệt đối về đồng nghiệp; ô chọn thêm câu gợi ý `tasks.assign.workload_scope`
@@ -86,7 +88,7 @@ class TaskAssignees
         }
 
         $ids = $people->modelKeys();
-        $held = BuildTeamWorkload::countPer(Task::query()->visibleTo($actor)->held()->whereIn('tasks.assignee_id', $ids), 'tasks.assignee_id');
+        $held = BuildTeamWorkload::countPer(Task::query()->visibleTo($actor)->held()->heldBySeatedAssignee()->whereIn('tasks.assignee_id', $ids), 'tasks.assignee_id');
         $overdue = BuildTeamWorkload::countPer(Task::query()->visibleTo($actor)->overdueToHandle()->whereIn('tasks.assignee_id', $ids), 'tasks.assignee_id');
 
         return $people

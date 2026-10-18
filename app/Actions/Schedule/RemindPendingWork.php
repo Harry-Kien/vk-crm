@@ -4,6 +4,7 @@ namespace App\Actions\Schedule;
 
 use App\Actions\Matter\SeatsNeedingReassignment;
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Task\TaskAssignees;
 use App\Enums\MatterAssignmentStatus;
 use App\Enums\TaskStatus;
 use App\Jobs\SendSeatReminderDigest;
@@ -243,6 +244,12 @@ class RemindPendingWork
      * (vế `inactive` của `Task::scopeNeedsReassignment()`). Không thì lời nhắc người nhận không tới ai
      * (`ResolveStaffRecipients::forTask()` bỏ người đã nghỉ), nên người giao được báo sớm thay (làn fa1, vòng sửa 1 —
      * docblock lớp): "sắp đến hạn" (`DUE_SOON_ASSIGNER`) và "chưa được nhận" từ mốc 24 giờ ({@see self::taskThresholdFor()}).
+     *
+     * BẢN SQL của {@see TaskAssignees::qualifies()} (làn fa1, vòng sửa 2): cùng các vế — tài khoản còn hoạt động, chưa
+     * xoá mềm, và (việc của vụ) còn giữ ghế ({@see TaskAssignees::holdsSeat()} ↔ `Task::scopeHeldBySeatedAssignee()`).
+     * `ReopenTask`, `RestoreTask` và `UpdateTask` hỏi `qualifies()` dưới khoá; lịch nhắc hỏi hàm này. Đổi một vế ở một
+     * bên thì PHẢI đổi cùng lúc ở bên kia (và ở `Task::scopeNeedsReassignment()`, phủ định của cả hai), không thì lời
+     * nhắc và màn hình nói hai điều khác nhau về cùng một người.
      */
     public static function assigneeCanStillWork(Task $task): bool
     {

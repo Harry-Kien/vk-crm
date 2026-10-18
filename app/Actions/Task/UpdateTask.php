@@ -38,6 +38,13 @@ use Illuminate\Validation\ValidationException;
  * ({@see QueuesTaskNotices}; khoá chống trùng là id dòng nhật ký; job lọc lại người nhận bằng
  * `ResolveStaffRecipients::forTask()` — vụ hạn chế không tới ai không mở được vụ). Việc đã bị trả lại thì người
  * nhận cũ đã buông nó: không báo. Không đổi gì: không ghi, không báo.
+ *
+ * # Người giữ không còn giữ được việc (làn fa1, vòng sửa 2 — c2)
+ *
+ * Như `ReopenTask` (vòng sửa 1, m2): người giữ từ đó đã nghỉ, rời đội ngũ, sang "người theo dõi", trả lại hồ sơ hay
+ * không còn mở được hồ sơ thì không được báo — hỏi {@see TaskAssignees::qualifies()} dưới khoá dòng của họ. Người theo
+ * dõi vẫn xem được vụ nên bộ lọc người nhận của job (`forTask()`) không tự chặn được họ. Việc hiện "Cần giao lại", và
+ * câu xong của màn hình nói điều đó (`tasks.actions.edit_success_needs_reassignment`), không hứa "họ được báo".
  */
 class UpdateTask
 {
@@ -96,7 +103,12 @@ class UpdateTask
             ], causer: $actor);
 
             if (in_array($fresh->status, [TaskStatus::Pending, TaskStatus::Accepted], true) && $fresh->assignee_id !== $actor->getKey()) {
-                $this->queueNotice($fresh, TaskAlert::UPDATED, $fresh->assignee_id, $activity);
+                // Xem docblock lớp, mục "Người giữ không còn giữ được việc" — hỏi dưới khoá dòng của họ (sau vụ và việc).
+                $holder = User::query()->withTrashed()->whereKey($fresh->assignee_id)->lockForUpdate()->first();
+
+                if ($holder !== null && app(TaskAssignees::class)->qualifies($holder, $fresh->matter)) {
+                    $this->queueNotice($fresh, TaskAlert::UPDATED, $fresh->assignee_id, $activity);
+                }
             }
 
             return $fresh;

@@ -37,6 +37,13 @@ use Illuminate\Validation\ValidationException;
  *
  * Cả hai nhánh xoá `cancelled_at`/`cancel_reason` trên dòng. Dòng `task_restored` ghi `to` là trạng thái đã về.
  *
+ * # Khôi phục về chính người bấm (làn fa1, vòng sửa 2 — c4)
+ *
+ * Người bấm CHÍNH LÀ người nhận cũ (luật sư phụ trách giữ một việc mà trưởng phòng đã huỷ, và tự khôi phục nó) và còn
+ * nhận được việc: việc về thẳng "Đang làm" (`accepted_at` = bây giờ) — khôi phục là chính họ nhận lại việc, không có ai
+ * để chờ "Đã nhận", và không lời nhắc "chờ nhận" nào tự nhắc họ. Không báo chính họ; câu xong
+ * (`tasks.restore.success_own`) không hứa "người nhận cũ được báo". Người giao gốc vẫn được báo (mục "Người giao gốc").
+ *
  * # Người giao gốc
  *
  * Người bấm không phải người giao (luật sư phụ trách hay quản lý khôi phục việc của người khác giao — thường sau khi
@@ -85,11 +92,13 @@ class RestoreTask
             } else {
                 $assignee = User::query()->withTrashed()->whereKey($fresh->assignee_id)->lockForUpdate()->first();
                 $qualifies = $assignee !== null && app(TaskAssignees::class)->qualifies($assignee, $fresh->matter);
+                // Xem docblock lớp, mục "Khôi phục về chính người bấm".
+                $toSelf = $qualifies && $fresh->assignee_id === $actor->getKey();
 
                 $fresh->update([
-                    'status' => TaskStatus::Pending,
+                    'status' => $toSelf ? TaskStatus::Accepted : TaskStatus::Pending,
                     'assigned_at' => now(),
-                    'accepted_at' => null,
+                    'accepted_at' => $toSelf ? now() : null,
                     'declined_at' => null,
                     'decline_reason' => null,
                     'cancelled_at' => null,

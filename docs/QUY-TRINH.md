@@ -472,8 +472,10 @@ người giao gốc nhận một chuông (người nhận mới, hay lý do hu�
 một chuông kèm lý do. Lời báo "đã nhận" và "đã hoàn thành" tới người giao; người giao đã rời vụ hay nghỉ thì luật sư
 phụ trách nhận thay, như lời báo "bị trả lại". Khi chính luật sư phụ trách là người giữ việc, hai tin này (và tin
 "người nhận tự mở lại") không chuyển tiếp tới trưởng phòng — chỉ lời báo cần một người quyết định ("bị trả lại", các
-lời nhắc cho người giao) mới chuyển tiếp. Việc đã giao cho người không mở được hồ sơ hạn chế: người đó không nhận
-lời báo nào về việc ấy.
+lời nhắc cho người giao) mới chuyển tiếp. Người giao không còn mở được hồ sơ hạn chế không nhận lời báo nào về việc
+ấy (người vừa mất việc chỉ nhận một chuông chung, không tên việc, không mã vụ). Người giữ việc không còn giữ được
+việc (đã nghỉ, rời đội ngũ, sang "Người theo dõi", trả lại hồ sơ) thì "Sửa" không báo họ: màn hình nói việc hiện
+"Cần giao lại".
 
 **Mở lại, khôi phục** (từ 2026-10-16). Một việc đã **"Hoàn thành"** được **"Mở lại"** (nhóm nút "…" trên dòng): người
 giao, luật sư phụ trách hay trưởng phòng mở lại khi kết quả chưa đạt — **bắt buộc ghi nhận xét** ("yêu cầu làm
@@ -482,7 +484,8 @@ trở về "Đang làm" cho cùng người; người giữ việc nhận chuông
 báo). Người giữ việc từ đó đã nghỉ, rời đội ngũ, sang "Người theo dõi" hay trả lại hồ sơ thì không ai được báo "làm
 tiếp": việc hiện "Cần giao lại", và màn hình nói rõ điều đó để anh/chị bấm "Giao lại". Một việc đã **"Huỷ"** được
 **"Khôi phục"** bởi chính người đã huỷ, luật sư phụ trách hay trưởng phòng — bắt buộc lý do: việc về "Chờ nhận" cho
-người nhận cũ, người đó được báo; người nhận cũ không còn nhận được việc (đã nghỉ, rời đội ngũ, trả lại hồ sơ) thì
+người nhận cũ, người đó được báo (chính người nhận cũ bấm khôi phục thì việc về thẳng "Đang làm" cho họ, không báo
+ai ngoài người giao); người nhận cũ không còn nhận được việc (đã nghỉ, rời đội ngũ, trả lại hồ sơ) thì
 việc hiện "Cần giao lại" để giao người khác. Việc bị huỷ khi đang **"Bị trả lại"** thì khôi phục về "Bị trả lại" —
 người đã trả lại không bị đẩy việc lần nữa, và việc nằm lại ở "Tôi đã giao" để giao người khác. Hồ sơ đã kết thúc thì không mở lại hay
 khôi phục được việc — bấm nút là nghe ngay lý do. Nhật ký ghi mỗi lần mở lại (kèm ghi chú hoàn thành cũ) và khôi phục.

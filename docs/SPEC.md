@@ -2380,6 +2380,14 @@ không quyền mới.
    đầu trang Công việc chỉ nói "hồ sơ chờ nhận ở mục Việc của tôi" với người có mục đó (`SeatInbox::onMyWork()`).
 6. **Cho người gọi hàng loạt** (làn fa2): `ReassignTask::handle(notifyFormerHolder: false)` bỏ đúng chuông
    `REASSIGNED_AWAY` cho người vừa mất việc (người gọi gửi một chuông tổng hợp); mọi lời báo khác không đổi.
+7. **Vòng sửa 2 (rà soát cuối của làn).** Số "đang giữ" bên tên người nhận (luật 1 của 2026-10-16) là
+   `Task::held()->heldBySeatedAssignee()` — cùng định nghĩa của số quá hạn và Theo dõi đội ngũ (mục 4 ở trên).
+   "Sửa" (`UpdateTask`) hỏi `TaskAssignees::qualifies()` người giữ dưới khoá như "Mở lại": không còn hợp lệ thì không
+   chuông, không thư, câu xong nói "Cần giao lại". "Khôi phục" mà người bấm là chính người nhận cũ (còn hợp lệ): việc về
+   "Đang làm" (`accepted_at` = lúc khôi phục), không tự báo; người giao gốc vẫn nhận `RESTORED_BY_OTHER`. Trên vụ
+   `restricted`: người giao không còn mở được vụ không nhận lời báo nào về việc (mọi lời báo qua `forTask()` /
+   `forTaskAssigner()`); người vừa mất việc khi việc được giao lại chỉ nhận chuông chung `REASSIGNED_AWAY` (không
+   tên việc, không mã vụ). `RemindPendingWork::assigneeCanStillWork()` là bản SQL của `qualifies()` — đổi cùng nhau.
 
 Không migration, tác vụ lịch hay quyền mới.
 
