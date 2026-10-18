@@ -82,9 +82,11 @@ function ldlSelectSearch(Testable $page, string $schema, string $name, string $t
 // =================================================================================================
 
 it('Clients list: name and code treat "đ" as "d"; "Dang" finds "Đặng" on MariaDB', function () {
-    $dinh = Client::factory()->create(['name' => 'Bà Đinh Fabacl']);
-    $dang = Client::factory()->create(['name' => 'Ông Đặng Fabacl']);
-    $other = Client::factory()->create(['name' => 'Ông Dũng Fabaother']);
+    // Email/điện thoại cố định: cột email cũng tìm được, và email ngẫu nhiên của faker (tên tiếng Việt) có khi chứa
+    // "dinh" — test chập chờn (fix round 2).
+    $dinh = Client::factory()->create(['name' => 'Bà Đinh Fabacl', 'email' => 'kh1@example.test', 'phone' => '0900000001']);
+    $dang = Client::factory()->create(['name' => 'Ông Đặng Fabacl', 'email' => 'kh2@example.test', 'phone' => '0900000002']);
+    $other = Client::factory()->create(['name' => 'Ông Dũng Fabaother', 'email' => 'kh3@example.test', 'phone' => '0900000003']);
 
     $this->actingAs($this->admin, 'web');
 
@@ -208,8 +210,10 @@ it('Parties tab: the party name treats "đ" as "d"', function () {
 });
 
 it('a typed "%" or "_" is a letter, not a wildcard, in the list search boxes', function () {
-    $pct = Client::factory()->create(['name' => 'Công ty 50% Fabapct']);
-    $plain = Client::factory()->create(['name' => 'Công ty 5a0 Fabapct']);
+    // Điện thoại/email cố định: hai cột đó vẫn dùng tìm mặc định của Filament (LIKE không thoát "%"), và một số
+    // điện thoại ngẫu nhiên chứa "50" khớp "%50%%" — test chập chờn trên MariaDB (fix round 2).
+    $pct = Client::factory()->create(['name' => 'Công ty 50% Fabapct', 'email' => 'pct1@example.test', 'phone' => '0911111111']);
+    $plain = Client::factory()->create(['name' => 'Công ty 5a0 Fabapct', 'email' => 'pct2@example.test', 'phone' => '0922222222']);
 
     $this->actingAs($this->admin, 'web');
 
@@ -293,4 +297,28 @@ it('LetterD::searchOptions matches every typed word, in any order, ignoring mark
         // Mọi từ phải có mặt: "duc" chỉ ở dòng 1, "tran" chỉ ở dòng 2 — không dòng nào có cả hai.
         ->and($search('duc tran'))->toBe([])
         ->and($search(''))->toBe([1 => 'Nguyễn Văn Đức', 2 => 'Trần Thị Đào', 3 => 'Lê Dũng']);
+});
+
+it('fix round 2 (mA): the four selects that now search on the server wait only a short pause after typing, not Filament default 1000 ms', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $selects = [
+        [CreateMatter::class, 'form', 'client_id', $this->admin],
+        [CreateMatter::class, 'form', 'lead_lawyer_id', $this->admin],
+        [RevenueDashboard::class, 'filtersForm', 'lawyer_id', $manager],
+        [ActivityLogPage::class, 'tableFiltersForm', 'causer.value', $this->admin],
+    ];
+
+    expect(LetterD::SELECT_SEARCH_DEBOUNCE_MS)->toBeLessThanOrEqual(300);
+
+    foreach ($selects as [$page, $schema, $name, $user]) {
+        $this->actingAs($user, 'web');
+
+        $select = collect(Livewire::test($page)->instance()->getSchema($schema)->getFlatComponents(withHidden: true))
+            ->first(fn ($component): bool => $component instanceof Select && str_ends_with((string) $component->getKey(), '.'.$name));
+
+        expect($select)->not->toBeNull("{$page} {$name}")
+            ->and($select->hasDynamicSearchResults())->toBeTrue()
+            ->and($select->getSearchDebounce())->toBe(LetterD::SELECT_SEARCH_DEBOUNCE_MS, "{$page} {$name}");
+    }
 });

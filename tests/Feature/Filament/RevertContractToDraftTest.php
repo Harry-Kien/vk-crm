@@ -1,11 +1,14 @@
 <?php
 
+use App\Actions\Billing\RevertContractToDraft;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Enums\InstalmentTrigger;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Exceptions\ContractNotRevertible;
 use App\Filament\Admin\Pages\ContractEntry;
+use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
 use App\Filament\Portal\Pages\MatterProgress;
@@ -22,7 +25,9 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification as FilamentNotification;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
 /*
@@ -428,12 +433,17 @@ it('tells nobody when the lead lawyer deletes their own draft', function () {
 // =================================================================================================
 
 it('m5: refuses on a matter that has ended, with a clear message, and changes nothing', function () {
+    // Fix round 2 (mB): nút không còn hiện trên hồ sơ đã kết thúc — lời từ chối của Action là cho hộp thoại đã mở
+    // trước khi hồ sơ được đóng ở nơi khác.
+    $this->actingAs($this->accountant, 'web');
+
+    $page = fa3RvPage()
+        ->filterTable('contract_status', [])
+        ->mountAction(TestAction::make('revertToDraft')->table($this->matter));
+
     $this->matter->forceFill(['closed_at' => '2026-10-10'])->saveQuietly();
 
-    $this->actingAs($this->lawyer, 'web');
-
-    fa3RvTab($this->matter)
-        ->callAction(TestAction::make('revertContractToDraft')->table(), data: ['reason' => FA3_REVERT_REASON]);
+    $page->setActionData(['reason' => FA3_REVERT_REASON])->callMountedAction();
 
     FilamentNotification::assertNotified(FilamentNotification::make()->title(__('actions.failed_title'))
         ->body(__('billing_corrections.revert.matter_closed', ['code' => $this->contract->code, 'matter' => $this->matter->code]))
@@ -442,7 +452,7 @@ it('m5: refuses on a matter that has ended, with a clear message, and changes no
     expect($this->contract->fresh()->status)->toBe(ContractStatus::Active)
         ->and($this->contract->fresh()->signed_at->toDateString())->toBe('2026-01-10')
         ->and(Activity::query()->where('event', 'contract_reverted_to_draft')->exists())->toBeFalse()
-        ->and($this->accountant->notifications()->count())->toBe(0);
+        ->and($this->lawyer->notifications()->count())->toBe(0);
 });
 
 it('m5: the dialog warns that reminders and mails already sent to the client cannot be recalled', function () {
@@ -559,3 +569,206 @@ it('m8: a bell for each material change — total, tax, an instalment amount, a 
         return $d;
     }],
 ]);
+
+// =================================================================================================
+// Fix round 2 (I-B, mB, mD, mE)
+// =================================================================================================
+
+/** Hợp đồng đang hiệu lực, chưa có gì xảy ra, của một vụ mới — kích hoạt bởi `$activator`. */
+function fa3RvActiveContract(User $lead, ?User $activator): Contract
+{
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+    $contract = Contract::factory()->for($matter)->create(['total_amount' => 10_000_000]);
+    Instalment::factory()->for($contract)->create([
+        'sequence' => 1, 'name' => 'Trọn gói', 'amount' => 10_000_000,
+        'trigger_type' => InstalmentTrigger::DueDate, 'due_date' => '2026-12-31',
+    ]);
+    $contract->forceFill(['status' => ContractStatus::Active, 'signed_at' => '2026-10-01', 'activated_by' => $activator?->id])->save();
+
+    return $contract;
+}
+
+function fa3RvNotOwnRefusal(Contract $contract): string
+{
+    return __('billing_corrections.revert.not_own_activation', [
+        'code' => $contract->code,
+        'who' => $contract->activator?->name ?? __('billing_corrections.revert.unknown_activator'),
+    ]);
+}
+
+it('I-B: the accountant (contract.enter only) puts back to draft only a contract they activated — the button is hidden on one the lawyer activated', function () {
+    $byLawyer = fa3RvActiveContract($this->lawyer, $this->lawyer);
+    $byNobody = fa3RvActiveContract($this->lawyer, null);
+
+    $this->actingAs($this->accountant, 'web');
+
+    fa3RvPage()
+        ->filterTable('contract_status', [])
+        ->assertActionVisible(TestAction::make('revertToDraft')->table($this->matter))
+        ->assertActionHidden(TestAction::make('revertToDraft')->table($byLawyer->matter))
+        ->assertActionHidden(TestAction::make('revertToDraft')->table($byNobody->matter));
+
+    expect($this->accountant->can('revertToDraft', $this->contract))->toBeTrue()
+        ->and($this->accountant->can('revertToDraft', $byLawyer))->toBeFalse()
+        ->and($this->accountant->can('revertToDraft', $byNobody))->toBeFalse()
+        // Kích hoạt (nhập tờ giấy đã ký) thì vẫn được như trước — giới hạn chỉ ở việc đưa về.
+        ->and($this->accountant->can('activate', $byLawyer))->toBeTrue();
+});
+
+it('I-B: the Action refuses the accountant on a contract someone else activated, naming who, and changes nothing', function () {
+    $byLawyer = fa3RvActiveContract($this->lawyer, $this->lawyer);
+
+    expect(fn () => app(RevertContractToDraft::class)->handle($this->accountant, $byLawyer, FA3_REVERT_REASON))
+        ->toThrow(ContractNotRevertible::class, fa3RvNotOwnRefusal($byLawyer));
+
+    expect($byLawyer->fresh()->status)->toBe(ContractStatus::Active)
+        ->and($byLawyer->fresh()->activated_by)->toBe($this->lawyer->id)
+        ->and(Activity::query()->where('event', 'contract_reverted_to_draft')->exists())->toBeFalse()
+        ->and($this->lawyer->notifications()->count())->toBe(0);
+});
+
+it('I-B: re-checks the activator on the locked row — a dialog opened on the accountant own activation is refused once the lawyer re-activated it meanwhile', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $page = fa3RvPage()
+        ->filterTable('contract_status', [])
+        ->mountAction(TestAction::make('revertToDraft')->table($this->matter));
+
+    // Luật sư phụ trách đưa về nháp rồi kích hoạt lại ở tab của vụ trong lúc hộp thoại của kế toán còn mở.
+    $this->actingAs($this->lawyer, 'web');
+    fa3RvTab($this->matter)
+        ->callAction(TestAction::make('revertContractToDraft')->table(), data: ['reason' => FA3_REVERT_REASON])
+        ->assertHasNoActionErrors();
+    fa3RvTab($this->matter)
+        ->callAction(TestAction::make('activateContract')->table(), data: ['signed_at' => '2026-10-01'])
+        ->assertHasNoActionErrors();
+
+    expect($this->contract->fresh()->activated_by)->toBe($this->lawyer->id);
+
+    $this->actingAs($this->accountant, 'web');
+    $page->setActionData(['reason' => FA3_REVERT_REASON])->callMountedAction();
+
+    FilamentNotification::assertNotified(FilamentNotification::make()->title(__('actions.failed_title'))
+        ->body(fa3RvNotOwnRefusal($this->contract->fresh()))
+        ->danger()->persistent());
+
+    expect($this->contract->fresh()->status)->toBe(ContractStatus::Active)
+        ->and(Activity::query()->where('event', 'contract_reverted_to_draft')->count())->toBe(1);
+});
+
+it('I-B: contract.manage reverts any eligible contract, whoever activated it — the manager on the contracts page and on the matter tab', function () {
+    $byAccountantOnPage = fa3RvActiveContract($this->lawyer, $this->accountant);
+    $byLawyerOnTab = fa3RvActiveContract($this->lawyer, $this->lawyer);
+
+    $this->actingAs($this->manager, 'web');
+
+    fa3RvRevertOnPage($byAccountantOnPage->matter)->assertHasNoActionErrors();
+
+    fa3RvTab($byLawyerOnTab->matter)
+        ->assertActionVisible(TestAction::make('revertContractToDraft')->table())
+        ->callAction(TestAction::make('revertContractToDraft')->table(), data: ['reason' => FA3_REVERT_REASON])
+        ->assertHasNoActionErrors();
+
+    expect($byAccountantOnPage->fresh()->status)->toBe(ContractStatus::Draft)
+        ->and($byLawyerOnTab->fresh()->status)->toBe(ContractStatus::Draft)
+        // Luật sư (contract.manage) đưa về được hợp đồng kế toán kích hoạt (đường của beforeEach).
+        ->and($this->lawyer->can('revertToDraft', $this->contract))->toBeTrue();
+});
+
+it('I-B: on the matter tab too, someone with contract.enter but not contract.manage sees the button only on their own activation', function () {
+    $enterer = User::factory()->withRole(Role::Assistant)->create();
+    $enterer->givePermissionTo(['billing.view', 'contract.enter']);
+
+    $own = fa3RvActiveContract($this->lawyer, $enterer);
+    $other = fa3RvActiveContract($this->lawyer, $this->lawyer);
+    $own->matter->addTeamMember($enterer, MatterRole::Assistant);
+    $other->matter->addTeamMember($enterer, MatterRole::Assistant);
+
+    $this->actingAs($enterer, 'web');
+
+    fa3RvTab($own->matter)->assertActionVisible(TestAction::make('revertContractToDraft')->table());
+    fa3RvTab($other->matter)->assertActionHidden(TestAction::make('revertContractToDraft')->table());
+});
+
+it('mB: hides "put back to draft" on a matter that has ended, on the contracts page and on the matter tab', function () {
+    $this->matter->forceFill(['closed_at' => '2026-10-10'])->saveQuietly();
+
+    $this->actingAs($this->accountant, 'web');
+    fa3RvPage()
+        ->filterTable('contract_status', [])
+        ->assertActionHidden(TestAction::make('revertToDraft')->table($this->matter));
+
+    $this->actingAs($this->lawyer, 'web');
+    fa3RvTab($this->matter)->assertActionHidden(TestAction::make('revertContractToDraft')->table());
+
+    // Đối chứng: hồ sơ còn mở thì vẫn hiện ở cả hai nơi.
+    $open = fa3RvActiveContract($this->lawyer, $this->accountant);
+    fa3RvTab($open->matter)->assertActionVisible(TestAction::make('revertContractToDraft')->table());
+
+    $this->actingAs($this->accountant, 'web');
+    fa3RvPage()->filterTable('contract_status', [])->assertActionVisible(TestAction::make('revertToDraft')->table($open->matter));
+});
+
+it('mD: a reverted draft with voided payment history is undone by activating then cancelling it, after which the mistaken matter can be cancelled', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    Payment::factory()->for($this->onSigning)->voided()->create(['amount' => 15_000_000, 'paid_on' => '2026-10-05']);
+
+    $this->actingAs($this->accountant, 'web');
+    fa3RvRevertOnPage($this->matter)->assertHasNoActionErrors();
+
+    expect(fn () => $this->contract->fresh()->delete())->toThrow(DomainException::class);
+
+    $this->actingAs($this->lawyer, 'web');
+    fa3RvTab($this->matter)
+        ->callAction(TestAction::make('activateContract')->table(), data: ['signed_at' => '2026-10-01'])
+        ->assertHasNoActionErrors();
+    fa3RvTab($this->matter)
+        ->callAction(TestAction::make('cancelContract')->table(), data: ['reason' => 'Hợp đồng nhập nhầm hồ sơ, huỷ để nhập lại đúng hồ sơ.'])
+        ->assertHasNoActionErrors();
+
+    expect($this->contract->fresh()->status)->toBe(ContractStatus::Cancelled);
+
+    $this->actingAs($admin, 'web');
+    $this->livewire(EditMatter::class, ['record' => $this->matter->getKey()])
+        ->callAction('cancelMatter', data: ['reason' => 'Mở nhầm khách hàng, mở lại hồ sơ đúng.'])
+        ->assertHasNoActionErrors();
+
+    expect(Matter::withTrashed()->find($this->matter->id)->trashed())->toBeTrue();
+});
+
+it('mE: the contracts page does not ask for payment history once per draft row', function () {
+    $drafts = function (int $count): void {
+        foreach (range(1, $count) as $ignored) {
+            Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]))->create(['status' => ContractStatus::Draft]);
+        }
+    };
+
+    $this->actingAs($this->accountant, 'web');
+
+    $paymentQueries = function (): int {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        fa3RvPage()->assertOk();
+        $count = collect(DB::getQueryLog())
+            ->filter(fn (array $query): bool => str_contains($query['query'], 'payments'))
+            ->count();
+        DB::disableQueryLog();
+
+        return $count;
+    };
+
+    $drafts(1);
+    $withOne = $paymentQueries();
+    $drafts(3);
+
+    expect($paymentQueries())->toBe($withOne);
+});
+
+it('I-B: the Action still refuses someone who sees the money but holds neither contract.manage nor contract.enter', function () {
+    $this->assistant->givePermissionTo('billing.view');
+
+    expect(fn () => app(RevertContractToDraft::class)->handle($this->assistant, $this->contract, FA3_REVERT_REASON))
+        ->toThrow(AuthorizationException::class);
+
+    expect($this->contract->fresh()->status)->toBe(ContractStatus::Active);
+});

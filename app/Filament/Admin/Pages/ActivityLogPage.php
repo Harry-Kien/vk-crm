@@ -23,6 +23,7 @@ use App\Support\SensitivePropertyFilter;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -227,6 +228,8 @@ class ActivityLogPage extends Page implements HasTable
                 ->searchable()
                 // Fix round 1 (m3, làn fa3): tìm trên máy chủ trong ĐÚNG danh sách trên ("dinh" ra "Đinh").
                 ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => ActivityPeople::staffOptions()))
+                // Fix round 2 (mA): SelectFilter không có searchDebounce() — đặt trên ô chọn nó dựng.
+                ->modifyFormFieldUsing(fn (Select $field): Select => $field->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS))
                 ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
                     ? $query->where('causer_type', (new User)->getMorphClass())->where('causer_id', (int) $data['value'])
                     : $query),

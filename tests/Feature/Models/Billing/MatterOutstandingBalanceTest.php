@@ -102,3 +102,17 @@ it('still refuses to soft delete a matter that is already closed but still carri
 
     expect(fn () => $matter->delete())->toThrow(MatterHasOutstandingBalance::class);
 });
+
+/**
+ * Làn fa3, fix round 2 (mC): câu dư nợ của hook không còn mời "thu nốt" — thu thêm thì vụ mang khoản thu chưa
+ * huỷ và hook bước sau (`MatterHasRecordedPayments`) từ chối. Câu chỉ đúng đường của `CancelMatter`: kế toán
+ * huỷ khoản thu đã ghi (nếu có), huỷ hợp đồng, rồi mới xoá.
+ */
+it('mC: the outstanding-balance line points at the path the payments rule leaves open, not at collecting the rest', function () {
+    $text = __('exceptions.matter_has_outstanding_balance', ['code' => 'VK-1', 'amount' => '1 ₫', 'count' => 1]);
+
+    expect($text)->not->toContain('Thu nốt')
+        ->not->toContain('miễn')
+        ->toContain('huỷ hợp đồng')
+        ->toContain('huỷ các khoản thu');
+});

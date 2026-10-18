@@ -93,6 +93,7 @@ class MatterForm
                 // Fix round 1 (m3, làn fa3): tìm trên máy chủ trong ĐÚNG danh sách trên ("Dang" ra "Đặng") — `->options()`
                 // giữ nguyên, nên luật `in:` và lớp kiểm tra thứ hai ở `CreateMatter` không đổi.
                 ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => VisibleClientOptions::forCurrentUser()))
+                ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                 // Đổi khách hàng là đổi chính bên mà OpenMatter tự dựng từ hồ sơ Client, nên kết
                 // quả kiểm tra đang hiện không còn nói về vụ việc này nữa.
                 ->live()
@@ -142,6 +143,7 @@ class MatterForm
                 ->options(fn (): array => CreateMatter::leadLawyerOptions())
                 ->searchable()
                 ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => CreateMatter::leadLawyerOptions()))
+                ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                 ->required(),
             TextInput::make('title')
                 ->label(__('matters.fields.title'))

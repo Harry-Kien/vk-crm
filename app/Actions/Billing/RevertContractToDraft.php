@@ -8,6 +8,7 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Enums\InstalmentTrigger;
+use App\Enums\Permission;
 use App\Exceptions\ContractNotRevertible;
 use App\Exceptions\ContractStatusConflict;
 use App\Models\Contract;
@@ -15,6 +16,7 @@ use App\Models\ContractAmendment;
 use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\User;
+use App\Policies\ContractPolicy;
 use App\Support\Audit;
 use Illuminate\Support\Facades\Gate;
 use Spatie\Activitylog\Models\Activity;
@@ -31,9 +33,11 @@ use Spatie\Activitylog\Models\Activity;
  *     của transaction), `contracts`, rồi mọi đợt của hợp đồng (`instalments`), rồi tổng khoản thu chưa
  *     huỷ của chúng (`payments`, {@see LocksBillingRows::lockedCollectedAmounts()}), rồi bản scan
  *     `contract_amendments` — đúng chỗ của nó, sau chuỗi.
- *  2. **Quyền:** `ContractPolicy::revertToDraft` qua `Gate::forUser($actor)` — CÙNG điều kiện với
- *     `activate`: ai kích hoạt được thì đưa về được (`contract.manage` hoặc `contract.enter`, trên vụ người
- *     đó thấy tiền).
+ *  2. **Quyền:** thấy tiền của vụ (`ContractPolicy::view`) trước bước 3, rồi `ContractPolicy::revertToDraft` qua
+ *     `Gate::forUser($actor)` sau bước 3a: `contract.manage` đưa về được mọi hợp đồng; người chỉ có
+ *     `contract.enter` chỉ hợp đồng chính mình đã kích hoạt (fix round 2, I-B — phán quyết controller
+ *     2026-10-18, chờ chủ văn phòng xác nhận), đọc `activated_by` trên hàng đã khoá; sai người thì
+ *     {@see ContractNotRevertible::notOwnActivation()} nói ai đã kích hoạt.
  *  3. Chỉ từ `active` ({@see ContractStatusConflict::notActiveForRevert()} — hợp đồng nháp, đã hoàn tất hay đã huỷ
  *     không có gì để đưa về).
  *  3a. Fix round 1 (m5): hồ sơ CHƯA KẾT THÚC ({@see ContractNotRevertible::matterClosed()}, đọc trên hàng `matters`
@@ -87,7 +91,10 @@ class RevertContractToDraft
 
     private function revertLocked(User $actor, Matter $lockedMatter, Contract $locked, string $reason): Contract
     {
-        Gate::forUser($actor)->authorize('revertToDraft', $locked);
+        // Fix round 2 (I-B): trước hết "thấy tiền của vụ" (`ContractPolicy::view`), rồi trạng thái, rồi AI được đưa về
+        // — để người chỉ có `contract.enter` nhận đúng câu "đã là bản nháp" khi người khác vừa đưa về, và câu "không
+        // phải hợp đồng anh/chị kích hoạt" (đọc `activated_by` trên hàng ĐÃ KHOÁ) khi người khác vừa kích hoạt lại.
+        Gate::forUser($actor)->authorize('view', $locked);
 
         if ($locked->status !== ContractStatus::Active) {
             throw ContractStatusConflict::notActiveForRevert($locked);
@@ -96,6 +103,14 @@ class RevertContractToDraft
         if ($lockedMatter->isClosed()) {
             throw ContractNotRevertible::matterClosed($locked, $lockedMatter);
         }
+
+        if ($actor->can(Permission::ContractEnter->value)
+            && ! $actor->can(Permission::ContractManage->value)
+            && ! ContractPolicy::activatedBy($locked, $actor)) {
+            throw ContractNotRevertible::notOwnActivation($locked);
+        }
+
+        Gate::forUser($actor)->authorize('revertToDraft', $locked);
 
         $reason = $this->validatedReason($reason);
 

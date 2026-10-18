@@ -23,6 +23,6 @@ return [
     'intake.convert' => 'Chuyển một lần liên hệ thành vụ việc',
     'performance.viewAny' => 'Xem số liệu theo dõi và hiệu suất của mọi nhân sự',
     // làn kt
-    'contract.enter' => 'Nhập hợp đồng đã ký (giá trị, các đợt thu) cho vụ việc có sẵn',
+    'contract.enter' => 'Nhập hợp đồng đã ký (giá trị, các đợt thu) cho vụ việc có sẵn; đưa về bản nháp hợp đồng chính mình đã kích hoạt',
     // hết làn kt
 ];

@@ -712,7 +712,9 @@ class BillingRelationManager extends RelationManager
             ->color('warning')
             ->modalHeading(__('billing_corrections.revert.heading'))
             ->modalDescription(fn (): string => __('billing_corrections.revert.description', ['code' => $matter->contract?->code ?? '—']))
-            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Active)
+            // Fix round 2 (mB): không mời trên hồ sơ đã kết thúc (Action từ chối — `ContractNotRevertible::matterClosed()`).
+            // Fix round 2 (I-B): `->authorize()` ẩn nút với người chỉ có `contract.enter` trên hợp đồng người khác kích hoạt.
+            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Active && ! $matter->isClosed())
             ->authorize(fn (): bool => $matter->contract !== null && Gate::allows('revertToDraft', $matter->contract))
             ->schema([
                 Textarea::make('reason')

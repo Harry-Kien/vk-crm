@@ -27,6 +27,18 @@ class ContractNotRevertible extends DomainException
         ]));
     }
 
+    /**
+     * Fix round 2 (I-B): người chỉ có `contract.enter` (kế toán) chỉ đưa về bản nháp được hợp đồng chính mình đã
+     * kích hoạt — câu nói ai đã kích hoạt và nhờ ai.
+     */
+    public static function notOwnActivation(Contract $contract): self
+    {
+        return new self(__('billing_corrections.revert.not_own_activation', [
+            'code' => $contract->code,
+            'who' => $contract->activator?->name ?? __('billing_corrections.revert.unknown_activator'),
+        ]));
+    }
+
     /** Còn khoản thu chưa huỷ: tiền đã về gắn với hợp đồng đã ký — huỷ khoản thu (ghi lý do) trước. */
     public static function hasPayments(Contract $contract, int $amount): self
     {

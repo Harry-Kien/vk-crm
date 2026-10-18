@@ -65,6 +65,10 @@ return [
         'has_payments' => 'Không đưa hợp đồng :code về bản nháp được: đã có khoản thu chưa huỷ (tổng :amount). Kế toán huỷ các khoản thu này ở trang "Công nợ" (ghi lý do) trước, rồi đưa về nháp, sửa, kích hoạt lại và ghi lại khoản thu.',
         // fix round 1 (m5): RevertContractToDraft từ chối trên hồ sơ đã kết thúc.
         'matter_closed' => 'Không đưa hợp đồng :code về bản nháp được: hồ sơ :matter đã kết thúc. Hợp đồng của hồ sơ đã kết thúc giữ nguyên như đã ký (công nợ và thư nhắc của nó còn nguyên) — sửa con số bằng phụ lục, hoặc huỷ hợp đồng (ghi lý do).',
+        // fix round 2 (I-B, phán quyết controller 2026-10-18): contract.enter không contract.manage chỉ đưa về hợp đồng
+        // chính mình đã kích hoạt.
+        'not_own_activation' => 'Không đưa hợp đồng :code về bản nháp được: hợp đồng này do :who kích hoạt. Người chỉ có quyền nhập hợp đồng chỉ đưa về bản nháp được hợp đồng chính mình đã kích hoạt — nếu thật sự kích hoạt nhầm, nhờ luật sư phụ trách hoặc trưởng phòng đưa về bản nháp.',
+        'unknown_activator' => 'một người khác (không rõ tên)',
         'has_amendments' => 'Không đưa hợp đồng :code về bản nháp được: hợp đồng đã có phụ lục ký với khách. Sửa tiếp bằng phụ lục, hoặc huỷ hợp đồng (ghi lý do) rồi soạn hợp đồng mới.',
         'has_corrections' => 'Không đưa hợp đồng :code về bản nháp được: đợt ":name" đã từng được miễn hoặc dời hạn sau khi ký. Sửa tiếp bằng phụ lục, hoặc huỷ hợp đồng (ghi lý do) rồi soạn hợp đồng mới.',
         'keeps_voided_history' => 'Đợt ":name" (đợt thứ :position) còn lịch sử khoản thu đã huỷ nên không bỏ được: lịch thu phải giữ ít nhất :position đợt (đợt đó được ghi đè bằng dòng cùng vị trí).',

@@ -214,6 +214,10 @@ it('I1: says honestly that a matter whose payments sit on a COMPLETED contract c
         ->and($errors[0])->toContain($matter->contracts()->sole()->code)
         ->toContain('đã hoàn tất')
         ->toContain('đóng hồ sơ')
+        // Fix round 2 (I-A): đóng hồ sơ thôi chưa đủ — hồ sơ đã công bố vẫn hiện (cùng hợp đồng và khoản thu)
+        // trên cổng của khách đang gắn nhầm, và chuyển sang giai đoạn kết thúc có công bố thì gửi thư cho khách đó.
+        ->toContain('"'.__('matters.actions.unpublish_from_portal').'"')
+        ->toContain('mà không bật "'.__('matters.transition_form.publish').'"')
         ->not->toContain('huỷ các khoản thu này')
         ->and(Matter::withTrashed()->find($matter->id)->trashed())->toBeFalse();
 
@@ -229,7 +233,10 @@ it('I1: the cancel dialog shows the same completed-contract line before the clic
     $texts = fa3CmDialogTexts($this->livewire(EditMatter::class, ['record' => $matter->getKey()])->mountAction('cancelMatter'));
 
     expect($texts)->toContain(fa3CmCompletedRefusal($matter, 1, 10_000_000))
-        ->and($texts)->not->toContain(fa3CmRefusal($matter, 1, 10_000_000));
+        ->and($texts)->not->toContain(fa3CmRefusal($matter, 1, 10_000_000))
+        // Fix round 2 (I-A): hộp thoại nói luôn bước tắt công bố portal và không công bố giai đoạn kết thúc.
+        ->and(implode(' ', $texts))->toContain('"'.__('matters.actions.unpublish_from_portal').'"')
+        ->toContain('mà không bật "'.__('matters.transition_form.publish').'"');
 });
 
 it('I1: a completed contract whose payments were all voided does not block, and active-contract payments keep the void-first line', function () {

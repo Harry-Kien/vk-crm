@@ -203,7 +203,8 @@ class RevenueDashboard extends Dashboard
                 ->native(false)
                 ->searchable()
                 // Fix round 1 (m3, làn fa3): tìm trên máy chủ trong ĐÚNG danh sách trên ("dinh" ra "Đinh").
-                ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => static::lawyerOptions())),
+                ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => static::lawyerOptions()))
+                ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS),
             Select::make('practice_area_id')
                 ->label(__('widgets.revenue_dashboard.filters.practice_area'))
                 ->options(fn () => MatterType::query()

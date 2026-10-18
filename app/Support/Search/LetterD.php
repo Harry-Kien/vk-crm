@@ -40,6 +40,13 @@ final class LetterD
 {
     public const ESCAPE = '!';
 
+    /**
+     * Fix round 2 (mA, làn fa3): độ trễ (ms) sau lần gõ cuối của một ô chọn dùng {@see self::searchOptions()}. Trước
+     * đó các ô này lọc ngay trên trình duyệt; tìm trên máy chủ với mặc định 1000 ms của Filament là một bước lùi
+     * thấy rõ khi gõ. 250 ms: đủ ngắn để giống lọc tại chỗ, đủ dài để không gửi một yêu cầu mỗi phím.
+     */
+    public const SELECT_SEARCH_DEBOUNCE_MS = 250;
+
     /** Ký tự đổi => ký tự thay, theo đúng thứ tự `REPLACE` lồng trong {@see self::column()}. */
     private const LETTERS = ['đ' => 'd', 'Đ' => 'D', 'ð' => 'd', 'Ð' => 'D'];
 

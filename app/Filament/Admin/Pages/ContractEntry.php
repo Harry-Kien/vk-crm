@@ -127,6 +127,9 @@ class ContractEntry extends Page implements HasTable
     /** Làn fa3: giá trị của bộ lọc trạng thái cho "Cần nhập hợp đồng" — {@see self::whereNeedsContract()}. */
     public const STATUS_TO_ENTER = 'to_enter';
 
+    /** Fix round 2 (mE): cột EXISTS "có khoản thu nào trên hợp đồng" nạp cùng hợp đồng hiện hành — {@see self::hasPaymentHistory()}. */
+    private const PAYMENT_HISTORY = 'has_payment_history';
+
     protected string $view = 'filament.admin.pages.contract-entry';
 
     protected static ?string $slug = 'contract-entry';
@@ -295,8 +298,23 @@ class ContractEntry extends Page implements HasTable
                 'matterType' => fn ($query) => $query->withTrashed(),
                 'client' => fn ($query) => $query->withTrashed(),
                 'leadLawyer' => fn ($query) => $query->withTrashed(),
-                'contract',
+                // Fix round 2 (mE, làn fa3): nút "Xoá bản nháp" hỏi "có lịch sử khoản thu (kể cả đã huỷ) không" trên
+                // mỗi dòng nháp — một EXISTS trong câu nạp hợp đồng thay vì một truy vấn `hasPayments()` mỗi dòng.
+                'contract' => fn ($query) => $query->withExists([
+                    'instalments as '.self::PAYMENT_HISTORY => fn ($instalments) => $instalments->whereHas('payments'),
+                ]),
             ]);
+    }
+
+    /**
+     * Có khoản thu nào (kể cả đã huỷ) trên hợp đồng hiện hành của dòng — đúng câu của `Contract::hasPayments()`,
+     * đọc cột EXISTS đã nạp ({@see self::rowsQuery()}); dòng được nạp theo đường khác thì hỏi thẳng.
+     */
+    private static function hasPaymentHistory(Contract $contract): bool
+    {
+        $loaded = $contract->getAttribute(self::PAYMENT_HISTORY);
+
+        return $loaded === null ? $contract->hasPayments() : (bool) $loaded;
     }
 
     /**
@@ -584,8 +602,16 @@ class ContractEntry extends Page implements HasTable
             ->color('warning')
             ->modalHeading(__('billing_corrections.revert.heading'))
             ->modalDescription(fn (Matter $record): string => __('billing_corrections.revert.description', ['code' => $record->contract?->code ?? '—']))
-            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action) || $record->contract?->status === ContractStatus::Active)
-            ->authorize(fn (Matter $record): bool => $record->contract !== null && Gate::allows('revertToDraft', $record->contract))
+            // Fix round 2 (mB): không mời trên hồ sơ đã kết thúc (Action từ chối — `ContractNotRevertible::matterClosed()`).
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action)
+                || ($record->contract?->status === ContractStatus::Active && ! $record->isClosed()))
+            // Fix round 2 (I-B): `revertToDraft` nay đọc `activated_by` (người chỉ có `contract.enter` — chỉ hợp đồng chính
+            // mình đã kích hoạt), nên nút ẩn trên hợp đồng người khác kích hoạt. Khi hộp thoại ĐANG MỞ thì hỏi tầng
+            // "ai thử được" (`activate`: thấy tiền của vụ + `contract.manage`/`contract.enter`, không đọc trạng thái) —
+            // cùng lý do với `isOpenDialog()`: người khác vừa đưa về hay kích hoạt lại thì Action (hỏi lại `revertToDraft`
+            // trên hàng đã khoá) nói vì sao, thay vì lần bấm biến mất. Không mở rộng quyền: Action vẫn từ chối.
+            ->authorize(fn (Action $action, Matter $record): bool => $record->contract !== null
+                && Gate::allows($this->isOpenDialog($action) ? 'activate' : 'revertToDraft', $record->contract))
             ->schema([
                 Textarea::make('reason')
                     ->label(__('billing.tab.fields.reason'))
@@ -612,7 +638,7 @@ class ContractEntry extends Page implements HasTable
             // "Đưa về bản nháp") không xoá được — `Contract::assertDestroyable()`; nút không mời một việc chắc chắn
             // bị từ chối. Bản nháp đó sửa rồi kích hoạt lại.
             ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action)
-                || ($record->contract?->status === ContractStatus::Draft && ! $record->contract->hasPayments()))
+                || ($record->contract?->status === ContractStatus::Draft && ! self::hasPaymentHistory($record->contract)))
             ->authorize(fn (Matter $record): bool => $record->contract !== null && Gate::allows('delete', $record->contract))
             ->successNotificationTitle(__('billing.tab.actions.delete_draft_success'))
             ->action(fn (Action $action, Matter $record) => $this->runAction(
