@@ -199,4 +199,33 @@ final class BillingSummary
             'count' => (int) ($row->payment_count ?? 0),
         ];
     }
+
+    /**
+     * Làn fa3, fix round 1 (I1): phần của {@see self::collectedForMatter()} nằm trên hợp đồng ĐÃ HOÀN TẤT —
+     * khoản thu chưa huỷ ở đó KHÔNG huỷ được trong hệ thống (`ContractStatus::allowsPaymentVoid()`, chốt chặn
+     * của `VoidPayment`), và hợp đồng đã hoàn tất không huỷ hay đưa về nháp được (`CancelContract`,
+     * `RevertContractToDraft` chỉ nhận `active`). `CancelMatter` dùng con số này để nói thật: hồ sơ đó không
+     * có đường huỷ như hồ sơ mở nhầm. `contracts` là mã của các hợp đồng đó (theo id). Cùng cách đọc bảng thẳng.
+     *
+     * @return array{amount: int, count: int, contracts: list<string>}
+     */
+    public static function collectedOnCompletedForMatter(int $matterId): array
+    {
+        $rows = DB::table('payments')
+            ->join('instalments', 'instalments.id', '=', 'payments.instalment_id')
+            ->join('contracts', 'contracts.id', '=', 'instalments.contract_id')
+            ->where('contracts.matter_id', $matterId)
+            ->where('contracts.status', ContractStatus::Completed->value)
+            ->whereNull('payments.voided_at')
+            ->groupBy('contracts.id', 'contracts.code')
+            ->orderBy('contracts.id')
+            ->selectRaw('contracts.code as contract_code, count(*) as payment_count, coalesce(sum(payments.amount), 0) as payment_total')
+            ->get();
+
+        return [
+            'amount' => (int) $rows->sum(fn (object $row): int => (int) $row->payment_total),
+            'count' => (int) $rows->sum(fn (object $row): int => (int) $row->payment_count),
+            'contracts' => $rows->map(fn (object $row): string => (string) $row->contract_code)->values()->all(),
+        ];
+    }
 }

@@ -130,38 +130,64 @@ class CancelMatter
      * hợp đồng nào (kể cả hợp đồng đã huỷ hay đã hoàn tất) thì không huỷ được. Tiền đã về là sự thật kế
      * toán: trước luật này, theo đúng lời từ chối "còn dư nợ" cũ (thu nốt / miễn / huỷ hợp đồng), hồ sơ huỷ
      * được trong khi vẫn mang khoản thu, và khoản đó rời khỏi mọi đường sửa (`VoidPayment` từ chối vụ đã
-     * xoá mềm qua cổng tiền). Một đường DUY NHẤT, có nhật ký ở mỗi bước: kế toán huỷ từng khoản thu (ghi
-     * lý do) và ghi lại vào đúng hồ sơ, rồi mới huỷ hồ sơ — không có chức năng "chuyển khoản thu sang hồ
-     * sơ khác". Hỏi TRƯỚC dư nợ: huỷ khoản thu làm đợt về lại `pending`, nên câu dư nợ (huỷ hợp đồng) là
-     * bước sau.
+     * xoá mềm qua cổng tiền). Hỏi TRƯỚC dư nợ: huỷ khoản thu làm đợt về lại `pending`, nên câu dư nợ (huỷ
+     * hợp đồng) là bước sau — câu từ chối nói luôn bước đó (fix round 1, m7).
      *
-     * Con số là {@see BillingSummary::collectedForMatter()}; đọc thường sau khi khoá `matters` là đủ, cùng
-     * lý lẽ với {@see self::refuseIfBalanceOutstanding()} (mọi Action tiền khoá `matters` trước).
+     * Hai câu, theo việc hệ thống THẬT SỰ cho làm ({@see self::paymentsRefusal()}):
+     *  - khoản thu nằm trên hợp đồng đang hiệu lực hay đã huỷ: kế toán huỷ từng khoản thu (ghi lý do) và ghi
+     *    lại vào đúng hồ sơ, huỷ hợp đồng nếu còn hiệu lực, rồi mới huỷ hồ sơ — không có chức năng "chuyển
+     *    khoản thu sang hồ sơ khác";
+     *  - fix round 1 (I1): khoản thu nằm trên hợp đồng ĐÃ HOÀN TẤT: `VoidPayment` từ chối huỷ khoản thu ở đó
+     *    (`ContractStatus::allowsPaymentVoid()`), và không Action nào đưa một hợp đồng đã hoàn tất về lại
+     *    hiệu lực (`CancelContract`, `RevertContractToDraft` chỉ nhận `active`) — nên hồ sơ đó KHÔNG có
+     *    đường huỷ như hồ sơ mở nhầm; câu nói thế, và chỉ đường còn lại: đóng hồ sơ (giai đoạn kết thúc), mở
+     *    hồ sơ mới cho đúng khách hàng / loại vụ việc. Câu này đứng trước câu kia: dù vụ còn khoản thu khác
+     *    huỷ được, khoản trên hợp đồng đã hoàn tất vẫn chặn.
+     *
+     * Con số là {@see BillingSummary::collectedOnCompletedForMatter()} / {@see BillingSummary::collectedForMatter()};
+     * đọc thường sau khi khoá `matters` là đủ, cùng lý lẽ với {@see self::refuseIfBalanceOutstanding()} (mọi
+     * Action tiền khoá `matters` trước).
      */
     private function refuseIfPaymentsRecorded(Matter $locked): void
     {
-        $collected = BillingSummary::collectedForMatter((int) $locked->getKey());
+        $refusal = self::paymentsRefusal($locked);
 
-        if ($collected['count'] > 0) {
+        if ($refusal !== null) {
             throw ValidationException::withMessages([
-                'reason' => [self::paymentsRecordedMessage($locked, $collected)],
+                'reason' => [$refusal],
             ]);
         }
     }
 
     /**
-     * Câu từ chối — MỘT chuỗi cho lời từ chối của Action và cho dòng cảnh báo của hộp thoại huỷ
+     * Câu từ chối vì khoản thu (docblock {@see self::refuseIfPaymentsRecorded()}), hoặc `null` khi vụ không còn
+     * khoản thu chưa huỷ nào — MỘT chuỗi cho lời từ chối của Action và cho dòng cảnh báo của hộp thoại huỷ
      * (`MatterOpenWork::cancellingLines()`), để hai nơi không lệch nhau.
-     *
-     * @param  array{amount: int, count: int}  $collected
      */
-    public static function paymentsRecordedMessage(Matter $matter, array $collected): string
+    public static function paymentsRefusal(Matter $matter): ?string
     {
-        return __('actions.cancel_matter.payments_recorded', [
-            'code' => $matter->code,
-            'count' => $collected['count'],
-            'amount' => Money::format($collected['amount']),
-        ]);
+        $onCompleted = BillingSummary::collectedOnCompletedForMatter((int) $matter->getKey());
+
+        if ($onCompleted['count'] > 0) {
+            return __('actions.cancel_matter.payments_on_completed', [
+                'code' => $matter->code,
+                'contract' => implode(', ', $onCompleted['contracts']),
+                'count' => $onCompleted['count'],
+                'amount' => Money::format($onCompleted['amount']),
+            ]);
+        }
+
+        $collected = BillingSummary::collectedForMatter((int) $matter->getKey());
+
+        if ($collected['count'] > 0) {
+            return __('actions.cancel_matter.payments_recorded', [
+                'code' => $matter->code,
+                'count' => $collected['count'],
+                'amount' => Money::format($collected['amount']),
+            ]);
+        }
+
+        return null;
     }
 
     /**

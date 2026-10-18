@@ -4,6 +4,7 @@ namespace App\Exceptions;
 
 use App\Actions\Billing\RevertContractToDraft;
 use App\Models\Contract;
+use App\Models\Matter;
 use App\Support\Billing\Money;
 use DomainException;
 
@@ -14,6 +15,18 @@ use DomainException;
  */
 class ContractNotRevertible extends DomainException
 {
+    /**
+     * Fix round 1 (m5): hồ sơ đã kết thúc — hợp đồng của nó là sổ sách đã chốt (công nợ "Đã kết thúc còn công
+     * nợ", thư nhắc); sửa con số bằng phụ lục, hoặc huỷ hợp đồng.
+     */
+    public static function matterClosed(Contract $contract, Matter $matter): self
+    {
+        return new self(__('billing_corrections.revert.matter_closed', [
+            'code' => $contract->code,
+            'matter' => $matter->code,
+        ]));
+    }
+
     /** Còn khoản thu chưa huỷ: tiền đã về gắn với hợp đồng đã ký — huỷ khoản thu (ghi lý do) trước. */
     public static function hasPayments(Contract $contract, int $amount): self
     {

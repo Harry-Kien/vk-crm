@@ -14,6 +14,7 @@ use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
@@ -729,4 +730,23 @@ it('làn fa3: dòng kết quả nói đúng nguồn đã khớp khi khớp nhờ
     expect(srchSources(srchResultFor(srchAs($this->admin, 'dan fabatitle'), $matter)))->toBe([SearchSource::Title])
         ->and(srchSources(srchResultFor(srchAs($this->admin, 'dinh fabahitclient'), $matter)))->toBe([SearchSource::ClientName])
         ->and(srchSources(srchResultFor(srchAs($this->admin, '09/2026/QD-FABAHIT'), $matter)))->toBe([SearchSource::CaseNumber]);
+});
+
+// Làn fa3, fix round 1 (m2): "Ð" (U+00D0, chữ hoa eth — một số bộ gõ / bộ chuyển mã cũ gõ nó thay "Đ"
+// U+0110) và "ð" (U+00F0) cũng như "d": `Normalizer::name()` đã gộp chúng (qua `Str::ascii`), `LetterD` gộp
+// theo ở cả hai vế. Chữ chỉ mang dấu đó thì ra trên mọi CSDL.
+it('làn fa3: chữ "Ð"/"ð" (eth, U+00D0/U+00F0) như "d" — ở dữ liệu lẫn ở chuỗi gõ, trên mọi CSDL', function () {
+    $eth = srchMatter($this->lead, ['client_id' => Client::factory()->create(['name' => "\u{00D0}inh Fabaeth"])->id]);
+    $ethLower = srchMatter($this->lead, ['title' => "Vu \u{00F0}inh Fabaethlow"]);
+
+    $finds = fn (string $term, Matter $matter): bool => in_array($matter->code, srchCodes(srchAs($this->admin, $term)), true);
+
+    expect(LetterD::fold("\u{00D0}\u{00F0}\u{0110}\u{0111}"))->toBe('DdDd')
+        ->and(App\Support\Normalizer::name("\u{00D0}inh \u{00F0}inh"))->toBe('dinh dinh')
+        ->and($finds('dinh fabaeth', $eth))->toBeTrue()
+        ->and($finds('DINH FABAETH', $eth))->toBeTrue()
+        ->and($finds('đinh fabaeth', $eth))->toBeTrue()
+        ->and($finds('dinh fabaethlow', $ethLower))->toBeTrue()
+        // Người gõ "Ð" cũng ra chữ "Đ"/"d" của dữ liệu.
+        ->and($finds("\u{00D0}inh Fabaeth", $eth))->toBeTrue();
 });

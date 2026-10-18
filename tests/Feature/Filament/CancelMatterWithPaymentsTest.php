@@ -3,6 +3,7 @@
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Enums\Role;
+use App\Exceptions\MatterHasRecordedPayments;
 use App\Filament\Admin\Pages\Performance;
 use App\Filament\Admin\Pages\RevenueDashboard;
 use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
@@ -182,6 +183,113 @@ it('no longer tells the admin to collect the rest or waive it before cancelling 
     expect($text)->not->toContain('thu nốt')
         ->and($text)->not->toContain('miễn')
         ->and($text)->toContain('huỷ hợp đồng');
+});
+
+// -------------------------------------------------------------------------------------------------
+// Fix round 1 (I1, m7, m9)
+// -------------------------------------------------------------------------------------------------
+
+function fa3CmCompletedRefusal(Matter $matter, int $count, int $amount): string
+{
+    return __('actions.cancel_matter.payments_on_completed', [
+        'code' => $matter->code,
+        'contract' => $matter->contracts()->sole()->code,
+        'count' => $count,
+        'amount' => Money::format($amount),
+    ]);
+}
+
+it('I1: says honestly that a matter whose payments sit on a COMPLETED contract cannot be cancelled — not "void the payments", which the system refuses there', function () {
+    $matter = fa3CmMatter(ContractStatus::Completed, 10_000_000);
+
+    $this->actingAs($this->admin, 'web');
+
+    $component = $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
+        ->callAction('cancelMatter', data: ['reason' => FA3_CANCEL_REASON])
+        ->assertHasActionErrors(['reason']);
+
+    $errors = collect($component->errors()->toArray())->flatten()->all();
+
+    expect($errors)->toBe([fa3CmCompletedRefusal($matter, 1, 10_000_000)])
+        ->and($errors[0])->toContain($matter->contracts()->sole()->code)
+        ->toContain('đã hoàn tất')
+        ->toContain('đóng hồ sơ')
+        ->not->toContain('huỷ các khoản thu này')
+        ->and(Matter::withTrashed()->find($matter->id)->trashed())->toBeFalse();
+
+    // Và đúng là hệ thống không cho huỷ khoản thu của hợp đồng đã hoàn tất (lời từ chối không bịa ra điều đó).
+    expect(ContractStatus::Completed->allowsPaymentVoid())->toBeFalse();
+});
+
+it('I1: the cancel dialog shows the same completed-contract line before the click', function () {
+    $matter = fa3CmMatter(ContractStatus::Completed, 10_000_000);
+
+    $this->actingAs($this->admin, 'web');
+
+    $texts = fa3CmDialogTexts($this->livewire(EditMatter::class, ['record' => $matter->getKey()])->mountAction('cancelMatter'));
+
+    expect($texts)->toContain(fa3CmCompletedRefusal($matter, 1, 10_000_000))
+        ->and($texts)->not->toContain(fa3CmRefusal($matter, 1, 10_000_000));
+});
+
+it('I1: a completed contract whose payments were all voided does not block, and active-contract payments keep the void-first line', function () {
+    $voided = fa3CmMatter(ContractStatus::Completed, 10_000_000, voided: true);
+    $active = fa3CmMatter(ContractStatus::Active, 10_000_000);
+
+    $this->actingAs($this->admin, 'web');
+
+    $this->livewire(EditMatter::class, ['record' => $voided->getKey()])
+        ->callAction('cancelMatter', data: ['reason' => FA3_CANCEL_REASON])
+        ->assertHasNoActionErrors();
+
+    $errors = collect($this->livewire(EditMatter::class, ['record' => $active->getKey()])
+        ->callAction('cancelMatter', data: ['reason' => FA3_CANCEL_REASON])
+        ->errors()->toArray())->flatten()->all();
+
+    expect(Matter::withTrashed()->find($voided->id)->trashed())->toBeTrue()
+        ->and($errors)->toBe([fa3CmRefusal($active, 1, 10_000_000)]);
+});
+
+it('I1: when payments sit on both a completed and a cancelled contract, the completed-contract line wins (there is no way out)', function () {
+    // Hợp đồng đầu bị huỷ (còn 2 triệu đã thu), hợp đồng sau đã hoàn tất (10 triệu đã thu).
+    $matter = fa3CmMatter(ContractStatus::Cancelled, 2_000_000);
+    $completed = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($completed)->create(['amount' => 10_000_000, 'due_date' => '2026-10-01', 'status' => InstalmentStatus::Paid]);
+    Payment::factory()->for($instalment)->create(['amount' => 10_000_000, 'paid_on' => '2026-10-02']);
+    $completed->forceFill(['status' => ContractStatus::Completed, 'ended_at' => '2026-10-06'])->saveQuietly();
+
+    $this->actingAs($this->admin, 'web');
+
+    $errors = collect($this->livewire(EditMatter::class, ['record' => $matter->getKey()])
+        ->callAction('cancelMatter', data: ['reason' => FA3_CANCEL_REASON])
+        ->errors()->toArray())->flatten()->all();
+
+    expect($errors)->toBe([__('actions.cancel_matter.payments_on_completed', [
+        'code' => $matter->code,
+        'contract' => $completed->code,
+        'count' => 1,
+        'amount' => Money::format(10_000_000),
+    ])]);
+});
+
+it('m7: the payments line also says to cancel the contract if it is still in force, so the next refusal is no surprise', function () {
+    expect(__('actions.cancel_matter.payments_recorded', ['code' => 'VK-1', 'count' => 1, 'amount' => '1 ₫']))
+        ->toContain('huỷ hợp đồng nếu còn hiệu lực');
+});
+
+it('m9: the Matter deleting hook also refuses a soft delete while unvoided payments remain, even with no balance outstanding', function () {
+    $paid = fa3CmMatter(ContractStatus::Cancelled, 4_000_000);
+    $voided = fa3CmMatter(ContractStatus::Cancelled, 4_000_000, voided: true);
+
+    expect(fn () => $paid->delete())->toThrow(MatterHasRecordedPayments::class, __('exceptions.matter_has_recorded_payments', [
+        'code' => $paid->code,
+        'count' => 1,
+        'amount' => Money::format(4_000_000),
+    ]));
+
+    expect(Matter::withTrashed()->find($paid->id)->trashed())->toBeFalse()
+        ->and($voided->delete())->toBeTrue()
+        ->and(Matter::withTrashed()->find($voided->id)->trashed())->toBeTrue();
 });
 
 // =================================================================================================

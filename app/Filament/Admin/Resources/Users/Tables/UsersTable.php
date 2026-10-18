@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Users\Tables;
 use App\Actions\User\DeleteStaffMember;
 use App\Enums\UserPosition;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use DomainException;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -34,7 +35,7 @@ class UsersTable
             ->columns([
                 TextColumn::make('name')
                     ->label(__('users.fields.name'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('name'))
                     ->sortable(),
                 TextColumn::make('email')
                     ->label(__('users.fields.email'))
@@ -49,7 +50,7 @@ class UsersTable
                     ->searchable(),
                 TextColumn::make('bar_number')
                     ->label(__('users.fields.bar_number'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('bar_number'))
                     ->toggleable(isToggledHiddenByDefault: true),
                 IconColumn::make('is_active')
                     ->label(__('users.fields.is_active'))

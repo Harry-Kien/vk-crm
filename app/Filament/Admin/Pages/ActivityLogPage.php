@@ -18,6 +18,7 @@ use App\Support\ActivityOwningMatter;
 use App\Support\ActivityPeople;
 use App\Support\ActivityReasonLabel;
 use App\Support\Mcp\ToolCallContext;
+use App\Support\Search\LetterD;
 use App\Support\SensitivePropertyFilter;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -224,6 +225,8 @@ class ActivityLogPage extends Page implements HasTable
                 ->label(__('audit_trail.filters.causer'))
                 ->options(fn (): array => ActivityPeople::staffOptions())
                 ->searchable()
+                // Fix round 1 (m3, làn fa3): tìm trên máy chủ trong ĐÚNG danh sách trên ("dinh" ra "Đinh").
+                ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => ActivityPeople::staffOptions()))
                 ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
                     ? $query->where('causer_type', (new User)->getMorphClass())->where('causer_id', (int) $data['value'])
                     : $query),

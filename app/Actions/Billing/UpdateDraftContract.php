@@ -7,6 +7,7 @@ use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
+use App\Enums\InstalmentTrigger;
 use App\Exceptions\ContractStatusConflict;
 use App\Models\Contract;
 use App\Models\Instalment;
@@ -15,6 +16,7 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Scopes\ClientPortalScope;
+use DateTimeInterface;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
@@ -42,7 +44,10 @@ use Illuminate\Validation\ValidationException;
  * còn draft không" trên từng dòng xoá.
  *
  * **Sau commit** (làn fa3, mục 5): người sửa không phải luật sư phụ trách (kế toán, trưởng phòng) thì luật
- * sư phụ trách nhận một dòng chuông ({@see NotifyLeadLawyerOfContractEntry}, `DRAFT_UPDATED`).
+ * sư phụ trách nhận một dòng chuông ({@see NotifyLeadLawyerOfContractEntry}, `DRAFT_UPDATED`) — fix round 1 (m8):
+ * CHỈ khi điều khoản tiền đổi ({@see self::moneyTerms()}: giá trị, thuế suất, số đợt, và mỗi đợt — số tiền, mốc
+ * kích hoạt, giai đoạn, số ngày sau mốc, ngày đến hạn cố định). Lưu lại y nguyên, hay chỉ đổi ghi chú hoặc tên
+ * đợt, không báo ai (nhật ký `contract_draft_updated` vẫn ghi mọi lần lưu).
  *
  * Các bước, tất cả trong MỘT transaction:
  *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
@@ -80,9 +85,11 @@ class UpdateDraftContract
      */
     public function handle(User $actor, Contract $contract, array $attributes, array $instalments): Contract
     {
-        $updated = $this->updateInTransaction($actor, $contract, $attributes, $instalments);
+        [$updated, $changed] = $this->updateInTransaction($actor, $contract, $attributes, $instalments);
 
-        $this->notifier->handle($actor, $updated, NotifyLeadLawyerOfContractEntry::DRAFT_UPDATED);
+        if ($changed) {
+            $this->notifier->handle($actor, $updated, NotifyLeadLawyerOfContractEntry::DRAFT_UPDATED);
+        }
 
         return $updated;
     }
@@ -90,10 +97,11 @@ class UpdateDraftContract
     /**
      * @param  array{total_amount?: mixed, vat_rate_percent?: mixed, note?: string|null}  $attributes
      * @param  list<array<string, mixed>>  $instalments
+     * @return array{0: Contract, 1: bool} hợp đồng đã sửa, và điều khoản tiền có đổi không ({@see self::moneyTerms()})
      */
-    private function updateInTransaction(User $actor, Contract $contract, array $attributes, array $instalments): Contract
+    private function updateInTransaction(User $actor, Contract $contract, array $attributes, array $instalments): array
     {
-        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $attributes, $instalments): Contract {
+        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $attributes, $instalments): array {
             Gate::forUser($actor)->authorize('updateDraft', $locked);
 
             if ($locked->status !== ContractStatus::Draft) {
@@ -113,6 +121,10 @@ class UpdateDraftContract
                 ->where('contract_id', $locked->id)
                 ->orderBy('sequence')
                 ->get();
+
+            $before = self::moneyTerms($locked->total_amount, $locked->vat_rate_percent, $existing->map(fn (Instalment $instalment): array => $instalment->only([
+                'amount', 'trigger_type', 'trigger_stage_key', 'due_days_after_trigger', 'due_date',
+            ]))->all());
 
             // Làn fa3: đợt mang khoản thu (chỉ có thể là khoản ĐÃ HUỶ — docblock lớp) được giữ, theo vị trí.
             // Đọc thường sau khoá `matters` → `contracts`: không Action tiền nào ghi khoản thu của vụ này
@@ -177,7 +189,40 @@ class UpdateDraftContract
                 'instalment_count' => count($rows),
             ], $actor);
 
-            return $locked->refresh();
+            return [$locked->refresh(), $before !== self::moneyTerms($totalAmount, $vatRate, $rows)];
         });
+    }
+
+    /**
+     * Fix round 1 (m8): điều khoản TIỀN của một bản nháp, dạng so sánh được — giá trị, thuế suất, và theo thứ tự
+     * mỗi đợt: số tiền, mốc kích hoạt, giai đoạn (chỉ với đợt theo giai đoạn), số ngày sau mốc (không với đợt có
+     * ngày cố định), ngày đến hạn (chỉ với đợt có ngày cố định — hạn của đợt khác là số tính ra, không phải điều
+     * khoản). Tên đợt, ghi chú và `percent_basis` (chỉ để hiển thị) không phải điều khoản tiền.
+     *
+     * @param  list<array<string, mixed>>  $instalments
+     * @return array<string, mixed>
+     */
+    private static function moneyTerms(mixed $total, mixed $vatRate, array $instalments): array
+    {
+        return [
+            'total' => (int) $total,
+            'vat' => $vatRate === null ? null : (int) $vatRate,
+            'instalments' => array_map(function (array $row): array {
+                $trigger = $row['trigger_type'] instanceof InstalmentTrigger
+                    ? $row['trigger_type']
+                    : InstalmentTrigger::tryFrom((string) $row['trigger_type']);
+                $dueDate = $row['due_date'] ?? null;
+
+                return [
+                    (int) $row['amount'],
+                    $trigger?->value,
+                    $trigger === InstalmentTrigger::Stage ? $row['trigger_stage_key'] : null,
+                    $trigger === InstalmentTrigger::DueDate ? null : (int) $row['due_days_after_trigger'],
+                    $trigger === InstalmentTrigger::DueDate && $dueDate !== null
+                        ? ($dueDate instanceof DateTimeInterface ? $dueDate->format('Y-m-d') : (string) $dueDate)
+                        : null,
+                ];
+            }, array_values($instalments)),
+        ];
     }
 }

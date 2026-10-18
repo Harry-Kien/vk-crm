@@ -36,6 +36,9 @@ use Spatie\Activitylog\Models\Activity;
  *     đó thấy tiền).
  *  3. Chỉ từ `active` ({@see ContractStatusConflict::notActiveForRevert()} — hợp đồng nháp, đã hoàn tất hay đã huỷ
  *     không có gì để đưa về).
+ *  3a. Fix round 1 (m5): hồ sơ CHƯA KẾT THÚC ({@see ContractNotRevertible::matterClosed()}, đọc trên hàng `matters`
+ *     đã khoá): hợp đồng của một hồ sơ đã đóng là sổ sách đã chốt — công nợ của nó ("Đã kết thúc còn công
+ *     nợ") và thư nhắc không được lặng lẽ biến mất; sửa con số thì bằng phụ lục, hoặc huỷ hợp đồng.
  *  4. Lý do bắt buộc (cùng độ dài tối thiểu với mọi lý do tiền, `ValidatesBillingInput::validatedReason()`).
  *  5. Không còn khoản thu CHƯA HUỶ nào ({@see ContractNotRevertible::hasPayments()}): tiền đã về gắn với
  *     hợp đồng đã ký; kế toán huỷ khoản thu (ghi lý do) trước. Khoản thu ĐÃ HUỶ không chặn — nó ở lại
@@ -74,7 +77,7 @@ class RevertContractToDraft
     {
         $reverted = $this->inContractTransaction(
             (int) $contract->getKey(),
-            fn (Matter $lockedMatter, Contract $locked): Contract => $this->revertLocked($actor, $locked, $reason),
+            fn (Matter $lockedMatter, Contract $locked): Contract => $this->revertLocked($actor, $lockedMatter, $locked, $reason),
         );
 
         $this->notifier->handle($actor, $reverted, NotifyLeadLawyerOfContractEntry::REVERTED);
@@ -82,12 +85,16 @@ class RevertContractToDraft
         return $reverted;
     }
 
-    private function revertLocked(User $actor, Contract $locked, string $reason): Contract
+    private function revertLocked(User $actor, Matter $lockedMatter, Contract $locked, string $reason): Contract
     {
         Gate::forUser($actor)->authorize('revertToDraft', $locked);
 
         if ($locked->status !== ContractStatus::Active) {
             throw ContractStatusConflict::notActiveForRevert($locked);
+        }
+
+        if ($lockedMatter->isClosed()) {
+            throw ContractNotRevertible::matterClosed($locked, $lockedMatter);
         }
 
         $reason = $this->validatedReason($reason);

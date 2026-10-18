@@ -608,7 +608,11 @@ class ContractEntry extends Page implements HasTable
             ->requiresConfirmation()
             ->modalHeading(__('billing.tab.actions.delete_draft_heading'))
             ->modalDescription(__('billing.tab.actions.delete_draft_description'))
-            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action) || $record->contract?->status === ContractStatus::Draft)
+            // Fix round 1 (m6, làn fa3): bản nháp mang lịch sử khoản thu đã huỷ (một lần kích hoạt nhầm đã được
+            // "Đưa về bản nháp") không xoá được — `Contract::assertDestroyable()`; nút không mời một việc chắc chắn
+            // bị từ chối. Bản nháp đó sửa rồi kích hoạt lại.
+            ->visible(fn (Action $action, Matter $record): bool => $this->isOpenDialog($action)
+                || ($record->contract?->status === ContractStatus::Draft && ! $record->contract->hasPayments()))
             ->authorize(fn (Matter $record): bool => $record->contract !== null && Gate::allows('delete', $record->contract))
             ->successNotificationTitle(__('billing.tab.actions.delete_draft_success'))
             ->action(fn (Action $action, Matter $record) => $this->runAction(

@@ -638,7 +638,9 @@ class BillingRelationManager extends RelationManager
             ->requiresConfirmation()
             ->modalHeading(__('billing.tab.actions.delete_draft_heading'))
             ->modalDescription(__('billing.tab.actions.delete_draft_description'))
-            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Draft)
+            // Fix round 1 (m6, làn fa3): không hiện trên bản nháp mang lịch sử khoản thu đã huỷ — xoá chắc chắn bị
+            // `Contract::assertDestroyable()` từ chối; bản nháp đó sửa rồi kích hoạt lại.
+            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Draft && ! $matter->contract->hasPayments())
             ->authorize(fn (): bool => $matter->contract !== null && Gate::allows('delete', $matter->contract))
             ->successNotificationTitle(__('billing.tab.actions.delete_draft_success'))
             ->action(fn (Action $action) => $this->runAction(

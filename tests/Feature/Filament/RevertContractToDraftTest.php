@@ -422,3 +422,140 @@ it('tells nobody when the lead lawyer deletes their own draft', function () {
         ->and($this->lawyer->notifications()->count())->toBe(0)
         ->and($this->manager->notifications()->count())->toBe(0);
 });
+
+// =================================================================================================
+// Fix round 1 (m5, m6, m8)
+// =================================================================================================
+
+it('m5: refuses on a matter that has ended, with a clear message, and changes nothing', function () {
+    $this->matter->forceFill(['closed_at' => '2026-10-10'])->saveQuietly();
+
+    $this->actingAs($this->lawyer, 'web');
+
+    fa3RvTab($this->matter)
+        ->callAction(TestAction::make('revertContractToDraft')->table(), data: ['reason' => FA3_REVERT_REASON]);
+
+    FilamentNotification::assertNotified(FilamentNotification::make()->title(__('actions.failed_title'))
+        ->body(__('billing_corrections.revert.matter_closed', ['code' => $this->contract->code, 'matter' => $this->matter->code]))
+        ->danger()->persistent());
+
+    expect($this->contract->fresh()->status)->toBe(ContractStatus::Active)
+        ->and($this->contract->fresh()->signed_at->toDateString())->toBe('2026-01-10')
+        ->and(Activity::query()->where('event', 'contract_reverted_to_draft')->exists())->toBeFalse()
+        ->and($this->accountant->notifications()->count())->toBe(0);
+});
+
+it('m5: the dialog warns that reminders and mails already sent to the client cannot be recalled', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $description = (string) fa3RvPage()
+        ->filterTable('contract_status', [])
+        ->mountAction(TestAction::make('revertToDraft')->table($this->matter))
+        ->instance()->getMountedAction()->getModalDescription();
+
+    expect($description)->toBe(__('billing_corrections.revert.description', ['code' => $this->contract->code]))
+        ->and($description)->toContain('không thu hồi được');
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $tabDescription = (string) fa3RvTab($this->matter)
+        ->mountAction(TestAction::make('revertContractToDraft')->table())
+        ->instance()->getMountedAction()->getModalDescription();
+
+    expect($tabDescription)->toBe($description);
+});
+
+it('m6: hides "delete draft" on a draft that carries voided payment history, on the contracts page and on the matter tab', function () {
+    Payment::factory()->for($this->onSigning)->voided()->create(['amount' => 15_000_000, 'paid_on' => '2026-10-05']);
+
+    $this->actingAs($this->accountant, 'web');
+    fa3RvRevertOnPage($this->matter)->assertHasNoActionErrors();
+
+    fa3RvPage()
+        ->filterTable('contract_status', [])
+        ->assertActionVisible(TestAction::make('updateDraft')->table($this->matter))
+        ->assertActionHidden(TestAction::make('deleteDraft')->table($this->matter));
+
+    $this->actingAs($this->lawyer, 'web');
+    fa3RvTab($this->matter)
+        ->assertActionVisible(TestAction::make('updateDraftContract')->table())
+        ->assertActionHidden(TestAction::make('deleteDraftContract')->table());
+
+    // Đối chứng: bản nháp không mang lịch sử nào vẫn có nút xoá ở cả hai nơi.
+    $clean = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    Contract::factory()->for($clean)->create(['status' => ContractStatus::Draft]);
+
+    fa3RvTab($clean)->assertActionVisible(TestAction::make('deleteDraftContract')->table());
+
+    $this->actingAs($this->accountant, 'web');
+    fa3RvPage()->filterTable('contract_status', [])->assertActionVisible(TestAction::make('deleteDraft')->table($clean));
+});
+
+/** Đúng lịch thu của `beforeEach` dưới dạng dữ liệu của form "Sửa bản nháp". */
+function fa3RvSameDraftData(): array
+{
+    return [
+        'total_amount' => '50.000.000',
+        'vat_rate_percent' => '10',
+        'instalments' => [
+            ['name' => 'Tạm ứng khi ký', 'amount' => '20.000.000', 'trigger_type' => 'on_signing', 'due_days_after_trigger' => '5'],
+            ['name' => 'Đợt cuối', 'amount' => '30.000.000', 'trigger_type' => 'due_date', 'due_date' => '2026-12-31'],
+        ],
+    ];
+}
+
+it('m8: no bell when the draft is saved again without a material change (same amounts, dates, tax and schedule)', function () {
+    $this->contract->forceFill(['status' => ContractStatus::Draft, 'signed_at' => null])->saveQuietly();
+
+    $this->actingAs($this->accountant, 'web');
+
+    // Lưu lại y nguyên, rồi chỉ đổi ghi chú của một đợt và tên một đợt: không phải thay đổi về tiền — không chuông.
+    fa3RvPage()->callAction(TestAction::make('updateDraft')->table($this->matter), data: fa3RvSameDraftData())->assertHasNoActionErrors();
+
+    $renamed = fa3RvSameDraftData();
+    $renamed['instalments'][1]['note'] = 'Ghi chú đợt mới';
+    $renamed['instalments'][0]['name'] = 'Tạm ứng (đổi tên)';
+
+    fa3RvPage()->callAction(TestAction::make('updateDraft')->table($this->matter), data: $renamed)->assertHasNoActionErrors();
+
+    expect($this->lawyer->notifications()->count())->toBe(0)
+        ->and(Activity::query()->where('event', 'contract_draft_updated')->count())->toBe(2)
+        ->and(Instalment::query()->where('contract_id', $this->contract->id)->where('sequence', 2)->value('note'))->toBe('Ghi chú đợt mới');
+});
+
+it('m8: a bell for each material change — total, tax, an instalment amount, a due date, the trigger, the number of instalments', function (Closure $change) {
+    $this->contract->forceFill(['status' => ContractStatus::Draft, 'signed_at' => null])->saveQuietly();
+
+    $this->actingAs($this->accountant, 'web');
+    fa3RvPage()->callAction(TestAction::make('updateDraft')->table($this->matter), data: $change(fa3RvSameDraftData()))->assertHasNoActionErrors();
+
+    expect($this->lawyer->notifications()->count())->toBe(1);
+})->with([
+    'total' => [fn (array $d): array => [...$d, 'total_amount' => '55.000.000']],
+    'tax' => [fn (array $d): array => [...$d, 'vat_rate_percent' => '8']],
+    'instalment amount' => [function (array $d): array {
+        $d['instalments'][0]['amount'] = '25.000.000';
+
+        return $d;
+    }],
+    'due date' => [function (array $d): array {
+        $d['instalments'][1]['due_date'] = '2026-12-15';
+
+        return $d;
+    }],
+    'days after trigger' => [function (array $d): array {
+        $d['instalments'][0]['due_days_after_trigger'] = '7';
+
+        return $d;
+    }],
+    'trigger' => [function (array $d): array {
+        $d['instalments'][0] = ['name' => 'Tạm ứng khi ký', 'amount' => '20.000.000', 'trigger_type' => 'due_date', 'due_date' => '2026-11-01'];
+
+        return $d;
+    }],
+    'number of instalments' => [function (array $d): array {
+        $d['instalments'] = [['name' => 'Trọn gói', 'amount' => '50.000.000', 'trigger_type' => 'on_signing', 'due_days_after_trigger' => '5']];
+
+        return $d;
+    }],
+]);

@@ -39,4 +39,7 @@ return [
     'matter_has_outstanding_balance' => 'Không thể xoá vụ việc :code: còn dư nợ :amount trên :count đợt thanh toán của hợp đồng đang có hiệu lực. Thu nốt hoặc miễn các đợt còn lại (kèm lý do) trước khi xoá.',
     // M7 Task 3
     'matter_checklist_read_only' => 'Vụ việc đã kết thúc nên danh mục hồ sơ chỉ xem được, không thêm hay sửa được nữa. Quản trị viên mở lại vụ bằng "Chuyển giai đoạn" nếu cần thao tác tiếp.',
+    // làn fa3, fix round 1 (m9): hook `Matter::deleting` — cùng luật với CancelMatter::refuseIfPaymentsRecorded().
+    'matter_has_recorded_payments' => 'Không thể xoá vụ việc :code: vụ việc đã có :count khoản thu chưa huỷ (tổng :amount) — tiền đã về không được biến mất khỏi báo cáo.',
+    // hết khối làn fa3
 ];
