@@ -1620,6 +1620,21 @@ Cài đặt (làn st):
    phút của dòng cron (Bước 8) đưa nó đi — cron chưa chạy thì thư nằm chờ. Kết quả hiện trên trang và
    ở "Thư đã gửi".
 
+### Bản cập nhật làn fa3: tiền và tìm kiếm (kiểm tra luồng nội bộ 2026-10-16)
+
+Không migration, không tác vụ lịch, không quyền mới, không biến `.env` — chuỗi lệnh nâng cấp ở trên là đủ.
+"Đưa về bản nháp" dùng ability mới `ContractPolicy::revertToDraft` dựng trên quyền SẴN CÓ (`contract.manage`
+hoặc `contract.enter`), nên không cần chạy lại seeder vì bản này. Tìm không dấu chữ "đ" ("Dang" ra "Đặng")
+đổi chữ ngay lúc tìm, ở cả hai vế: **không có cột chuẩn hoá đã lưu nào phải tính lại** — cột
+`name_normalized` của các bên đã đổi "đ" → "d" từ M1, không lệnh một lần nào cần chạy. Sau khi lên bản:
+
+1. Hồ sơ đã có khoản thu (chưa huỷ) không còn huỷ được bằng "Huỷ hồ sơ mở nhầm": kế toán huỷ khoản thu
+   (ghi lý do) và ghi lại vào đúng hồ sơ trước. Hồ sơ đã huỷ TỪ TRƯỚC bản này mà còn khoản thu: tiền đó nay
+   hiện lại ở "Đã thu" và biểu đồ theo đợt/giai đoạn của trang Doanh thu, cột doanh thu của trang Hiệu suất (kỳ đã qua có thể đổi số so
+   với ảnh chụp cũ) và ở "Khoản thu gần đây" với nhãn "Hồ sơ đã huỷ".
+2. Ô trang chủ của kế toán đổi thành "Hồ sơ cần nhập hợp đồng": đếm hồ sơ đang mở chưa có hợp đồng hoặc
+   hợp đồng đã huỷ (hồ sơ đã kết thúc không còn được đếm) — số có thể khác số cũ.
+
 ### Nâng cấp hỏng: quay lại bản trước
 
 Dùng khi một dòng của khối thứ hai trong "Nâng cấp lên bản mới" hỏng và không sửa được ngay. Đưa máy

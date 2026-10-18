@@ -59,6 +59,11 @@ return [
         'reason_required' => 'Phải nhập lý do huỷ hồ sơ.',
         'already_cancelled' => 'Vụ việc này đã bị huỷ trước đó.',
         // Gộp M9: cùng định nghĩa dư nợ với hook `Matter::deleting` (BillingSummary::outstandingForMatter()).
-        'outstanding_balance' => 'Không thể huỷ hồ sơ :code: còn dư nợ :amount trên :count đợt thanh toán của hợp đồng đang có hiệu lực. Ở tab "Hợp đồng và thanh toán", thu nốt, miễn các đợt còn lại (kèm lý do) hoặc huỷ hợp đồng, rồi mới huỷ hồ sơ.',
+        // làn fa3 (2026-10-16, mục 1): hồ sơ mở nhầm thì hợp đồng của nó cũng nhầm — câu cũ ("thu nốt, miễn
+        // các đợt còn lại hoặc huỷ hợp đồng") dẫn tới một hồ sơ đã huỷ còn mang tiền đã thu.
+        'outstanding_balance' => 'Không thể huỷ hồ sơ :code: còn dư nợ :amount trên :count đợt thanh toán của hợp đồng đang có hiệu lực. Hồ sơ mở nhầm thì ở tab "Hợp đồng và thanh toán" huỷ hợp đồng (kèm lý do), rồi mới huỷ hồ sơ.',
+        // làn fa3 (2026-10-16, mục 1): CancelMatter::refuseIfPaymentsRecorded() và hộp thoại huỷ — một câu.
+        'payments_recorded' => 'Không thể huỷ hồ sơ :code: hồ sơ đã có :count khoản thu (tổng :amount). Tiền đã về không được biến mất: kế toán huỷ các khoản thu này ở trang "Công nợ" (ghi lý do) và ghi lại vào đúng hồ sơ trước, rồi mới huỷ hồ sơ.',
+        // hết khối làn fa3
     ],
 ];

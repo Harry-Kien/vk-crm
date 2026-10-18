@@ -160,6 +160,9 @@ return [
         'instalment_triggered' => 'Đợt thanh toán đến hạn theo giai đoạn vụ việc',
         // Lượt rà soát cuối M9, M9: App\Actions\Billing\DeleteDraftContract.
         'contract_draft_deleted' => 'Xoá hợp đồng nháp',
+        // làn fa3 (2026-10-16, mục 2): App\Actions\Billing\RevertContractToDraft.
+        'contract_reverted_to_draft' => 'Đưa hợp đồng về bản nháp',
+        // hết khối làn fa3
         // app/Actions/Portal/*.php
         'client_request_opened' => 'Mở yêu cầu của khách',
         'client_request_assigned' => 'Giao yêu cầu của khách',

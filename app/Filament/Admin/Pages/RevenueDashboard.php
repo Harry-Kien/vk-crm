@@ -165,6 +165,11 @@ class RevenueDashboard extends Dashboard
                 // Trước đó người cũ của một vụ đã bàn giao không chọn được, nên doanh thu họ đã mang
                 // về không lọc ra được. Cùng cổng `listableBy`, nên vụ `restricted` vẫn không đưa một
                 // cái tên nào tới người không thấy vụ đó.
+                //
+                // Làn fa3 (2026-10-16, mục 1): nhánh khoản thu đọc cả vụ đã huỷ (`withTrashed()`), cùng tập
+                // khoản thu với `CollectedRevenue` — tiền đã về trên một hồ sơ huỷ từ trước luật của
+                // `CancelMatter` vẫn đếm ở "Đã thu", nên luật sư được ghi số tiền đó vẫn lọc ra được.
+                // `listableBy()` giữ nguyên: vụ hạn chế đã huỷ không đưa tên nào tới người không thấy nó.
                 ->options(function (): array {
                     $user = Auth::user();
 
@@ -178,7 +183,7 @@ class RevenueDashboard extends Dashboard
                             ->orWhereHas('attributedPayments', fn ($payments) => $payments
                                 ->withoutGlobalScope(ClientPortalScope::class)
                                 ->whereNull('voided_at')
-                                ->whereHas('instalment.contract.matter', fn ($matters) => $matters->listableBy($user))))
+                                ->whereHas('instalment.contract.matter', fn ($matters) => $matters->withTrashed()->listableBy($user))))
                         ->orderBy('name')
                         ->pluck('name', 'id')
                         ->all();

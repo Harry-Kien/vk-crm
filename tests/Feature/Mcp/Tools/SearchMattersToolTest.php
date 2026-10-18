@@ -272,9 +272,11 @@ it('tìm tiếng Việt có dấu và không dấu theo collation của CSDL đa
     expect($finds('thue nha'))->toBe($mariadb)
         ->and($finds('van kiwiet'))->toBe($mariadb);
 
-    // "đ" khác "d" trên cả hai.
-    expect($finds('duong lam'))->toBeFalse()
-        ->and($finds('đường lâm'))->toBe($mariadb);
+    // Làn fa3 (2026-10-16): "đ"/"Đ" thành "d"/"D" ở cả hai vế trước khi so (`App\Support\Search\LetterD`),
+    // cùng trang Tìm kiếm. MariaDB: "duong lam" ra "Đường Lâm" (trước làn fa3: không ra). SQLite: "đường lâm"
+    // nay ra (chữ "Đ" thành "D", gộp hoa/thường ASCII), nhưng "ươ"/"â" vẫn phải gõ đúng dấu.
+    expect($finds('duong lam'))->toBe($mariadb)
+        ->and($finds('đường lâm'))->toBeTrue();
 
     // Dạng tổ hợp (NFD) được đưa về NFC trước khi so — mọi CSDL.
     expect($finds(Normalizer::normalize('thuê nhà', Normalizer::FORM_D)))->toBeTrue();

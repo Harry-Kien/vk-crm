@@ -88,6 +88,8 @@ class CancelMatter
 
             $this->refuseIfEverClosed($locked);
 
+            $this->refuseIfPaymentsRecorded($locked);
+
             $this->refuseIfBalanceOutstanding($locked);
 
             Audit::record('matter_cancelled', $locked, [
@@ -121,6 +123,45 @@ class CancelMatter
                 'reason' => [__('lifecycle.cancel.closed_refused')],
             ]);
         }
+    }
+
+    /**
+     * Làn fa3 (2026-10-16, mục 1 — phán quyết controller): hồ sơ đã có khoản thu CHƯA HUỶ trên bất kỳ
+     * hợp đồng nào (kể cả hợp đồng đã huỷ hay đã hoàn tất) thì không huỷ được. Tiền đã về là sự thật kế
+     * toán: trước luật này, theo đúng lời từ chối "còn dư nợ" cũ (thu nốt / miễn / huỷ hợp đồng), hồ sơ huỷ
+     * được trong khi vẫn mang khoản thu, và khoản đó rời khỏi mọi đường sửa (`VoidPayment` từ chối vụ đã
+     * xoá mềm qua cổng tiền). Một đường DUY NHẤT, có nhật ký ở mỗi bước: kế toán huỷ từng khoản thu (ghi
+     * lý do) và ghi lại vào đúng hồ sơ, rồi mới huỷ hồ sơ — không có chức năng "chuyển khoản thu sang hồ
+     * sơ khác". Hỏi TRƯỚC dư nợ: huỷ khoản thu làm đợt về lại `pending`, nên câu dư nợ (huỷ hợp đồng) là
+     * bước sau.
+     *
+     * Con số là {@see BillingSummary::collectedForMatter()}; đọc thường sau khi khoá `matters` là đủ, cùng
+     * lý lẽ với {@see self::refuseIfBalanceOutstanding()} (mọi Action tiền khoá `matters` trước).
+     */
+    private function refuseIfPaymentsRecorded(Matter $locked): void
+    {
+        $collected = BillingSummary::collectedForMatter((int) $locked->getKey());
+
+        if ($collected['count'] > 0) {
+            throw ValidationException::withMessages([
+                'reason' => [self::paymentsRecordedMessage($locked, $collected)],
+            ]);
+        }
+    }
+
+    /**
+     * Câu từ chối — MỘT chuỗi cho lời từ chối của Action và cho dòng cảnh báo của hộp thoại huỷ
+     * (`MatterOpenWork::cancellingLines()`), để hai nơi không lệch nhau.
+     *
+     * @param  array{amount: int, count: int}  $collected
+     */
+    public static function paymentsRecordedMessage(Matter $matter, array $collected): string
+    {
+        return __('actions.cancel_matter.payments_recorded', [
+            'code' => $matter->code,
+            'count' => $collected['count'],
+            'amount' => Money::format($collected['amount']),
+        ]);
     }
 
     /**

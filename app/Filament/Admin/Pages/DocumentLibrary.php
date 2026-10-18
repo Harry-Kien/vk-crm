@@ -14,6 +14,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Mcp\AdminUrls;
+use App\Support\Search\LetterD;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
@@ -149,7 +150,8 @@ class DocumentLibrary extends Page implements HasTable
                     ->label(__('document_library.columns.title'))
                     ->weight('bold')
                     ->wrap()
-                    ->searchable(),
+                    // Làn fa3: "đ" như "d" (`LetterD`), cùng cách trang Tìm kiếm.
+                    ->searchable(query: fn (Builder $query, string $search): Builder => LetterD::whereContains($query, $query->qualifyColumn('title'), $search)),
                 // Nhãn "Chỉ nội bộ" của nhóm D (SPEC §7.2) — cùng chuỗi tab Tài liệu dùng.
                 TextColumn::make('internal_marker')
                     ->label('')
@@ -314,16 +316,14 @@ class DocumentLibrary extends Page implements HasTable
      * {@see self::rowsQuery()}). Tìm quan hệ mặc định của Filament đi qua `whereHas('matter.client')`,
      * mang `SoftDeletingScope` của `Client`: cột hiện "Khách A" mà gõ "Khách A" ra 0 dòng. Quyền không
      * đổi: điều kiện này chỉ thu hẹp truy vấn gốc đã cắt theo người xem ({@see ListVisibleDocuments}).
-     * So bằng `LIKE '%x%'` theo collation của `clients.name`, đúng cách tìm mặc định của Filament và
-     * đúng trang Tìm kiếm (SPEC §6.13: chỉ tên các bên so trên `name_normalized`).
+     * So bằng `LIKE '%x%'` theo collation của `clients.name` sau khi hai vế đổi "đ"/"Đ" → "d"/"D"
+     * ({@see LetterD}, làn fa3 2026-10-16) — đúng trang Tìm kiếm (SPEC §6.13): "Dang" ra "Đặng" trên MariaDB.
      */
     private static function applyClientNameSearch(Builder $query, string $search): Builder
     {
         return $query->whereHas('matter', fn (Builder $matter): Builder => $matter->whereHas(
             'client',
-            fn (Builder $client): Builder => $client
-                ->withTrashed()
-                ->where($client->qualifyColumn('name'), 'like', '%'.$search.'%'),
+            fn (Builder $client): Builder => LetterD::whereContains($client->withTrashed(), $client->qualifyColumn('name'), $search),
         ));
     }
 
@@ -348,9 +348,13 @@ class DocumentLibrary extends Page implements HasTable
 
         return Matter::query()
             ->listableBy($viewer)
-            ->when($search !== '', fn (Builder $matters): Builder => $matters->where(fn (Builder $any): Builder => $any
-                ->where($any->qualifyColumn('code'), 'like', '%'.$search.'%')
-                ->orWhere($any->qualifyColumn('title'), 'like', '%'.$search.'%')))
+            // Làn fa3: "đ" như "d" ở cả mã và tiêu đề (`LetterD`).
+            ->when($search !== '', fn (Builder $matters): Builder => $matters->where(fn (Builder $any): Builder => LetterD::whereContains(
+                LetterD::whereContains($any, $any->qualifyColumn('code'), $search),
+                $any->qualifyColumn('title'),
+                $search,
+                'or',
+            )))
             ->orderByDesc('id')
             ->limit(self::MATTER_OPTIONS_LIMIT)
             ->pluck('code', 'id')

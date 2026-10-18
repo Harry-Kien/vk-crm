@@ -52,4 +52,20 @@ return [
     'cancel' => [
         'description' => 'Sau khi huỷ, :outstanding còn phải thu sẽ không còn được theo dõi công nợ, nhắc quá hạn hay hiện trên cổng khách; các khoản đã thu giữ nguyên. Không hoàn tác được. Muốn ký lại với điều khoản mới, huỷ hợp đồng này rồi bấm "Soạn hợp đồng mới": hợp đồng mới chỉ ghi phần còn phải thu — tiền đã thu trên hợp đồng này vẫn tính doanh thu, không ghi lại.',
     ],
+
+    // làn fa3 (2026-10-16, mục 2): "Đưa về bản nháp" — RevertContractToDraft, ContractNotRevertible,
+    // UpdateDraftContract (đợt giữ lịch sử khoản thu đã huỷ).
+    'revert' => [
+        'label' => 'Đưa về bản nháp',
+        'heading' => 'Đưa hợp đồng về bản nháp',
+        'description' => 'Dùng khi kích hoạt nhầm (gõ sai ngày ký, thuế suất, giá trị hay lịch thu). Hợp đồng :code trở về bản nháp: ngày ký bỏ trống, các đợt "khi ký" và "theo giai đoạn" mất hạn đã tính (tính lại khi kích hoạt lại), cổng khách thôi hiện hợp đồng này. Sau đó bấm "Sửa bản nháp" rồi "Kích hoạt (đã ký)" với đúng ngày ký. Chỉ làm được khi chưa có khoản thu nào (khoản đã huỷ thì được), chưa có phụ lục và chưa đợt nào từng được miễn hay dời hạn. Luật sư phụ trách được báo.',
+        'reason_help' => 'Ghi rõ đã nhầm gì (tối thiểu 20 ký tự) — lý do vào nhật ký.',
+        'success' => 'Đã đưa hợp đồng về bản nháp — sửa rồi kích hoạt lại với đúng ngày ký.',
+        'not_active' => 'Chỉ đưa về bản nháp được hợp đồng đang có hiệu lực. Hợp đồng :code đang ở trạng thái ":status".',
+        'has_payments' => 'Không đưa hợp đồng :code về bản nháp được: đã có khoản thu chưa huỷ (tổng :amount). Kế toán huỷ các khoản thu này ở trang "Công nợ" (ghi lý do) trước, rồi đưa về nháp, sửa, kích hoạt lại và ghi lại khoản thu.',
+        'has_amendments' => 'Không đưa hợp đồng :code về bản nháp được: hợp đồng đã có phụ lục ký với khách. Sửa tiếp bằng phụ lục, hoặc huỷ hợp đồng (ghi lý do) rồi soạn hợp đồng mới.',
+        'has_corrections' => 'Không đưa hợp đồng :code về bản nháp được: đợt ":name" đã từng được miễn hoặc dời hạn sau khi ký. Sửa tiếp bằng phụ lục, hoặc huỷ hợp đồng (ghi lý do) rồi soạn hợp đồng mới.',
+        'keeps_voided_history' => 'Đợt ":name" (đợt thứ :position) còn lịch sử khoản thu đã huỷ nên không bỏ được: lịch thu phải giữ ít nhất :position đợt (đợt đó được ghi đè bằng dòng cùng vị trí).',
+    ],
+    // hết khối làn fa3
 ];

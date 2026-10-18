@@ -632,9 +632,11 @@ it('tìm tiếng Việt: tên các bên như nhau trên mọi CSDL, tiêu đề 
     // Hoa/thường ngoài bảng ASCII ("Ỗ" và "ỗ"): MariaDB gộp, SQLite không.
     expect($finds('ĐỖ VĂN'))->toBe($mariadb);
 
-    // "đ" khác "d" trên MariaDB (và trên SQLite): "Duong Lam" không ra "Đường Lâm".
-    expect($finds('duong lam'))->toBeFalse()
-        ->and($finds('đường lâm'))->toBe($mariadb);
+    // Làn fa3 (2026-10-16): "đ"/"Đ" thành "d"/"D" ở cả hai vế trước khi so (`LetterD`). MariaDB: "Duong Lam"
+    // ra "Đường Lâm" (trước làn fa3: không ra). SQLite: chữ "Đ"/"đ" khác hoa/thường nay gộp được (thành
+    // chữ ASCII), nhưng "ươ" vẫn phải gõ đúng dấu.
+    expect($finds('duong lam'))->toBe($mariadb)
+        ->and($finds('đường lâm'))->toBeTrue();
 });
 
 /** Chuỗi gõ ở dạng NFD (chữ gốc + dấu tổ hợp) được đưa về NFC trước khi so — mọi CSDL. */
@@ -661,4 +663,70 @@ it('khối kết quả không phát lớp CSS nào và chỉ tô bằng biến m
             ->and(colourVariablesIn($section))->not->toBeEmpty()
             ->and(unregisteredColourVariables($section))->toBe([]);
     }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Làn fa3 (2026-10-16, mục 3): gõ không dấu chữ "đ" — "Dang" ra "Đặng" trên MariaDB
+// ---------------------------------------------------------------------------------------------
+//
+// Mọi cột so theo collation (mã, tiêu đề, tên khách, số thụ lý, tiêu đề tài liệu) đổi "đ"/"Đ" → "d"/"D"
+// ở CẢ hai vế trước khi so (`App\Support\Search\LetterD`): `utf8mb4_unicode_ci` của MariaDB bỏ qua mọi dấu
+// khác và hoa/thường, chỉ coi "đ" là chữ khác — nên sau bước này "Dang" ra "Đặng". SQLite vẫn so theo byte
+// (không bỏ dấu), nên chữ có dấu khác "đ" vẫn chỉ ra khi gõ đúng dấu; chữ chỉ có "đ" thì ra trên mọi CSDL.
+
+it('làn fa3: gõ "Dang" ra khách "Đặng" và vụ "đất đai" trên MariaDB; chữ chỉ có "đ" ra trên mọi CSDL', function () {
+    $mariadb = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
+    $dang = srchMatter($this->lead, ['client_id' => Client::factory()->create(['name' => 'Ông Đặng Văn Fabaclient'])->id]);
+    $dinh = srchMatter($this->lead, ['client_id' => Client::factory()->create(['name' => 'Bà Đinh Fabadinh'])->id]);
+    $land = srchMatter($this->lead, ['title' => 'Tranh chấp đất đai Fabaland']);
+    $court = srchMatter($this->lead, ['case_number' => '07/2026/QĐ-FABA']);
+
+    $finds = fn (string $term, Matter $matter): bool => in_array($matter->code, srchCodes(srchAs($this->admin, $term)), true);
+
+    // "đ" ≡ "d" trên MariaDB: tên khách, tiêu đề vụ — đúng yêu cầu "Dang" ra "Đặng".
+    expect($finds('Dang Van Fabaclient', $dang))->toBe($mariadb)
+        ->and($finds('dang van', $dang))->toBe($mariadb)
+        ->and($finds('dat dai fabaland', $land))->toBe($mariadb);
+
+    // Chữ chỉ mang dấu "đ": mọi CSDL (SQLite gộp hoa/thường chữ ASCII sau khi "đ" thành "d").
+    expect($finds('dinh fabadinh', $dinh))->toBeTrue()
+        ->and($finds('ĐINH FABADINH', $dinh))->toBeTrue()
+        ->and($finds('07/2026/QD', $court))->toBeTrue()
+        ->and($finds('07/2026/qđ', $court))->toBeTrue();
+
+    // Gõ đúng chữ đúng dấu vẫn ra như trước.
+    expect($finds('Đặng Văn', $dang))->toBeTrue()
+        ->and($finds('đất đai', $land))->toBeTrue();
+});
+
+it('làn fa3: tên các bên đã chuẩn hoá "đ" → "d" từ trước — "Dang" ra bên "Đặng" trên mọi CSDL, không cần tính lại cột', function () {
+    $matter = srchMatter($this->lead);
+    $party = MatterParty::factory()->create(['matter_id' => $matter->id, 'name' => 'Đặng Thị Fabaparty']);
+
+    expect($party->fresh()->name_normalized)->toBe('dang thi fabaparty')
+        ->and(App\Support\Normalizer::name('ĐẶNG Đỗ Ðức'))->toBe('dang do duc')
+        ->and(srchCodes(srchAs($this->admin, 'Dang Thi Fabaparty')))->toBe([$matter->code]);
+});
+
+it('làn fa3: đổi "đ" không mở rộng tầm nhìn — vụ hạn chế người tìm không xem được vẫn không ra', function () {
+    $hidden = srchMatter($this->lead, [
+        'confidentiality' => 'restricted',
+        'client_id' => Client::factory()->create(['name' => 'Đinh Fabahidden'])->id,
+    ]);
+
+    srchAssertInvisible(srchAs($this->outsider, 'dinh fabahidden'), $hidden);
+
+    expect(srchCodes(srchAs($this->lead, 'dinh fabahidden')))->toBe([$hidden->code]);
+});
+
+it('làn fa3: dòng kết quả nói đúng nguồn đã khớp khi khớp nhờ đổi "đ" — tiêu đề, tên khách, số thụ lý', function () {
+    $matter = srchMatter($this->lead, [
+        'title' => 'Đan Fabatitle',
+        'case_number' => '09/2026/QĐ-FABAHIT',
+        'client_id' => Client::factory()->create(['name' => 'Đinh Fabahitclient'])->id,
+    ]);
+
+    expect(srchSources(srchResultFor(srchAs($this->admin, 'dan fabatitle'), $matter)))->toBe([SearchSource::Title])
+        ->and(srchSources(srchResultFor(srchAs($this->admin, 'dinh fabahitclient'), $matter)))->toBe([SearchSource::ClientName])
+        ->and(srchSources(srchResultFor(srchAs($this->admin, '09/2026/QD-FABAHIT'), $matter)))->toBe([SearchSource::CaseNumber]);
 });

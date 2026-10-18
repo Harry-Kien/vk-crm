@@ -15,13 +15,15 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * "Hợp đồng cần nhập" (làn kt, 2026-10-15) — hai ô số trên trang chủ của người NHẬP hợp đồng
- * (`contract.enter`: kế toán, quản trị viên): "Hồ sơ chưa có hợp đồng: n" và "Hợp đồng còn nháp: m",
+ * (`contract.enter`: kế toán, quản trị viên): "Hồ sơ cần nhập hợp đồng: n" và "Hợp đồng còn nháp: m",
  * mỗi ô là một liên kết tới trang {@see ContractEntry} với đúng bộ lọc trạng thái đó — để không ai còn
  * hỏi "thêm số tiền của hồ sơ ở đâu". Không đổi số liệu nào của các biểu đồ khác.
  *
  * **Đếm trên đúng tập dòng của trang**: `Matter::listableBy()` (vụ chưa xoá mềm; kế toán không có vụ
- * `restricted`), "chưa có hợp đồng" = chưa từng có hợp đồng nào, "còn nháp" = hợp đồng hiện hành còn
- * `draft` — cùng định nghĩa với bộ lọc của trang. Chỉ ĐẾM: không mã, không tên.
+ * `restricted`). "Cần nhập hợp đồng" = {@see ContractEntry::whereNeedsContract()} — CHÍNH hàm của bộ lọc
+ * mặc định của trang (làn fa3, 2026-10-16, mục 4: hồ sơ đang mở chưa có hợp đồng nào hoặc hợp đồng hiện
+ * hành đã huỷ; trước bản sửa ô này đếm "chưa từng có hợp đồng", kể cả hồ sơ đã kết thúc, và bỏ hồ sơ có
+ * hợp đồng đã huỷ). "Còn nháp" = hợp đồng hiện hành còn `draft`. Chỉ ĐẾM: không mã, không tên.
  *
  * **Ai thấy:** `contract.enter` VÀ mở được trang ({@see ContractEntry::canBeOpenedBy()}). Luật sư, trưởng
  * phòng (chỉ `contract.manage`) soạn hợp đồng ở tab tiền của vụ, trang chủ của họ giữ nguyên. `boot()`
@@ -70,13 +72,14 @@ class ContractsToEnterWidget extends StatsOverviewWidget
 
         $listable = fn (): Builder => Matter::query()->listableBy($user);
 
-        $withoutContract = $listable()->whereDoesntHave('contracts')->count();
+        $toEnter = ContractEntry::whereNeedsContract($listable())->count();
         $drafts = $listable()->whereHas('contract', fn (Builder $contract) => $contract->where('status', ContractStatus::Draft->value))->count();
 
         return [
-            Stat::make(__('contract_entry.widget.without_contract'), (string) $withoutContract)
-                ->color($withoutContract > 0 ? 'warning' : 'gray')
-                ->url(ContractEntry::getUrl(['filters' => ['contract_status' => ['values' => [ContractEntry::STATUS_NONE]]]])),
+            Stat::make(__('contract_entry.widget.to_enter'), (string) $toEnter)
+                ->description(__('contract_entry.widget.to_enter_hint'))
+                ->color($toEnter > 0 ? 'warning' : 'gray')
+                ->url(ContractEntry::getUrl(['filters' => ['contract_status' => ['values' => [ContractEntry::STATUS_TO_ENTER]]]])),
             Stat::make(__('contract_entry.widget.drafts'), (string) $drafts)
                 ->color($drafts > 0 ? 'info' : 'gray')
                 ->url(ContractEntry::getUrl(['filters' => ['contract_status' => ['values' => [ContractStatus::Draft->value]]]])),

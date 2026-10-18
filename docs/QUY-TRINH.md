@@ -204,7 +204,7 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 | Ghi từng khoản tiền thật sự nhận, ai ghi, nhận bằng cách nào | Trang **Công nợ** của kế toán (xem "Kế toán ghi tiền" bên dưới); người ghi, ngày tiền về, cách nhận, mã giao dịch/số biên lai; ghi nhầm thì **huỷ** kèm lý do, khoản đã huỷ vẫn nằm đó | **[Xong]** M9 (Task 5, 8) |
 | Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Hệ thống không TỰ gửi thư đòi nợ quá hạn cho khách — xem "Nhắc lịch thanh toán cho khách" bên dưới | **[Xong]** M9 Task 11 |
 | Nhìn bức tranh tiền: đã thu trên tổng, còn phải thu | Trang **Doanh thu** (nhóm **Tài chính** của menu trái). Trên cùng là một hàng bốn ô số lớn, đọc trong một giây: **Đã thu** (tiền về trong kỳ), **Còn phải thu** và **Quá hạn** (tính tại hôm nay, không theo kỳ — bấm vào mở trang Công nợ, ô Quá hạn đã lọc sẵn, với người mở được trang đó), **Hợp đồng ký mới** (số hợp đồng và tổng giá trị ký trong kỳ); ô Đã thu và ô ký mới có mũi tên ▲/▼ so với cùng khoảng của kỳ liền trước. Dưới đó là các biểu đồ: vành khuyên đã thu / còn phải thu / quá hạn, doanh thu theo thời gian, theo đợt/giai đoạn, cơ cấu theo 12 lĩnh vực, tải theo luật sư, hồ sơ đã kết thúc còn công nợ. Trục và nhãn của biểu đồ ghi tiền gọn ("60 tr", "1,2 tỷ"); rê chuột lên biểu đồ thấy số đầy đủ. Mỗi ô, mỗi biểu đồ chỉ có một tiêu đề ngắn; cách tính (theo ngày ký hay ngày tiền về, theo luật sư lúc thu hay luật sư hiện tại) nằm sau nút **ⓘ** cạnh tiêu đề — bấm để đọc. Bộ lọc kỳ, luật sư, lĩnh vực gọn một hàng trên đầu trang | **[Xong]** M9 Task 9; gọn lại ở làn rv (2026-10-15) |
-| Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ | **[Xong]** M9 |
+| Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ. **Huỷ hồ sơ mở nhầm** còn bị chặn khi hồ sơ **đã có khoản thu chưa huỷ** trên bất kỳ hợp đồng nào (kể cả hợp đồng đã huỷ): tiền đã về không được biến mất — kế toán huỷ các khoản thu đó ở trang Công nợ (ghi lý do) và ghi lại vào đúng hồ sơ, rồi mới huỷ hồ sơ; hộp thoại huỷ nói điều này trước khi bấm. Hồ sơ đã huỷ từ trước luật này mà còn khoản thu: tiền vẫn tính ở Doanh thu và Hiệu suất, và hiện ở "Khoản thu gần đây" với nhãn "Hồ sơ đã huỷ" | **[Xong]** M9; làn fa3 (2026-10-16) |
 
 ### Sửa sai và thay đổi trên một hợp đồng đã ký (sửa sau kiểm tra 2026-10-09, làn fb)
 
@@ -218,7 +218,16 @@ một dòng trong nhật ký hệ thống.
   lại chờ thu theo đúng hạn cũ. Hợp đồng đã hoàn tất (hoặc đã huỷ) thì không bỏ miễn được nữa; miễn
   đợt chưa thu cuối cùng là hoàn tất được ngay, nên kiểm tra kỹ trước khi bấm **Hoàn tất**. Modal
   **Miễn** nay ghi rõ tên đợt, giá trị, số đã thu và phần sẽ thôi đòi trước khi xác nhận.
-- **Ký lại hợp đồng với điều khoản mới, hoặc kích hoạt nhầm khi khách chưa ký:** **Huỷ hợp đồng**
+- **Kích hoạt nhầm (gõ sai ngày ký, thuế suất, giá trị hay lịch thu; hoặc khách chưa ký):** bấm **Đưa về
+  bản nháp** (làn fa3, 2026-10-16) — ở tab này hoặc trên dòng của hồ sơ ở trang **Hợp đồng** của kế toán;
+  ai kích hoạt được (luật sư, trưởng phòng, kế toán, quản trị viên) thì đưa về được, kèm lý do. Hợp đồng về
+  nháp: ngày ký bỏ trống, các đợt "khi ký" và "theo giai đoạn" mất hạn đã tính, cổng khách thôi hiện hợp đồng
+  này; rồi **Sửa bản nháp** và **Kích hoạt (đã ký)** với đúng ngày ký — số `HD-…` giữ nguyên, không có dòng
+  "hợp đồng đã huỷ" nào. Luật sư phụ trách được báo khi người khác làm. Chỉ làm được khi **chưa có khoản thu
+  nào chưa huỷ** (đã ghi tiền tạm ứng thì kế toán **Huỷ khoản thu** ở trang Công nợ trước, kèm lý do, rồi ghi
+  lại sau khi kích hoạt lại), **chưa có phụ lục** và **chưa đợt nào từng được miễn hay dời hạn**; khi đó dùng
+  phụ lục, hoặc huỷ hợp đồng như mục dưới.
+- **Ký lại hợp đồng với điều khoản mới:** **Huỷ hợp đồng**
   (modal ghi rõ số còn phải thu sẽ không còn được theo dõi), rồi bấm **Soạn hợp đồng mới**. Hợp đồng
   đã huỷ và các khoản đã thu của nó ở lại làm lịch sử (một dòng "Hợp đồng trước của vụ" ở đầu tab);
   lịch thu, công nợ, nhắc quá hạn và khối tiền trên cổng khách theo hợp đồng mới. Một vụ không bao
@@ -236,16 +245,17 @@ Hồ sơ vẫn do luật sư hoặc trưởng phòng mở. Khi hồ sơ đã có
 chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không cần, và không được, mở nội dung hồ sơ.
 
 1. Kế toán mở **Hợp đồng** (menu trái, nhóm **Tài chính**; hoặc nút **Nhập hợp đồng cho hồ sơ** đầu trang Công nợ, hoặc ô
-   "Hồ sơ chưa có hợp đồng" trên trang chủ). Trang mặc định chỉ hiện hồ sơ **chưa có hợp đồng** và hợp
-   đồng **còn nháp**; mỗi dòng có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách, số và trạng
+   "Hồ sơ cần nhập hợp đồng" trên trang chủ). Trang mặc định lọc **Cần nhập hợp đồng** — hồ sơ **đang mở**
+   chưa có hợp đồng nào, hoặc hợp đồng hiện hành **đã huỷ** (làn fa3, 2026-10-16: ô trang chủ đếm đúng tập
+   này; hồ sơ đã kết thúc không còn là việc phải nhập) — và hợp đồng **còn nháp**; mỗi dòng có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách, số và trạng
    thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** có tiêu đề, ghi chú, tài liệu hay các
    bên. Kế toán không thấy vụ hạn chế ở đây (vụ hạn chế chỉ hiện với quản trị viên và luật sư phụ trách
-   vụ đó). Tìm theo mã hồ sơ hoặc tên khách; lọc theo loại vụ việc, luật sư.
+   vụ đó). Tìm theo mã hồ sơ hoặc tên khách (gõ không dấu được, kể cả chữ "đ": "Dang" ra "Đặng"); lọc theo loại vụ việc, luật sư.
 2. Bấm **Nhập hợp đồng** trên dòng đó, điền đúng như tờ hợp đồng: tổng giá trị (đã gồm thuế nếu có,
    gõ `50.000.000`), thuế suất, từng đợt (tên, phần trăm **hoặc** số tiền, đến hạn khi ký / vào một ngày /
    khi vụ tới một giai đoạn). Khung xem trước cho thấy số tiền từng đợt và tổng các đợt so với giá trị.
    Số hợp đồng `HD-năm-số` do hệ thống cấp.
-   Hồ sơ có hợp đồng **đã huỷ** (lọc trạng thái "Đã huỷ"): hộp thoại hiện sẵn số đã thu trên hợp đồng đã
+   Hồ sơ có hợp đồng **đã huỷ** (có trong bộ lọc mặc định; hoặc lọc trạng thái "Đã huỷ"): hộp thoại hiện sẵn số đã thu trên hợp đồng đã
    huỷ — chỉ nhập **phần còn phải thu**, không ghi lại khoản đã thu ("Tiền đã thu trên hợp đồng đã huỷ" ngay trên).
 3. Khách **đã ký** và tổng các đợt khớp giá trị: bật **Khách đã ký — kích hoạt luôn**, chọn ngày ký
    (không ở tương lai), rồi bấm **Lưu và kích hoạt** — hợp đồng đang hiệu lực ngay, đợt "khi ký" có hạn.
@@ -255,8 +265,11 @@ chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không c�
 4. Luật sư phụ trách nhận một dòng chuông "Kế toán … đã nhập hợp đồng … — anh/chị kiểm tra lại." (luật sư
    phụ trách đã nghỉ thì các trưởng phòng nhận thay; người nhập không bao giờ nhận chuông của chính mình). Từ lúc
    kích hoạt, mọi thay đổi điều khoản (phụ lục, huỷ, miễn, dời hạn, thư nhắc khách) là việc của luật sư
-   hoặc trưởng phòng ở tab **Hợp đồng và thanh toán** — kế toán kích hoạt nhầm thì báo luật sư huỷ rồi
-   nhập lại.
+   hoặc trưởng phòng ở tab **Hợp đồng và thanh toán**. Kế toán kích hoạt nhầm thì tự bấm **Đưa về bản
+   nháp** trên dòng đó (kèm lý do; chưa có khoản thu chưa huỷ, phụ lục, miễn hay dời hạn — xem "Sửa sai và
+   thay đổi trên một hợp đồng đã ký"), sửa bản nháp rồi kích hoạt lại; luật sư phụ trách được báo. Kế toán
+   **sửa** hay **xoá** bản nháp của luật sư thì luật sư phụ trách cũng nhận chuông (luật sư tự sửa vụ mình
+   thì không ai).
 5. Tiền về: nút **Ghi khoản thu** trên dòng của hợp đồng đang hiệu lực mở trang Công nợ lọc sẵn mã hồ sơ
    (xem "Kế toán ghi tiền" ngay dưới).
 
@@ -378,7 +391,7 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
 | Sinh gói bàn giao cho khách | Tệp nén nhóm A/B/C kèm mục lục PDF và toàn bộ tường trình tiến độ, không bao giờ lẫn tài liệu nội bộ; nhóm A là đúng bản văn phòng đã nhận của từng đầu mục | **[Xong]** M7 Task 4/11 — gói tự sinh khi vụ vào giai đoạn kết thúc (sinh lại bằng nút trên trang vụ), ở trạng thái chưa công bố: luật sư xem rồi công bố cho khách; khoá khi hồ sơ đã ghi quyết định tiêu huỷ (làn fm 2026-10-09) |
 | Cho khách tải về từ cổng, có hạn | Quyền tra cứu hết sau 90 ngày mặc định kể từ khi vụ kết thúc, dữ liệu vẫn nguyên bên trong | **[Xong]** M7 Task 5. Hạn hiện ở khối "Lưu trữ hồ sơ" của trang vụ; luật sư phụ trách hoặc quản trị viên gia hạn được, có lý do và nhật ký (làn fm 2026-10-09) |
 | Giữ hồ sơ theo chính sách lưu trữ | Hạn lưu trữ mặc định 10 năm, hệ thống **cảnh báo chứ không bao giờ tự xoá**; quyết định tiêu huỷ được ghi lại | **[Xong]** M7 Task 6 (`FlagRetentionExpiry`, "Ghi quyết định tiêu huỷ") |
-| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm** (ô tìm kiếm sáu nguồn), kết quả luôn đi qua phân quyền | **[Xong]** M7 (trang `Search`) |
+| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm** (ô tìm kiếm sáu nguồn), kết quả luôn đi qua phân quyền. Gõ không dấu được, kể cả chữ "đ": "Dang" ra khách "Đặng", "dat dai" ra "đất đai" — trang **Tài liệu** cũng vậy (làn fa3, 2026-10-16) | **[Xong]** M7 (trang `Search`) |
 
 ---
 

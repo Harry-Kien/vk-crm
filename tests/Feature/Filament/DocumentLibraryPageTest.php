@@ -610,9 +610,10 @@ it('m1: tìm theo tên một khách đã xoá mềm ra đúng các dòng mà c�
  * m6 — PHÁN QUYẾT, không đổi hành vi: tên khách so theo collation của cột `clients.name`, ĐÚNG như
  * trang Tìm kiếm (SPEC §6.13, đính chính 2026-09-28: chỉ tên các bên so trên `name_normalized`; bảng
  * `clients` không có cột chuẩn hoá). Test ghi lại hành vi thật của từng CSDL, cùng khuôn
- * `SearchPageTest` "tìm tiếng Việt".
+ * `SearchPageTest` "tìm tiếng Việt". Làn fa3 (2026-10-16, mục 3): hai vế đổi "đ"/"Đ" → "d"/"D" trước
+ * khi so (`LetterD`), nên "Dang Van" ra "Đặng Văn" trên MariaDB, và "đặng văn" ra trên mọi CSDL.
  */
-it('m6: tên khách so như trang Tìm kiếm (SPEC §6.13) — đúng chữ đúng dấu ra trên mọi CSDL, "đ" khác "d"', function () {
+it('m6: tên khách so như trang Tìm kiếm (SPEC §6.13) — đúng chữ đúng dấu ra trên mọi CSDL, "đ" như "d" (làn fa3)', function () {
     $mariadb = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
     $w = tlWorld();
     $w->client->forceFill(['name' => 'Ông Đặng Văn Tlwombat'])->save();
@@ -620,8 +621,8 @@ it('m6: tên khách so như trang Tìm kiếm (SPEC §6.13) — đúng chữ đ�
     $this->actingAs($w->lawyer, 'web');
 
     expect(tlFinds('Đặng Văn', $w->teamB))->toBeTrue()
-        ->and(tlFinds('đặng văn', $w->teamB))->toBe($mariadb)
-        ->and(tlFinds('Dang Van', $w->teamB))->toBeFalse()
+        ->and(tlFinds('đặng văn', $w->teamB))->toBeTrue()
+        ->and(tlFinds('Dang Van', $w->teamB))->toBe($mariadb)
         ->and(tlFinds('tlwombat', $w->teamB))->toBeTrue();
 });
 
@@ -686,4 +687,44 @@ it('m7: SPEC §7.2 (tab Tài liệu) và §7.4 trỏ tới trang "Tài liệu" c
             ->and($text)->toContain('/admin/documents')
             ->and($text)->toContain('§6.13');
     }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Làn fa3 (2026-10-16, mục 3): gõ không dấu chữ "đ" — như trang Tìm kiếm
+// ---------------------------------------------------------------------------------------------
+
+it('làn fa3: tên tài liệu, tên khách và ô chọn vụ coi "đ" như "d" — "Dang" ra "Đặng" trên MariaDB, chữ chỉ có "đ" trên mọi CSDL', function () {
+    $mariadb = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
+    $w = tlWorld();
+    $w->client->forceFill(['name' => 'Ông Đặng Văn Fabatl'])->save();
+    $w->teamB->forceFill(['title' => 'Biên bản Đinh Fabadoc'])->save();
+    $w->team->forceFill(['title' => 'Vụ Đinh Fabamatter'])->save();
+
+    $this->actingAs($w->lawyer, 'web');
+
+    expect(tlFinds('Dang Van Fabatl', $w->teamB))->toBe($mariadb)
+        ->and(tlFinds('đặng văn fabatl', $w->teamB))->toBeTrue()
+        ->and(tlFinds('dinh fabadoc', $w->teamB))->toBeTrue()
+        ->and(tlFinds('ĐINH FABADOC', $w->teamB))->toBeTrue();
+
+    $results = null;
+    Livewire::test(DocumentLibrary::class)
+        ->call('callSchemaComponentMethod', 'tableFiltersForm.matter.value', 'getSearchResultsForJs', ['search' => 'dinh fabamatter'])
+        ->assertReturned(function (mixed $returned) use (&$results): bool {
+            $results = $returned;
+
+            return is_array($returned);
+        });
+
+    expect(collect($results)->pluck('value')->map(fn ($id) => (int) $id)->all())->toContain($w->team->id);
+});
+
+it('làn fa3: ký tự "%" và "_" người gõ được so đúng chữ, không thành ký tự đại diện', function () {
+    $w = tlWorld();
+    $w->teamB->forceFill(['title' => 'Biên bản 50% Fabapct'])->save();
+
+    $this->actingAs($w->lawyer, 'web');
+
+    expect(tlFinds('50%', $w->teamB))->toBeTrue()
+        ->and(tlFinds('5_%', $w->teamB))->toBeFalse();
 });

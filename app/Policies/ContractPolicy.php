@@ -28,7 +28,8 @@ use App\Policies\Concerns\ReadsPortalParents;
  * **Hai nhóm câu hỏi ghi (làn kt, 2026-10-15, SPEC §5 "Bổ sung 2026-10-15").**
  *  - **Nhập hợp đồng đã ký** — `create` (soạn bản nháp cho vụ), {@see self::updateDraft()} (sửa bản
  *    nháp và lịch thu của nó), `delete` (xoá bản nháp), {@see self::activate()} (kích hoạt với ngày
- *    ký): `contract.manage` **hoặc** `contract.enter`. Kế toán có `contract.enter`, nên nhập được hợp
+ *    ký), {@see self::revertToDraft()} (đưa hợp đồng kích hoạt nhầm về nháp — làn fa3): `contract.manage`
+ *    **hoặc** `contract.enter`. Kế toán có `contract.enter`, nên nhập được hợp
  *    đồng giấy đã ký của một vụ có sẵn mà không mở nội dung hồ sơ.
  *  - **Quyết định thương mại trên hợp đồng đã ký** — `update`: ký phụ lục (kể cả đổi số tiền hay huỷ
  *    một đợt — {@see ContractAmendmentPolicy} vì thế không có `create`), hoàn tất, huỷ. Chỉ
@@ -102,6 +103,18 @@ class ContractPolicy
 
     /** Ghi nhận khách đã ký: `draft` → `active` (`ActivateContract`, `EnterSignedContract`). */
     public function activate(User|ClientUser $user, Contract $contract): bool
+    {
+        return $this->canSeeBilling($user, $contract->matter)
+            && ($user->can(Permission::ContractManage->value) || $user->can(Permission::ContractEnter->value));
+    }
+
+    /**
+     * Làn fa3 (2026-10-16): đưa một hợp đồng kích hoạt nhầm về bản nháp (`RevertContractToDraft`) — cùng
+     * người với {@see self::activate()}: ai ghi nhận được việc ký thì sửa được lần ghi nhận nhầm đó. "Khi
+     * nào được" (chưa có khoản thu chưa huỷ, phụ lục, miễn hay dời hạn) là việc của Action. Viết rời, không
+     * gọi `activate()` (xem docblock lớp).
+     */
+    public function revertToDraft(User|ClientUser $user, Contract $contract): bool
     {
         return $this->canSeeBilling($user, $contract->matter)
             && ($user->can(Permission::ContractManage->value) || $user->can(Permission::ContractEnter->value));

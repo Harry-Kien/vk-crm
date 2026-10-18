@@ -118,7 +118,9 @@ it('records the "Hợp đồng cần nhập" home tile in SPEC §7.1 with who se
 
     foreach ([
         '**"'.__('contract_entry.widget.heading').'"**',
-        '"'.__('contract_entry.widget.without_contract').'"',
+        '"'.__('contract_entry.widget.to_enter').'"',
+        // Làn fa3 (2026-10-16): ô đầu đếm luật "Cần nhập" của trang — một hàm.
+        '`ContractEntry::whereNeedsContract()`',
         '"'.__('contract_entry.widget.drafts').'"',
         '`contract.enter`',
         'kế toán và quản trị viên',

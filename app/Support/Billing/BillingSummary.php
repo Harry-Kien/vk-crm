@@ -171,4 +171,32 @@ final class BillingSummary
             ."where c.matter_id = matters.id and c.status = '".ContractStatus::Active->value."' "
             ."and i.status = '".InstalmentStatus::Pending->value."'), 0)";
     }
+
+    /**
+     * Làn fa3 (2026-10-16, mục 1): tiền ĐÃ VỀ của MỘT vụ việc — mọi khoản thu CHƯA HUỶ (`voided_at`
+     * rỗng) trên MỌI hợp đồng của vụ, bất kể trạng thái hợp đồng (đang hiệu lực, đã hoàn tất, đã huỷ):
+     * huỷ hợp đồng không huỷ khoản thu nào (`CancelContract`), nên tiền trên một hợp đồng đã huỷ vẫn là
+     * tiền khách đã trả. `App\Actions\Matter\CancelMatter` từ chối huỷ hồ sơ khi số đếm khác không, và
+     * hộp thoại "Huỷ hồ sơ mở nhầm" (`MatterOpenWork::cancellingLines()`) nói đúng hai con số này.
+     *
+     * Đọc bảng thẳng (`DB::table`), không qua model: không `ClientPortalScope`, không `SoftDeletingScope`
+     * (hợp đồng và đợt không xoá mềm; khoản thu không bao giờ bị xoá — `Payment::deleting`).
+     *
+     * @return array{amount: int, count: int}
+     */
+    public static function collectedForMatter(int $matterId): array
+    {
+        $row = DB::table('payments')
+            ->join('instalments', 'instalments.id', '=', 'payments.instalment_id')
+            ->join('contracts', 'contracts.id', '=', 'instalments.contract_id')
+            ->where('contracts.matter_id', $matterId)
+            ->whereNull('payments.voided_at')
+            ->selectRaw('count(*) as payment_count, coalesce(sum(payments.amount), 0) as payment_total')
+            ->first();
+
+        return [
+            'amount' => (int) ($row->payment_total ?? 0),
+            'count' => (int) ($row->payment_count ?? 0),
+        ];
+    }
 }
