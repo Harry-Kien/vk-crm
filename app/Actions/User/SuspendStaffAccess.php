@@ -12,6 +12,7 @@ use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\OpenLeads;
+use App\Support\OpenTaskWork;
 use App\Support\OpenWork;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -92,6 +93,8 @@ final class SuspendStaffAccess
 
             $openWork = OpenWork::forUser($locked);
             $openLeads = OpenLeads::forUser($locked);
+            // Làn fa2, phán quyết 2: việc nội bộ còn dở cũng vào nhật ký, như mọi loại việc dở khác.
+            $openTasks = OpenTaskWork::forUser($locked);
 
             $locked->forceFill([
                 'is_active' => false,
@@ -106,6 +109,9 @@ final class SuspendStaffAccess
                 'open_client_requests' => $openWork->clientRequests->count(),
                 'open_consulting_leads' => $openLeads->consulting->count(),
                 'open_assigned_leads' => $openLeads->assigned->count(),
+                'open_held_tasks' => $openTasks->held->count(),
+                'open_assigned_tasks' => $openTasks->assigned->count(),
+                'pending_seats' => $openTasks->pendingSeats->count(),
             ], $actor);
 
             app(RevokeAiConnections::class)->handle($locked, AiRevocationReason::Deactivated, $actor);

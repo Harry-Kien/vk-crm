@@ -6,6 +6,7 @@ use App\Actions\Task\MoveTasksOnHandover;
 use App\Enums\ClientRequestStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Jobs\SendLeadChangeNotices;
 use App\Jobs\SendMatterAssignmentNotice;
 use App\Jobs\SendReassignmentDigest;
 use App\Models\ClientRequest;
@@ -44,6 +45,10 @@ use Illuminate\Validation\ValidationException;
  *    của mốc và luồng. Việc còn mở lead cũ ĐÃ GIAO cho người khác trên vụ đổi người giao sang lead mới
  *    (`MoveTasksOnHandover::transferAssigner()`, vòng sửa 1 của Task 2 — I1); id vào
  *    {@see ReassignMatterResult::$followedTaskIds} và thư tổng hợp (`followed_task_ids`).
+ *  - Làn fa2, phán quyết 5: người phụ trách cũ và thành viên còn lại của đội được báo bằng chuông
+ *    ({@see SendLeadChangeNotices}, sau commit). Bàn giao một vụ: Action tự xếp; hàng loạt (`$sendDigest =
+ *    false`): id dòng `matter_reassigned` vào {@see ReassignMatterResult::$leadChangeEventId} và
+ *    `ReassignMatters` xếp MỘT job cho cả lô — một chuông mỗi người.
  *
  * # Lịch sử người giữ việc: một dòng cho mỗi mốc, mỗi luồng (M13 Task 3, R9 và R18)
  *
@@ -466,6 +471,13 @@ class ReassignMatter
                 SendMatterAssignmentNotice::dispatch($locked->getKey(), $lockedNewLead->getKey(), MatterAssignmentAlert::ASSIGNED, $lockedNewLead->getKey(), $seatEventId)->afterCommit();
             }
 
+            // Làn fa2, phán quyết 5: người phụ trách cũ và đội ngũ (xem docblock lớp, mục "Giao – nhận nội bộ").
+            $leadChangeEventId = $reassigned !== null ? (int) $reassigned->getKey() : null;
+
+            if ($leadChangeEventId !== null && $sendDigest) {
+                SendLeadChangeNotices::dispatch([$locked->getKey() => $leadChangeEventId], $actor->getKey())->afterCommit();
+            }
+
             // SPEC §6.11 bước 3 (M7 Task 1) — thư tổng hợp cho lead mới, chỉ những gì LẦN BÀN
             // GIAO NÀY thực sự chuyển (không phải mọi mốc lead mới đang giữ). Payload chỉ mang
             // ID — job tự dựng lại nội dung LÚC NÓ CHẠY, không tin đây còn đúng tới lúc đó (xem
@@ -489,6 +501,7 @@ class ReassignMatter
                 $movedTaskIds,
                 $followedTaskIds,
                 $sendDigest ? null : $seatEventId,
+                $sendDigest ? null : $leadChangeEventId,
             );
         });
     }

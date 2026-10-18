@@ -20,7 +20,8 @@ return [
     'fields' => [
         'new_lead_id' => 'Luật sư phụ trách mới',
         'keep_old_lead_as_associate' => 'Giữ luật sư cũ trong đội ngũ với vai luật sư cộng sự',
-        'keep_old_lead_as_associate_hint' => 'Nếu tắt, luật sư cũ sẽ bị gỡ hẳn khỏi đội ngũ vụ việc này.',
+        // làn fa2 (phán quyết 3): câu nói rõ việc nội bộ đi đâu theo từng lựa chọn (ReassignMatter → MoveTasksOnHandover).
+        'keep_old_lead_as_associate_hint' => 'Giữ làm cộng sự thì việc nội bộ người đó đang giữ trên vụ KHÔNG chuyển — vẫn ở với luật sư cũ. Nếu tắt, luật sư cũ bị gỡ hẳn khỏi đội ngũ vụ việc này, và việc nội bộ họ đang giữ chuyển sang luật sư mới ở trạng thái "Chờ nhận".',
         'reason' => 'Lý do bàn giao',
     ],
     'stage_log' => [
@@ -88,7 +89,8 @@ return [
             'new_lead_id' => 'Luật sư phụ trách mới',
             'reason' => 'Lý do bàn giao',
             'keep_old_lead_as_associate' => 'Giữ luật sư cũ trong đội ngũ với vai luật sư cộng sự',
-            'keep_old_lead_as_associate_hint' => 'Áp dụng cho vụ việc thường. Vụ việc hạn chế luôn gỡ luật sư cũ khỏi đội ngũ, bất kể công tắc này.',
+            // làn fa2 (phán quyết 3): mở từ màn hình cho nghỉ việc (?from=) thì công tắc tắt sẵn — BulkReassign::mount().
+            'keep_old_lead_as_associate_hint' => 'Áp dụng cho vụ việc thường. Giữ làm cộng sự thì việc nội bộ người đó đang giữ trên các vụ KHÔNG chuyển — vẫn ở với luật sư cũ; tắt thì luật sư cũ rời đội ngũ và việc nội bộ họ đang giữ chuyển sang luật sư mới ở trạng thái "Chờ nhận". Mở từ màn hình cho nghỉ việc thì công tắc tắt sẵn. Vụ việc hạn chế luôn gỡ luật sư cũ khỏi đội ngũ, bất kể công tắc này.',
         ],
         'submit' => 'Bàn giao các vụ đã chọn',
         'validation' => [

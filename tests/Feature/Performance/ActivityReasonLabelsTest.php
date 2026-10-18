@@ -172,6 +172,8 @@ it('finds the four reason constants of today, each on its event', function () {
         'Deadline/UpdateDeadline.php::HANDOVER_REASON => deadline_responsible_changed.deadline_updated',
         'Matter/ReassignMatter.php::DEADLINE_HANDOVER_REASON => deadline_responsible_changed.matter_reassigned',
         'Matter/ReassignMatter.php::REQUEST_HANDOVER_REASON => client_request_assigned.matter_reassigned',
+        // Làn fa2: "Việc nội bộ và ghế" của Bàn giao hàng loạt đổi người giao việc của nhân sự sắp rời.
+        'Matter/TransferStaffWork.php::TRANSFER_REASON => task_assigner_changed.staff_work_transferred',
         // Làn tk, Task 2.
         'Task/MoveTasksOnHandover.php::HANDOVER_REASON => task_reassigned.matter_reassigned',
         // Làn tk, Task 2, vòng sửa 1 (I1): cùng hằng số, người giao đổi sang lead mới.

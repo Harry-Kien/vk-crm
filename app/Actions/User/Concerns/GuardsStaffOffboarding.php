@@ -13,6 +13,7 @@ use App\Enums\Role;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\OpenLeads;
+use App\Support\OpenTaskWork;
 use App\Support\OpenWork;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -42,6 +43,10 @@ use Illuminate\Database\Eloquent\Builder;
  * kinh doanh hay Trợ lý chỉ chặn lead được chuyển tư vấn (hai vai đó vẫn là "Người phụ trách" của lead được, nhưng
  * không mở được vụ từ lead — `HandIntakeToLawyer::canReceive()`).
  *
+ * Làn fa2 (phán quyết 2): việc nội bộ còn dở ({@see OpenTaskWork}) chặn vô hiệu hoá/xoá và đổi sang Kế toán / Nhân
+ * viên kinh doanh như mọi loại việc dở khác (`composeOpenWorkReason()`); "Khoá truy cập ngay" đếm chúng vào hộp xác
+ * nhận và nhật ký (`SuspendStaffAccess`).
+ *
  * Trait này KHÔNG tự quyết định đường vào (`Response::deny()` cho policy, `ValidationException`
  * cho form) — nó chỉ trả về LÝ DO tiếng Việt (hoặc `null` khi không có gì chặn), để mỗi nơi gọi
  * gói lại đúng hình dạng exception của nó. Xem lý lẽ đầy đủ ở hai nơi gọi.
@@ -60,6 +65,10 @@ trait GuardsStaffOffboarding
      * Làn fi (A1): hai mảnh lead ({@see OpenLeads}) đứng sau ba mảnh cũ. `$assignedLeadsBlock` = false
      * khi chức danh mới vẫn là "Người phụ trách" của lead được (có `intake.create` — đích Nhân viên kinh
      * doanh): khi đó chỉ lead được chuyển tư vấn chặn, lead đang phụ trách thì không.
+     *
+     * Làn fa2 (phán quyết 2): ba mảnh việc nội bộ ({@see OpenTaskWork} — việc đang giữ, việc đã giao còn mở, hồ sơ
+     * chờ nhận) đứng sau cùng, chặn cùng mức ở MỌI nơi gọi hàm này. Mỗi mảnh chỉ đường tới phần "Việc nội bộ và ghế"
+     * của màn hình "Bàn giao hàng loạt" (`TransferStaffWork`), nơi chuyển được cả việc của người không phụ trách vụ.
      */
     private function composeOpenWorkReason(User $user, string $intro, bool $assignedLeadsBlock = true): ?string
     {
@@ -86,6 +95,21 @@ trait GuardsStaffOffboarding
 
         if ($assignedLeadsBlock && $openLeads->assigned->isNotEmpty()) {
             $parts[] = __('users.offboarding.open_work_assigned_leads', ['count' => $openLeads->assigned->count()]);
+        }
+
+        // Làn fa2, phán quyết 2: việc nội bộ còn dở chặn cùng mức với mọi loại việc dở ở trên — `OpenTaskWork`.
+        $openTasks = OpenTaskWork::forUser($user);
+
+        if ($openTasks->held->isNotEmpty()) {
+            $parts[] = __('internal_flow.offboarding.held_tasks', ['count' => $openTasks->held->count()]);
+        }
+
+        if ($openTasks->assigned->isNotEmpty()) {
+            $parts[] = __('internal_flow.offboarding.assigned_tasks', ['count' => $openTasks->assigned->count()]);
+        }
+
+        if ($openTasks->pendingSeats->isNotEmpty()) {
+            $parts[] = __('internal_flow.offboarding.pending_seats', ['count' => $openTasks->pendingSeats->count()]);
         }
 
         if ($parts === []) {

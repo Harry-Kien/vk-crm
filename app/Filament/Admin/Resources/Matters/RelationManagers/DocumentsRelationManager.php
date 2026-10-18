@@ -590,13 +590,22 @@ class DocumentsRelationManager extends RelationManager
             ->requiresConfirmation()
             ->modalHeading(__('documents.tab.actions.return_to_draft_heading'))
             ->modalDescription(__('documents.tab.actions.return_to_draft_description'))
+            // Làn fa2, phán quyết 7: lý do bắt buộc — người trình nhận chuông kèm lý do (ReturnDocumentToDraft).
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('internal_flow.document_review.fields.reason'))
+                    ->helperText(__('internal_flow.document_review.fields.reason_hint'))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(ReturnDocumentToDraft::REASON_MAX_LENGTH),
+            ])
             ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
             ->visible(fn (Document $record): bool => $record->group === DocumentGroup::Issued
                 && $record->status === DocumentStatus::PendingApproval)
             ->successNotificationTitle(__('documents.tab.actions.return_to_draft_success'))
-            ->action(fn (Action $action, Document $record) => $this->runAction(
+            ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
                 $action,
-                fn () => app(ReturnDocumentToDraft::class)->handle(document: $record, actor: Auth::user()),
+                fn () => app(ReturnDocumentToDraft::class)->handle(document: $record, actor: Auth::user(), reason: (string) ($data['reason'] ?? '')),
             ));
     }
 

@@ -6,6 +6,7 @@ use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
+use App\Actions\Deadline\Concerns\QueuesDeadlineAssignmentNotice;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\DeadlineSeverity;
 use App\Exceptions\MatterClosedForDeadlines;
@@ -108,6 +109,7 @@ class UpdateDeadline
 {
     use ChecksAccountActive;
     use ChecksDeadlineHolder;
+    use QueuesDeadlineAssignmentNotice;
     use ReadsWithoutPortalScope;
 
     /** `deadlines.name` là `string(200)` (SPEC §4.13) — cùng giới hạn với {@see AddMatterDeadline}. */
@@ -219,13 +221,20 @@ class UpdateDeadline
             // M13 R9: người phụ trách THẬT SỰ đổi — thêm dòng lịch sử người giữ, sau `deadline_updated`.
             // Xem docblock lớp, mục "Lịch sử người giữ mốc".
             if (in_array('responsible_user_id', $changedFields, true)) {
-                Audit::record('deadline_responsible_changed', $fresh, [
+                $changed = Audit::record('deadline_responsible_changed', $fresh, [
                     'matter_id' => $matter->getKey(),
                     'client_id' => $matter->client_id,
                     'from' => $before['responsible_user_id'],
                     'to' => $fresh->responsible_user_id,
                     'reason' => self::HANDOVER_REASON,
                 ], causer: $actor);
+
+                // Làn fa2, phán quyết 6: người giữ mốc mới được báo ngay (docblock `QueuesDeadlineAssignmentNotice`).
+                $holder = User::query()->find($fresh->responsible_user_id);
+
+                if ($holder !== null) {
+                    $this->queueAssignmentNotice($fresh, $holder, $actor, $changed, $before['responsible_user_id'] === null ? null : (int) $before['responsible_user_id']);
+                }
             }
 
             return $fresh;

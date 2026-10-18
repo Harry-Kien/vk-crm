@@ -4,6 +4,7 @@ namespace App\Actions\Deadline;
 
 use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
+use App\Actions\Deadline\Concerns\QueuesDeadlineAssignmentNotice;
 use App\Actions\Portal\TriageClientRequest;
 use App\Actions\TransitionMatterStage;
 use App\Enums\CreatedVia;
@@ -77,6 +78,7 @@ class AddMatterDeadline
 {
     use ChecksDeadlineHolder;
     use OpensDeadline;
+    use QueuesDeadlineAssignmentNotice;
 
     /** `deadlines.name` là `string(200)` (SPEC §4.13). */
     public const NAME_MAX_LENGTH = 200;
@@ -143,7 +145,7 @@ class AddMatterDeadline
 
             $deadline->blameOn($actor)->save();
 
-            Audit::record('deadline_added', $deadline, [
+            $added = Audit::record('deadline_added', $deadline, [
                 'matter_id' => $fresh->getKey(),
                 'client_id' => $fresh->client_id,
                 'due_date' => $due->toDateString(),
@@ -152,6 +154,10 @@ class AddMatterDeadline
                 'is_published' => $isPublished,
                 'created_via' => $createdVia->value,
             ], causer: $actor);
+
+            // Làn fa2, phán quyết 6: giao mốc mới cho người khác người thêm (kể cả mặc định là luật sư phụ trách) thì
+            // người đó được báo ngay (docblock `QueuesDeadlineAssignmentNotice`).
+            $this->queueAssignmentNotice($deadline, $responsible, $actor, $added, null);
 
             return $deadline;
         });

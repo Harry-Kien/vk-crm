@@ -96,7 +96,8 @@ return [
         'open_work_outro' => 'Hãy xử lý xong rồi thử lại.',
         'demotion_from_admin_restricted' => 'Không thể đổi :name khỏi chức danh Quản trị viên: người này còn ở đội ngũ, hoặc còn giữ mốc hạn/yêu cầu khách chưa xong, trong :count vụ việc hạn chế mà người này không phụ trách — sau khi đổi, họ sẽ không mở được các vụ đó nữa. Hãy gỡ họ khỏi đội ngũ và chuyển việc cho người khác trước.',
         'last_admin_blocked' => 'Không thể thực hiện: đây là quản trị viên đang hoạt động cuối cùng của hệ thống. Hãy chỉ định thêm ít nhất một quản trị viên khác trước khi đổi chức danh, vô hiệu hoá hoặc xoá tài khoản này.',
-        'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, còn giữ lead tiếp nhận đang mở (phụ trách hay được chuyển tư vấn), hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+        // làn fa2 (phán quyết 2): thêm việc nội bộ còn dở (App\Support\OpenTaskWork).
+        'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, còn giữ lead tiếp nhận đang mở (phụ trách hay được chuyển tư vấn), còn giữ hay đã giao việc nội bộ chưa xong, còn hồ sơ được giao chờ nhận, hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
         // Làn fi, vòng sửa 1 (I4): lead người này phụ trách không chặn đích Nhân viên kinh doanh
         // (EditUser::ASSIGNED_LEADS_BLOCK_DEMOTION chỉ có Kế toán) — câu nói đúng ba đích.
         'position_hint' => 'Đổi chức danh sang Trợ lý, Kế toán hoặc Nhân viên kinh doanh sẽ bị chặn nếu người này còn việc mà chức danh mới không xử lý được: sang Trợ lý — vụ đang dẫn, lead được chuyển tư vấn; sang Nhân viên kinh doanh — mọi việc dở dang trừ lead người này phụ trách (nhân viên kinh doanh vẫn phụ trách lead được); sang Kế toán — mọi việc dở dang. Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
@@ -107,7 +108,8 @@ return [
         // M7 Task 2: liên kết tới màn hình "Bàn giao hàng loạt" đi kèm lời chặn, khi người bị chặn
         // còn dẫn ít nhất một vụ việc (mảnh 'open_work_lead_matters' ở trên) — App\Filament\Admin\
         // Pages\BulkReassign::offboardingLinkAction(), gọi từ EditUser/DeleteStaffMember.
-        'bulk_reassign_notice' => 'Có thể dùng màn hình "Bàn giao hàng loạt" để chuyển hết các vụ việc :name đang dẫn cho một luật sư khác cùng lúc.',
+        // làn fa2 (phán quyết 2): màn hình đó giờ chuyển cả việc nội bộ, ghế, mốc và yêu cầu của người không phụ trách vụ.
+        'bulk_reassign_notice' => 'Có thể dùng màn hình "Bàn giao hàng loạt" để chuyển hết các vụ việc :name đang dẫn cho một luật sư khác cùng lúc, và — ở phần "Việc nội bộ và ghế" — chuyển việc nội bộ, ghế trong đội ngũ, mốc hạn và yêu cầu của khách người này đang giữ cho một người khác.',
     ],
 
     // M8 Task 7: lệnh `vkcrm:create-admin` (App\Console\Commands\CreateAdminCommand,
