@@ -26,6 +26,7 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -76,10 +77,15 @@ use UnitEnum;
  *
  * # Phần thứ hai: "Việc nội bộ và ghế" (làn fa2, phán quyết 2)
  *
- * Schema riêng {@see self::staffWorkForm()} (state `staff`), nút {@see self::transferStaffWork()} — chuyển việc nội
- * bộ, ghế trong đội ngũ, mốc hạn và yêu cầu của khách của MỘT nhân sự (kể cả người KHÔNG phụ trách vụ nào: trợ lý,
- * chuyên viên, luật sư cộng sự) sang MỘT người, qua {@see TransferStaffWork} (mỗi hồ sơ hỏi lại `manageTeam`, dưới
- * khoá). `?from=` mở sẵn cả hai phần. Cùng cổng `bulkReassign` ở cả mount lẫn hành động.
+ * Schema riêng {@see self::staffWorkForm()} (state `staff`), nút {@see self::transferStaffWorkAction()} — chuyển việc
+ * nội bộ, ghế trong đội ngũ, mốc hạn và yêu cầu của khách của MỘT nhân sự (kể cả người KHÔNG phụ trách vụ nào: trợ lý,
+ * chuyên viên, luật sư cộng sự) sang MỘT người, qua {@see TransferStaffWork} (lọc hồ sơ người bấm quản lý được, mỗi
+ * hồ sơ hỏi lại `manageTeam` dưới khoá). Vòng sửa 1 (minor 5): nút mở hộp xác nhận nêu ai → ai và các con số
+ * ({@see self::staffSummary()}), bắt lý do (ghi vào dòng `staff_work_transferred`). Người nhận có thể là chính người
+ * bấm (minor 3). `?from=` mở sẵn cả hai phần. Cùng cổng `bulkReassign` ở cả mount lẫn hành động.
+ *
+ * Vòng sửa 1 (minor 8): danh sách hồ sơ người bấm quản lý được (nạp kèm đội ngũ, hỏi `manageTeam` từng hồ sơ) đọc MỘT
+ * lần mỗi request ({@see self::manageableOpenMatters()}, thuộc tính `private` — Livewire không giữ qua request).
  *
  * # Mọi phương thức trả về danh sách/tuỳ chọn đều `private`/`protected`
  *
@@ -131,6 +137,17 @@ class BulkReassign extends Page
      * @var list<array{matterId: int|null, success: bool, message: string, matterCode: string|null, matterTitle: string|null}>|null
      */
     public ?array $staffResults = null;
+
+    /**
+     * Vòng sửa 1 (minor 8): hồ sơ đang mở người bấm `manageTeam` được, nhớ trong MỘT request
+     * ({@see self::manageableOpenMatters()}). `private`: Livewire không dehydrate, request sau đọc lại.
+     *
+     * @var Collection<int, Matter>|null
+     */
+    private ?Collection $manageableOpenMattersMemo = null;
+
+    /** @var array<int, string>|null nhớ {@see self::staffOptions()} trong một request */
+    private ?array $staffOptionsMemo = null;
 
     public static function getNavigationLabel(): string
     {
@@ -191,24 +208,66 @@ class BulkReassign extends Page
             ->components([
                 Select::make('user_id')
                     ->label(__('internal_flow.staff_work.fields.user_id'))
-                    ->options(fn (): array => self::staffOptions())
+                    ->options(fn (): array => $this->staffOptions())
                     ->searchable()
                     ->native(false)
                     ->live()
                     ->afterStateUpdated(fn (Set $set) => $set('recipient_id', null))
                     ->required(),
-                Text::make(fn (Get $get): string => filled($get('user_id')) ? self::staffSummary((int) $get('user_id')) : ''),
+                Text::make(fn (Get $get): string => filled($get('user_id')) ? $this->staffSummary((int) $get('user_id')) : ''),
                 Select::make('recipient_id')
                     ->label(__('internal_flow.staff_work.fields.recipient_id'))
                     ->options(fn (Get $get): array => self::staffRecipientOptions(filled($get('user_id')) ? (int) $get('user_id') : null))
                     ->searchable()
                     ->native(false)
+                    ->live()
                     ->required(),
             ]);
     }
 
-    /** Làn fa2 — nút "Chuyển việc nội bộ và ghế": hỏi lại Gate và hai ô chọn, rồi gọi {@see TransferStaffWork}. */
-    public function transferStaffWork(): void
+    /**
+     * Làn fa2 — nút "Chuyển việc nội bộ và ghế" (vòng sửa 1, minor 5): hộp xác nhận nêu người cần chuyển việc, người
+     * nhận và các con số ({@see self::staffSummary()}), bắt lý do (cùng trần {@see TransferStaffWork::REASON_MAX} —
+     * Action hỏi lại), rồi {@see self::runStaffTransfer()}. Cùng cổng `bulkReassign` (`authorize`).
+     */
+    public function transferStaffWorkAction(): Action
+    {
+        return Action::make('transferStaffWork')
+            ->label(__('internal_flow.staff_work.submit'))
+            ->color('primary')
+            ->authorize(fn (): bool => static::canAccess())
+            ->requiresConfirmation()
+            ->modalHeading(__('internal_flow.staff_work.confirm.heading'))
+            ->modalDescription(fn (): string => $this->staffConfirmation())
+            ->modalSubmitActionLabel(__('internal_flow.staff_work.confirm.submit'))
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('internal_flow.staff_work.confirm.reason'))
+                    ->helperText(__('internal_flow.staff_work.confirm.reason_hint'))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(TransferStaffWork::REASON_MAX),
+            ])
+            ->action(fn (array $data) => $this->runStaffTransfer((string) ($data['reason'] ?? '')));
+    }
+
+    /** Câu của hộp xác nhận: ai → ai, kèm các con số; chưa chọn đủ hai người thì nhắc chọn trước. */
+    private function staffConfirmation(): string
+    {
+        $fromId = (int) ($this->staff['user_id'] ?? 0);
+        $toId = (int) ($this->staff['recipient_id'] ?? 0);
+        $from = $this->staffOptions()[$fromId] ?? null;
+        $to = self::staffRecipientOptions($fromId)[$toId] ?? null;
+
+        if ($from === null || $to === null) {
+            return __('internal_flow.staff_work.confirm.pick_first');
+        }
+
+        return __('internal_flow.staff_work.confirm.description', ['from' => $from, 'to' => $to, 'summary' => $this->staffSummary($fromId)]);
+    }
+
+    /** Hỏi lại Gate và hai ô chọn, rồi gọi {@see TransferStaffWork}. `private`: xem docblock lớp. */
+    private function runStaffTransfer(string $reason): void
     {
         abort_unless(static::canAccess(), 404);
 
@@ -216,7 +275,7 @@ class BulkReassign extends Page
         $fromId = (int) ($data['user_id'] ?? 0);
         $toId = (int) ($data['recipient_id'] ?? 0);
 
-        abort_unless(array_key_exists($fromId, self::staffOptions()) && array_key_exists($toId, self::staffRecipientOptions($fromId)), 404);
+        abort_unless(array_key_exists($fromId, $this->staffOptions()) && array_key_exists($toId, self::staffRecipientOptions($fromId)), 404);
 
         /** @var User $actor */
         $actor = Auth::user();
@@ -225,7 +284,12 @@ class BulkReassign extends Page
             User::query()->withTrashed()->findOrFail($fromId),
             User::query()->findOrFail($toId),
             $actor,
+            $reason,
         );
+
+        // Lô vừa đổi đội ngũ / việc: danh sách người và câu tóm tắt của lần vẽ tiếp theo đọc lại.
+        $this->manageableOpenMattersMemo = null;
+        $this->staffOptionsMemo = null;
 
         $failures = collect($this->staffResults)->where('success', false)->count();
 
@@ -238,27 +302,48 @@ class BulkReassign extends Page
     }
 
     /**
-     * Nhân sự có việc để chuyển mà người bấm quản lý được (kể cả đã nghỉ, đã xoá mềm — người đã nghỉ vẫn có thể còn
-     * việc dở): người ngồi đội ngũ, người giữ hay đã giao việc còn mở, trên hồ sơ đang mở người bấm `manageTeam` được
-     * — cùng bộ lọc {@see self::currentLeadOptions()}, nên một người chỉ có mặt trên vụ hạn chế người bấm không quản
-     * lý không lộ tên ở đây; cộng người giữ việc chung (người bấm là trưởng phòng / quản trị viên — `bulkReassign`).
-     * Chỉ tên. `private`: xem docblock lớp.
+     * Hồ sơ đang mở người bấm `manageTeam` được, kèm đội ngũ — MỘT lần mỗi request (vòng sửa 1, minor 8): ô chọn vẽ
+     * lại, câu tóm tắt, hộp xác nhận và lần bấm cùng đọc kết quả này. `->with('team')`: nhánh trong-bộ-nhớ của
+     * `MatterPolicy::view()` (cùng lý do {@see self::currentLeadOptions()}).
      *
-     * @return array<int, string>
+     * @return Collection<int, Matter>
      */
-    private static function staffOptions(): array
+    private function manageableOpenMatters(): Collection
     {
         $actor = Auth::user();
 
         if (! ($actor instanceof User)) {
-            return [];
+            return new Collection;
         }
 
-        $matters = Matter::query()
+        return $this->manageableOpenMattersMemo ??= Matter::query()
             ->open()
             ->with('team')
             ->get()
-            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('manageTeam', $matter));
+            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('manageTeam', $matter))
+            ->values();
+    }
+
+    /**
+     * Nhân sự có việc để chuyển mà người bấm quản lý được (kể cả đã nghỉ, đã xoá mềm — người đã nghỉ vẫn có thể còn
+     * việc dở): người ngồi đội ngũ, người giữ hay đã giao việc còn mở, trên hồ sơ đang mở người bấm `manageTeam` được
+     * ({@see self::manageableOpenMatters()} — cùng bộ lọc {@see self::currentLeadOptions()}, nên một người chỉ có mặt
+     * trên vụ hạn chế người bấm không quản lý không lộ tên ở đây); cộng người giữ việc chung (người bấm là trưởng phòng
+     * / quản trị viên — `bulkReassign`). Chỉ tên. Nhớ trong một request. `private`: xem docblock lớp.
+     *
+     * @return array<int, string>
+     */
+    private function staffOptions(): array
+    {
+        if ($this->staffOptionsMemo !== null) {
+            return $this->staffOptionsMemo;
+        }
+
+        if (! (Auth::user() instanceof User)) {
+            return [];
+        }
+
+        $matters = $this->manageableOpenMatters();
         $matterIds = $matters->modelKeys();
 
         $ids = $matters->flatMap(fn (Matter $matter) => $matter->team->modelKeys())
@@ -271,23 +356,21 @@ class BulkReassign extends Page
             ->values()
             ->all();
 
-        return User::query()->withTrashed()->whereKey($ids)->orderBy('name')->pluck('name', 'id')->all();
+        return $this->staffOptionsMemo = User::query()->withTrashed()->whereKey($ids)->orderBy('name')->pluck('name', 'id')->all();
     }
 
     /**
      * Người nhận: đang hoạt động, giữ được ghế làm việc của hồ sơ (luật sư, trưởng phòng, trợ lý), trừ chính người cần
-     * chuyển việc và người bấm ("Giao lại" không cho ai tự giao việc cho mình).
+     * chuyển việc. Người bấm CÓ trong danh sách (vòng sửa 1, minor 3 — trưởng phòng tự nhận ghế, mốc, yêu cầu); việc
+     * nội bộ thì theo luật của "Giao lại" ({@see TransferStaffWork}, bước 3).
      *
      * @return array<int, string>
      */
     private static function staffRecipientOptions(?int $fromId): array
     {
-        $actorId = Auth::id();
-
         return User::query()
             ->where('is_active', true)
             ->when($fromId !== null, fn ($query) => $query->whereKeyNot($fromId))
-            ->when($actorId !== null, fn ($query) => $query->whereKeyNot($actorId))
             ->orderBy('name')
             ->get()
             ->filter(fn (User $user): bool => $user->hasRole(StaffRole::Lawyer->value) || $user->hasRole(StaffRole::Manager->value) || $user->hasRole(StaffRole::Assistant->value))
@@ -296,24 +379,21 @@ class BulkReassign extends Page
     }
 
     /**
-     * Câu tóm tắt việc của `$userId` — chỉ trên hồ sơ người bấm `manageTeam` được (một vụ hạn chế người bấm không quản
-     * lý không góp vào con số nào), cộng việc chung. Chỉ số lượng.
+     * Câu tóm tắt việc của `$userId` — chỉ trên hồ sơ người bấm `manageTeam` được ({@see self::manageableOpenMatters()};
+     * một vụ hạn chế người bấm không quản lý không góp vào con số nào), cộng việc chung. Chỉ số lượng.
      */
-    private static function staffSummary(int $userId): string
+    private function staffSummary(int $userId): string
     {
-        $actor = Auth::user();
         $user = User::query()->withTrashed()->find($userId);
 
-        if (! ($actor instanceof User) || $user === null) {
+        if (! (Auth::user() instanceof User) || $user === null) {
             return '';
         }
 
-        $matterIds = Matter::query()
-            ->whereKey(app(TransferStaffWork::class)->matterIds($user))
-            ->with('team')
-            ->get()
-            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('manageTeam', $matter))
-            ->modelKeys();
+        $matterIds = array_values(array_intersect(
+            app(TransferStaffWork::class)->matterIds($user),
+            $this->manageableOpenMatters()->modelKeys(),
+        ));
         $work = OpenTaskWork::forUser($user);
         $counted = fn ($rows): int => $rows->filter(fn ($row): bool => $row->matter_id === null || in_array($row->matter_id, $matterIds, true))->count();
 
@@ -332,7 +412,7 @@ class BulkReassign extends Page
             ->components([
                 Select::make('lead_lawyer_id')
                     ->label(__('reassign.bulk.fields.lead_lawyer_id'))
-                    ->options(fn (): array => self::currentLeadOptions())
+                    ->options(fn (): array => $this->currentLeadOptions())
                     ->searchable()
                     ->native(false)
                     ->live()
@@ -466,6 +546,10 @@ class BulkReassign extends Page
 
         $this->results = array_map(self::toResultRow(...), $actionResults);
 
+        // Làn fa2, vòng sửa 1 (minor 8): lô vừa đổi luật sư phụ trách — danh sách nhớ trong request này đọc lại.
+        $this->manageableOpenMattersMemo = null;
+        $this->staffOptionsMemo = null;
+
         $successCount = collect($this->results)->where('success', true)->count();
         $failureCount = count($this->results) - $successCount;
 
@@ -540,25 +624,20 @@ class BulkReassign extends Page
      * đổi chức danh sang Trợ lý/Kế toán (cột đó không tự đổi theo — xem docblock
      * `MatterPolicy::manageTeam()`), và người đó vẫn cần bàn giao được vụ việc cũ của mình.
      *
-     * `->with('team')` — cùng lý do {@see self::matterOptions()} nạp trước: nhánh trong-bộ-nhớ
-     * của `MatterPolicy::view()`.
+     * Đọc từ {@see self::manageableOpenMatters()} (hồ sơ đang mở, `->with('team')` — nhánh trong-bộ-nhớ của
+     * `MatterPolicy::view()`, lọc `manageTeam`), nhớ trong một request cùng phần "Việc nội bộ và ghế" (làn fa2, vòng
+     * sửa 1, minor 8): hai ô chọn đầu hai phần không nạp lại danh sách hồ sơ.
      *
      * @return array<int, string>
      */
-    private static function currentLeadOptions(): array
+    private function currentLeadOptions(): array
     {
-        $actor = Auth::user();
-
-        if (! ($actor instanceof User)) {
+        if (! (Auth::user() instanceof User)) {
             return [];
         }
 
-        $leadIds = Matter::query()
-            ->open()
+        $leadIds = $this->manageableOpenMatters()
             ->whereNotNull('lead_lawyer_id')
-            ->with('team')
-            ->get()
-            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('manageTeam', $matter))
             ->pluck('lead_lawyer_id')
             ->unique();
 

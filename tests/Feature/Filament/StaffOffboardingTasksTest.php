@@ -123,7 +123,7 @@ it('moves a non-lead\'s tasks, seats and deadlines from the bulk handover screen
     $page = $this->livewire(BulkReassign::class, ['from' => $this->assistant->id])
         ->assertSet('staff.user_id', $this->assistant->id)
         ->set('staff.recipient_id', $this->successor->id)
-        ->call('transferStaffWork')
+        ->callAction('transferStaffWork', data: ['reason' => 'Nhân sự nghỉ việc, chuyển toàn bộ việc.'])
         ->assertHasNoErrors();
 
     foreach ([$onFirst, $onSecond, $general] as $task) {
@@ -162,7 +162,7 @@ it('points to the lead handover for a matter the person leads, and moves nothing
 
     $page = $this->livewire(BulkReassign::class, ['from' => $lawyer->id])
         ->set('staff.recipient_id', $heir->id)
-        ->call('transferStaffWork')
+        ->callAction('transferStaffWork', data: ['reason' => 'Nhân sự nghỉ việc, chuyển toàn bộ việc.'])
         ->assertHasNoErrors();
 
     $row = collect($page->get('staffResults'))->firstWhere('matterId', $led->id);
@@ -215,7 +215,7 @@ it('moves who follows the general tasks a leaving manager assigned, and the task
 
     $this->livewire(BulkReassign::class, ['from' => $leaving->id])
         ->set('staff.recipient_id', $heir->id)
-        ->call('transferStaffWork')
+        ->callAction('transferStaffWork', data: ['reason' => 'Nhân sự nghỉ việc, chuyển toàn bộ việc.'])
         ->assertHasNoErrors();
 
     expect($general->fresh()->assigned_by)->toBe($heir->id)
@@ -256,7 +256,7 @@ it('does not count a seat waiting on a matter that has already closed', function
 it('refuses, in the action itself, someone without the bulk handover gate — not even the general tasks move', function () {
     $general = Task::factory()->status(TaskStatus::Accepted)->create(['assignee_id' => $this->successor->id, 'assigned_by' => $this->assistant->id]);
 
-    expect(fn () => app(TransferStaffWork::class)->handle($this->assistant, $this->successor, $this->lead))
+    expect(fn () => app(TransferStaffWork::class)->handle($this->assistant, $this->successor, $this->lead, 'Nghỉ việc.'))
         ->toThrow(AuthorizationException::class);
 
     expect($general->fresh()->assigned_by)->toBe($this->assistant->id)

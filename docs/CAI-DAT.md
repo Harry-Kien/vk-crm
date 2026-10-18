@@ -1625,17 +1625,18 @@ Cài đặt (làn st):
 
 Không migration mới, không tác vụ lịch mới, không quyền mới, không biến `.env` mới — chuỗi lệnh nâng cấp ở
 trên, nguyên vẹn, là đủ; dòng cron giữ nguyên. Bản này chỉ thêm lời báo và hộp thoại (`docs/QUY-TRINH.md`, mục
-"Đính chính 2026-10-16 — kiểm tra luồng nội bộ"). Ba mẫu thư mới cho NHÂN SỰ, đi qua hàng đợi thư sẵn có (lượt
+"Đính chính 2026-10-16 — kiểm tra luồng nội bộ"). Bốn mẫu thư mới cho NHÂN SỰ, đi qua hàng đợi thư sẵn có (lượt
 gửi hàng đợi mỗi phút của dòng cron, Bước 8), hiện ở "Thư đã gửi", không gửi lại tay được, không đẩy lên điện
 thoại:
 
 - `staff.task.matter.assigned` — mở vụ (hay chuyển lead thành vụ) với luật sư phụ trách là người khác người tạo;
 - `staff.deadline_assigned` — người khác giao một mốc thời hạn cho nhân sự;
-- `staff.document_review.submitted` — một văn bản nội bộ được trình duyệt.
+- `staff.document_review.submitted` — một văn bản nội bộ được trình duyệt;
+- `staff.work_transferred` — thư tổng hợp cho người nhận một lần "Chuyển việc nội bộ và ghế" (một thư cho cả lô).
 
 Sau khi lên bản: một nhân sự còn giữ việc nội bộ (hay đã giao việc còn mở, hay còn hồ sơ chờ nhận) sẽ bị chặn
 vô hiệu hoá / xoá / đổi sang Kế toán hay Nhân viên kinh doanh cho tới khi chuyển xong — dùng phần "Việc nội bộ và
-ghế" của màn hình "Bàn giao hàng loạt".
+ghế" của màn hình "Bàn giao hàng loạt" (nút mở hộp xác nhận nêu các con số và bắt nhập lý do, ghi vào nhật ký).
 
 ### Nâng cấp hỏng: quay lại bản trước
 

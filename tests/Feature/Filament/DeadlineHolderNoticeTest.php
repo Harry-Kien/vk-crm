@@ -174,3 +174,34 @@ it('drops a stale notice: the holder changed again, the deadline was completed, 
     expect(fa2DeadlineBells($this->assistant))->toBe([]);
     Mail::assertNotSent(DeadlineAssigned::class);
 })->with(['holder', 'completed', 'closed']);
+
+// Làn fa2, Task 1, vòng sửa 1 (minor 6): chỉ thư của một mốc ĐỔI người giữ mới nói tới lời nhắc đã gửi trước đây —
+// một mốc vừa thêm chưa có lời nhắc nào.
+it('mentions earlier reminders only when the deadline changed hands, not for a deadline just added', function () {
+    $deadline = Deadline::factory()->for($this->matter)->create([
+        'name' => 'Phiên hoà giải',
+        'due_date' => today()->addDays(10),
+        'responsible_user_id' => $this->lead->id,
+    ]);
+
+    $this->actingAs($this->lead, 'web');
+
+    fa2DeadlineTab($this->matter)
+        ->callTableAction('changeResponsible', $deadline, data: ['responsible_user_id' => $this->assistant->id])
+        ->assertHasNoTableActionErrors();
+
+    fa2DeadlineTab($this->matter)->callTableAction('create', data: [
+        'name' => 'Nộp tạm ứng án phí',
+        'due_date' => today()->addDays(5)->toDateString(),
+        'responsible_user_id' => $this->assistant->id,
+    ])->assertHasNoTableActionErrors();
+
+    $headline = fn (DeadlineAssigned $mail): string => (string) $mail->content()->with['headline'];
+
+    Mail::assertSent(DeadlineAssigned::class, fn (DeadlineAssigned $mail): bool => $mail->deadline->is($deadline)
+        && $headline($mail) === __('internal_flow.deadline_assigned.email.headline', ['who' => 'Luật sư Khang']));
+    Mail::assertSent(DeadlineAssigned::class, fn (DeadlineAssigned $mail): bool => $mail->deadline->name === 'Nộp tạm ứng án phí'
+        && $headline($mail) === __('internal_flow.deadline_assigned.email.headline_new', ['who' => 'Luật sư Khang']));
+
+    expect(__('internal_flow.deadline_assigned.email.headline_new', ['who' => 'X']))->not->toContain('nhắc');
+});

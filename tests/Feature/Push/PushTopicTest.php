@@ -487,6 +487,8 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.document_review.submitted',
         // Làn fa2 (phán quyết 6): báo người giữ mốc mới — chuông + thư đủ, cùng hạng thư nhắc mốc (không đẩy).
         'staff.deadline_assigned',
+        // Làn fa2, vòng sửa 1 (I2): thư tổng hợp "nhận việc của một đồng nghiệp" — một danh sách để đọc, chuông + thư đủ.
+        'staff.work_transferred',
         'staff.intake_unanswered',
         'staff.matter_reassigned',
         // làn st: thư thử của nút "Gửi thư thử" (Cài đặt › Thư điện tử) — chỉ để kiểm tra máy chủ thư, tới

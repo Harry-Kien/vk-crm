@@ -18,6 +18,8 @@ return [
         'leave' => 'Để "Cần giao lại" (giao sau)',
         'choose_recipient' => 'Người này còn giữ :count việc nội bộ trên hồ sơ: hãy chọn người nhận thay, hoặc chọn "Để Cần giao lại".',
         'recipient_is_member' => 'Không thể chuyển việc cho chính người đang bị gỡ khỏi đội ngũ.',
+        // làn fa2, vòng sửa 1 (minor 2): người bấm chọn chính mình — "Giao lại" không cho ai tự giao việc cho mình.
+        'self_refused' => 'Việc nội bộ không giao được cho chính người đang thao tác (luật "không tự giao việc cho mình" của trang Công việc). Hãy chọn một đồng nghiệp khác, hoặc "Để Cần giao lại".',
         'needs_reassignment_marker' => 'Cần giao lại',
         'matter_named' => 'hồ sơ :code',
         'matter_hidden' => 'một hồ sơ',
@@ -60,10 +62,64 @@ return [
             'done' => 'Đã chuyển: :tasks việc đang giữ, :followed việc đã giao (đổi người giao), :deadlines mốc hạn, :requests yêu cầu của khách; :seats ghế mới trong đội ngũ.',
             'is_lead' => 'Người này đang phụ trách hồ sơ này — dùng phần "Bàn giao" ở trên (bàn giao vụ chuyển cả việc của luật sư phụ trách cũ).',
             'general' => 'Việc chung (không thuộc hồ sơ): đã chuyển :moved / :count việc đang giữ; :followed việc đã giao đổi người giao.',
+            // làn fa2, vòng sửa 1 (minor 3): "Giao lại" từ chối một số việc (ví dụ người nhận là chính người bấm).
+            'tasks_failed' => ':count việc nội bộ không chuyển được: :reason Các việc này ở "Cần giao lại" — hãy giao lại ở tab "Công việc" của hồ sơ.',
+            'general_failed' => ':count việc chung không chuyển được: :reason Hãy giao lại trên trang Công việc.',
+            // làn fa2, vòng sửa 1 (I1): hồ sơ người bấm không quản lý được đội ngũ — không mã, không tiêu đề, không id.
+            'unmanaged' => 'Còn :count hồ sơ có ghế hoặc việc của người này mà anh/chị không quản lý được đội ngũ — cần quản trị viên chuyển.',
         ],
         'notification_title' => 'Đã chuyển việc nội bộ và ghế',
         'validation' => [
-            'recipient_invalid' => 'Hãy chọn một người nhận khác: không phải chính người cần chuyển việc, không phải chính anh/chị, và đang hoạt động.',
+            'recipient_invalid' => 'Hãy chọn một người nhận khác: không phải chính người cần chuyển việc, và đang hoạt động.',
+            'reason_required' => 'Phải nhập lý do chuyển việc (tối đa :max ký tự) — lý do được ghi vào nhật ký.',
+        ],
+        // làn fa2, vòng sửa 1 (minor 5): hộp xác nhận của nút "Chuyển việc nội bộ và ghế".
+        'confirm' => [
+            'heading' => 'Chuyển việc nội bộ và ghế?',
+            'description' => 'Chuyển việc của :from sang :to. :summary Người này sẽ rời đội ngũ các hồ sơ đó; thao tác không hoàn tác được từ màn hình này.',
+            'pick_first' => 'Hãy chọn nhân sự cần chuyển việc và người nhận việc trước.',
+            'reason' => 'Lý do chuyển việc',
+            'reason_hint' => 'Ghi vào nhật ký của nhân sự cần chuyển việc.',
+            'submit' => 'Chuyển việc',
+        ],
+        // làn fa2, vòng sửa 1 (I2): MỘT lời báo cho cả lô — App\Notifications\Staff\StaffWorkTransferAlert và
+        // App\Mail\Staff\StaffWorkTransferred (App\Jobs\SendStaffWorkTransferNotices). :who, :from, :to, :codes đã escape
+        // ở chuông.
+        'digest' => [
+            'matters' => ':count hồ sơ (:codes)',
+            'matters_with_hidden' => ':count hồ sơ (:codes và :hidden hồ sơ khác)',
+            'matters_unnamed' => ':count hồ sơ',
+            'tasks' => ':count việc nội bộ',
+            'followed' => ':count việc đã giao (đổi người theo dõi)',
+            'deadlines' => ':count mốc hạn',
+            'requests' => ':count yêu cầu của khách',
+            'seats' => ':count ghế mới trong đội ngũ',
+            'open' => 'Mở',
+            'received' => [
+                'title' => 'Anh/chị nhận việc của một đồng nghiệp',
+                'body' => ':who đã chuyển cho anh/chị việc của :from trên :matters: :items. Việc nội bộ chờ anh/chị bấm "Đã nhận" trên trang Công việc; ghế mới chờ anh/chị bấm "Đã nhận hồ sơ".',
+                'body_general' => ':who đã chuyển cho anh/chị việc chung (không thuộc hồ sơ) của :from: :items. Việc nội bộ chờ anh/chị bấm "Đã nhận" trên trang Công việc.',
+            ],
+            'handed_over' => [
+                'title' => 'Việc của anh/chị đã được chuyển cho người khác',
+                'body' => ':who đã chuyển việc của anh/chị trên :matters cho :to: :items. Anh/chị đã rời đội ngũ các hồ sơ đó và không cần làm tiếp các việc này.',
+                'body_general' => ':who đã chuyển việc chung (không thuộc hồ sơ) của anh/chị cho :to: :items. Anh/chị không cần làm tiếp các việc này.',
+                'body_seats_only' => ':who đã gỡ anh/chị khỏi đội ngũ :matters khi chuyển việc của anh/chị cho :to.',
+            ],
+            'email' => [
+                'subject' => 'Anh/chị nhận việc của một đồng nghiệp',
+                'headline' => ':who đã chuyển cho anh/chị việc nội bộ, ghế trong đội ngũ, mốc hạn và yêu cầu của khách của :from. Mỗi việc, mỗi mốc không có thư riêng — thư này thay cho chúng.',
+                'fields' => [
+                    'from' => 'Việc của',
+                    'matters' => 'Hồ sơ',
+                    'tasks' => 'Việc nội bộ (Chờ nhận)',
+                    'followed' => 'Việc đã giao (anh/chị theo dõi)',
+                    'deadlines' => 'Mốc hạn',
+                    'requests' => 'Yêu cầu của khách',
+                    'seats' => 'Ghế mới trong đội ngũ',
+                ],
+                'action' => 'Mở trang Công việc',
+            ],
         ],
     ],
 
@@ -111,6 +167,8 @@ return [
         'email' => [
             'subject' => 'Anh/chị được giao một mốc thời hạn',
             'headline' => ':who giao anh/chị phụ trách một mốc thời hạn. Các lời nhắc theo lịch đã gửi trước đây sẽ không gửi lại, nên hãy ghi nhận hạn ngay từ thư này.',
+            // làn fa2, vòng sửa 1 (minor 6): mốc vừa THÊM — chưa có lời nhắc nào để nói tới.
+            'headline_new' => ':who vừa thêm một mốc thời hạn và giao anh/chị phụ trách. Hãy ghi nhận hạn ngay từ thư này.',
             'fields' => [
                 'name' => 'Mốc',
                 'matter' => 'Hồ sơ',

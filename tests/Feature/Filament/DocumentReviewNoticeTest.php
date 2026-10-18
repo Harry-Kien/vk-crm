@@ -191,3 +191,20 @@ it('drops a stale notice once the document has moved on', function () {
     expect(fa2ReviewBells($this->lead))->toBe([]);
     Mail::assertNotSent(DocumentReviewRequest::class);
 });
+
+// Làn fa2, Task 1, vòng sửa 1 (minor 7): người trình bị bỏ TRƯỚC khi dựng chuỗi dự phòng — trưởng phòng duy nhất tự
+// trình khi luật sư phụ trách không duyệt được thì quản trị viên (duyệt được) vẫn nhận lời báo.
+it('still reaches an admin when the only manager on the fallback chain is the one who submitted', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create(['name' => 'Trưởng phòng Hà']);
+    $admin = User::factory()->withRole(Role::Admin)->create(['name' => 'Quản trị Viên']);
+    $this->lead->forceFill(['is_active' => false])->save();
+
+    $this->actingAs($manager, 'web');
+
+    fa2DocumentsTab($this->matter)->callTableAction('submitForApproval', $this->document)->assertHasNoTableActionErrors();
+
+    expect(fa2ReviewBells($manager))->toBe([])
+        ->and(fa2ReviewBells($admin))->toHaveCount(1);
+
+    Mail::assertSent(DocumentReviewRequest::class, fn (DocumentReviewRequest $mail): bool => $mail->hasTo($admin->email));
+});

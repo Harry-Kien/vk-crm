@@ -629,7 +629,10 @@ văn phòng (§10 mục 8). Mỗi media nằm trọn ở MỘT đĩa tại mỗi
 báo ở mỗi bước, gửi sau commit (`App\Jobs\SendDocumentReviewNotice`): **"Trình duyệt"** → người duyệt nhận chuông
 và thư `staff.document_review.submitted` — luật sư phụ trách nếu còn hợp lệ, không thì chuỗi dự phòng của
 `ResolveStaffRecipients::handle()` (trưởng phòng xem được vụ → quản trị viên), mọi tầng đều phải duyệt được chính
-văn bản (`DocumentPolicy::publish`); người tự trình thì không ai bị báo. **"Đánh dấu đã ký, đã nộp"** → người đã
+văn bản (`DocumentPolicy::publish`); luật sư phụ trách tự trình thì không ai bị báo. Vòng sửa 1 (2026-10-18,
+`ResolveStaffRecipients::forApprovalRequest()`): trong chuỗi dự phòng người trình bị bỏ ở mọi tầng TRƯỚC khi chọn —
+trưởng phòng duy nhất tự trình (luật sư phụ trách không duyệt được) thì quản trị viên duyệt được vẫn được báo.
+**"Đánh dấu đã ký, đã nộp"** → người đã
 trình lần gần nhất nhận chuông. **"Trả về bản nháp"** bắt buộc **lý do** (tối đa 1.000 ký tự, ghi vào dòng
 `document_returned_to_draft`), và người đã trình nhận chuông kèm lý do. Người nhận chỉ là người còn mở được hồ
 sơ; lời báo đã cũ (văn bản đã chuyển trạng thái khác) thì không gửi.
@@ -1292,7 +1295,9 @@ còn lại tính lúc gửi (`App\Jobs\SendDeadlineAssignmentNotice`, sau commit
 được hồ sơ, mốc còn chưa xong, vụ còn mở, người giữ mốc vẫn là họ). `reminders_sent` thuộc về mốc, không thuộc
 người: bậc đã gửi cho người giữ cũ không gửi lại — lời báo này mang đúng điều bậc gần nhất nói, một lần; các bậc
 sau tới người mới như thường. Tự giao cho mình thì không báo. Bàn giao vụ không đi đường này: thư tổng hợp bàn
-giao đã liệt kê các mốc chuyển sang lead mới.
+giao đã liệt kê các mốc chuyển sang lead mới; "Chuyển việc nội bộ và ghế" (Bàn giao hàng loạt) cũng không — thư
+tổng hợp `staff.work_transferred` đếm các mốc (vòng sửa 1, 2026-10-18). Thư của một mốc vừa THÊM không nói tới lời
+nhắc đã gửi (chưa có lời nào); chỉ thư của một mốc đổi người giữ nói.
 
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
@@ -1475,7 +1480,10 @@ không còn gì để chặn.
   (`SendTeamDepartureNotices`): người bị gỡ nhận MỘT chuông tổng hợp "đã rời đội ngũ hồ sơ … — n việc đã chuyển /
   chờ giao lại" (vụ hạn chế họ không mở được: không mã; `ReassignTask` vẫn gửi họ chuông chung `REASSIGNED_AWAY`
   không tên việc của từng việc đã chuyển), người giao các việc đó (hay người nhận thay họ, `forTaskAssigner()`)
-  nhận một chuông. Mốc hạn và yêu cầu của khách vẫn chặn gỡ như trước.
+  nhận một chuông. Mốc hạn và yêu cầu của khách vẫn chặn gỡ như trước. Vòng sửa 1 (2026-10-18): người bấm ngồi
+  một ghế giữ việc (luật sư phụ trách gỡ trợ lý của mình) cũng có trong ô người nhận thay, nhưng không là mặc định
+  khi chính họ bấm — "Giao lại" không cho ai tự giao việc cho mình, nên chọn chính mình thì một câu nói rõ luật đó
+  và không gỡ gì.
 - **Việc nội bộ trong luật nghỉ việc** (`App\Support\OpenTaskWork`): việc đang giữ, việc đã giao còn mở, hồ sơ chờ
   nhận — chỉ việc chung và việc trên hồ sơ đang mở (đúng tập chuyển được; việc sót trên hồ sơ đã kết thúc / đã huỷ
   không chặn) — chặn vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi việc dở khác; "Khoá
@@ -1487,6 +1495,21 @@ không còn gì để chặn.
   rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng luật.
   Hồ sơ người đó phụ trách thì chỉ đường phần "Bàn giao". Liên kết tới màn hình này đi kèm câu chặn cả khi người đó
   chỉ còn việc nội bộ.
+- **Vòng sửa 1 của phần "Việc nội bộ và ghế" (2026-10-18).** (a) Hồ sơ người bấm không `manageTeam` được (vụ hạn
+  chế với trưởng phòng) không có dòng kết quả, id, mã hay tiêu đề nào — chỉ MỘT dòng "còn n hồ sơ cần quản trị viên
+  chuyển". (b) Ghế: chỉ ghế GIỮ VIỆC chưa trả lại của người cũ được chuyển (ghế "người theo dõi" / đã trả lại chỉ
+  gỡ); người nhận được ghế giữ việc khi người cũ còn ghế giữ việc HAY còn giữ việc trên hồ sơ (kể cả việc "Cần giao
+  lại" sau một lần gỡ) — ghế "người theo dõi" hay đã trả lại của người nhận thành ghế giữ việc chờ nhận; người cũ
+  chỉ còn mốc / yêu cầu của khách thì người nhận chưa ở đội ngũ vào đội ngũ. (c) Người nhận có thể là chính người
+  bấm (trưởng phòng tự nhận ghế, mốc, yêu cầu); việc nội bộ theo luật của "Giao lại" — việc bị từ chối ở lại "Cần
+  giao lại", dòng kết quả nói rõ, phần còn lại vẫn chuyển. (d) Nút mở hộp xác nhận nêu ai → ai và các con số, bắt
+  lý do (tối đa 5000 ký tự), ghi vào dòng `staff_work_transferred` — dòng này chỉ ghi khi có thay đổi, kèm số hồ sơ
+  lỗi / ngoài quyền và số việc không chuyển được. (e) **Một lời báo cho cả lô**: chuông "được giao ghế", chuông + thư
+  "được giao mốc", chuông "đã rời đội ngũ" của từng hồ sơ không gửi; sau lô người nhận nhận MỘT chuông + MỘT thư
+  `staff.work_transferred` (bao nhiêu hồ sơ — mã hồ sơ chỉ khi vụ không hạn chế hay họ mở được, còn lại chỉ đếm —,
+  việc nội bộ, việc đã giao, mốc, yêu cầu, ghế mới), người cũ MỘT chuông (`SendStaffWorkTransferNotices`). Người bấm
+  tự nhận thì không tự báo mình. Chuông + thư "được giao" của từng việc nội bộ (của "Giao lại") còn gửi tới khi gộp
+  với làn công việc (cờ không báo của `ReassignTask`).
 - **Công tắc "Giữ luật sư cũ làm cộng sự"** của màn hình hàng loạt TẮT sẵn khi mở từ màn hình cho nghỉ việc
   (`?from=`), bật sẵn khi mở thường; câu gợi ý (cả nút "Bàn giao" một vụ) nói rõ giữ làm cộng sự thì việc nội bộ
   người đó đang giữ KHÔNG chuyển.
@@ -2240,6 +2263,7 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 | `staff.deadline_assigned` | Người khác giao một mốc thời hạn cho nhân sự — thêm 2026-10-16 (làn fa2), theo đính chính §6.8 |
 | `staff.document_review.submitted` | Một văn bản nhóm B được trình duyệt — thêm 2026-10-16 (làn fa2), theo đính chính §4.11 |
 | `staff.task.matter.assigned` | Mở vụ với luật sư phụ trách khác người tạo — thêm 2026-10-16 (làn fa2), theo đính chính §6.11 |
+| `staff.work_transferred` | Thư tổng hợp cho người nhận một lần "Chuyển việc nội bộ và ghế" (Bàn giao hàng loạt) — thêm 2026-10-18 (làn fa2, vòng sửa 1), theo đính chính §6.11 |
 
 **Đính chính 2026-09-24 (M9).** Mẫu `staff.instalment_overdue` là thư **nội bộ**;
 nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (§5 bổ sung M9): mã

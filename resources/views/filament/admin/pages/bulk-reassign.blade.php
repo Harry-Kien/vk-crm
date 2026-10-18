@@ -54,24 +54,22 @@
         <h2 style="font-size:1.125rem;font-weight:700;margin-bottom:0.25rem;">{{ __('internal_flow.staff_work.heading') }}</h2>
         <p style="margin-bottom:1rem;{{ $muted }}">{{ __('internal_flow.staff_work.description') }}</p>
 
-        <form wire:submit="transferStaffWork">
-            {{ $this->staffWorkForm }}
+        {{-- Vòng sửa 1 (minor 5): nút mở hộp xác nhận (con số + lý do bắt buộc) — BulkReassign::transferStaffWorkAction(). --}}
+        {{ $this->staffWorkForm }}
 
-            <button type="submit" style="{{ $button }}margin-top:1.5rem;">
-                {{ __('internal_flow.staff_work.submit') }}
-            </button>
-        </form>
+        <div style="margin-top:1.5rem;">
+            {{ $this->transferStaffWorkAction }}
+        </div>
 
         @if ($this->staffResults !== null)
             @foreach ($this->staffResults as $result)
                 <div style="{{ $result['success'] ? $rowOk : $rowFail }}">
+                    {{-- Vòng sửa 1 (I1): dòng không mã (việc chung, "còn n hồ sơ cần quản trị viên chuyển") không in id nào. --}}
                     @if ($result['matterCode'] !== null)
                         <a href="{{ \App\Filament\Admin\Resources\Matters\Pages\ViewMatter::getUrl(['record' => $result['matterId']], panel: 'admin') }}"
                            style="font-weight:700;text-decoration:none;color:inherit;">
                             {{ $result['matterCode'] }} — {{ $result['matterTitle'] }}
                         </a>
-                    @elseif ($result['matterId'] !== null)
-                        <span style="font-weight:700;">#{{ $result['matterId'] }}</span>
                     @endif
 
                     <p style="margin-top:0.25rem;">{{ $result['message'] }}</p>

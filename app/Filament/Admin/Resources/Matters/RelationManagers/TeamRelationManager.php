@@ -269,9 +269,10 @@ class TeamRelationManager extends RelationManager
     /**
      * Làn fa2, phán quyết 1 — việc nội bộ `$member` đang giữ (chờ nhận, đang làm) trên `$matter`, và ô chọn người nhận
      * thay: người giữ việc hợp lệ của vụ (`TaskAssignees::eligible()` — ghế giữ việc chưa trả lại, đang hoạt động, mở
-     * được vụ, trừ người bấm), trừ chính người bị gỡ, cộng lựa chọn "Để Cần giao lại". Mặc định luật sư phụ trách khi
-     * họ có trong danh sách. Không giữ việc nào thì không có ô nào — gỡ như trước. `private`: xem docblock lớp về
-     * phương thức công khai của component Livewire.
+     * được vụ), kể cả người bấm khi chính họ ngồi một ghế như vậy (vòng sửa 1, minor 2), trừ chính người bị gỡ, cộng
+     * lựa chọn "Để Cần giao lại". Mặc định luật sư phụ trách khi họ có trong danh sách và không phải người bấm (chọn
+     * chính mình thì "Giao lại" từ chối — câu `internal_flow.team_removal.self_refused`). Không giữ việc nào thì không
+     * có ô nào — gỡ như trước. `private`: xem docblock lớp về phương thức công khai của component Livewire.
      *
      * @return array<int, Text|Select>
      */
@@ -290,8 +291,18 @@ class TeamRelationManager extends RelationManager
         }
 
         $actor = Auth::user();
-        $options = app(TaskAssignees::class)->eligible($matter, $actor)
+        $assignees = app(TaskAssignees::class);
+        $candidates = $assignees->eligible($matter, $actor);
+
+        // Vòng sửa 1 (minor 2): người bấm ngồi một ghế giữ việc (luật sư phụ trách gỡ trợ lý của mình) cũng có trong danh
+        // sách — "Giao lại" quyết chuyện tự nhận; RemoveTeamMember dịch lời từ chối của nó sang một câu rõ ràng.
+        if ($actor instanceof User && $actor->is_active && $assignees->holdsSeat($actor, $matter)) {
+            $candidates->push($actor);
+        }
+
+        $options = $candidates
             ->reject(fn (User $user): bool => $user->is($member))
+            ->sortBy('name')
             ->mapWithKeys(fn (User $user): array => [$user->getKey() => $user->name])
             ->all();
         $lines = $held->map(fn (Task $task): string => __('internal_flow.team_removal.task_line', [
@@ -306,7 +317,9 @@ class TeamRelationManager extends RelationManager
                 ->label(__('internal_flow.team_removal.recipient'))
                 ->helperText(__('internal_flow.team_removal.recipient_hint'))
                 ->options($options + [RemoveTeamMember::LEAVE_FOR_REASSIGNMENT => __('internal_flow.team_removal.leave')])
-                ->default(array_key_exists($matter->lead_lawyer_id, $options) ? $matter->lead_lawyer_id : null)
+                // Mặc định luật sư phụ trách chỉ khi chọn họ thật sự đi qua: không phải khi chính họ bấm — hôm nay
+                // ReassignTask không cho ai tự giao việc cho mình (integ: bỏ vế người bấm nếu làn fa1 đổi luật đó).
+                ->default(array_key_exists($matter->lead_lawyer_id, $options) && $matter->lead_lawyer_id !== $actor?->getKey() ? $matter->lead_lawyer_id : null)
                 ->required()
                 ->native(false),
         ];

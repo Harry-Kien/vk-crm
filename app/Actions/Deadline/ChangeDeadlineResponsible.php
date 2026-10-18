@@ -8,6 +8,7 @@ use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
 use App\Actions\Deadline\Concerns\QueuesDeadlineAssignmentNotice;
 use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\TransferStaffWork;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
@@ -69,12 +70,16 @@ class ChangeDeadlineResponsible
     use ReadsWithoutPortalScope;
 
     /**
+     * @param  bool  $notify  làn fa2, vòng sửa 1 (I2): `false` — không báo người giữ mốc mới (chuông + thư
+     *                        `staff.deadline_assigned`); chỉ {@see TransferStaffWork} truyền `false`,
+     *                        vì nó gửi MỘT lời báo tổng hợp cho cả lô
+     *
      * @throws AuthorizationException
      * @throws ValidationException
      */
-    public function handle(Deadline $deadline, User $actor, User $newResponsible): Deadline
+    public function handle(Deadline $deadline, User $actor, User $newResponsible, bool $notify = true): Deadline
     {
-        return DB::transaction(function () use ($deadline, $actor, $newResponsible): Deadline {
+        return DB::transaction(function () use ($deadline, $actor, $newResponsible, $notify): Deadline {
             // Câu ĐẦU TIÊN: khoá vụ việc, đọc lại từ CSDL — không tin `$deadline->matter` do caller
             // đưa vào, có thể là một quan hệ cũ hoặc một đối tượng đã sửa trong bộ nhớ.
             $matter = $this->scopelessly(Matter::query())->lockForUpdate()->find($deadline->matter_id);
@@ -137,7 +142,9 @@ class ChangeDeadlineResponsible
 
             // Làn fa2, phán quyết 6: người giữ mốc mới (không phải người bấm) được báo NGAY bằng chuông + thư, sau
             // commit — job đọc lại mốc và người nhận lúc chạy (docblock `SendDeadlineAssignmentNotice`).
-            $this->queueAssignmentNotice($fresh, $lockedNewResponsible, $actor, $changed, $previous === null ? null : (int) $previous);
+            if ($notify) {
+                $this->queueAssignmentNotice($fresh, $lockedNewResponsible, $actor, $changed, $previous === null ? null : (int) $previous);
+            }
 
             return $fresh;
         });

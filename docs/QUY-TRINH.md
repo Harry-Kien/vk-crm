@@ -476,6 +476,9 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
    đã rời đội ngũ hồ sơ … — n việc đã chuyển / chờ giao lại", nên không ai làm tiếp một việc đã sang tay người
    khác (khi việc được chuyển, nút "Giao lại" vẫn gửi thêm cho họ chuông chung "một việc đã giao cho người khác"
    của từng việc, không tên việc). Hồ sơ hạn chế mà người bị gỡ không mở được thì chuông của họ không ghi mã.
+   Luật sư phụ trách gỡ trợ lý của chính mình thì thấy tên mình trong ô người nhận thay nhưng ô không chọn sẵn:
+   việc nội bộ không tự giao cho mình được (luật của trang Công việc) — chọn chính mình thì hộp thoại nói rõ điều đó
+   và không gỡ; hãy chọn một đồng nghiệp hay "Để Cần giao lại".
 2. **Nghỉ việc, khoá truy cập, xoá, đổi chức danh**: việc nội bộ còn dở (đang giữ, đã giao cho người khác còn
    mở, hồ sơ được giao chờ nhận) **chặn** vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi
    việc dở khác, và câu chặn chỉ đường. **Khoá truy cập ngay** nêu ba con số đó trong hộp xác nhận và ghi vào
@@ -486,6 +489,16 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
    cầu của khách chuyển theo, người cũ rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng
    luật. Mỗi hồ sơ một dòng kết quả. Hồ sơ người đó đang phụ trách thì dùng phần "Bàn giao" ở trên. Chỉ việc chung
    và việc trên hồ sơ đang mở được đếm: việc còn sót trên hồ sơ đã kết thúc hay đã huỷ không chặn nghỉ việc.
+   Bấm nút thì một hộp xác nhận nêu chuyển việc của ai sang ai và các con số, bắt nhập **lý do** (ghi vào nhật ký
+   của nhân sự đó). Chỉ ghế làm việc (luật sư cộng sự, trợ lý) mới chuyển sang người nhận; ghế "người theo dõi" hay
+   ghế người cũ đã trả lại thì chỉ gỡ. Việc để "Cần giao lại" sau một lần gỡ khỏi đội ngũ cũng chuyển được ở đây:
+   người nhận được thêm vào đội ngũ hồ sơ đó. Trưởng phòng có thể chọn chính mình làm người nhận (nhận ghế, mốc hạn,
+   yêu cầu của khách); riêng việc nội bộ thì không tự giao cho mình được — các việc đó ở lại "Cần giao lại", dòng
+   kết quả nói rõ, phần còn lại vẫn chuyển. Hồ sơ hạn chế trưởng phòng không quản lý được không hiện gì ngoài một
+   dòng "còn n hồ sơ cần quản trị viên chuyển". Người nhận nhận **một** chuông và **một** thư tổng hợp cho cả lô
+   (bao nhiêu hồ sơ, việc nội bộ, mốc hạn, yêu cầu của khách, ghế mới — thay cho chuông, thư của từng ghế, từng
+   mốc), người cũ **một** chuông; người bấm tự nhận thì không tự báo mình. (Tới khi gộp với làn công việc, mỗi việc
+   nội bộ chuyển đi vẫn có thêm chuông + thư "được giao" của nút "Giao lại".)
 3. **Bàn giao hàng loạt từ màn hình cho nghỉ việc**: công tắc "Giữ luật sư cũ trong đội ngũ" tắt sẵn; mở thường
    thì bật sẵn, và câu gợi ý nói rõ "giữ làm cộng sự thì việc nội bộ người đó đang giữ KHÔNG chuyển".
 4. **Mở vụ, hay chuyển lead thành vụ, với luật sư phụ trách là người khác**: hồ sơ hiện ở khối "Hồ sơ chờ tôi
@@ -499,9 +512,11 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
 6. **Đổi người phụ trách mốc hạn** (nút "Đổi người phụ trách", nút "Sửa", hay thêm mốc giao cho người khác):
    người giữ mốc mới nhận ngay chuông + thư "Anh/chị được giao một mốc thời hạn", ghi hạn và còn bao nhiêu ngày.
    Lời nhắc theo bậc (14/7/3/1 ngày) đã gửi cho người cũ không gửi lại — thư này là lời nhắc của bậc gần nhất, một
-   lần; các bậc sau đến người mới như thường. Tự giao cho mình thì không báo.
+   lần; các bậc sau đến người mới như thường. Tự giao cho mình thì không báo. Thư của một mốc vừa thêm không nói
+   tới lời nhắc cũ (chưa có lời nào).
 7. **Trình duyệt văn bản nội bộ (nhóm B)**: bấm "Trình duyệt" → luật sư phụ trách (không có thì trưởng phòng / quản
-   trị viên duyệt được văn bản) nhận chuông + thư "Một văn bản chờ anh/chị duyệt". "Đánh dấu đã ký, đã nộp" →
+   trị viên duyệt được văn bản) nhận chuông + thư "Một văn bản chờ anh/chị duyệt" — không bao giờ chính người trình:
+   trưởng phòng tự trình khi luật sư phụ trách không duyệt được thì quản trị viên được báo. "Đánh dấu đã ký, đã nộp" →
    người trình nhận chuông. **"Trả về bản nháp" bắt buộc lý do**, và người trình nhận chuông kèm lý do để biết
    cần sửa gì.
 

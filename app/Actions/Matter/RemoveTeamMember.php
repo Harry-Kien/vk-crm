@@ -120,6 +120,13 @@ use Illuminate\Validation\ValidationException;
  * Sau commit, {@see SendTeamDepartureNotices}: người bị gỡ nhận MỘT chuông "đã rời đội ngũ hồ sơ … — n việc đã
  * chuyển / chờ giao lại", và người giao của các việc đó (hay người nhận thay họ — `forTaskAssigner()`) nhận một
  * chuông cho các việc của mình. Dòng `team_member_removed` ghi số việc đã chuyển, số việc để lại, người nhận thay.
+ *
+ * Vòng sửa 1 (minor 2): người nhận thay có thể là chính người bấm (luật sư phụ trách gỡ trợ lý của mình) — Action
+ * không tự chặn mà để "Giao lại" quyết: hôm nay `ReassignTask` không cho ai tự giao việc cho mình, nên lời từ chối
+ * của nó được dịch sang câu `internal_flow.team_removal.self_refused` dưới ô chọn, và không gỡ gì. Mọi lời gọi
+ * `ReassignTask` đi qua MỘT chỗ, {@see self::reassignHeldTask()} (chỗ nối cờ "không báo người giữ cũ" của làn fa1).
+ * `$notify = false` (chỉ {@see TransferStaffWork}): không xếp {@see SendTeamDepartureNotices} — người gọi tự gửi
+ * MỘT lời báo tổng hợp cho cả lô.
  */
 class RemoveTeamMember
 {
@@ -131,15 +138,17 @@ class RemoveTeamMember
     /**
      * @param  User|null  $taskRecipient  làn fa2: người nhận thay việc nội bộ người bị gỡ đang giữ trên vụ
      * @param  bool  $leaveForReassignment  làn fa2: để các việc đó "Cần giao lại" thay vì chuyển
+     * @param  bool  $notify  làn fa2, vòng sửa 1 (I2): `false` — không xếp {@see SendTeamDepartureNotices} (xem
+     *                        docblock lớp)
      *
      * @throws ValidationException
      * @throws TeamMemberHasOpenWork
      */
-    public function handle(Matter $matter, User $actor, User $member, ?User $taskRecipient = null, bool $leaveForReassignment = false): void
+    public function handle(Matter $matter, User $actor, User $member, ?User $taskRecipient = null, bool $leaveForReassignment = false, bool $notify = true): void
     {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
-        DB::transaction(function () use ($matter, $actor, $member, $taskRecipient, $leaveForReassignment): void {
+        DB::transaction(function () use ($matter, $actor, $member, $taskRecipient, $leaveForReassignment, $notify): void {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             $pivot = $locked->team()->whereKey($member->getKey())->first()?->pivot;
@@ -185,9 +194,12 @@ class RemoveTeamMember
 
                 foreach ($held as $task) {
                     try {
-                        app(ReassignTask::class)->handle($task, $actor, $taskRecipient);
+                        $this->reassignHeldTask($task, $actor, $taskRecipient);
                     } catch (ValidationException $exception) {
-                        throw ValidationException::withMessages(['task_recipient_id' => collect($exception->errors())->flatten()->all()]);
+                        // Vòng sửa 1 (minor 2): "Giao lại" từ chối người bấm tự nhận — một câu nói rõ luật đó.
+                        throw ValidationException::withMessages(['task_recipient_id' => $taskRecipient->is($actor)
+                            ? [__('internal_flow.team_removal.self_refused')]
+                            : collect($exception->errors())->flatten()->all()]);
                     }
 
                     $moved[] = $task->getKey();
@@ -206,7 +218,7 @@ class RemoveTeamMember
                 'task_recipient_id' => $moved === [] ? null : $taskRecipient?->getKey(),
             ], $actor);
 
-            if ($removed !== null) {
+            if ($notify && $removed !== null) {
                 SendTeamDepartureNotices::dispatch(
                     $locked->getKey(),
                     $member->getKey(),
@@ -218,5 +230,17 @@ class RemoveTeamMember
                 )->afterCommit();
             }
         });
+    }
+
+    /**
+     * MỘT chỗ gọi {@see ReassignTask} của lần gỡ (vòng sửa 1, minor 1 / phán quyết 1: người bị gỡ chỉ nhận MỘT chuông
+     * chung — {@see SendTeamDepartureNotices}). Người nhận thay vẫn nhận chuông + thư "được giao" của từng việc; người
+     * giao vẫn được báo.
+     */
+    private function reassignHeldTask(Task $task, User $actor, User $recipient): void
+    {
+        // integ: pass notifyFormerHolder: false once fa1 is merged — người bị gỡ đã có chuông "đã rời đội ngũ"; hôm nay
+        // ReassignTask còn gửi thêm một chuông REASSIGNED_AWAY mỗi việc (test "rings the removed member once…").
+        app(ReassignTask::class)->handle($task, $actor, $recipient);
     }
 }

@@ -264,10 +264,14 @@ class ResolveStaffRecipients
      * @param  array<string, mixed>  $mustAllow
      * @return Collection<int, User>
      */
-    private function fallbackChain(Matter $matter, bool $billing = false, array $mustAllow = []): Collection
+    private function fallbackChain(Matter $matter, bool $billing = false, array $mustAllow = [], ?int $exceptId = null): Collection
     {
+        // Làn fa2, vòng sửa 1 (minor 7): `$exceptId` (chỉ {@see self::forApprovalRequest()}) bị bỏ ở MỌI tầng TRƯỚC khi chọn —
+        // tầng có mỗi người đó thì đi tiếp tầng sau. `null` (mọi nơi gọi khác): không đổi gì.
+        $without = fn (Collection $tier): Collection => $exceptId === null ? $tier : $tier->reject(fn (?User $user): bool => $user?->getKey() === $exceptId);
+
         if ($matter->leadLawyer !== null) {
-            $leadLawyerQualified = $this->qualify(collect([$matter->leadLawyer]), $matter, $billing, $mustAllow);
+            $leadLawyerQualified = $this->qualify($without(collect([$matter->leadLawyer])), $matter, $billing, $mustAllow);
 
             if ($leadLawyerQualified->isNotEmpty()) {
                 return $leadLawyerQualified;
@@ -283,7 +287,7 @@ class ResolveStaffRecipients
         // nào, đúng nghĩa "điều kiện chết". Giữ code đơn giản, không thêm một nhánh không ai đo
         // được là đang làm gì.
         $manager = $this->qualify(
-            User::query()->where('is_active', true)->role(Role::Manager->value)->get(),
+            $without(User::query()->where('is_active', true)->role(Role::Manager->value)->get()),
             $matter,
             $billing,
             $mustAllow,
@@ -294,7 +298,7 @@ class ResolveStaffRecipients
         }
 
         $admin = $this->qualify(
-            User::query()->where('is_active', true)->role(Role::Admin->value)->get(),
+            $without(User::query()->where('is_active', true)->role(Role::Admin->value)->get()),
             $matter,
             $billing,
             $mustAllow,
@@ -550,5 +554,30 @@ class ResolveStaffRecipients
             ->get()
             ->filter(fn (User $user): bool => Gate::forUser($user)->allows(Permission::SettingsManage->value))
             ->values();
+    }
+
+    /**
+     * Người DUYỆT của một yêu cầu duyệt do `$submitterId` gửi (làn fa2, vòng sửa 1, minor 7 — `SendDocumentReviewNotice`):
+     * {@see self::handle()} với người trình không bao giờ có mặt trong kết quả.
+     *
+     *  - Danh sách ưu tiên (luật sư phụ trách) còn hợp lệ: đó là người duyệt; người trình bị bỏ SAU khi chọn — luật sư
+     *    phụ trách tự trình văn bản của mình thì chính họ duyệt, không ai bị báo.
+     *  - Không ai trong danh sách ưu tiên hợp lệ: chuỗi dự phòng, người trình bị bỏ ở MỌI tầng TRƯỚC khi chọn — tầng chỉ
+     *    có mỗi họ (trưởng phòng duy nhất tự trình) thì đi tiếp tầng sau (quản trị viên duyệt được). Bỏ họ SAU chuỗi
+     *    dự phòng thì chuỗi dừng ở tầng của họ rồi mới bị bỏ — không ai nhận.
+     *
+     * @param  array<int, User|null>  $preferred
+     * @param  array<string, mixed>  $mustAllow
+     * @return Collection<int, User>
+     */
+    public function forApprovalRequest(Matter $matter, array $preferred, array $mustAllow, ?int $submitterId): Collection
+    {
+        $qualified = $this->qualify(collect($preferred), $matter, mustAllow: $mustAllow);
+
+        if ($qualified->isNotEmpty()) {
+            return $qualified->reject(fn (User $user): bool => $user->getKey() === $submitterId)->values();
+        }
+
+        return $this->fallbackChain($matter, mustAllow: $mustAllow, exceptId: $submitterId);
     }
 }

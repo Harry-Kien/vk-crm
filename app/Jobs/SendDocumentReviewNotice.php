@@ -30,10 +30,12 @@ use Spatie\Activitylog\Models\Activity;
  *
  * # Ai nhận, đọc lại lúc chạy
  *
- *  - "Trình duyệt": người DUYỆT — luật sư phụ trách nếu còn hợp lệ, không thì chuỗi dự phòng của
- *    `ResolveStaffRecipients::handle()` (người quản lý được xem vụ → quản trị viên), MỌI tầng đều phải duyệt được
- *    chính văn bản (`DocumentPolicy::publish` — `document.publish` trên hồ sơ mình mở được). Trừ người trình: luật sư
- *    tự trình văn bản của mình thì không ai bị báo. Chuông + thư {@see DocumentReviewRequest}.
+ *  - "Trình duyệt": người DUYỆT (`ResolveStaffRecipients::forApprovalRequest()`) — luật sư phụ trách nếu còn hợp lệ,
+ *    không thì chuỗi dự phòng (người quản lý được xem vụ → quản trị viên), MỌI tầng đều phải duyệt được chính văn bản
+ *    (`DocumentPolicy::publish` — `document.publish` trên hồ sơ mình mở được). Không bao giờ chính người trình: luật
+ *    sư phụ trách tự trình văn bản của mình thì không ai bị báo (chính họ duyệt); trong chuỗi dự phòng người trình bị
+ *    bỏ ở mọi tầng TRƯỚC khi chọn (vòng sửa 1, minor 7) — trưởng phòng duy nhất tự trình thì quản trị viên được báo.
+ *    Chuông + thư {@see DocumentReviewRequest}.
  *  - "Đã ký, đã nộp" / "Trả về bản nháp": người ĐÃ TRÌNH lần gần nhất (người ghi dòng
  *    `document_submitted_for_approval` mới nhất trước bước này), nếu khác người bấm và còn mở được hồ sơ
  *    (`qualifies()`). Chỉ chuông; lời trả về mang lý do đọc từ dòng nhật ký của chính lần trả về.
@@ -109,9 +111,8 @@ class SendDocumentReviewNotice implements ShouldQueue
     private function recipientsFor(ResolveStaffRecipients $recipients, Document $document, Matter $matter, ?int $actorId): Collection
     {
         if ($this->kind === DocumentReviewAlert::SUBMITTED) {
-            return $recipients->handle($matter, [$matter->leadLawyer], ['publish' => $document])
-                ->reject(fn (User $user): bool => $user->getKey() === $actorId)
-                ->values();
+            // Vòng sửa 1 (minor 7): người trình bị bỏ TRƯỚC khi dựng chuỗi dự phòng — tầng chỉ có mỗi họ thì đi tiếp.
+            return $recipients->forApprovalRequest($matter, [$matter->leadLawyer], ['publish' => $document], $actorId);
         }
 
         $submitterId = Activity::query()

@@ -19,7 +19,8 @@ use Illuminate\Mail\Mailables\Envelope;
  * Mẫu `staff.deadline_assigned` (làn fa2, phán quyết 6): "anh/chị được giao một mốc thời hạn" — gửi NGAY người giữ
  * mốc mới khi người khác giao mốc cho họ (thêm mốc, sửa mốc, "Đổi người phụ trách"), kèm hạn và số ngày còn lại
  * ({@see DeadlineAssignedAlert::dueLine()}). Chỉ {@see SendDeadlineAssignmentNotice} gửi, sau khi đã lọc người nhận.
- * Thư này đứng thay bậc nhắc gần nhất đã gửi cho người giữ cũ: `CheckDeadlines` không gửi lại bậc đã qua.
+ * Thư này đứng thay bậc nhắc gần nhất đã gửi cho người giữ cũ: `CheckDeadlines` không gửi lại bậc đã qua. Mốc vừa
+ * THÊM (`$isNew` — vòng sửa 1, minor 6) chưa có lời nhắc nào: câu đầu không nói tới lời nhắc cũ.
  *
  * Tiêu đề không mang mã hồ sơ, tên mốc hay tên khách (hiện trên màn hình khoá); thân thư mang tên mốc và mã hồ sơ
  * — người nhận mở được hồ sơ ở lúc gửi. Bản ghi liên quan là mốc. `LEDGER_TIER` mang khoá của lần giao. Không gửi
@@ -32,6 +33,7 @@ class DeadlineAssigned extends BrandedMailable
         public User $recipient,
         public string $actorName,
         public string $ledgerKey,
+        public bool $isNew = false,
     ) {}
 
     protected function template(): string
@@ -62,7 +64,7 @@ class DeadlineAssigned extends BrandedMailable
             text: 'emails.staff.task-notice-text',
             with: [
                 'recipientName' => $this->recipient->name,
-                'headline' => __('internal_flow.deadline_assigned.email.headline', ['who' => $this->actorName]),
+                'headline' => __($this->isNew ? 'internal_flow.deadline_assigned.email.headline_new' : 'internal_flow.deadline_assigned.email.headline', ['who' => $this->actorName]),
                 'details' => [
                     ['label' => __('internal_flow.deadline_assigned.email.fields.name'), 'value' => (string) $this->deadline->name],
                     ['label' => __('internal_flow.deadline_assigned.email.fields.matter'), 'value' => (string) $this->deadline->matter?->code],

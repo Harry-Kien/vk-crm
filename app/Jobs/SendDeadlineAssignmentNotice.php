@@ -103,7 +103,8 @@ class SendDeadlineAssignmentNotice implements ShouldQueue
             ->exists();
 
         if (! $mailed) {
-            Mail::to($recipient->email)->send(new DeadlineAssigned($deadline, $recipient, $actorName, $key));
+            // Vòng sửa 1 (minor 6): mốc vừa THÊM (`deadline_added`) chưa có lời nhắc nào — thư không nói tới lời nhắc cũ.
+            Mail::to($recipient->email)->send(new DeadlineAssigned($deadline, $recipient, $actorName, $key, $event->event === 'deadline_added'));
         }
     }
 }
