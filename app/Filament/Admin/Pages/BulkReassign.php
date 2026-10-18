@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\OpenTaskWork;
 use App\Support\OpenWork;
 use App\Support\Scopes\ClientPortalScope;
+use App\Support\Search\LetterD;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
@@ -213,6 +214,10 @@ class BulkReassign extends Page
                     ->label(__('internal_flow.staff_work.fields.user_id'))
                     ->options(fn (): array => $this->staffOptions())
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): bốn ô chọn của trang tìm trên máy chủ trong ĐÚNG danh sách của `->options()`
+                    // ("dinh" ra "Đinh") — tầm nhìn không đổi; Action hỏi lại như trước.
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => $this->staffOptions()))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->native(false)
                     ->live()
                     ->afterStateUpdated(fn (Set $set) => $set('recipient_id', null))
@@ -222,6 +227,11 @@ class BulkReassign extends Page
                     ->label(__('internal_flow.staff_work.fields.recipient_id'))
                     ->options(fn (Get $get): array => self::staffRecipientOptions(filled($get('user_id')) ? (int) $get('user_id') : null))
                     ->searchable()
+                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => LetterD::filterOptions(
+                        self::staffRecipientOptions(filled($get('user_id')) ? (int) $get('user_id') : null),
+                        $search,
+                    ))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->native(false)
                     ->live()
                     ->required(),
@@ -423,6 +433,9 @@ class BulkReassign extends Page
                     ->label(__('reassign.bulk.fields.lead_lawyer_id'))
                     ->options(fn (): array => $this->currentLeadOptions())
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "doan" ra "Đoàn" trong ĐÚNG danh sách trên.
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => $this->currentLeadOptions()))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->native(false)
                     ->live()
                     ->afterStateUpdated(function (Set $set): void {
@@ -475,6 +488,11 @@ class BulkReassign extends Page
                     ->label(__('reassign.bulk.fields.new_lead_id'))
                     ->options(fn (Get $get): array => self::newLeadOptions(filled($get('lead_lawyer_id')) ? (int) $get('lead_lawyer_id') : null))
                     ->searchable()
+                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => LetterD::filterOptions(
+                        self::newLeadOptions(filled($get('lead_lawyer_id')) ? (int) $get('lead_lawyer_id') : null),
+                        $search,
+                    ))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->native(false)
                     ->required(),
                 Textarea::make('reason')

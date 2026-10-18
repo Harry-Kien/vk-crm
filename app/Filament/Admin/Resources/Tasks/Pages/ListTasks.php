@@ -14,6 +14,7 @@ use App\Filament\Admin\Widgets\Tasks\MatterAssignmentsAwaitingMeWidget;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use App\Support\Tasks\SeatInbox;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
@@ -110,18 +111,26 @@ class ListTasks extends ListRecords
                     ->label(__('tasks.filters.status'))
                     ->multiple()
                     ->options(collect(TaskStatus::cases())->mapWithKeys(fn (TaskStatus $status): array => [$status->value => $status->label()])->all()),
+                // Gộp integ-fa (làn fa3): ba ô lọc tìm trên máy chủ trong ĐÚNG danh sách của `->options()` ("dinh" ra
+                // "Đinh") — tầm nhìn không đổi; SelectFilter không có searchDebounce(), đặt trên ô chọn nó dựng.
                 SelectFilter::make('matter_id')
                     ->label(__('tasks.filters.matter'))
                     ->options(fn (): array => $this->matterOptions())
-                    ->searchable(),
+                    ->searchable()
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => $this->matterOptions()))
+                    ->modifyFormFieldUsing(fn (Select $field): Select => $field->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)),
                 SelectFilter::make('assignee_id')
                     ->label(__('tasks.filters.assignee'))
                     ->options(fn (): array => self::staffOptions())
-                    ->searchable(),
+                    ->searchable()
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => self::staffOptions()))
+                    ->modifyFormFieldUsing(fn (Select $field): Select => $field->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)),
                 SelectFilter::make('assigned_by')
                     ->label(__('tasks.filters.assigner'))
                     ->options(fn (): array => self::staffOptions())
-                    ->searchable(),
+                    ->searchable()
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => self::staffOptions()))
+                    ->modifyFormFieldUsing(fn (Select $field): Select => $field->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)),
                 SelectFilter::make('priority')
                     ->label(__('tasks.filters.priority'))
                     ->options(TaskPriority::options()),
@@ -209,6 +218,9 @@ class ListTasks extends ListRecords
                     ->options(fn (): array => $this->assignableMatters())
                     ->visible(fn (): bool => $this->assignableMatters() !== [])
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "dat dai" ra "đất đai" trong ĐÚNG danh sách trên (`AssignTask` hỏi lại).
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => $this->assignableMatters()))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->native(false)
                     ->live()
                     ->afterStateUpdated(fn (Set $set): mixed => $set('assignee_id', null)),
@@ -217,6 +229,11 @@ class ListTasks extends ListRecords
                     ->helperText(fn (Get $get): string => self::assigneeHelp(filled($get('matter_id')) ? 'tasks.fields.assignee_help_matter' : 'tasks.fields.assignee_help_general'))
                     ->options(fn (Get $get): array => app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()))
                     ->searchable()
+                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => LetterD::filterOptions(
+                        app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()),
+                        $search,
+                    ))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
                 ...$this->taskDetailFields(),

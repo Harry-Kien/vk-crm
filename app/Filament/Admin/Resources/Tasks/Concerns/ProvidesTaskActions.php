@@ -16,6 +16,7 @@ use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
@@ -295,6 +296,9 @@ trait ProvidesTaskActions
                     ->helperText(self::assigneeHelp($record->matter_id === null ? 'tasks.fields.assignee_help_general' : 'tasks.fields.assignee_help_matter'))
                     ->options(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record))
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "doan" ra "Đoàn" trong ĐÚNG danh sách trên (`ReassignTask` hỏi lại).
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record)))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
                 DatePicker::make('due_date')

@@ -16,6 +16,7 @@ use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use App\Support\Search\LetterD;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -219,6 +220,9 @@ class TeamRelationManager extends RelationManager
                     ->label(__('team.tab.fields.member'))
                     ->options(fn (Get $get): array => $this->memberOptions($get('role_in_matter')))
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "dang" ra "Đặng" trong ĐÚNG danh sách trên (`AddTeamMember` hỏi lại).
+                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => LetterD::filterOptions($this->memberOptions($get('role_in_matter')), $search))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
             ])

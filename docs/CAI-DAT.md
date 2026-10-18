@@ -1663,10 +1663,15 @@ Sau khi lên bản:
    hợp đồng đã huỷ (hồ sơ đã kết thúc không còn được đếm) — số có thể khác số cũ.
 3. Ô tìm của các danh sách Khách hàng, Vụ việc, Tiếp nhận, Nhân sự, Tài khoản cổng khách, tab Các bên, và các ô
    chọn Khách hàng / Luật sư phụ trách của form mở vụ, bộ lọc luật sư của trang Doanh thu và "Người thực hiện" của
-   Nhật ký hoạt động: gõ không dấu chữ "đ" nay ra ("Dang" ra "Đặng"). Trang Việc được giao và Bàn giao hàng loạt
-   chưa có (bản sau).
+   Nhật ký hoạt động: gõ không dấu chữ "đ" nay ra ("Dang" ra "Đặng"). Cũng vậy ở trang Công việc và tab Công việc
+   của vụ (tiêu đề việc, mã hồ sơ; bộ lọc vụ việc / người được giao / người giao), các ô chọn của "Giao việc",
+   "Giao lại", "Thêm thành viên" và bốn ô chọn của Bàn giao hàng loạt. Danh sách tuỳ chọn và phạm vi xem không đổi
+   (hồ sơ hạn chế vẫn không hiện với người không xem được).
 4. Hồ sơ có khoản thu trên hợp đồng **đã hoàn tất** không huỷ được bằng "Huỷ hồ sơ mở nhầm" (khoản thu đó không
    huỷ được); câu từ chối nói đóng hồ sơ thay vì huỷ. "Đưa về bản nháp" không làm được trên hồ sơ đã kết thúc.
+5. Hộp thoại "Huỷ hồ sơ mở nhầm" nói thêm số việc giao nội bộ còn mở và số người chưa bấm "Đã nhận hồ sơ" (như hộp
+   thoại kết thúc vụ): hồ sơ huỷ thì các việc đó biến khỏi trang Công việc và thôi nhắc; khôi phục hồ sơ thì chúng trở
+   lại như cũ. Không có gì phải chạy trên máy chủ.
 
 ### Nâng cấp hỏng: quay lại bản trước
 

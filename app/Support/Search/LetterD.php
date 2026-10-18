@@ -31,7 +31,10 @@ use Illuminate\Support\Str;
  * (`App\Filament\Admin\Pages\ContractEntry`: mã hồ sơ, tên khách) và — fix round 1 (m3) — ô tìm của các
  * danh sách chính qua {@see self::searchable()}: Khách hàng (mã, tên), Vụ việc (mã, khách, loại vụ việc,
  * tiêu đề, luật sư phụ trách), Tiếp nhận (mã, tên người liên hệ), Nhân sự (tên, số thẻ luật sư), Tài khoản
- * cổng khách (khách, tên), tab Các bên (tên). Ô chọn tìm trên máy chủ bằng {@see self::searchOptions()}.
+ * cổng khách (khách, tên), tab Các bên (tên). Ô chọn tìm trên máy chủ bằng {@see self::searchOptions()}. Gộp
+ * integ-fa (2026-10-18): thêm trang Công việc và tab Công việc của vụ (`TaskColumns`: tiêu đề, mã hồ sơ), bộ lọc vụ /
+ * người được giao / người giao của trang Công việc, ô chọn của "Giao việc", "Giao lại", "Bàn giao hàng loạt" và "Thêm
+ * thành viên" (danh sách phụ thuộc ô khác: {@see self::filterOptions()}).
  * Chuỗi người gõ luôn đi qua tham số ràng buộc, và ký tự `%`, `_`, `!` của nó được thoát
  * ({@see self::escape()}, ký tự thoát `!` — cùng lý do với `SearchMatters`: SQLite không có ký tự thoát
  * mặc định).
@@ -134,20 +137,32 @@ final class LetterD
      */
     public static function searchOptions(Closure $options): Closure
     {
-        return static function (?string $search) use ($options): array {
-            $words = preg_split('/\s+/u', (string) Normalizer::name($search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        return static fn (?string $search): array => self::filterOptions($options(), $search);
+    }
 
-            return array_filter($options(), function (mixed $label) use ($words): bool {
-                $haystack = (string) Normalizer::name((string) $label);
+    /**
+     * Phép lọc của {@see self::searchOptions()} trên một danh sách đã dựng — gộp integ-fa (2026-10-18): cho ô chọn có danh
+     * sách PHỤ THUỘC ô khác hay bản ghi của hộp thoại (người nhận theo vụ đã chọn ở "Giao việc", người nhận của "Giao lại",
+     * người nhận của "Bàn giao hàng loạt", người của "Thêm thành viên" theo vai), nơi người gọi tự dựng `$options` trong
+     * closure `getSearchResultsUsing` của mình (có `Get`, `$record`) bằng ĐÚNG hàm của `->options()`.
+     *
+     * @param  array<int|string, string>  $options
+     * @return array<int|string, string>
+     */
+    public static function filterOptions(array $options, ?string $search): array
+    {
+        $words = preg_split('/\s+/u', (string) Normalizer::name($search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
-                foreach ($words as $word) {
-                    if (! str_contains($haystack, $word)) {
-                        return false;
-                    }
+        return array_filter($options, function (mixed $label) use ($words): bool {
+            $haystack = (string) Normalizer::name((string) $label);
+
+            foreach ($words as $word) {
+                if (! str_contains($haystack, $word)) {
+                    return false;
                 }
+            }
 
-                return true;
-            });
-        };
+            return true;
+        });
     }
 }

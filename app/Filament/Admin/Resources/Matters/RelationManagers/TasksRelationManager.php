@@ -12,6 +12,7 @@ use App\Filament\Admin\Resources\Tasks\Tables\TaskColumns;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
@@ -117,6 +118,9 @@ class TasksRelationManager extends RelationManager
                     ->helperText(self::assigneeHelp('tasks.fields.assignee_help_matter'))
                     ->options(fn (): array => app(TaskAssignees::class)->options($this->matter(), $this->taskActor()))
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "dinh" ra "Đinh" trong ĐÚNG danh sách trên (`AssignTask` hỏi lại).
+                    ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => app(TaskAssignees::class)->options($this->matter(), $this->taskActor())))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
                 ...$this->taskDetailFields(),

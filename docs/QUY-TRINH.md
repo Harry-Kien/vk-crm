@@ -394,7 +394,7 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
 | Sinh gói bàn giao cho khách | Tệp nén nhóm A/B/C kèm mục lục PDF và toàn bộ tường trình tiến độ, không bao giờ lẫn tài liệu nội bộ; nhóm A là đúng bản văn phòng đã nhận của từng đầu mục | **[Xong]** M7 Task 4/11 — gói tự sinh khi vụ vào giai đoạn kết thúc (sinh lại bằng nút trên trang vụ), ở trạng thái chưa công bố: luật sư xem rồi công bố cho khách; khoá khi hồ sơ đã ghi quyết định tiêu huỷ (làn fm 2026-10-09) |
 | Cho khách tải về từ cổng, có hạn | Quyền tra cứu hết sau 90 ngày mặc định kể từ khi vụ kết thúc, dữ liệu vẫn nguyên bên trong | **[Xong]** M7 Task 5. Hạn hiện ở khối "Lưu trữ hồ sơ" của trang vụ; luật sư phụ trách hoặc quản trị viên gia hạn được, có lý do và nhật ký (làn fm 2026-10-09) |
 | Giữ hồ sơ theo chính sách lưu trữ | Hạn lưu trữ mặc định 10 năm, hệ thống **cảnh báo chứ không bao giờ tự xoá**; quyết định tiêu huỷ được ghi lại | **[Xong]** M7 Task 6 (`FlagRetentionExpiry`, "Ghi quyết định tiêu huỷ") |
-| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm** (ô tìm kiếm sáu nguồn), kết quả luôn đi qua phân quyền. Gõ không dấu được, kể cả chữ "đ": "Dang" ra khách "Đặng", "dat dai" ra "đất đai" — trang **Tài liệu** cũng vậy (làn fa3, 2026-10-16). Ô tìm của danh sách Khách hàng, Vụ việc, Tiếp nhận, Nhân sự, Tài khoản cổng khách, tab Các bên, ô chọn khách hàng / luật sư khi mở vụ, bộ lọc luật sư của Doanh thu và "Người thực hiện" của Nhật ký hoạt động cũng coi "đ" như "d" (fix round 1, 2026-10-18); trang Việc được giao và Bàn giao hàng loạt chưa | **[Xong]** M7 (trang `Search`) |
+| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm** (ô tìm kiếm sáu nguồn), kết quả luôn đi qua phân quyền. Gõ không dấu được, kể cả chữ "đ": "Dang" ra khách "Đặng", "dat dai" ra "đất đai" — trang **Tài liệu** cũng vậy (làn fa3, 2026-10-16). Ô tìm của danh sách Khách hàng, Vụ việc, Tiếp nhận, Nhân sự, Tài khoản cổng khách, tab Các bên, ô chọn khách hàng / luật sư khi mở vụ, bộ lọc luật sư của Doanh thu và "Người thực hiện" của Nhật ký hoạt động cũng coi "đ" như "d" (fix round 1, 2026-10-18); trang Công việc và tab Công việc của vụ (tiêu đề, mã hồ sơ, bộ lọc), các ô chọn của "Giao việc", "Giao lại", "Thêm thành viên" và Bàn giao hàng loạt cũng vậy (gộp integ-fa, 2026-10-18) | **[Xong]** M7 (trang `Search`) |
 
 ---
 
@@ -477,7 +477,9 @@ giao" ghi lý do). Trên một vụ đã kết thúc, người giao không sửa
 huỷ; người nhận vẫn bấm "Đã nhận", "Trả lại" hay "Hoàn thành" được (ví dụ việc thu dọn cuối hồ sơ). Người
 nhận một việc "Cần giao lại" vì chính họ (đã sang "Người theo dõi", rời đội ngũ, trả lại hồ sơ, không còn mở
 được hồ sơ) không bấm "Đã nhận" hay "Hoàn thành" được nữa — chỉ còn "Trả lại". Hộp thoại
-kết thúc vụ liệt kê số việc nội bộ còn mở và số người chưa nhận hồ sơ, cùng các việc còn dở khác.
+kết thúc vụ liệt kê số việc nội bộ còn mở và số người chưa nhận hồ sơ, cùng các việc còn dở khác; hộp thoại "Huỷ hồ
+sơ mở nhầm" cũng vậy (từ 2026-10-18): hồ sơ huỷ thì các việc đó biến khỏi trang Công việc của mọi người và thôi nhắc —
+khôi phục hồ sơ thì chúng trở lại như cũ.
 
 **Sửa, giao lại, huỷ — người liên quan đều được báo** (từ 2026-10-16). Người giao, luật sư phụ trách hay trưởng
 phòng **"Sửa"** hạn, mức ưu tiên, tiêu đề hay mô tả của một việc người khác đang giữ (chờ nhận hay đang làm): người
