@@ -6,8 +6,10 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentLifecycleNotAllowed;
+use App\Jobs\SendDocumentReviewNotice;
 use App\Models\Document;
 use App\Models\User;
+use App\Notifications\Staff\DocumentReviewAlert;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -65,11 +67,16 @@ class MarkDocumentSignedFiled
 
             $fresh->update(['status' => DocumentStatus::SignedFiled]);
 
-            Audit::record('document_signed_filed', $fresh, [
+            $signed = Audit::record('document_signed_filed', $fresh, [
                 'matter_id' => $fresh->matter_id,
                 'from_status' => DocumentStatus::PendingApproval->value,
                 'to_status' => DocumentStatus::SignedFiled->value,
             ], $actor);
+
+            // Làn fa2, phán quyết 7: người đã trình được báo bằng chuông, sau commit (docblock `SendDocumentReviewNotice`).
+            if ($signed !== null) {
+                SendDocumentReviewNotice::dispatch($fresh->getKey(), DocumentReviewAlert::APPROVED, (int) $signed->getKey())->afterCommit();
+            }
 
             return $fresh;
         });

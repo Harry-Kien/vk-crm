@@ -22,7 +22,9 @@ use Spatie\Activitylog\Models\Activity;
  * Lời báo của MỘT lần giao / nhận / trả lại một ghế trong đội ngũ vụ (làn tk, Task 2) cho MỘT người:
  * chuông ({@see MatterAssignmentAlert}), cộng thư ({@see MatterAssignmentNotice}) với loại "trả lại".
  * `AddTeamMember`, `ReassignMatter`, `AcceptMatterAssignment`, `DeclineMatterAssignment` xếp job này
- * `->afterCommit()` (M6.5 R2).
+ * `->afterCommit()` (M6.5 R2). Làn fa2, phán quyết 4: `OpenMatter` cũng xếp nó (loại "được giao", `withMail`)
+ * khi người tạo vụ đặt một đồng nghiệp làm luật sư phụ trách — chuông kèm thư `staff.task.matter.assigned`
+ * ({@see MatterAssignmentNotice::KIND_ASSIGNED}), cùng chống trùng theo khoá của lần đó.
  *
  * # Đọc lại mọi thứ khi chạy
  *
@@ -50,6 +52,7 @@ class SendMatterAssignmentNotice implements ShouldQueue
         public readonly string $kind,
         public readonly int $recipientId,
         public readonly int $eventId,
+        public readonly bool $withMail = false,
     ) {}
 
     /** @return list<int> */
@@ -92,6 +95,24 @@ class SendMatterAssignmentNotice implements ShouldQueue
                 $seat->decline_reason,
                 $key,
             ));
+        }
+
+        if ($this->withMail && $this->kind === MatterAssignmentAlert::ASSIGNED) {
+            if (! self::alreadyMailed($matter, $recipient, MatterAssignmentNotice::KIND_ASSIGNED, $key)) {
+                Mail::to($recipient->email)->send(new MatterAssignmentNotice(
+                    $matter,
+                    MatterAssignmentNotice::KIND_ASSIGNED,
+                    $recipient,
+                    (string) $member->name,
+                    $role,
+                    null,
+                    '',
+                    $key,
+                    assignerName: ActivityPeople::name($event->causer) ?? '',
+                ));
+            }
+
+            return;
         }
 
         if ($this->kind !== MatterAssignmentAlert::DECLINED || self::alreadyMailed($matter, $recipient, MatterAssignmentNotice::KIND_DECLINED, $key)) {

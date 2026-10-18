@@ -4,11 +4,15 @@ namespace App\Filament\Admin\Pages;
 
 use App\Actions\Matter\BulkReassignMatterResult;
 use App\Actions\Matter\ReassignMatters;
+use App\Actions\Matter\TransferStaffWork;
 use App\Enums\NavigationGroup;
 use App\Enums\Role as StaffRole;
 use App\Models\Matter;
+use App\Models\Task;
 use App\Models\User;
+use App\Support\OpenTaskWork;
 use App\Support\OpenWork;
+use App\Support\Scopes\ClientPortalScope;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
@@ -17,6 +21,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
@@ -69,6 +74,13 @@ use UnitEnum;
  * `leadLawyerOptions()`: Select tự cài một luật `in:` phía máy chủ, nhưng lớp phòng thủ tường minh
  * này không phụ thuộc vào việc cấu hình Select không đổi trong tương lai.
  *
+ * # Phần thứ hai: "Việc nội bộ và ghế" (làn fa2, phán quyết 2)
+ *
+ * Schema riêng {@see self::staffWorkForm()} (state `staff`), nút {@see self::transferStaffWork()} — chuyển việc nội
+ * bộ, ghế trong đội ngũ, mốc hạn và yêu cầu của khách của MỘT nhân sự (kể cả người KHÔNG phụ trách vụ nào: trợ lý,
+ * chuyên viên, luật sư cộng sự) sang MỘT người, qua {@see TransferStaffWork} (mỗi hồ sơ hỏi lại `manageTeam`, dưới
+ * khoá). `?from=` mở sẵn cả hai phần. Cùng cổng `bulkReassign` ở cả mount lẫn hành động.
+ *
  * # Mọi phương thức trả về danh sách/tuỳ chọn đều `private`/`protected`
  *
  * Cùng gotcha Livewire M6.5 Task 3 đã ghi (`TeamRelationManager::memberOptions()`,
@@ -105,6 +117,21 @@ class BulkReassign extends Page
      */
     public ?array $results = null;
 
+    /**
+     * Làn fa2, phán quyết 2 — trạng thái của phần "Việc nội bộ và ghế" ({@see self::staffWorkForm()}).
+     *
+     * @var array<string, mixed>
+     */
+    public array $staff = [];
+
+    /**
+     * Làn fa2 — kết quả từng hồ sơ của lần "Chuyển việc nội bộ và ghế" gần nhất ({@see TransferStaffWork}); mảng
+     * thuần, cùng lý do {@see self::$results}.
+     *
+     * @var list<array{matterId: int|null, success: bool, message: string, matterCode: string|null, matterTitle: string|null}>|null
+     */
+    public ?array $staffResults = null;
+
     public static function getNavigationLabel(): string
     {
         return __('reassign.bulk.navigation_label');
@@ -138,7 +165,163 @@ class BulkReassign extends Page
             'matter_ids' => [],
             'new_lead_id' => null,
             'reason' => '',
-            'keep_old_lead_as_associate' => true,
+            // Làn fa2, phán quyết 3: mở từ màn hình cho nghỉ việc (`?from=`) thì người đó sắp rời — mặc định KHÔNG
+            // giữ họ trong đội, để việc nội bộ họ đang giữ (và việc họ đã giao) đi theo hồ sơ sang luật sư mới
+            // (`ReassignMatter` chỉ chuyển việc khi lead cũ rời đội). Mở thường thì vẫn bật sẵn như trước.
+            'keep_old_lead_as_associate' => ! filled($from),
+        ]);
+
+        // Làn fa2, phán quyết 2: phần "Việc nội bộ và ghế" mở sẵn cùng người của `?from=`.
+        $this->getSchema('staffWorkForm')?->fill([
+            'user_id' => filled($from) ? (int) $from : null,
+            'recipient_id' => null,
+        ]);
+    }
+
+    /**
+     * Làn fa2, phán quyết 2 — phần "Việc nội bộ và ghế": chuyển việc nội bộ, ghế trong đội ngũ, mốc hạn và yêu cầu
+     * của khách của MỘT nhân sự (kể cả người không phụ trách vụ nào) sang MỘT người ({@see TransferStaffWork}). Hai
+     * ô chọn chỉ mang tên đồng nghiệp; câu tóm tắt chỉ đếm việc trên hồ sơ người bấm quản lý được
+     * ({@see self::staffSummary()}) — không mã, không tiêu đề.
+     */
+    public function staffWorkForm(Schema $schema): Schema
+    {
+        return $schema
+            ->statePath('staff')
+            ->components([
+                Select::make('user_id')
+                    ->label(__('internal_flow.staff_work.fields.user_id'))
+                    ->options(fn (): array => self::staffOptions())
+                    ->searchable()
+                    ->native(false)
+                    ->live()
+                    ->afterStateUpdated(fn (Set $set) => $set('recipient_id', null))
+                    ->required(),
+                Text::make(fn (Get $get): string => filled($get('user_id')) ? self::staffSummary((int) $get('user_id')) : ''),
+                Select::make('recipient_id')
+                    ->label(__('internal_flow.staff_work.fields.recipient_id'))
+                    ->options(fn (Get $get): array => self::staffRecipientOptions(filled($get('user_id')) ? (int) $get('user_id') : null))
+                    ->searchable()
+                    ->native(false)
+                    ->required(),
+            ]);
+    }
+
+    /** Làn fa2 — nút "Chuyển việc nội bộ và ghế": hỏi lại Gate và hai ô chọn, rồi gọi {@see TransferStaffWork}. */
+    public function transferStaffWork(): void
+    {
+        abort_unless(static::canAccess(), 404);
+
+        $data = $this->getSchema('staffWorkForm')->getState();
+        $fromId = (int) ($data['user_id'] ?? 0);
+        $toId = (int) ($data['recipient_id'] ?? 0);
+
+        abort_unless(array_key_exists($fromId, self::staffOptions()) && array_key_exists($toId, self::staffRecipientOptions($fromId)), 404);
+
+        /** @var User $actor */
+        $actor = Auth::user();
+
+        $this->staffResults = app(TransferStaffWork::class)->handle(
+            User::query()->withTrashed()->findOrFail($fromId),
+            User::query()->findOrFail($toId),
+            $actor,
+        );
+
+        $failures = collect($this->staffResults)->where('success', false)->count();
+
+        $notification = Notification::make()
+            ->title(__('internal_flow.staff_work.notification_title'))
+            ->body(__('reassign.bulk.notification_body', ['success' => count($this->staffResults) - $failures, 'failure' => $failures]));
+
+        $failures === 0 ? $notification->success() : $notification->warning();
+        $notification->send();
+    }
+
+    /**
+     * Nhân sự có việc để chuyển mà người bấm quản lý được (kể cả đã nghỉ, đã xoá mềm — người đã nghỉ vẫn có thể còn
+     * việc dở): người ngồi đội ngũ, người giữ hay đã giao việc còn mở, trên hồ sơ đang mở người bấm `manageTeam` được
+     * — cùng bộ lọc {@see self::currentLeadOptions()}, nên một người chỉ có mặt trên vụ hạn chế người bấm không quản
+     * lý không lộ tên ở đây; cộng người giữ việc chung (người bấm là trưởng phòng / quản trị viên — `bulkReassign`).
+     * Chỉ tên. `private`: xem docblock lớp.
+     *
+     * @return array<int, string>
+     */
+    private static function staffOptions(): array
+    {
+        $actor = Auth::user();
+
+        if (! ($actor instanceof User)) {
+            return [];
+        }
+
+        $matters = Matter::query()
+            ->open()
+            ->with('team')
+            ->get()
+            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('manageTeam', $matter));
+        $matterIds = $matters->modelKeys();
+
+        $ids = $matters->flatMap(fn (Matter $matter) => $matter->team->modelKeys())
+            ->merge(Task::query()->withoutGlobalScope(ClientPortalScope::class)->open()
+                ->where(fn ($scope) => $scope->whereIn('matter_id', $matterIds)->orWhereNull('matter_id'))
+                ->get(['assignee_id', 'assigned_by'])
+                ->flatMap(fn (Task $task): array => [$task->assignee_id, $task->assigned_by]))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        return User::query()->withTrashed()->whereKey($ids)->orderBy('name')->pluck('name', 'id')->all();
+    }
+
+    /**
+     * Người nhận: đang hoạt động, giữ được ghế làm việc của hồ sơ (luật sư, trưởng phòng, trợ lý), trừ chính người cần
+     * chuyển việc và người bấm ("Giao lại" không cho ai tự giao việc cho mình).
+     *
+     * @return array<int, string>
+     */
+    private static function staffRecipientOptions(?int $fromId): array
+    {
+        $actorId = Auth::id();
+
+        return User::query()
+            ->where('is_active', true)
+            ->when($fromId !== null, fn ($query) => $query->whereKeyNot($fromId))
+            ->when($actorId !== null, fn ($query) => $query->whereKeyNot($actorId))
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (User $user): bool => $user->hasRole(StaffRole::Lawyer->value) || $user->hasRole(StaffRole::Manager->value) || $user->hasRole(StaffRole::Assistant->value))
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Câu tóm tắt việc của `$userId` — chỉ trên hồ sơ người bấm `manageTeam` được (một vụ hạn chế người bấm không quản
+     * lý không góp vào con số nào), cộng việc chung. Chỉ số lượng.
+     */
+    private static function staffSummary(int $userId): string
+    {
+        $actor = Auth::user();
+        $user = User::query()->withTrashed()->find($userId);
+
+        if (! ($actor instanceof User) || $user === null) {
+            return '';
+        }
+
+        $matterIds = Matter::query()
+            ->whereKey(app(TransferStaffWork::class)->matterIds($user))
+            ->with('team')
+            ->get()
+            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('manageTeam', $matter))
+            ->modelKeys();
+        $work = OpenTaskWork::forUser($user);
+        $counted = fn ($rows): int => $rows->filter(fn ($row): bool => $row->matter_id === null || in_array($row->matter_id, $matterIds, true))->count();
+
+        return __('internal_flow.staff_work.summary', [
+            'held' => $counted($work->held),
+            'assigned' => $counted($work->assigned),
+            'seats' => $counted($work->pendingSeats),
+            'matters' => count($matterIds),
         ]);
     }
 
@@ -457,16 +640,21 @@ class BulkReassign extends Page
      * này vào thông điệp chặn nghỉ việc của M6.5") — dùng bởi `EditUser` (tắt `is_active`, và
      * `DeleteAction`) khi `GuardsStaffOffboarding` chặn vì người này CÒN DẪN một vụ việc mở.
      *
-     * `null` trong HAI trường hợp: `$target` không còn vụ việc lead nào đang mở (liên kết tới một
-     * màn hình rỗng không giúp gì — kiểm tra TRỰC TIẾP qua {@see OpenWork}, không suy ra từ nội
-     * dung chuỗi lý do, vì chuỗi đó có thể gộp cả ba loại việc và không phải lúc nào cũng có mảnh
-     * `leadMatters`), hoặc người đang xem (actor) không {@see self::canAccess()} được chính trang
+     * `null` trong HAI trường hợp: `$target` không còn gì trang này chuyển được — không vụ lead nào
+     * đang mở ({@see OpenWork}), không việc nội bộ / hồ sơ chờ nhận nào ({@see OpenTaskWork}), không hồ
+     * sơ nào có ghế hay việc của họ ({@see TransferStaffWork::matterIds()}; làn fa2 — liên kết tới một
+     * màn hình rỗng không giúp gì; kiểm tra TRỰC TIẾP, không suy ra từ nội dung chuỗi lý do), hoặc
+     * người đang xem (actor) không {@see self::canAccess()} được chính trang
      * này — một luật sư tự bấm "Xoá" cho đồng nghiệp (nếu ai đó mở được nút này cho họ) không nên
      * thấy một liên kết dẫn tới trang họ sẽ bị 404.
      */
     public static function offboardingLinkAction(User $target): ?Action
     {
-        if (OpenWork::forUser($target)->leadMatters->isEmpty()) {
+        // Làn fa2, phán quyết 2: trang này giờ chuyển được cả việc nội bộ và ghế của người không phụ trách vụ
+        // (phần "Việc nội bộ và ghế") — liên kết hiện cả khi người đó chỉ còn việc nội bộ / ghế / mốc / yêu cầu.
+        if (OpenWork::forUser($target)->leadMatters->isEmpty()
+            && OpenTaskWork::forUser($target)->isEmpty()
+            && app(TransferStaffWork::class)->matterIds($target) === []) {
             return null;
         }
 

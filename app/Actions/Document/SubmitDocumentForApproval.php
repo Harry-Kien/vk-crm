@@ -6,8 +6,10 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentLifecycleNotAllowed;
+use App\Jobs\SendDocumentReviewNotice;
 use App\Models\Document;
 use App\Models\User;
+use App\Notifications\Staff\DocumentReviewAlert;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -79,11 +81,17 @@ class SubmitDocumentForApproval
             // SPEC §10.6 không liệt kê tên sự kiện này (bảng đó được viết trước khi vòng đời nhóm
             // B có đường nào đi qua nó), nhưng cùng lý lẽ với `document_regrouped`: một bước
             // chuyển trạng thái không ai ghi lại là một bước không ai lần ra được sau này.
-            Audit::record('document_submitted_for_approval', $fresh, [
+            $submitted = Audit::record('document_submitted_for_approval', $fresh, [
                 'matter_id' => $fresh->matter_id,
                 'from_status' => DocumentStatus::InternalDraft->value,
                 'to_status' => DocumentStatus::PendingApproval->value,
             ], $actor);
+
+            // Làn fa2, phán quyết 7: người duyệt (luật sư phụ trách; không có thì người có quyền duyệt) được báo bằng
+            // chuông + thư, sau commit — job chọn và lọc người nhận lúc chạy (docblock `SendDocumentReviewNotice`).
+            if ($submitted !== null) {
+                SendDocumentReviewNotice::dispatch($fresh->getKey(), DocumentReviewAlert::SUBMITTED, (int) $submitted->getKey())->afterCommit();
+            }
 
             return $fresh;
         });

@@ -42,6 +42,10 @@ final readonly class ReassignMatterResult
      *                                 `ReassignMatters` rung MỘT chuông "được bàn giao" cho cả lô thay vì một
      *                                 chuông mỗi vụ.
      *                                 `null` trong mọi trường hợp khác.
+     * @param  int|null  $leadChangeEventId  Làn fa2, phán quyết 5 — chỉ khi gọi với `sendDigest: false`: id dòng
+     *                                       `matter_reassigned` của lần này, để `ReassignMatters` xếp MỘT
+     *                                       `SendLeadChangeNotices` cho cả lô (một chuông mỗi người cho người phụ
+     *                                       trách cũ và đội ngũ). `null` khi bàn giao một vụ (Action tự xếp).
      */
     public function __construct(
         public StageLog $stageLog,
@@ -50,5 +54,6 @@ final readonly class ReassignMatterResult
         public array $movedTaskIds = [],
         public array $followedTaskIds = [],
         public ?int $seatEventId = null,
+        public ?int $leadChangeEventId = null,
     ) {}
 }

@@ -6,6 +6,7 @@ use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
+use App\Actions\Deadline\Concerns\QueuesDeadlineAssignmentNotice;
 use App\Actions\Matter\ReassignMatter;
 use App\Models\Deadline;
 use App\Models\Matter;
@@ -64,6 +65,7 @@ class ChangeDeadlineResponsible
 {
     use ChecksAccountActive;
     use ChecksDeadlineHolder;
+    use QueuesDeadlineAssignmentNotice;
     use ReadsWithoutPortalScope;
 
     /**
@@ -126,12 +128,16 @@ class ChangeDeadlineResponsible
 
             $fresh->blameOn($actor)->update(['responsible_user_id' => $lockedNewResponsible->getKey()]);
 
-            Audit::record('deadline_responsible_changed', $fresh, [
+            $changed = Audit::record('deadline_responsible_changed', $fresh, [
                 'matter_id' => $matter->getKey(),
                 'client_id' => $matter->client_id,
                 'from' => $previous,
                 'to' => $lockedNewResponsible->getKey(),
             ], causer: $actor);
+
+            // Làn fa2, phán quyết 6: người giữ mốc mới (không phải người bấm) được báo NGAY bằng chuông + thư, sau
+            // commit — job đọc lại mốc và người nhận lúc chạy (docblock `SendDeadlineAssignmentNotice`).
+            $this->queueAssignmentNotice($fresh, $lockedNewResponsible, $actor, $changed, $previous === null ? null : (int) $previous);
 
             return $fresh;
         });

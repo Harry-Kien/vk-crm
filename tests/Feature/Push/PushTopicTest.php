@@ -483,6 +483,10 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.document_store_alert.transfer_blocked',
         'staff.document_store_alert.transfer_dossier_due',
         'staff.document_store_alert.unavailable',
+        // Làn fa2 (phán quyết 7): báo người duyệt văn bản chờ duyệt — chuông + thư đủ, không đẩy.
+        'staff.document_review.submitted',
+        // Làn fa2 (phán quyết 6): báo người giữ mốc mới — chuông + thư đủ, cùng hạng thư nhắc mốc (không đẩy).
+        'staff.deadline_assigned',
         'staff.intake_unanswered',
         'staff.matter_reassigned',
         // làn st: thư thử của nút "Gửi thư thử" (Cài đặt › Thư điện tử) — chỉ để kiểm tra máy chủ thư, tới
@@ -497,6 +501,8 @@ it('decides for every mail template whether it is pushed', function () {
         'staff.task.declined',
         // Làn tk, Task 2: thư nhắc của lịch `tasks.remind` và thư "nhận hồ sơ" — không đẩy. Người nhận đã
         // có chuông, và lời được giao một việc mới (thứ cần biết ngay) đã đẩy qua `staff.task.assigned`.
+        // Làn fa2 (phán quyết 4): thư "được giao phụ trách hồ sơ mới" — cùng hạng thư "nhận hồ sơ", không đẩy.
+        'staff.task.matter.assigned',
         'staff.task.matter.declined',
         'staff.task.matter.reminder.awaiting',
         'staff.task.matter.reminder.unaccepted',

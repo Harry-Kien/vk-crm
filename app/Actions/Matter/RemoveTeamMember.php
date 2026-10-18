@@ -2,10 +2,14 @@
 
 namespace App\Actions\Matter;
 
+use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Actions\Portal\TriageClientRequest;
+use App\Actions\Task\ReassignTask;
 use App\Enums\MatterRole;
 use App\Exceptions\TeamMemberHasOpenWork;
+use App\Jobs\SendTeamDepartureNotices;
 use App\Models\Matter;
+use App\Models\Task;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\OpenWork;
@@ -103,18 +107,39 @@ use Illuminate\Validation\ValidationException;
  * kiện NGHIỆP VỤ nào cho `setStatus()` — điều kiện đó nằm ở chính {@see \App\Actions\Portal\
  * TriageClientRequest::setStatus()}, hỏi lại `canHoldTheThread()` khi MỞ LẠI một luồng `closed`,
  * và gỡ người không còn giữ được ra kèm một thông báo tiếng Việt cho người thao tác.
+ *
+ * # Việc nội bộ người đó đang giữ trên vụ (làn fa2, phán quyết 1)
+ *
+ * Rời đội ngũ thì người đó (không có quyền xem mọi vụ) không còn thấy việc của vụ — việc "Chờ nhận"/"Đang làm" của
+ * họ không được biến mất im lặng. Còn giữ việc thì caller PHẢI chọn: `$taskRecipient` (người nhận thay — mỗi việc đi
+ * qua "Giao lại" có sẵn, {@see ReassignTask}, trong CÙNG transaction, sau khoá dòng vụ: người mới nhận chuông + thư
+ * "được giao", người bị gỡ nhận chuông chung `REASSIGNED_AWAY` của từng việc; người nhận thay phải hợp lệ như mọi lần
+ * giao lại), hoặc `$leaveForReassignment` (việc ở lại, hiện "Cần giao lại" — `Task::scopeNeedsReassignment()`). Không
+ * chọn gì thì từ chối, không gỡ. Việc "Bị trả lại" đã về tay người giao — không thuộc lựa chọn này.
+ *
+ * Sau commit, {@see SendTeamDepartureNotices}: người bị gỡ nhận MỘT chuông "đã rời đội ngũ hồ sơ … — n việc đã
+ * chuyển / chờ giao lại", và người giao của các việc đó (hay người nhận thay họ — `forTaskAssigner()`) nhận một
+ * chuông cho các việc của mình. Dòng `team_member_removed` ghi số việc đã chuyển, số việc để lại, người nhận thay.
  */
 class RemoveTeamMember
 {
+    use ReadsWithoutPortalScope;
+
+    /** Giá trị ô "người nhận thay" có nghĩa "để Cần giao lại" (màn hình gửi lên). */
+    public const LEAVE_FOR_REASSIGNMENT = 'leave';
+
     /**
+     * @param  User|null  $taskRecipient  làn fa2: người nhận thay việc nội bộ người bị gỡ đang giữ trên vụ
+     * @param  bool  $leaveForReassignment  làn fa2: để các việc đó "Cần giao lại" thay vì chuyển
+     *
      * @throws ValidationException
      * @throws TeamMemberHasOpenWork
      */
-    public function handle(Matter $matter, User $actor, User $member): void
+    public function handle(Matter $matter, User $actor, User $member, ?User $taskRecipient = null, bool $leaveForReassignment = false): void
     {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
-        DB::transaction(function () use ($matter, $actor, $member): void {
+        DB::transaction(function () use ($matter, $actor, $member, $taskRecipient, $leaveForReassignment): void {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             $pivot = $locked->team()->whereKey($member->getKey())->first()?->pivot;
@@ -137,12 +162,61 @@ class RemoveTeamMember
                 throw TeamMemberHasOpenWork::make($member, $locked, $openWork);
             }
 
+            // Làn fa2, phán quyết 1 — xem docblock lớp, mục "Việc nội bộ người đó đang giữ trên vụ".
+            $held = $this->scopelessly(Task::query())
+                ->where('matter_id', $locked->getKey())
+                ->where('assignee_id', $member->getKey())
+                ->held()
+                ->orderBy('id')
+                ->get();
+
+            if ($held->isNotEmpty() && $taskRecipient === null && ! $leaveForReassignment) {
+                throw ValidationException::withMessages([
+                    'task_recipient_id' => [__('internal_flow.team_removal.choose_recipient', ['count' => $held->count()])],
+                ]);
+            }
+
+            $moved = [];
+
+            if ($held->isNotEmpty() && $taskRecipient !== null) {
+                if ($taskRecipient->is($member)) {
+                    throw ValidationException::withMessages(['task_recipient_id' => [__('internal_flow.team_removal.recipient_is_member')]]);
+                }
+
+                foreach ($held as $task) {
+                    try {
+                        app(ReassignTask::class)->handle($task, $actor, $taskRecipient);
+                    } catch (ValidationException $exception) {
+                        throw ValidationException::withMessages(['task_recipient_id' => collect($exception->errors())->flatten()->all()]);
+                    }
+
+                    $moved[] = $task->getKey();
+                }
+            }
+
+            $left = $moved === [] ? $held->modelKeys() : [];
+
             $locked->team()->detach($member->getKey());
 
-            Audit::record('team_member_removed', $locked, [
+            $removed = Audit::record('team_member_removed', $locked, [
                 'user_id' => $member->getKey(),
                 'role' => $pivot->role_in_matter->value,
+                'tasks_moved' => count($moved),
+                'tasks_left_for_reassignment' => count($left),
+                'task_recipient_id' => $moved === [] ? null : $taskRecipient?->getKey(),
             ], $actor);
+
+            if ($removed !== null) {
+                SendTeamDepartureNotices::dispatch(
+                    $locked->getKey(),
+                    $member->getKey(),
+                    $actor->getKey(),
+                    (int) $removed->getKey(),
+                    $moved,
+                    $left,
+                    $moved === [] ? null : $taskRecipient?->getKey(),
+                )->afterCommit();
+            }
         });
     }
 }

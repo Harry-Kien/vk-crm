@@ -16,8 +16,11 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 
 /**
- * Thư của "Nhận hồ sơ" (làn tk, Task 2) — ba mẫu `staff.task.matter.<loại>` (hằng `KIND_*`):
+ * Thư của "Nhận hồ sơ" (làn tk, Task 2) — bốn mẫu `staff.task.matter.<loại>` (hằng `KIND_*`):
  *
+ *  - `assigned` (làn fa2, phán quyết 4): người tạo vụ đặt một đồng nghiệp làm luật sư phụ trách — ghế đó chờ
+ *    người nhận bấm "Đã nhận hồ sơ", nên họ được báo bằng thư như khi được bàn giao ({@see SendMatterAssignmentNotice}
+ *    với `withMail`, xếp từ `OpenMatter`). Chữ ở `internal_flow.seat_assigned` (không ở `tasks.seat.email`);
  *  - `declined`: người nhận đã trả lại một ghế trong đội ngũ vụ, kèm lý do — gửi người giao, luật sư phụ
  *    trách, người giám sát vụ ({@see SendMatterAssignmentNotice});
  *  - `reminder.awaiting`: lịch nhắc — ghế chờ người nhận bấm "Đã nhận hồ sơ" đã quá ngưỡng giờ làm việc;
@@ -39,6 +42,9 @@ use Illuminate\Mail\Mailables\Envelope;
  */
 class MatterAssignmentNotice extends BrandedMailable
 {
+    /** Làn fa2, phán quyết 4 — xem docblock lớp. */
+    public const KIND_ASSIGNED = 'assigned';
+
     public const KIND_DECLINED = 'declined';
 
     public const KIND_REMINDER_AWAITING = 'reminder.awaiting';
@@ -53,6 +59,7 @@ class MatterAssignmentNotice extends BrandedMailable
      *                                                                          controller (3)): thư GỘP hai lời nhắc cho nhiều hồ sơ
      *                                                                          ({@see SendSeatReminderDigest}) — mỗi hồ sơ một dòng; `$matter`
      *                                                                          là hồ sơ đầu (dòng sổ thư, đường dẫn). Rỗng: thư một hồ sơ.
+     * @param  string  $assignerName  làn fa2: người giao ghế — chỉ thư {@see self::KIND_ASSIGNED} dùng
      */
     public function __construct(
         public Matter $matter,
@@ -64,6 +71,7 @@ class MatterAssignmentNotice extends BrandedMailable
         public string $since,
         public string $ledgerKey,
         public array $batch = [],
+        public string $assignerName = '',
     ) {}
 
     protected function template(): string
@@ -84,6 +92,10 @@ class MatterAssignmentNotice extends BrandedMailable
 
     public function envelope(): Envelope
     {
+        if ($this->kind === self::KIND_ASSIGNED) {
+            return new Envelope(subject: __('internal_flow.seat_assigned.subject'));
+        }
+
         return new Envelope(
             subject: $this->batch === []
                 ? __('tasks.seat.email.subject.'.$this->kind, ['name' => $this->memberName])
@@ -107,6 +119,10 @@ class MatterAssignmentNotice extends BrandedMailable
 
     public function content(): Content
     {
+        if ($this->kind === self::KIND_ASSIGNED) {
+            return $this->assignedContent();
+        }
+
         $toMember = $this->kind === self::KIND_REMINDER_AWAITING;
 
         return new Content(
@@ -128,6 +144,30 @@ class MatterAssignmentNotice extends BrandedMailable
                     ? SeatInbox::urlFor($this->recipient, $this->matter)
                     : SeatInbox::teamTabUrl((int) $this->matter->getKey()),
                 'action' => __('tasks.seat.email.action.'.$this->kind.($toMember && ! SeatInbox::onMyWork($this->recipient) ? '_team_tab' : '')),
+                'office' => OfficeProfile::current()->legalName(),
+            ],
+        );
+    }
+
+    /**
+     * Thư {@see self::KIND_ASSIGNED} (làn fa2): người nhận là người ngồi ghế — đường dẫn tới chỗ họ bấm nhận
+     * ({@see SeatInbox}), cùng luật với lời nhắc chờ nhận.
+     */
+    private function assignedContent(): Content
+    {
+        return new Content(
+            view: 'emails.staff.task-notice',
+            text: 'emails.staff.task-notice-text',
+            with: [
+                'recipientName' => $this->recipient->name,
+                'headline' => __('internal_flow.seat_assigned.headline', ['who' => $this->assignerName]),
+                'details' => [
+                    ['label' => __('tasks.seat.email.fields.matter'), 'value' => (string) $this->matter->code],
+                    ['label' => __('tasks.seat.email.fields.role'), 'value' => $this->roleLabel],
+                    ['label' => __('internal_flow.seat_assigned.assigned_by'), 'value' => $this->assignerName],
+                ],
+                'url' => SeatInbox::urlFor($this->recipient, $this->matter),
+                'action' => __(SeatInbox::onMyWork($this->recipient) ? 'internal_flow.seat_assigned.action' : 'internal_flow.seat_assigned.action_team_tab'),
                 'office' => OfficeProfile::current()->legalName(),
             ],
         );

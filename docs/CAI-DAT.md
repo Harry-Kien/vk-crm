@@ -929,7 +929,8 @@ làm gì với máy chủ:
 - Các mẫu thư mới cho NHÂN SỰ, họ `staff.task.*` (không thư nào gửi khách): báo được giao / đã nhận / bị trả
   lại / đã hoàn thành một việc (`staff.task.assigned`, `.accepted`, `.declined`, `.completed`), năm lời nhắc
   của lịch trên (`staff.task.reminder.*`) và ba thư về hồ sơ (`staff.task.matter.declined`,
-  `staff.task.matter.reminder.*`). Chúng đi qua hàng đợi thư sẵn có, hiện trong trang "Thư đã gửi" và không gửi lại
+  `staff.task.matter.reminder.*`; bản kiểm tra luồng nội bộ của làn fa2 thêm `staff.task.matter.assigned` — xem
+  mục của bản đó bên dưới). Chúng đi qua hàng đợi thư sẵn có, hiện trong trang "Thư đã gửi" và không gửi lại
   tay được. Thông báo đẩy có thêm một chủ đề, `staff.task.assigned` (một câu chung, không tên việc), chỉ khi
   máy chủ đã có khoá thông báo đẩy (M12).
 - Không quyền mới (`db:seed --force` không có gì mới cho bản này), không biến `.env` mới, không đổi cấu hình
@@ -1619,6 +1620,22 @@ Cài đặt (làn st):
 2. Nút **Gửi thư thử** (Cài đặt › Thư điện tử) xếp thư vào hàng đợi thư thường: lượt gửi hàng đợi mỗi
    phút của dòng cron (Bước 8) đưa nó đi — cron chưa chạy thì thư nằm chờ. Kết quả hiện trên trang và
    ở "Thư đã gửi".
+
+### Bản cập nhật kiểm tra luồng nội bộ: đội ngũ, bàn giao, nghỉ việc, mốc hạn, trình duyệt văn bản (làn fa2)
+
+Không migration mới, không tác vụ lịch mới, không quyền mới, không biến `.env` mới — chuỗi lệnh nâng cấp ở
+trên, nguyên vẹn, là đủ; dòng cron giữ nguyên. Bản này chỉ thêm lời báo và hộp thoại (`docs/QUY-TRINH.md`, mục
+"Đính chính 2026-10-16 — kiểm tra luồng nội bộ"). Ba mẫu thư mới cho NHÂN SỰ, đi qua hàng đợi thư sẵn có (lượt
+gửi hàng đợi mỗi phút của dòng cron, Bước 8), hiện ở "Thư đã gửi", không gửi lại tay được, không đẩy lên điện
+thoại:
+
+- `staff.task.matter.assigned` — mở vụ (hay chuyển lead thành vụ) với luật sư phụ trách là người khác người tạo;
+- `staff.deadline_assigned` — người khác giao một mốc thời hạn cho nhân sự;
+- `staff.document_review.submitted` — một văn bản nội bộ được trình duyệt.
+
+Sau khi lên bản: một nhân sự còn giữ việc nội bộ (hay đã giao việc còn mở, hay còn hồ sơ chờ nhận) sẽ bị chặn
+vô hiệu hoá / xoá / đổi sang Kế toán hay Nhân viên kinh doanh cho tới khi chuyển xong — dùng phần "Việc nội bộ và
+ghế" của màn hình "Bàn giao hàng loạt".
 
 ### Nâng cấp hỏng: quay lại bản trước
 

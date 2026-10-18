@@ -43,6 +43,10 @@ return [
         'client.otp' => 'Mã OTP đăng nhập cổng',
         'client.stage_update' => 'Cập nhật tiến độ cho khách',
         'staff.deadline_reminder' => 'Nhắc mốc thời hạn cho nhân sự',
+        // làn fa2 (phán quyết 7): App\Mail\Staff\DocumentReviewRequest — họ `staff.document_review.*`.
+        'staff.document_review.submitted' => 'Báo người duyệt có văn bản chờ duyệt',
+        // làn fa2 (phán quyết 6): App\Mail\Staff\DeadlineAssigned.
+        'staff.deadline_assigned' => 'Báo nhân sự được giao một mốc thời hạn',
         // M10 Task 5 (R5): bản ghi liên quan là một lần tiếp nhận (`intake_request`), không thuộc vụ
         // việc nào — dòng này chỉ admin thấy trên màn hình nhật ký thư (`OutboundMessage::scopeVisibleTo`).
         'staff.intake_unanswered' => 'Nhắc liên hệ chưa ai gọi lại',
@@ -99,6 +103,8 @@ return [
         'staff.task.reminder.overdue' => 'Nhắc nhân sự việc đã quá hạn',
         'staff.task.reminder.overdue_assigner' => 'Báo người giao việc đã quá hạn',
         'staff.task.matter.declined' => 'Báo người giao hồ sơ bị trả lại',
+        // làn fa2 (phán quyết 4): OpenMatter đặt một đồng nghiệp làm luật sư phụ trách — MatterAssignmentNotice::KIND_ASSIGNED.
+        'staff.task.matter.assigned' => 'Báo nhân sự được giao phụ trách hồ sơ mới',
         'staff.task.matter.reminder.awaiting' => 'Nhắc nhân sự nhận hồ sơ đang chờ',
         'staff.task.matter.reminder.unaccepted' => 'Báo người giao hồ sơ chưa được nhận',
         // làn st: App\Mail\Staff\TestMail — nút "Gửi thư thử" của trang Cài đặt › Thư điện tử.
@@ -146,6 +152,10 @@ return [
                 'client.payment_reminder.*' => 'thư báo trước hạn tự được gửi lại ở lượt 08:15 kế tiếp khi đợt vẫn sắp đến hạn, vì chỉ thư đã gửi thành công mới chặn thư mới; thư nhắc đợt quá hạn thì người quản lý hợp đồng bấm lại "Gửi thư nhắc" trên dòng đợt đó ở tab "Hợp đồng và thanh toán" (mỗi đợt một lần mỗi ngày), có xem trước nội dung và ghi vào sổ liên lạc của vụ.',
                 // Làn tk, Task 1 (lý do ở docblock `ResendTargets`).
                 'staff.task.*' => 'thư này báo một lần giao, nhận, trả lại hay hoàn thành việc đã qua — gửi lại là báo một sự kiện cũ. Chuông trong hệ thống đã báo cùng lúc, và trạng thái hiện tại của việc luôn ở trang "Công việc".',
+                // làn fa2 (phán quyết 7).
+                'staff.document_review.*' => 'thư này báo một lần trình duyệt đã qua — văn bản có thể đã được duyệt hay trả về. Chuông trong hệ thống đã báo cùng lúc, và trạng thái hiện tại của văn bản luôn ở tab "Tài liệu" của hồ sơ.',
+                // làn fa2 (phán quyết 6).
+                'staff.deadline_assigned' => 'thư này báo một lần giao mốc đã qua, với số ngày còn lại tính lúc gửi — gửi lại là báo một con số cũ. Chuông trong hệ thống đã báo cùng lúc, mốc luôn ở tab "Mốc thời hạn" của hồ sơ và ở trang chủ, và lịch nhắc mốc vẫn chạy cho người giữ mốc.',
                 // làn st (lý do ở docblock `ResendTargets`).
                 'staff.test_mail' => 'thư thử chỉ để kiểm tra máy chủ gửi thư; hãy bấm lại "Gửi thư thử" ở trang Cài đặt › Thư điện tử sau khi đã sửa cấu hình.',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',

@@ -18,6 +18,7 @@ use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\OpenLeads;
+use App\Support\OpenTaskWork;
 use App\Support\OpenWork;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -184,6 +185,9 @@ class EditUser extends EditRecord
                     // vô hiệu hoá không còn chạy, nên đây là lúc nói ra (xem docblock SuspendStaffAccess).
                     $openLeads = OpenLeads::forUser($target);
 
+                    // Làn fa2, phán quyết 2: việc nội bộ còn dở — câu nối tiếp, cùng cách đếm (SuspendStaffAccess ghi cùng số).
+                    $openTasks = OpenTaskWork::forUser($target);
+
                     return __('staff_access.suspend.modal_description', [
                         'name' => $target->name,
                         'matters' => $openWork->leadMatters->count(),
@@ -191,6 +195,10 @@ class EditUser extends EditRecord
                         'requests' => $openWork->clientRequests->count(),
                         'consulting_leads' => $openLeads->consulting->count(),
                         'assigned_leads' => $openLeads->assigned->count(),
+                    ]).' '.__('internal_flow.offboarding.suspend_tasks', [
+                        'held' => $openTasks->held->count(),
+                        'assigned' => $openTasks->assigned->count(),
+                        'seats' => $openTasks->pendingSeats->count(),
                     ]);
                 })
                 ->visible(fn (): bool => $this->getRecord()->is_active && Gate::allows('suspendAccess', $this->getRecord()))

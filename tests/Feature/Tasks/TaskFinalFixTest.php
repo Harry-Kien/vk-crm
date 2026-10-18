@@ -541,10 +541,15 @@ it('flags a matter task once its holder is moved to a position without access to
     $held = tkFfTask($this->matter, $this->assistant, $this->lead, TaskStatus::Accepted, ['title' => 'Lập bảng kê']);
 
     $this->actingAs($this->admin, 'web');
+    // Làn fa2 (phán quyết 2): màn hình nhân sự nay CHẶN đổi sang Kế toán / Nhân viên kinh doanh khi người đó còn
+    // giữ việc nội bộ (StaffOffboardingTasksTest) — trạng thái này chỉ còn tới qua đường ngoài màn hình (dữ liệu cũ,
+    // đổi vai trực tiếp), nên dựng thẳng; luật "Cần giao lại" vẫn phải bắt được nó.
     $this->livewire(EditUser::class, ['record' => $this->assistant->getRouteKey()])
         ->fillForm(['position' => $target->value])
         ->call('save')
-        ->assertHasNoFormErrors();
+        ->assertHasFormErrors(['position']);
+    $this->assistant->forceFill(['position' => $target])->save();
+    $this->assistant->assignRoleFromPosition();
 
     tkFfNeedsReassignment($this->lead)->assertCanSeeTableRecords([$held]);
     expect(tkFfReason($held))->toBe('off_access');

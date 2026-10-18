@@ -625,6 +625,15 @@ văn phòng (§10 mục 8). Mỗi media nằm trọn ở MỘT đĩa tại mỗi
 - "Xoá" trên kho là cho vào thùng rác của Shared Drive; CRM không bao giờ xoá vĩnh viễn, không bao giờ
   ghi đè một tệp đã có.
 
+**Đính chính 2026-10-16 (làn fa2, kiểm tra luồng nội bộ — phán quyết 7).** Vòng trình duyệt văn bản nhóm B có lời
+báo ở mỗi bước, gửi sau commit (`App\Jobs\SendDocumentReviewNotice`): **"Trình duyệt"** → người duyệt nhận chuông
+và thư `staff.document_review.submitted` — luật sư phụ trách nếu còn hợp lệ, không thì chuỗi dự phòng của
+`ResolveStaffRecipients::handle()` (trưởng phòng xem được vụ → quản trị viên), mọi tầng đều phải duyệt được chính
+văn bản (`DocumentPolicy::publish`); người tự trình thì không ai bị báo. **"Đánh dấu đã ký, đã nộp"** → người đã
+trình lần gần nhất nhận chuông. **"Trả về bản nháp"** bắt buộc **lý do** (tối đa 1.000 ký tự, ghi vào dòng
+`document_returned_to_draft`), và người đã trình nhận chuông kèm lý do. Người nhận chỉ là người còn mở được hồ
+sơ; lời báo đã cũ (văn bản đã chuyển trạng thái khác) thì không gửi.
+
 ### 4.12 `document_downloads` — nhật ký tải về
 
 `document_id`, `downloader_type`, `downloader_id`, `ip` string(45),
@@ -1276,6 +1285,15 @@ ghi thẳng không qua `TransitionMatterStage`). Nó chỉ đọc dòng `stage_l
 bao giờ kích hoạt đợt của nó — `docs/QUY-TRINH.md`, "Nhập hợp đồng đang chạy". Không gửi thư,
 không xếp hàng đợi; lỗi của một cặp (vụ, giai đoạn) được báo và không chặn các cặp khác.
 
+**Đính chính 2026-10-16 (làn fa2 — phán quyết 6).** Mỗi lần người KHÁC giao một mốc cho ai đó — thêm mốc với người
+phụ trách khác người thêm (kể cả mặc định là luật sư phụ trách), sửa mốc đổi người phụ trách, nút "Đổi người phụ
+trách" — người giữ mốc mới nhận NGAY chuông và thư `staff.deadline_assigned` kèm tên mốc, mã hồ sơ, hạn và số ngày
+còn lại tính lúc gửi (`App\Jobs\SendDeadlineAssignmentNotice`, sau commit; người nhận phải còn hoạt động và mở
+được hồ sơ, mốc còn chưa xong, vụ còn mở, người giữ mốc vẫn là họ). `reminders_sent` thuộc về mốc, không thuộc
+người: bậc đã gửi cho người giữ cũ không gửi lại — lời báo này mang đúng điều bậc gần nhất nói, một lần; các bậc
+sau tới người mới như thường. Tự giao cho mình thì không báo. Bàn giao vụ không đi đường này: thư tổng hợp bàn
+giao đã liệt kê các mốc chuyển sang lead mới.
+
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
 Chạy 08:00 các ngày thứ Hai, Tư, Sáu. Với mỗi matter đang mở, đã công bố
@@ -1447,6 +1465,39 @@ doanh vẫn là người phụ trách lead được — câu "bị chặn như s
 chỉ đường "Chuyển cho luật sư" / ô "Người phụ trách" trên từng lead. "Khoá truy cập ngay" (không chặn ai) nêu và
 ghi nhật ký cả số lead đang mở lúc khoá, cùng đường chuyển chúng — sau khi khoá, công tắc "Đang hoạt động"
 không còn gì để chặn.
+
+**Đính chính 2026-10-16 (làn fa2, kiểm tra luồng nội bộ — phán quyết 1–5).**
+
+- **Gỡ thành viên khỏi đội ngũ** (`RemoveTeamMember`): người còn giữ việc nội bộ "Chờ nhận"/"Đang làm" trên vụ
+  thì hộp thoại liệt kê các việc đó (và nói khi ghế của họ còn chờ nhận), và bắt chọn người nhận thay hợp lệ
+  (mặc định luật sư phụ trách nếu hợp lệ) hoặc "Để Cần giao lại"; không chọn thì không gỡ. Người nhận thay đi qua
+  "Giao lại" (`ReassignTask`) từng việc, trong cùng transaction sau khoá dòng vụ. Sau commit
+  (`SendTeamDepartureNotices`): người bị gỡ nhận MỘT chuông tổng hợp "đã rời đội ngũ hồ sơ … — n việc đã chuyển /
+  chờ giao lại" (vụ hạn chế họ không mở được: không mã; `ReassignTask` vẫn gửi họ chuông chung `REASSIGNED_AWAY`
+  không tên việc của từng việc đã chuyển), người giao các việc đó (hay người nhận thay họ, `forTaskAssigner()`)
+  nhận một chuông. Mốc hạn và yêu cầu của khách vẫn chặn gỡ như trước.
+- **Việc nội bộ trong luật nghỉ việc** (`App\Support\OpenTaskWork`): việc đang giữ, việc đã giao còn mở, hồ sơ chờ
+  nhận — chỉ việc chung và việc trên hồ sơ đang mở (đúng tập chuyển được; việc sót trên hồ sơ đã kết thúc / đã huỷ
+  không chặn) — chặn vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi việc dở khác; "Khoá
+  truy cập ngay" nêu và ghi nhật ký ba con số đó. Màn hình hàng loạt có thêm phần **"Việc nội bộ và ghế"**
+  (`TransferStaffWork`, cùng cổng `bulkReassign` của màn hình — hỏi lại trong chính Action) cho người KHÔNG phải luật sư phụ trách: trên từng hồ sơ đang mở (mỗi hồ sơ một
+  transaction, khoá dòng vụ trước), người nhận vào đội ngũ thay ghế (chờ nhận), việc đang giữ qua "Giao lại", việc
+  đã giao đổi người giao (sang người nhận; việc chính người nhận giữ thì sang người bấm — dòng
+  `task_assigner_changed`, `reason = staff_work_transferred`), mốc hạn và yêu cầu của khách chuyển theo, người cũ
+  rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng luật.
+  Hồ sơ người đó phụ trách thì chỉ đường phần "Bàn giao". Liên kết tới màn hình này đi kèm câu chặn cả khi người đó
+  chỉ còn việc nội bộ.
+- **Công tắc "Giữ luật sư cũ làm cộng sự"** của màn hình hàng loạt TẮT sẵn khi mở từ màn hình cho nghỉ việc
+  (`?from=`), bật sẵn khi mở thường; câu gợi ý (cả nút "Bàn giao" một vụ) nói rõ giữ làm cộng sự thì việc nội bộ
+  người đó đang giữ KHÔNG chuyển.
+- **Mở vụ / chuyển lead thành vụ** với luật sư phụ trách KHÁC người tạo (`OpenMatter`): ghế của họ CHỜ NHẬN
+  (`Matter::seatAssignment()`), và họ nhận chuông "được giao hồ sơ" cùng thư `staff.task.matter.assigned`. Người tạo
+  tự làm phụ trách thì ghế đã nhận như trước.
+- **Đổi luật sư phụ trách** (bước 1 ở trên, một vụ hay hàng loạt): sau commit (`SendLeadChangeNotices`), người phụ
+  trách cũ còn hoạt động (không phải người bấm) nhận chuông "hồ sơ … đã được giao cho X" kèm mã (họ vừa phụ trách
+  nó; rời đội ngũ thì câu nói thêm việc nội bộ của họ cũng đã chuyển, nút "Mở" không trỏ tới hồ sơ) — chỉ vụ hạn chế
+  họ không còn mở được là không mã, chỉ được đếm; thành viên còn lại của đội ngũ còn mở được hồ sơ nhận chuông "đổi luật sư phụ trách". Bàn giao
+  hàng loạt: một chuông mỗi người cho cả lô.
 
 ### 6.12 Kết thúc và bàn giao hồ sơ cho khách — `GenerateHandoverPackage`
 
@@ -2186,6 +2237,9 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 | `client.request_answered` | Văn phòng trả lời một yêu cầu của khách |
 | `staff.instalment_overdue` | Job nhắc đợt thanh toán quá hạn — thêm 2026-09-24 (M9), người nhận theo §6.8 đính chính M9 |
 | `staff.intake_unanswered` | Job nhắc một lần liên hệ chưa ai gọi lại quá ngưỡng phản hồi — thêm 2026-09-24 (M10), người nhận và nội dung theo đính chính M10 dưới đây |
+| `staff.deadline_assigned` | Người khác giao một mốc thời hạn cho nhân sự — thêm 2026-10-16 (làn fa2), theo đính chính §6.8 |
+| `staff.document_review.submitted` | Một văn bản nhóm B được trình duyệt — thêm 2026-10-16 (làn fa2), theo đính chính §4.11 |
+| `staff.task.matter.assigned` | Mở vụ với luật sư phụ trách khác người tạo — thêm 2026-10-16 (làn fa2), theo đính chính §6.11 |
 
 **Đính chính 2026-09-24 (M9).** Mẫu `staff.instalment_overdue` là thư **nội bộ**;
 nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (§5 bổ sung M9): mã

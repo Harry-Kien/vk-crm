@@ -150,7 +150,7 @@ một khách hàng khác.
 | **Ghi lại cuộc gọi, buổi làm việc với khách** | Tab **Liên lạc**, ghi một cuộc gọi trong dưới 15 giây | **[Xong]** M7 Task 8 (`CommunicationLogsRelationManager`) |
 | Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Xong]** M6 (`StaleMattersWidget`, `CheckStaleMatters` + thư `StaleMatterReminder`) |
 | Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Xong]** M7: màn hình bàn giao hàng loạt (`BulkReassign`, chỉ vụ đang mở) và thư tổng hợp cho người nhận (`MatterReassigned`) |
-| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
+| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; việc nội bộ (đang giữ, đã giao còn mở, hồ sơ chờ nhận — hộp xác nhận đếm cả ba, làn fa2) qua phần "Việc nội bộ và ghế" của Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
 
 ### Tìm tài liệu (làn tl, chủ văn phòng 2026-10-15)
 
@@ -445,7 +445,8 @@ của vụ, đặt hạn và mức ưu tiên. Người nhận bấm **"Đã nh�
 cần **"Giao lại"** hoặc **"Huỷ việc"**. Việc hiện **"Cần giao lại"** (cột "Người nhận" ghi lý do; bật bộ lọc
 "Cần giao lại" ở tab "Tất cả") khi người nhận đã nghỉ, đã rời đội ngũ vụ, đã trả lại chính hồ sơ đó, hay không
 còn mở được hồ sơ (ví dụ đổi chức danh sang Kế toán hay Nhân viên kinh doanh) — việc đó đã biến khỏi danh
-sách của họ, nên luật sư phụ trách hay trưởng phòng giao lại. (Hồ sơ không đổi được sang hạn chế truy cập khi
+sách của họ, nên luật sư phụ trách hay trưởng phòng giao lại. (Gỡ một người khỏi tab "Đội ngũ" khi họ còn giữ
+việc thì hộp thoại gỡ bắt chọn trước: chuyển các việc đó cho ai, hay để "Cần giao lại" — xem đính chính bên dưới.) (Hồ sơ không đổi được sang hạn chế truy cập khi
 còn người trong đội ngũ sẽ không mở được nó.) Việc bị trả lại mà người giao đã nghỉ hay không còn mở được hồ sơ cũng vậy (cột "Người
 giao" ghi lý do). Trên một vụ đã kết thúc, người giao không sửa hay giao lại được việc còn mở nữa — chỉ còn
 huỷ; người nhận vẫn bấm "Đã nhận", "Trả lại" hay "Hoàn thành" được (ví dụ việc thu dọn cuối hồ sơ). Người
@@ -458,8 +459,51 @@ trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao l
 **đã giao cho người khác** trên vụ mà còn mở (chờ nhận, đang làm, bị trả lại) đổi **người giao** sang luật sư
 phụ trách mới — người nhận, trạng thái, hạn và lý do trả lại giữ nguyên, nhật ký ghi người giao cũ — nên
 chúng hiện ở tab "Tôi đã giao" và ô "Việc tôi giao bị trả lại" của luật sư phụ trách mới, và thư tổng hợp
-bàn giao có một mục riêng cho chúng. Lead cũ ở lại làm luật sư cộng sự thì mọi việc ở lại với họ. Việc chung
-của người nghỉ việc ở lại "Cần giao lại" cho trưởng phòng giao lại.
+bàn giao có một mục riêng cho chúng. Lead cũ ở lại làm luật sư cộng sự thì mọi việc ở lại với họ — câu gợi ý
+dưới công tắc nói rõ điều đó, và khi mở "Bàn giao hàng loạt" từ màn hình cho nghỉ việc thì công tắc tắt sẵn để
+việc đi theo hồ sơ. Việc chung của người nghỉ việc chuyển được ở phần "Việc nội bộ và ghế" của màn hình hàng
+loạt (xem đính chính bên dưới); việc nào còn sót thì ở lại "Cần giao lại" cho trưởng phòng giao lại.
+
+### Đính chính 2026-10-16 — kiểm tra luồng nội bộ (làn fa2)
+
+Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như văn phòng làm thật, không ai bị bỏ quên.
+
+1. **Gỡ một người khỏi đội ngũ** (tab "Đội ngũ", nút "Gỡ"): nếu người đó còn giữ việc nội bộ trên hồ sơ (chờ nhận
+   hay đang làm), hộp thoại liệt kê các việc đó và bắt chọn **người nhận thay** (mặc định luật sư phụ trách, nếu
+   họ nhận được việc) hoặc **"Để Cần giao lại"**. Ghế còn chờ nhận thì hộp thoại nói rõ gỡ là rút lại lời giao.
+   Người nhận thay nhận chuông + thư "được giao" cho từng việc (như nút "Giao lại"); người giao các việc đó được
+   báo một chuông ("đã chuyển cho …" hay "đang Cần giao lại"); người bị gỡ nhận **một** chuông tổng hợp "Anh/chị
+   đã rời đội ngũ hồ sơ … — n việc đã chuyển / chờ giao lại", nên không ai làm tiếp một việc đã sang tay người
+   khác (khi việc được chuyển, nút "Giao lại" vẫn gửi thêm cho họ chuông chung "một việc đã giao cho người khác"
+   của từng việc, không tên việc). Hồ sơ hạn chế mà người bị gỡ không mở được thì chuông của họ không ghi mã.
+2. **Nghỉ việc, khoá truy cập, xoá, đổi chức danh**: việc nội bộ còn dở (đang giữ, đã giao cho người khác còn
+   mở, hồ sơ được giao chờ nhận) **chặn** vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi
+   việc dở khác, và câu chặn chỉ đường. **Khoá truy cập ngay** nêu ba con số đó trong hộp xác nhận và ghi vào
+   nhật ký. Màn hình **"Bàn giao hàng loạt"** có thêm phần **"Việc nội bộ và ghế"**: chọn người cần chuyển việc
+   (cả trợ lý, chuyên viên, luật sư cộng sự — người không phụ trách vụ nào) và người nhận; trên từng hồ sơ, người
+   nhận vào đội ngũ thay ghế (chờ bấm "Đã nhận hồ sơ"), việc người cũ đang giữ chuyển sang "Chờ nhận", việc người
+   cũ đã giao đổi người giao (sang người nhận; việc chính người nhận đang giữ thì sang người bấm), mốc hạn và yêu
+   cầu của khách chuyển theo, người cũ rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng
+   luật. Mỗi hồ sơ một dòng kết quả. Hồ sơ người đó đang phụ trách thì dùng phần "Bàn giao" ở trên. Chỉ việc chung
+   và việc trên hồ sơ đang mở được đếm: việc còn sót trên hồ sơ đã kết thúc hay đã huỷ không chặn nghỉ việc.
+3. **Bàn giao hàng loạt từ màn hình cho nghỉ việc**: công tắc "Giữ luật sư cũ trong đội ngũ" tắt sẵn; mở thường
+   thì bật sẵn, và câu gợi ý nói rõ "giữ làm cộng sự thì việc nội bộ người đó đang giữ KHÔNG chuyển".
+4. **Mở vụ, hay chuyển lead thành vụ, với luật sư phụ trách là người khác**: hồ sơ hiện ở khối "Hồ sơ chờ tôi
+   nhận" của người đó, kèm chuông và thư "Anh/chị được giao phụ trách một hồ sơ mới" — họ bấm "Đã nhận hồ sơ"
+   hay "Trả lại" như mọi lần được giao. Người mở vụ tự phụ trách thì không có bước nhận.
+5. **Đổi luật sư phụ trách**: luật sư bị rút hồ sơ (nếu không phải chính họ bấm) nhận chuông "Hồ sơ … đã được giao
+   cho X" kèm mã hồ sơ (họ vừa phụ trách nó) — rời đội ngũ thì chuông nói thêm việc nội bộ của họ cũng đã chuyển;
+   riêng hồ sơ hạn chế họ không còn mở được thì chuông chỉ đếm, không ghi mã; mọi thành viên còn lại của đội ngũ nhận chuông
+   "Hồ sơ … đổi luật sư phụ trách: A → B", để biết từ nay báo cáo cho ai. Bàn giao hàng loạt: **một** chuông mỗi
+   người cho cả lô.
+6. **Đổi người phụ trách mốc hạn** (nút "Đổi người phụ trách", nút "Sửa", hay thêm mốc giao cho người khác):
+   người giữ mốc mới nhận ngay chuông + thư "Anh/chị được giao một mốc thời hạn", ghi hạn và còn bao nhiêu ngày.
+   Lời nhắc theo bậc (14/7/3/1 ngày) đã gửi cho người cũ không gửi lại — thư này là lời nhắc của bậc gần nhất, một
+   lần; các bậc sau đến người mới như thường. Tự giao cho mình thì không báo.
+7. **Trình duyệt văn bản nội bộ (nhóm B)**: bấm "Trình duyệt" → luật sư phụ trách (không có thì trưởng phòng / quản
+   trị viên duyệt được văn bản) nhận chuông + thư "Một văn bản chờ anh/chị duyệt". "Đánh dấu đã ký, đã nộp" →
+   người trình nhận chuông. **"Trả về bản nháp" bắt buộc lý do**, và người trình nhận chuông kèm lý do để biết
+   cần sửa gì.
 
 Người giao việc đã rời vụ hay nghỉ việc mà không qua bàn giao (ví dụ một luật sư cộng sự nghỉ) thì lời báo
 "bị trả lại" và hai lời nhắc cho người giao (chưa được nhận, quá hạn) đi tới luật sư phụ trách hiện tại của

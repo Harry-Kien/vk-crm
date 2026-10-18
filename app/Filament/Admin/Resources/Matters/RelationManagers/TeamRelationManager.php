@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 use App\Actions\Matter\AddTeamMember;
 use App\Actions\Matter\RemoveTeamMember;
 use App\Actions\Matter\SeatsNeedingReassignment;
+use App\Actions\Task\TaskAssignees;
 use App\Enums\Confidentiality;
 use App\Enums\MatterAssignmentStatus;
 use App\Enums\MatterRole;
@@ -12,10 +13,13 @@ use App\Filament\Admin\Concerns\ProvidesSeatActions;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Matter;
 use App\Models\MatterUser;
+use App\Models\Task;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
@@ -237,7 +241,11 @@ class TeamRelationManager extends RelationManager
             ->color('danger')
             ->requiresConfirmation()
             ->modalHeading(__('team.tab.actions.remove_heading'))
-            ->modalDescription(__('team.tab.actions.remove_description'))
+            // Làn fa2, phán quyết 1: ghế còn chờ nhận thì nói rõ gỡ là rút lời giao; việc người đó đang giữ hiện trong
+            // form bên dưới, kèm ô chọn người nhận thay (RemoveTeamMember từ chối gỡ khi chưa chọn).
+            ->modalDescription(fn (User $record): string => __('team.tab.actions.remove_description')
+                .($record->pivot?->assignmentStatus() === MatterAssignmentStatus::Pending ? ' '.__('internal_flow.team_removal.pending_seat') : ''))
+            ->schema(fn (User $record): array => $this->removalTaskFields($matter, $record))
             ->authorize(fn (): bool => Gate::allows('manageTeam', $matter))
             // Vai `lead` chỉ đổi qua bàn giao vụ việc (M7, R6) — nút "Gỡ" không có việc gì trên
             // chính dòng đó. `RemoveTeamMember` CŨNG từ chối gỡ một lead — LUÔN LUÔN, không chỉ
@@ -246,9 +254,61 @@ class TeamRelationManager extends RelationManager
             // thừa.
             ->visible(fn (User $record): bool => $record->pivot->role_in_matter !== MatterRole::Lead)
             ->successNotificationTitle(__('team.tab.actions.remove_success'))
-            ->action(fn (Action $action, User $record) => $this->runAction(
-                $action,
-                fn () => app(RemoveTeamMember::class)->handle($matter, Auth::user(), $record),
-            ));
+            ->action(function (Action $action, User $record, array $data) use ($matter): void {
+                $choice = $data['task_recipient_id'] ?? null;
+                $leave = $choice === RemoveTeamMember::LEAVE_FOR_REASSIGNMENT;
+                $recipient = $leave || blank($choice) ? null : User::query()->withTrashed()->find((int) $choice);
+
+                $this->runAction(
+                    $action,
+                    fn () => app(RemoveTeamMember::class)->handle($matter, Auth::user(), $record, $recipient, $leave),
+                );
+            });
+    }
+
+    /**
+     * Làn fa2, phán quyết 1 — việc nội bộ `$member` đang giữ (chờ nhận, đang làm) trên `$matter`, và ô chọn người nhận
+     * thay: người giữ việc hợp lệ của vụ (`TaskAssignees::eligible()` — ghế giữ việc chưa trả lại, đang hoạt động, mở
+     * được vụ, trừ người bấm), trừ chính người bị gỡ, cộng lựa chọn "Để Cần giao lại". Mặc định luật sư phụ trách khi
+     * họ có trong danh sách. Không giữ việc nào thì không có ô nào — gỡ như trước. `private`: xem docblock lớp về
+     * phương thức công khai của component Livewire.
+     *
+     * @return array<int, Text|Select>
+     */
+    private function removalTaskFields(Matter $matter, User $member): array
+    {
+        $held = Task::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $matter->getKey())
+            ->where('assignee_id', $member->getKey())
+            ->held()
+            ->orderBy('id')
+            ->get();
+
+        if ($held->isEmpty()) {
+            return [];
+        }
+
+        $actor = Auth::user();
+        $options = app(TaskAssignees::class)->eligible($matter, $actor)
+            ->reject(fn (User $user): bool => $user->is($member))
+            ->mapWithKeys(fn (User $user): array => [$user->getKey() => $user->name])
+            ->all();
+        $lines = $held->map(fn (Task $task): string => __('internal_flow.team_removal.task_line', [
+            'title' => $task->title,
+            'status' => $task->status->label(),
+            'due' => $task->due_date === null ? '' : __('internal_flow.team_removal.task_due', ['date' => $task->due_date->format('d/m/Y')]),
+        ]));
+
+        return [
+            Text::make(__('internal_flow.team_removal.tasks_heading', ['count' => $held->count()])."\n".$lines->implode("\n")),
+            Select::make('task_recipient_id')
+                ->label(__('internal_flow.team_removal.recipient'))
+                ->helperText(__('internal_flow.team_removal.recipient_hint'))
+                ->options($options + [RemoveTeamMember::LEAVE_FOR_REASSIGNMENT => __('internal_flow.team_removal.leave')])
+                ->default(array_key_exists($matter->lead_lawyer_id, $options) ? $matter->lead_lawyer_id : null)
+                ->required()
+                ->native(false),
+        ];
     }
 }

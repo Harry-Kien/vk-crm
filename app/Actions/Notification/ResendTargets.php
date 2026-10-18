@@ -82,6 +82,12 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *    MỘT lần chuyển trạng thái đã qua của một việc nội bộ. Chuông trong hệ thống đi trước thư và không
  *    phụ thuộc thư (`SendTaskNotice`), và trạng thái HIỆN TẠI của việc luôn ở trang "Công việc" — gửi lại
  *    một lời báo cũ (ví dụ "được giao" cho một việc đã giao lại cho người khác) chỉ làm rối.
+ *  - `staff.deadline_assigned` (làn fa2): thư báo MỘT lần giao mốc đã qua, với số ngày còn lại tính lúc gửi
+ *    (`SendDeadlineAssignmentNotice`). Chuông đi cùng lúc, mốc luôn ở tab "Mốc thời hạn" và trang chủ, và lịch
+ *    nhắc mốc vẫn chạy cho người giữ mốc — gửi lại là báo một con số cũ.
+ *  - `staff.document_review.*` (làn fa2): thư báo MỘT lần trình duyệt văn bản nội bộ đã qua
+ *    (`SendDocumentReviewNotice`) — văn bản có thể đã được duyệt hay trả về; chuông đi cùng lúc và trạng thái
+ *    hiện tại luôn ở tab "Tài liệu".
  *  - `staff.test_mail` (làn st): thư thử của nút "Gửi thư thử" (Cài đặt › Thư điện tử) chỉ để kiểm
  *    tra máy chủ gửi thư, tới chính người bấm — gửi lại từ sổ thư là bỏ qua giới hạn tần suất và nhật
  *    ký của nút đó; bấm lại nút là đủ.
@@ -118,6 +124,9 @@ final class ResendTargets
         // Làn nt Task 2 — lý do ở docblock lớp.
         'client.payment_reminder.*',
         'staff.task.*',
+        // làn fa2 — lý do ở docblock lớp.
+        'staff.deadline_assigned',
+        'staff.document_review.*',
         // làn st — lý do ở docblock lớp.
         'staff.test_mail',
         'undeclared',
