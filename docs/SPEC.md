@@ -1782,7 +1782,7 @@ không dấu ra đủ: **"Dang" ra "Đặng"**, "dat dai" ra "đất đai", "QD"
 không migration, không lệnh một lần. Bước đổi chữ làm câu tìm bỏ index của các cột đó; câu tìm vốn đã duyệt
 bảng (sáu nguồn trong một `OR`, ở trên). Tầm nhìn không đổi: `listableBy()` áp như trước.
 
-**Bổ sung fix round 1 (làn fa3, 2026-10-18) — nơi tìm không phân biệt `đ`/`d`.** (1) Chữ `ð`/`Ð` (U+00F0/U+00D0, chữ eth mà một số bộ gõ và bộ chuyển mã cũ gõ thay `Đ`) cũng như `d`: `LetterD` đổi bốn ký tự (`đ`, `Đ`, `ð`, `Ð`) ở cả hai vế, `Normalizer::name()` vốn đã gộp chúng. (2) Ngoài trang Tìm kiếm, trang Tài liệu và ô tìm của trang Hợp đồng, ô tìm của **các danh sách chính** cũng vậy (`LetterD::searchable()`, cùng phép `REPLACE … LIKE ?` có thoát `%`/`_`): **Khách hàng** (mã, tên), **Vụ việc** (mã, khách hàng, loại vụ việc, tiêu đề — chỉ người có `matter.view` —, luật sư phụ trách), **Tiếp nhận** (mã, tên người liên hệ), **Nhân sự** (tên, số thẻ luật sư), **Tài khoản cổng khách** (khách hàng, tên), tab **Các bên** (tên). Điều kiện chỉ thu hẹp truy vấn của danh sách: `listableBy()` và chính sách của resource không đổi (vụ hạn chế vẫn không ra). Trên MariaDB "Dang" ra "Đặng"; trên SQLite chữ chỉ mang dấu `đ` ra (như trên). (3) Ô chọn tìm trên máy chủ trong **đúng** danh sách tuỳ chọn cũ (`LetterD::searchOptions()`, so qua `Normalizer::name()` — bỏ mọi dấu trên mọi CSDL, mọi từ người gõ phải có mặt): ô **Khách hàng** và **Luật sư phụ trách** của form mở vụ, ô **Luật sư phụ trách** (bộ lọc) của trang Doanh thu, ô **Người thực hiện** của Nhật ký hoạt động; `->options()` giữ nguyên nên luật `in:` của Filament và lớp kiểm tra thứ hai ở `CreateMatter` không đổi. **Gộp integ-fa (2026-10-18) — áp nốt ở các tệp làn fa1/fa2 giữ:** ô tìm của trang **Công việc** và tab **Công việc** của vụ (`TaskColumns`: tiêu đề, mã hồ sơ — `LetterD::searchable()`, `visibleTo()` không đổi, việc của vụ hạn chế ngoài tầm vẫn không ra); bộ lọc **vụ việc / người được giao / người giao** của `ListTasks`; ô **Vụ việc** và **Giao cho** của "Giao việc" (trang Công việc và tab của vụ), ô người nhận của **"Giao lại"**, ô người của **"Thêm thành viên"** (tab Đội ngũ) và bốn ô chọn của **Bàn giao hàng loạt** (người đang phụ trách, người phụ trách mới, người cần chuyển việc, người nhận). Ô có danh sách phụ thuộc ô khác hay bản ghi của hộp thoại dùng `LetterD::filterOptions()` (cùng phép so của `searchOptions()`) trên đúng hàm của `->options()`; mọi ô đợi `SELECT_SEARCH_DEBOUNCE_MS`. Ô tìm của "Thư đã gửi" (người nhận là địa chỉ thư/số điện thoại, mẫu là khoá) và bộ lọc mã hồ sơ không cần. (4) Phán quyết mục 3 ban đầu đòi "tính lại các cột chuẩn hoá đã lưu": **không có migration đó — cố ý**, vì đã kiểm rằng mọi cột `*_name_normalized` chỉ được ghi qua `Normalizer::name()` (đã đổi `đ` → `d` từ M1) nên một lần tính lại không đổi giá trị nào (CAI-DAT, "Bản cập nhật làn fa3").
+**Bổ sung fix round 1 (làn fa3, 2026-10-18) — nơi tìm không phân biệt `đ`/`d`.** (1) Chữ `ð`/`Ð` (U+00F0/U+00D0, chữ eth mà một số bộ gõ và bộ chuyển mã cũ gõ thay `Đ`) cũng như `d`: `LetterD` đổi bốn ký tự (`đ`, `Đ`, `ð`, `Ð`) ở cả hai vế, `Normalizer::name()` vốn đã gộp chúng. (2) Ngoài trang Tìm kiếm, trang Tài liệu và ô tìm của trang Hợp đồng, ô tìm của **các danh sách chính** cũng vậy (`LetterD::searchable()`, cùng phép `REPLACE … LIKE ?` có thoát `%`/`_`): **Khách hàng** (mã, tên), **Vụ việc** (mã, khách hàng, loại vụ việc, tiêu đề — chỉ người có `matter.view` —, luật sư phụ trách), **Tiếp nhận** (mã, tên người liên hệ), **Nhân sự** (tên, số thẻ luật sư), **Tài khoản cổng khách** (khách hàng, tên), tab **Các bên** (tên). Điều kiện chỉ thu hẹp truy vấn của danh sách: `listableBy()` và chính sách của resource không đổi (vụ hạn chế vẫn không ra). Trên MariaDB "Dang" ra "Đặng"; trên SQLite chữ chỉ mang dấu `đ` ra (như trên). (3) Ô chọn tìm trên máy chủ trong **đúng** danh sách tuỳ chọn cũ (`LetterD::searchOptions()`, so qua `Normalizer::name()` — bỏ mọi dấu trên mọi CSDL, mọi từ người gõ phải có mặt): ô **Khách hàng** và **Luật sư phụ trách** của form mở vụ, ô **Luật sư phụ trách** (bộ lọc) của trang Doanh thu, ô **Người thực hiện** của Nhật ký hoạt động; `->options()` giữ nguyên nên luật `in:` của Filament và lớp kiểm tra thứ hai ở `CreateMatter` không đổi. **Gộp integ-fa (2026-10-18) — áp nốt ở các tệp làn fa1/fa2 giữ:** ô tìm của trang **Công việc** và tab **Công việc** của vụ (`TaskColumns`: tiêu đề, mã hồ sơ — `LetterD::searchable()`, `visibleTo()` không đổi, việc của vụ hạn chế ngoài tầm vẫn không ra); bộ lọc **vụ việc / người được giao / người giao** của `ListTasks`; ô **Vụ việc** và **Giao cho** của "Giao việc" (trang Công việc và tab của vụ), ô người nhận của **"Giao lại"**, ô người của **"Thêm thành viên"** (tab Đội ngũ) và bốn ô chọn của **Bàn giao hàng loạt** (người đang phụ trách, người phụ trách mới, người cần chuyển việc, người nhận). Ô có danh sách phụ thuộc ô khác hay bản ghi của hộp thoại dùng `LetterD::filterOptions()` (cùng phép so của `searchOptions()`) trên đúng hàm của `->options()`; mọi ô đợi `SELECT_SEARCH_DEBOUNCE_MS`. Ô tìm của "Thư đã gửi" (người nhận là địa chỉ thư/số điện thoại, mẫu là khoá) và bộ lọc mã hồ sơ không cần. (4) Phán quyết mục 3 ban đầu đòi "tính lại các cột chuẩn hoá đã lưu": **không có migration đó — cố ý**, vì đã kiểm rằng mọi cột `*_name_normalized` chỉ được ghi qua `Normalizer::name()` (đã đổi `đ` → `d` từ M1) nên một lần tính lại không đổi giá trị nào (CAI-DAT, mục "Bản cập nhật kiểm tra luồng nội bộ 2026-10-16/18", phần làn fa3).
 
 **Đính chính 2026-10-15 (làn tl, yêu cầu của chủ văn phòng: "Kho tài liệu … phải dễ dàng để có thể sử
 dụng được hiệu quả nhất").** Thêm trang **"Tài liệu"** (`App\Filament\Admin\Pages\DocumentLibrary`,
@@ -2556,6 +2556,60 @@ không quyền mới.
    tên việc, không mã vụ). `RemindPendingWork::assigneeCanStillWork()` là bản SQL của `qualifies()` — đổi cùng nhau.
 
 Không migration, tác vụ lịch hay quyền mới.
+
+**Đính chính 2026-10-18 (gộp integ-fa — rà soát chéo các làn fa1, fa2, fa3).** Sửa và bổ sung cho các luật ở trên và ở
+§6.11 (bàn giao, gỡ thành viên, chuyển việc nội bộ):
+
+1. **Bàn giao vụ để lại việc riêng cho lead mới** (`MoveTasksOnHandover`). Lead cũ rời đội ngũ: việc lead cũ tự giữ
+   (người giao = người giữ) chuyển sang lead mới VÀ đổi người giao sang lead mới; việc lead cũ đã giao mà chính lead mới
+   đang giữ cũng đổi người giao — cả hai thành việc RIÊNG của lead mới (`task_assigner_changed` có `own_task: true`,
+   không vào danh sách "theo dõi" của thư tổng hợp). Một lần bàn giao xanh trọn vì vậy để `OpenTaskWork` của lead cũ
+   rỗng (trừ việc chính lead mới đã giao cho lead cũ — vẫn ở lại "Cần giao lại", như trước), nên cho nghỉ việc được.
+   Người bấm bàn giao cho chính mình: việc chuyển sang thẳng "Đang làm" (`taken_over: true`) — cùng luật nhận thay.
+2. **Hạn đã qua không đi theo việc chuyển hàng loạt.** `MoveTasksOnHandover`, `TransferStaffWork` và `RemoveTeamMember`
+   (kèm người nhận thay) đặt hạn mới bằng `ReassignmentDueDate::suggest()` — đúng luật hạn điền sẵn của "Giao lại":
+   hạn còn ở hôm nay hay tương lai giữ nguyên; hạn đã qua thành hôm nay cộng số ngày người cũ đã có (ít nhất một);
+   dòng `task_reassigned` ghi `due_date_from`/`due_date_to`. Tỉ lệ "Việc hoàn thành đúng hạn" bỏ khỏi CẢ tử lẫn mẫu
+   việc người đang giữ nhận SAU ngày hạn (`Task::scopeAssignedByDueDate()` — ngày của `assigned_at` sau `due_date`):
+   người đó chưa từng có cơ hội làm kịp.
+3. **Việc riêng không bao giờ lên mọi trưởng phòng.** `forTaskAssigner()` với việc riêng: bước người giao bỏ, luật sư
+   phụ trách nhận thay khi họ không phải người giữ, và KHÔNG BAO GIỜ bước `supervisorsFor()` — kể cả lời báo cần người
+   quyết định. `RemindPendingWork` không xếp `reminder.overdue_assigner` cho việc riêng (người giữ đã có
+   `reminder.overdue`), và lần hỏi lại lúc gửi bỏ nó nếu việc đã thành việc riêng.
+4. **Chuông "đã chuyển" cho người giao là tin.** `SendStaffWorkTransferNotices` (`ASSIGNER`) và `SendTeamDepartureNotices`
+   (`TASKS_HANDLED`, việc đã chuyển) gọi `forTaskAssigner(decisionNeeded: false)`; việc để "Cần giao lại" giữ cả chuỗi.
+5. **Người bị tạm khoá / vô hiệu.** `Task::scopeHeldBySeatedAssignee()` hỏi thêm `users.is_active`: việc người giữ bị
+   khoá chỉ là "Cần giao lại" (vế `inactive`), không đồng thời vào số "quá hạn", bộ lọc "Chỉ việc quá hạn" hay mẫu của
+   tỉ lệ đúng hạn. Tập này là bản SQL của `RemindPendingWork::assigneeCanStillWork()`.
+6. **Bàn giao hàng loạt, phần "Việc nội bộ và ghế".** Câu tóm tắt và hộp xác nhận không đếm hồ sơ người đó đang phụ
+   trách (`TransferStaffWork` bỏ qua chúng — dòng `is_lead`), nên con số bằng điều sẽ chuyển.
+7. **Gỡ thành viên trên hồ sơ đã kết thúc.** "Giao lại" chỉ chạy trên hồ sơ đang mở: hộp thoại chỉ cho "Để Cần giao
+   lại"; `RemoveTeamMember` từ chối người nhận thay trên hồ sơ đã kết thúc bằng câu `closed_leave_only` dưới ô chọn.
+8. **Huỷ hồ sơ mở nhầm báo người làm dở.** Sau commit, `SendMatterCancelledTaskNotices`: một chuông
+   `MatterCancelledTasksAlert` cho mỗi người đang giữ (chờ nhận, đang làm) hay đã giao một việc còn mở của hồ sơ, trừ
+   người bấm; mã hồ sơ chỉ với người mở được hồ sơ trước khi huỷ (`Matter::isListableBy()`). Khôi phục trước khi job
+   chạy thì không báo.
+9. **Đổi người phụ trách mốc báo người cũ.** `ChangeDeadlineResponsible` (khi `notify`) và `UpdateDeadline` xếp
+   `SendDeadlineHandedAwayNotice`: người giữ cũ (không phải người bấm) nhận chuông tin `DeadlineHandedAwayAlert` — tên
+   mốc, mã, người nhận chỉ khi họ còn mở được hồ sơ. Không thư.
+10. **Chuyển tiếp nhận thành hồ sơ.** Luật sư phụ trách điền sẵn là người được giao bản ghi (người tư vấn) khi họ có
+    trong ô chọn (đang hoạt động, có `matter.transitionStage`); không thì người bấm. Luật sư phụ trách khác người bấm
+    nhận lời báo "được giao hồ sơ" của `OpenMatter` như trước; người tư vấn không phải người bấm và không phải luật sư
+    phụ trách nhận chuông tin `IntakeConvertedAlert` (mã hồ sơ và luật sư phụ trách chỉ khi họ mở được hồ sơ).
+11. **Lô bàn giao nhiều người phụ trách cũ.** Chuông `LEAD_CHANGED` gộp nhiều hồ sơ có người cũ khác nhau ghi mỗi mã
+    kèm người cũ của nó (`lead_change.code_from`), không một tên "từ" chung.
+12. **"Đã thu" của vành khuyên Doanh thu** tính cả khoản thu trên hồ sơ đã huỷ (`withTrashed()` + `listableBy()`, như
+    ô "Đã thu" — `CollectedRevenue`).
+13. **"Chờ tôi duyệt".** Trang Tài liệu có bộ lọc "Chờ tôi duyệt": văn bản nhóm B đang "Chờ duyệt" mà người xem qua
+    `DocumentPolicy::publish` (cổng của "Đánh dấu đã ký, đã nộp" và "Trả về bản nháp") —
+    `DocumentLibrary::awaitingApprovalIds()`; ô "Văn bản chờ tôi duyệt" của "Việc cần xử lý của tôi" (người có
+    `document.publish`) đếm cùng tập và mở trang đã lọc sẵn.
+14. **Tìm người nhận việc** (ba ô "Giao cho"/"Giao lại") chỉ so phần TÊN của nhãn (`TaskAssignees::searchOptions()`),
+    không câu "đang giữ … việc".
+15. **Job xếp trước bản cập nhật.** `SendMatterAssignmentNotice::$withMail` là thuộc tính thường có mặc định, không
+    `readonly` khai trong hàm dựng: payload cũ (không có khoá đó) chạy được.
+
+Không migration, tác vụ lịch hay quyền mới; không mẫu thư mới (chỉ chuông).
 
 ---
 
