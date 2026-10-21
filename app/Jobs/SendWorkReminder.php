@@ -54,7 +54,7 @@ use Throwable;
  * Các loại báo người giao ({@see RemindPendingWork::isAssignerKind()}) tới người không phải `assigned_by`
  * LÚC GỬI — luật sư phụ trách nhận thay người giao đã rời vụ hay nghỉ việc (`ResolveStaffRecipients::
  * forTaskAssigner()`) — mang tên người giao (vòng sửa 1, I1): chuông và thư dùng câu chữ, đường dẫn của
- * người nhận thay ({@see TaskReminderAlert::onBehalf()}).
+ * người nhận thay ({@see TaskReminderAlert::standInRole()}).
  *
  * `ShouldBeUnique` theo (đối tượng, loại, người, khoá): hai lượt lịch liền nhau không xếp hai job cho cùng
  * một lời nhắc khi job đầu còn chờ hàng.

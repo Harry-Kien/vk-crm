@@ -10,6 +10,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Notifications\Staff\TaskReminderAlert;
 use App\Support\OfficeProfile;
+use App\Support\Tasks\StandIn;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -83,7 +84,7 @@ class TaskReminder extends BrandedMailable
     public function envelope(): Envelope
     {
         return new Envelope(subject: $this->batch === []
-            ? __('tasks.reminder.email.subject.'.$this->kindKey())
+            ? __($this->langKey('subject'))
             : __('tasks.reminder_digest.email.subject.'.$this->digestKind(), ['count' => count($this->batch)]));
     }
 
@@ -101,7 +102,8 @@ class TaskReminder extends BrandedMailable
             text: 'emails.staff.task-notice-text',
             with: [
                 'recipientName' => $this->recipient->name,
-                'headline' => __('tasks.reminder.email.headline.'.$this->kindKey(), [
+                'headline' => __($this->langKey('headline'), [
+                    'code' => (string) $task->matter?->code,
                     'name' => (string) $task->assignee?->name,
                     'detail' => $this->detail,
                     'assigner' => (string) $this->onBehalfOf,
@@ -111,13 +113,13 @@ class TaskReminder extends BrandedMailable
                 'details' => array_values(array_filter([
                     $line('title', $task->title),
                     $task->matter?->code === null ? null : $line('matter', $task->matter->code),
-                    $this->onBehalf() ? $line('assigner', (string) $this->onBehalfOf) : null,
+                    $this->standIn() !== null ? $line('assigner', (string) $this->onBehalfOf) : null,
                     ['label' => __('tasks.reminder.email.assignee'), 'value' => (string) $task->assignee?->name],
                     $line('due_date', $task->due_date?->format('d/m/Y') ?? __('tasks.email.no_due_date')),
                     $line('priority', $task->priority->label()),
                 ])),
-                'url' => TaskReminderAlert::urlFor($this->kind, $task, $this->onBehalfOf),
-                'action' => __('tasks.reminder.email.action.'.$this->kindKey()),
+                'url' => TaskReminderAlert::urlFor($this->kind, $task, $this->onBehalfOf, $this->recipient),
+                'action' => __($this->langKey('action')),
                 'office' => OfficeProfile::current()->legalName(),
             ],
         );
@@ -148,18 +150,23 @@ class TaskReminder extends BrandedMailable
         return str_replace('reminder.', '', $this->kind);
     }
 
-    /** Thư tới người nhận THAY người giao — cùng định nghĩa của chuông (`TaskReminderAlert::onBehalf()`). */
-    private function onBehalf(): bool
+    /** Vai người nhận THAY người giao — cùng định nghĩa của chuông (`TaskReminderAlert::standInRole()`). */
+    private function standIn(): ?string
     {
-        return TaskReminderAlert::onBehalf($this->kind, $this->task, $this->onBehalfOf);
+        return TaskReminderAlert::standInRole($this->kind, $this->task, $this->onBehalfOf, $this->recipient);
     }
 
     /**
-     * Hậu tố khoá câu chữ: `reminder.due_soon` → `due_soon`; cộng `_on_behalf` khi người nhận nhận thay người
-     * giao (docblock lớp). Mẫu thư ({@see self::template()}) không đổi.
+     * Khoá câu chữ của phần `$part` (`subject`, `headline`, `action`): `tasks.reminder.email.<phần>.<loại>`, cộng
+     * `_on_behalf` khi luật sư phụ trách nhận thay người giao (docblock lớp); người quản lý hồ sơ hay việc chung nhận thay
+     * (kiểm toán 2026-10-21, N1/A7): `tasks.managed.reminder.email.<phần>.<loại>[_general]` (`StandIn`). Mẫu thư
+     * ({@see self::template()}) không đổi.
      */
-    private function kindKey(): string
+    private function langKey(string $part): string
     {
-        return str_replace('reminder.', '', $this->kind).($this->onBehalf() ? '_on_behalf' : '');
+        $kind = str_replace('reminder.', '', $this->kind);
+
+        return StandIn::managedKey('reminder.email.'.$part, $kind, $this->standIn())
+            ?? 'tasks.reminder.email.'.$part.'.'.$kind.($this->standIn() !== null ? '_on_behalf' : '');
     }
 }

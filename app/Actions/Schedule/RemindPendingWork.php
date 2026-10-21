@@ -362,7 +362,7 @@ class RemindPendingWork
     /**
      * Loại nhắc báo NGƯỜI GIAO (chưa được nhận, quá hạn; từ làn fa1 vòng sửa 1 cả "sắp đến hạn" khi người nhận không
      * còn giữ được việc) — người nhận qua {@see self::taskAssignerAudience()}, có thể là luật sư phụ trách nhận thay
-     * (vòng sửa 1 của làn tk, I1: câu chữ, đường dẫn của người nhận thay — `TaskReminderAlert::onBehalf()`).
+     * (vòng sửa 1 của làn tk, I1: câu chữ, đường dẫn của người nhận thay — `TaskReminderAlert::standInRole()`).
      */
     public static function isAssignerKind(string $kind): bool
     {

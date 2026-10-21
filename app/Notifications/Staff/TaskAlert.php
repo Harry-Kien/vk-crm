@@ -7,6 +7,7 @@ use App\Filament\Admin\Resources\Tasks\Tables\TaskColumns;
 use App\Filament\Admin\Resources\Tasks\TaskResource;
 use App\Jobs\SendTaskNotice;
 use App\Models\Task;
+use App\Support\Tasks\StandIn;
 use Filament\Actions\Action;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Lang;
@@ -129,10 +130,13 @@ class TaskAlert extends Notification
         return Lang::has('tasks.notice.'.$langKind.'.title') ? 'tasks.notice.'.$langKind : 'tasks.alert.'.$langKind;
     }
 
-    /** Lời báo này tới người nhận THAY người giao — một loại {@see self::ON_BEHALF_KINDS}, việc của một vụ, có tên người giao. */
-    public static function isOnBehalf(string $kind, Task $task, ?string $onBehalfOf): bool
+    /**
+     * Vai người nhận thay người giao (`StandIn::role()`) của một lời báo {@see self::ON_BEHALF_KINDS} — một định nghĩa
+     * cho chuông và thư (`TaskNotice`); `null`: không nhận thay (người nhận là người giao, hay loại không báo người giao).
+     */
+    public static function standInRole(string $kind, Task $task, ?string $onBehalfOf, ?object $recipient): ?string
     {
-        return $onBehalfOf !== null && in_array($kind, self::ON_BEHALF_KINDS, true) && $task->matter_id !== null;
+        return in_array($kind, self::ON_BEHALF_KINDS, true) ? StandIn::role($task, $onBehalfOf, $recipient) : null;
     }
 
     /** Tab "Công việc" của vụ của `$task` — nơi người nhận thay người giao thấy việc đó (docblock lớp). */
@@ -151,8 +155,11 @@ class TaskAlert extends Notification
     public function toDatabase(object $notifiable): array
     {
         $generic = $this->kind === self::REASSIGNED_AWAY;
-        $onBehalf = self::isOnBehalf($this->kind, $this->task, $this->onBehalfOf);
-        $lang = self::langKey($this->kind.($onBehalf ? '_on_behalf' : ''));
+        // Kiểm toán 2026-10-21 (N1, A7): vai người nhận thay — luật sư phụ trách (`*_on_behalf`), người quản lý hồ sơ hay
+        // việc chung (`tasks.managed.*`) — `StandIn`.
+        $standIn = self::standInRole($this->kind, $this->task, $this->onBehalfOf, $notifiable);
+        $lang = StandIn::managedKey('alert', $this->kind, $standIn, '.title')
+            ?? self::langKey($this->kind.($standIn !== null ? '_on_behalf' : ''));
         $code = $generic ? null : $this->task->matter?->code;
         $warning = $generic || in_array($this->kind, [self::DECLINED, self::CANCELLED, self::REOPENED, self::CANCELLED_BY_OTHER], true);
 
@@ -160,8 +167,8 @@ class TaskAlert extends Notification
             'actions' => [
                 Action::make('open')
                     ->label(__('tasks.alert.open'))
-                    ->url($onBehalf
-                        ? self::onBehalfUrl($this->task)
+                    ->url($standIn !== null
+                        ? StandIn::url($this->task, $standIn)
                         : TaskResource::getUrl('index', ['tab' => self::tabFor($this->kind, $this->task)], panel: 'admin'))
                     ->markAsRead()
                     ->toArray(),
@@ -181,7 +188,7 @@ class TaskAlert extends Notification
             'icon' => null,
             'iconColor' => null,
             'status' => $warning ? 'warning' : 'info',
-            'title' => __($lang.'.title'),
+            'title' => __($lang.'.title', ['code' => e((string) $code)]),
             'view' => null,
             'viewData' => ['task_id' => $this->task->getKey(), 'task_event_id' => $this->eventId],
             'format' => 'filament',

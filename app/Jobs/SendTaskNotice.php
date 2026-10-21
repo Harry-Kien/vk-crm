@@ -127,20 +127,29 @@ class SendTaskNotice implements ShouldQueue
             return;
         }
 
-        $user = (match (true) {
+        // Kiểm toán 2026-10-21 (N1): MỌI người của `forTaskAssigner()` — cùng tập với lời nhắc người giao của lịch
+        // (`RemindPendingWork::taskAssignerAudience()`). Trước bản sửa `->first()`: "bị trả lại" rơi tới người quản lý của
+        // vụ chỉ tới trưởng phòng đầu tiên, trong khi lời nhắc "chưa được nhận"/"quá hạn" của cùng việc tới cả nhóm. Các
+        // tập khác có tối đa một người (`forTask([$recipient])`, `forFormerTaskHolder([$recipient])`).
+        $users = match (true) {
             $this->kind === TaskAlert::REASSIGNED_AWAY => $recipients->forFormerTaskHolder([$recipient]),
             in_array($this->kind, TaskAlert::ON_BEHALF_KINDS, true) => $recipients->forTaskAssigner(
                 $task,
                 decisionNeeded: ! in_array($this->kind, TaskAlert::INFO_ONLY_KINDS, true),
             ),
             default => $recipients->forTask($task, [$recipient]),
-        })->first();
-
-        if ($user === null) {
-            return;
-        }
+        };
 
         $actorName = ActivityPeople::name($event->causer) ?? '';
+
+        foreach ($users as $user) {
+            $this->deliver($task, $event, $user, $actorName, $recipients);
+        }
+    }
+
+    /** Chuông rồi thư (và push của lời "được giao") cho MỘT người — xem docblock lớp. */
+    private function deliver(Task $task, Activity $event, User $user, string $actorName, ResolveStaffRecipients $recipients): void
+    {
         // Xem docblock lớp, mục "Người nhận thay người giao".
         $onBehalfOf = in_array($this->kind, TaskAlert::ON_BEHALF_KINDS, true) && $user->getKey() !== $task->assigned_by
             ? $recipients->assignerName($task)

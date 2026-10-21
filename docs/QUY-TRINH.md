@@ -616,6 +616,13 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
 Người giao việc đã rời vụ hay nghỉ việc mà không qua bàn giao (ví dụ một luật sư cộng sự nghỉ) thì lời báo
 "bị trả lại" và các lời nhắc cho người giao (chưa được nhận, sắp đến hạn, quá hạn) đi tới luật sư phụ trách hiện tại của
 vụ, ghi rõ việc "do … giao" và mở thẳng tab "Công việc" của hồ sơ — nơi luật sư phụ trách giao lại hay huỷ.
+Luật sư phụ trách cũng không nhận thay được (chính họ giữ việc đó, hay đã nghỉ) thì lời báo cần người quyết định
+("bị trả lại", chưa được nhận, sắp đến hạn mà không còn người làm, quá hạn) tới **mọi** người quản lý của hồ sơ
+(trưởng phòng; quản trị viên với hồ sơ hạn chế) — cùng một nhóm cho lời "bị trả lại" và các lời nhắc (từ 2026-10-21;
+trước đó "bị trả lại" chỉ tới một trưởng phòng) — với câu "… hồ sơ … của đội ngũ anh/chị quản lý". **Việc chung**
+mà người giao đã nghỉ hay bị khoá (từ 2026-10-21): các lời báo đó tới mọi trưởng phòng đang làm việc (không còn
+trưởng phòng nào thì quản trị viên), nút mở trang Công việc lọc sẵn các việc người giao đó đã giao; trước đó không ai
+nhận. Tin ("đã nhận", "đã hoàn thành") không bao giờ tới trưởng phòng.
 
 **Nhắc tự động** (lịch `tasks.remind`, mỗi 30 phút, chỉ trong giờ làm việc Thứ Hai–Thứ Sáu 08:00–17:30):
 

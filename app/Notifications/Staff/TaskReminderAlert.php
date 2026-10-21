@@ -8,6 +8,7 @@ use App\Filament\Admin\Resources\Tasks\TaskResource;
 use App\Jobs\SendWorkReminder;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Tasks\StandIn;
 use Filament\Actions\Action;
 use Illuminate\Notifications\Notification;
 
@@ -70,15 +71,18 @@ class TaskReminderAlert extends Notification
         }
 
         $code = $this->task->matter?->code;
-        $onBehalf = self::onBehalf($this->kind, $this->task, $this->onBehalfOf);
-        $lang = 'tasks.reminder.alert.'.str_replace('reminder.', '', $this->kind).($onBehalf ? '_on_behalf' : '');
+        // Kiểm toán 2026-10-21 (N1, A7): câu theo vai người nhận thay — `StandIn`.
+        $standIn = self::standInRole($this->kind, $this->task, $this->onBehalfOf, $notifiable);
+        $kind = str_replace('reminder.', '', $this->kind);
+        $lang = StandIn::managedKey('reminder.alert', $kind, $standIn, '.title')
+            ?? 'tasks.reminder.alert.'.$kind.($standIn !== null ? '_on_behalf' : '');
         $danger = in_array($this->kind, [RemindPendingWork::OVERDUE, RemindPendingWork::OVERDUE_ASSIGNER], true);
 
         return [
             'actions' => [
                 Action::make('open')
                     ->label(__('tasks.alert.open'))
-                    ->url(self::urlFor($this->kind, $this->task, $this->onBehalfOf))
+                    ->url(self::urlFor($this->kind, $this->task, $this->onBehalfOf, $notifiable))
                     ->markAsRead()
                     ->toArray(),
             ],
@@ -96,7 +100,7 @@ class TaskReminderAlert extends Notification
             'icon' => null,
             'iconColor' => null,
             'status' => $danger ? 'danger' : 'warning',
-            'title' => __($lang.'.title'),
+            'title' => __($lang.'.title', ['code' => e((string) $code)]),
             'view' => null,
             'viewData' => ['task_id' => $this->task->getKey(), 'reminder_key' => $this->key],
             'format' => 'filament',
@@ -200,19 +204,24 @@ class TaskReminderAlert extends Notification
     }
 
     /**
-     * Lời nhắc này tới người nhận THAY người giao (docblock lớp) — một loại báo người giao, việc của một vụ,
-     * có tên người giao. Một định nghĩa cho chuông và thư (`TaskReminder`).
+     * Vai người nhận THAY người giao (docblock lớp; kiểm toán 2026-10-21, N1/A7 — `StandIn::role()`) của một loại báo người
+     * giao; `null`: người nhận là người nhận việc hay chính người giao. Một định nghĩa cho chuông và thư (`TaskReminder`).
      */
-    public static function onBehalf(string $kind, Task $task, ?string $onBehalfOf): bool
+    public static function standInRole(string $kind, Task $task, ?string $onBehalfOf, ?object $recipient): ?string
     {
-        return $onBehalfOf !== null && RemindPendingWork::isAssignerKind($kind) && $task->matter_id !== null;
+        return RemindPendingWork::isAssignerKind($kind) ? StandIn::role($task, $onBehalfOf, $recipient) : null;
     }
 
-    /** Đường dẫn của lời nhắc: tab "Công việc" của vụ cho người nhận thay, không thì tab của {@see self::tabFor()}. */
-    public static function urlFor(string $kind, Task $task, ?string $onBehalfOf): string
+    /**
+     * Đường dẫn của lời nhắc: trang của người nhận thay (`StandIn::url()` — tab "Công việc" của hồ sơ, hay trang Công việc
+     * lọc sẵn người giao với việc chung), không thì tab của {@see self::tabFor()}.
+     */
+    public static function urlFor(string $kind, Task $task, ?string $onBehalfOf, ?object $recipient = null): string
     {
-        return self::onBehalf($kind, $task, $onBehalfOf)
-            ? TaskAlert::onBehalfUrl($task)
+        $standIn = self::standInRole($kind, $task, $onBehalfOf, $recipient);
+
+        return $standIn !== null
+            ? StandIn::url($task, $standIn)
             : TaskResource::getUrl('index', ['tab' => self::tabFor($kind, $task)], panel: 'admin');
     }
 }

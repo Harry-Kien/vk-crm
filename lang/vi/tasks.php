@@ -798,4 +798,109 @@ return [
             ],
         ],
     ],
+
+    // N1, A7 — lời báo "cho người giao" tới người nhận THAY không phải luật sư phụ trách (App\Support\Tasks\StandIn):
+    // người quản lý hồ sơ (`<loại>`) hay trưởng phòng / quản trị viên với việc chung (`<loại>_general`). :title, :who,
+    // :reason, :assigner, :detail, :code đã escape ở chuông.
+    'managed' => [
+        'alert' => [
+            'declined' => [
+                'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý bị trả lại',
+                'body' => ':who trả lại việc ":title" do :assigner giao. Lý do: :reason. :assigner không còn theo dõi việc này '
+                    .'và luật sư phụ trách không nhận thay được, nên anh/chị — người quản lý hồ sơ — nhận lời báo: hãy giao '
+                    .'lại hoặc huỷ ở tab "Công việc" của hồ sơ.',
+            ],
+            'declined_general' => [
+                'title' => 'Một việc chung bị trả lại mà người giao không còn theo dõi',
+                'body' => ':who trả lại việc chung ":title" do :assigner giao. Lý do: :reason. :assigner không còn theo dõi '
+                    .'việc này nên anh/chị nhận lời báo: hãy giao lại hoặc huỷ ở trang Công việc.',
+            ],
+        ],
+        'email' => [
+            'subject' => [
+                'declined' => ':name đã trả lại một việc trên hồ sơ của đội ngũ anh/chị quản lý',
+                'declined_general' => ':name đã trả lại một việc chung mà người giao không còn theo dõi',
+            ],
+            'headline' => [
+                'declined' => ':name đã trả lại việc do :assigner giao trên hồ sơ :code của đội ngũ anh/chị quản lý. :assigner '
+                    .'không còn theo dõi việc này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo.',
+                'declined_general' => ':name đã trả lại việc chung do :assigner giao. :assigner không còn theo dõi việc này nên '
+                    .'anh/chị nhận lời báo.',
+            ],
+            'action' => [
+                'declined' => 'Mở tab Công việc của hồ sơ để giao lại hoặc huỷ việc',
+                'declined_general' => 'Mở trang Công việc để giao lại hoặc huỷ việc',
+            ],
+        ],
+        'reminder' => [
+            'alert' => [
+                'unaccepted' => [
+                    'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý chưa được nhận',
+                    'body' => ':who chưa nhận việc ":title" do :assigner giao, sau :detail (tính theo giờ làm việc). :assigner '
+                        .'không còn theo dõi việc này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo: hãy '
+                        .'trao đổi với :who hoặc giao lại.',
+                ],
+                'unaccepted_general' => [
+                    'title' => 'Một việc chung chưa được nhận mà người giao không còn theo dõi',
+                    'body' => ':who chưa nhận việc chung ":title" do :assigner giao, sau :detail (tính theo giờ làm việc). '
+                        .':assigner không còn theo dõi việc này nên anh/chị nhận lời báo: hãy trao đổi với :who hoặc giao lại.',
+                ],
+                'overdue_assigner' => [
+                    'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý đã quá hạn',
+                    'body' => 'Việc ":title" do :assigner giao cho :who đã quá hạn :detail ngày. :assigner không còn theo dõi '
+                        .'việc này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo.',
+                ],
+                'overdue_assigner_general' => [
+                    'title' => 'Một việc chung đã quá hạn mà người giao không còn theo dõi',
+                    'body' => 'Việc chung ":title" do :assigner giao cho :who đã quá hạn :detail ngày. :assigner không còn theo '
+                        .'dõi việc này nên anh/chị nhận lời báo.',
+                ],
+                'due_soon_assigner' => [
+                    'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý sắp đến hạn mà không còn người làm',
+                    'body' => 'Việc ":title" do :assigner giao cho :who đến hạn ngày :detail. :assigner không còn theo dõi việc '
+                        .'này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo.',
+                ],
+                'due_soon_assigner_general' => [
+                    'title' => 'Một việc chung sắp đến hạn mà không còn người làm',
+                    'body' => 'Việc chung ":title" do :assigner giao cho :who đến hạn ngày :detail. :assigner không còn theo '
+                        .'dõi việc này nên anh/chị nhận lời báo.',
+                ],
+            ],
+            'email' => [
+                'subject' => [
+                    'unaccepted' => 'Một việc trên hồ sơ của đội ngũ anh/chị quản lý chưa được nhận',
+                    'unaccepted_general' => 'Một việc chung chưa được nhận mà người giao không còn theo dõi',
+                    'overdue_assigner' => 'Một việc trên hồ sơ của đội ngũ anh/chị quản lý đã quá hạn',
+                    'overdue_assigner_general' => 'Một việc chung đã quá hạn mà người giao không còn theo dõi',
+                    'due_soon_assigner' => 'Một việc trên hồ sơ của đội ngũ anh/chị quản lý sắp đến hạn mà không còn người làm',
+                    'due_soon_assigner_general' => 'Một việc chung sắp đến hạn mà không còn người làm',
+                ],
+                'headline' => [
+                    'unaccepted' => ':name chưa nhận việc do :assigner giao trên hồ sơ :code của đội ngũ anh/chị quản lý, sau '
+                        .':detail (tính theo giờ làm việc). :assigner không còn theo dõi việc này và luật sư phụ trách không '
+                        .'nhận thay được, nên anh/chị nhận lời báo.',
+                    'unaccepted_general' => ':name chưa nhận việc chung do :assigner giao, sau :detail (tính theo giờ làm '
+                        .'việc). :assigner không còn theo dõi việc này nên anh/chị nhận lời báo.',
+                    'overdue_assigner' => 'Việc do :assigner giao cho :name trên hồ sơ :code của đội ngũ anh/chị quản lý đã '
+                        .'quá hạn :detail ngày. :assigner không còn theo dõi việc này và luật sư phụ trách không nhận thay '
+                        .'được, nên anh/chị nhận lời báo.',
+                    'overdue_assigner_general' => 'Việc chung do :assigner giao cho :name đã quá hạn :detail ngày. :assigner '
+                        .'không còn theo dõi việc này nên anh/chị nhận lời báo.',
+                    'due_soon_assigner' => 'Việc do :assigner giao cho :name trên hồ sơ :code của đội ngũ anh/chị quản lý đến '
+                        .'hạn ngày :detail. :assigner không còn theo dõi việc này và luật sư phụ trách không nhận thay được, '
+                        .'nên anh/chị nhận lời báo.',
+                    'due_soon_assigner_general' => 'Việc chung do :assigner giao cho :name đến hạn ngày :detail. :assigner '
+                        .'không còn theo dõi việc này nên anh/chị nhận lời báo.',
+                ],
+                'action' => [
+                    'unaccepted' => 'Mở tab Công việc của hồ sơ',
+                    'unaccepted_general' => 'Mở trang Công việc',
+                    'overdue_assigner' => 'Mở tab Công việc của hồ sơ',
+                    'overdue_assigner_general' => 'Mở trang Công việc',
+                    'due_soon_assigner' => 'Mở tab Công việc của hồ sơ',
+                    'due_soon_assigner_general' => 'Mở trang Công việc',
+                ],
+            ],
+        ],
+    ],
 ];

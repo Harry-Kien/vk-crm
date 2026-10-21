@@ -471,7 +471,8 @@ it('tells the matter\'s manager when the lead returns a task whose assigner has 
     $bells = tkAgBells($this->manager, TaskAlert::class);
 
     expect($bells)->toHaveCount(1)
-        ->and($bells[0]['title'])->toBe(__('tasks.alert.declined_on_behalf.title'))
+        // Kiểm toán 2026-10-21 (N1): câu của người quản lý hồ sơ, không "hồ sơ anh/chị phụ trách".
+        ->and($bells[0]['title'])->toBe(__('tasks.managed.alert.declined.title', ['code' => $this->matter->code]))
         ->and($bells[0]['body'])->toContain('Xung đột lịch xét xử.')
         ->and(tkAgBells($this->lead, TaskAlert::class))->toBe([]);
 

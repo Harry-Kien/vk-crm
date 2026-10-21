@@ -2622,6 +2622,21 @@ Không migration, tác vụ lịch hay quyền mới.
 
 Không migration, tác vụ lịch hay quyền mới; không mẫu thư mới (chỉ chuông).
 
+**Đính chính 2026-10-21 (kiểm toán luồng Công việc — làn nhắc việc và con số).** Sửa và bổ sung cho các luật ở trên:
+
+1. **Việc chung có người giao không còn hợp lệ (A7).** Câu "Việc chung không có luật sư phụ trách: người giao không còn
+   hợp lệ thì rỗng" của `ResolveStaffRecipients::forTaskAssigner()` được viết khi chỉ quản lý/quản trị giao việc chung;
+   từ luật 1 của 2026-10-16 mọi nhân sự có `matter.view` giao được, nên lời báo cần người quyết định ("bị trả lại",
+   `reminder.unaccepted`, `.due_soon_assigner`, `.overdue_assigner`) của một việc chung mà người giao đã nghỉ / bị khoá /
+   xoá rơi vào khoảng không. Nay: rơi tới mọi trưởng phòng đang hoạt động, không còn ai thì mọi quản trị viên đang hoạt
+   động (qua `forTask()`, trừ người giữ). Tin (`decisionNeeded: false`) vẫn rỗng; việc chung RIÊNG của người giữ còn làm
+   được việc vẫn rỗng (họ tự quyết), người giữ đó đã nghỉ thì trưởng phòng.
+2. **Người nhận thay nói đúng vai (N1).** `App\Support\Tasks\StandIn`: luật sư phụ trách nhận thay — bộ chữ `*_on_behalf`
+   ("hồ sơ anh/chị phụ trách"); người quản lý hồ sơ nhận thay — `tasks.managed.*` ("hồ sơ :code của đội ngũ anh/chị
+   quản lý"); việc chung — `tasks.managed.*_general`, nút về trang Công việc lọc sẵn người giao. "Bị trả lại"
+   (`SendTaskNotice`) tới MỌI người của `forTaskAssigner()` — cùng tập với các lời nhắc người giao — thay vì người đầu
+   tiên.
+
 ---
 
 ## 10. Bảo mật — yêu cầu cụ thể
