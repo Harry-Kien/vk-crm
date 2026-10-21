@@ -372,9 +372,11 @@ it('points the overdue reminder of a task nobody accepted yet to "Chờ tôi nh�
         ->all();
 
     // So theo tên việc, không theo thứ tự đọc chuông (MariaDB và SQLite trả khác nhau).
+    // Kiểm toán màn hình 2026-10-21: cùng tab, và mở thẳng khung "Xem" của đúng việc.
+    $byTitle = fn (string $title): Task => Task::query()->where('title', $title)->sole();
     expect($urls)->toEqual([
-        'Nộp bản sao' => TaskResource::getUrl('index', ['tab' => 'awaiting'], panel: 'admin'),
-        'Đối chiếu chứng cứ' => TaskResource::getUrl('index', ['tab' => 'active'], panel: 'admin'),
+        'Nộp bản sao' => TaskResource::taskUrl($byTitle('Nộp bản sao'), 'awaiting'),
+        'Đối chiếu chứng cứ' => TaskResource::taskUrl($byTitle('Đối chiếu chứng cứ'), 'active'),
     ]);
 });
 

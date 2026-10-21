@@ -279,7 +279,8 @@ it('points every topic at the right page and tab', function (PushTopic $topic, s
     'staff.instalment_overdue' => [PushTopic::StaffInstalmentOverdue, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(BillingRelationManager::class, MatterResource::getRelations(), true)],
     'staff.handover_ready' => [PushTopic::StaffHandoverReady, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(DocumentsRelationManager::class, MatterResource::getRelations(), true)],
     // Làn tk vòng sửa 1 (I2): trang "Công việc", tab "Chờ tôi nhận" — cùng chỗ chuông "được giao" mở; không id vụ.
-    'staff.task.assigned' => [PushTopic::StaffTaskAssigned, 'admin', fn () => '/admin/tasks?tab=awaiting'],
+    // Kiểm toán màn hình 2026-10-21: mở thẳng khung "Xem" của việc vừa giao (id VIỆC, không id vụ).
+    'staff.task.assigned' => [PushTopic::StaffTaskAssigned, 'admin', fn () => '/admin/tasks?tab=awaiting&tableAction=view&tableActionRecord='.Task::query()->sole()->id],
     'push.test / portal' => [PushTopic::Test, 'portal', fn () => parse_url(PortalPushDevices::getUrl(panel: 'portal'), PHP_URL_PATH)],
     'push.test / admin' => [PushTopic::Test, 'admin', fn () => parse_url(AdminPushDevices::getUrl(panel: 'admin'), PHP_URL_PATH)],
 ]);

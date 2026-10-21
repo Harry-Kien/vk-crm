@@ -115,6 +115,7 @@ class TaskReminderAlert extends Notification
     {
         return self::onBehalf($kind, $task, $onBehalfOf)
             ? TaskAlert::onBehalfUrl($task)
-            : TaskResource::getUrl('index', ['tab' => self::tabFor($kind, $task)], panel: 'admin');
+            // Kiểm toán màn hình 2026-10-21 (mục 5): mở thẳng khung "Xem" của việc được nhắc.
+            : TaskResource::taskUrl($task, self::tabFor($kind, $task));
     }
 }

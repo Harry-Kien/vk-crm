@@ -164,7 +164,8 @@ it('still lets a holder on a working seat accept and complete, and a general tas
 
     tkPolList($this->assistant, 'awaiting')
         ->assertTableActionVisible('accept', $pending)
-        ->assertTableActionVisible('complete', $pending)
+        // Kiểm toán màn hình 2026-10-21: "Hoàn thành" việc chưa nhận ở "⋮" (`completePending`).
+        ->assertTableActionVisible('completePending', $pending)
         ->assertTableActionVisible('accept', $general)
         ->callTableAction('accept', $pending)
         ->assertHasNoTableActionErrors();
@@ -182,7 +183,8 @@ it('refuses a stale "Đã nhận" from a screen opened before the holder became 
     // Lần bấm kế tiếp trên CÙNG màn hình hỏi lại policy phía máy chủ: nút không còn, không gì đổi.
     $page->call('$refresh')
         ->assertTableActionHidden('accept', $pending)
-        ->assertTableActionHidden('complete', $pending);
+        ->assertTableActionHidden('complete', $pending)
+        ->assertTableActionHidden('completePending', $pending);
 
     expect($pending->fresh()->status)->toBe(TaskStatus::Pending);
 });
@@ -200,7 +202,8 @@ it('lists open tasks first by due date (no due date last), then closed ones, on 
 
     $expected = [$openSoon, $returned, $openLate, $openNoDue, $doneEarly];
 
-    tkPolList($this->manager, 'all')->assertCanSeeTableRecords($expected, inOrder: true);
+    // Kiểm toán màn hình 2026-10-21: tab "Tất cả" mặc định chỉ việc còn mở — tắt bộ lọc để thấy cả việc đã đóng.
+    tkPolList($this->manager, 'all')->filterTable('open_only', false)->assertCanSeeTableRecords($expected, inOrder: true);
     tkPolList($this->lead, 'assigned')->assertCanSeeTableRecords($expected, inOrder: true);
 });
 

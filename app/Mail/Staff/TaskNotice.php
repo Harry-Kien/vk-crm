@@ -114,7 +114,7 @@ class TaskNotice extends BrandedMailable
                 'details' => $this->details(),
                 'url' => $this->onBehalf()
                     ? TaskAlert::onBehalfUrl($this->task)
-                    : TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor($this->kind, $this->task)], panel: 'admin'),
+                    : TaskResource::taskUrl($this->task, TaskAlert::tabFor($this->kind, $this->task)),
                 'action' => __($this->langKey('action')),
                 'office' => $office->legalName(),
             ],

@@ -48,9 +48,17 @@ use Illuminate\Support\Facades\Gate;
  * # Thao tác cho người bận
  *
  * "Đã nhận" là MỘT cú bấm, không hộp xác nhận. "Trả lại" và "Huỷ việc" bắt buộc lý do. "Hoàn thành" mở
- * một khung với ghi chú tuỳ chọn (khung đó cũng là bước xác nhận). Ba nút của người nhận đứng ngoài;
- * các nút của người quản lý (sửa, giao lại, huỷ — và từ làn fa1 "Mở lại" việc đã hoàn thành, "Khôi phục" việc
- * đã huỷ) gom vào một nhóm để dòng không chật.
+ * một khung với ghi chú tuỳ chọn (khung đó cũng là bước xác nhận).
+ *
+ * Kiểm toán màn hình 2026-10-21 (mục 1, 2, 6): MỖI DÒNG MỘT NÚT CHÍNH đứng ngoài — "Đã nhận" khi việc chờ người
+ * xem nhận, "Hoàn thành" khi người xem đang làm, "Giao lại" ({@see self::reassignReturnedTaskAction()}) khi việc bị
+ * trả lại và người xem là người giao (hay người được giao lại thay). Ba trạng thái loại trừ nhau, nên một dòng có
+ * nhiều nhất một nút ngoài. Mọi nút khác — "Xem", "Trả lại", "Sửa", "Giao lại", "Huỷ việc", "Mở lại", "Khôi phục"
+ * — nằm trong "⋮". Trước đó bốn nút đứng ngoài: trên điện thoại 390px nút "Đã nhận" ở x=782 (vuốt ngang hai màn
+ * hình), trên máy 1366px nút "Trả lại" bị cắt còn "Tra". Bấm vào dòng là "Xem" (`->recordAction('view')` của bảng).
+ *
+ * Khung "Xem" có ở chân các nút của dòng ({@see self::viewTaskAction()}) — CHÍNH các hàm dựng nút ở đây, cùng
+ * `->authorize()`: không có luật thứ hai nào về ai bấm được gì.
  *
  * # "Mở lại" và "Khôi phục" trên vụ đã kết thúc (làn fa1)
  *
@@ -60,22 +68,84 @@ use Illuminate\Support\Facades\Gate;
  */
 trait ProvidesTaskActions
 {
-    /** @return list<Action|ActionGroup> */
+    /**
+     * Bố cục nút của một dòng — xem docblock lớp, mục "Thao tác cho người bận".
+     *
+     * @return list<Action|ActionGroup>
+     */
     protected function taskRecordActions(): array
     {
         return [
             $this->acceptTaskAction(),
-            $this->declineTaskAction(),
-            $this->completeTaskAction(),
-            $this->viewTaskAction(),
+            // Nút chính "Hoàn thành" chỉ khi đang làm: việc chờ nhận có "Đã nhận" làm nút chính, còn "nhận và xong một
+            // lượt" (`TaskPolicy::complete` cho phép) nằm trong "⋮" ({@see self::completePendingTaskAction()}).
+            $this->completeTaskAction()
+                ->button()
+                ->size('sm')
+                ->visible(fn (Task $record): bool => $record->status !== TaskStatus::Pending),
+            $this->reassignReturnedTaskAction(),
             ActionGroup::make([
+                $this->viewTaskAction(),
+                $this->completePendingTaskAction(),
+                $this->declineTaskAction(),
                 $this->editTaskAction(),
                 $this->reassignTaskAction(),
                 $this->cancelTaskAction(),
                 $this->reopenTaskAction(),
                 $this->restoreTaskAction(),
-            ]),
+            ])
+                ->label(__('tasks.actions.more'))
+                ->tooltip(__('tasks.actions.more')),
         ];
+    }
+
+    /**
+     * Các nút ở chân khung "Xem" — chính các nút của dòng (cùng hàm dựng, cùng `->authorize()`), chỉ hiện nút người xem
+     * được bấm ("Hoàn thành" cả khi việc còn chờ nhận — đúng như `TaskPolicy::complete`). Mỗi nút đóng khung "Xem" khi xong (`cancelParentActions()`): dòng của bảng đã đổi, khung cũ thì không.
+     *
+     * @return list<Action>
+     */
+    protected function taskViewFooterActions(): array
+    {
+        return array_map(fn (Action $action): Action => $action->cancelParentActions(), [
+            $this->acceptTaskAction(),
+            $this->completeTaskAction()->button(),
+            $this->reassignTaskAction()->button(),
+            $this->declineTaskAction()->button(),
+            $this->editTaskAction()->button(),
+            // `cancel` là tên nút "Đóng" của chính khung (Filament) — trùng tên thì nút "Huỷ việc" bị nút "Đóng" đè mất.
+            $this->cancelTaskAction()->name('cancelTask')->button(),
+            $this->reopenTaskAction()->button(),
+            $this->restoreTaskAction()->button(),
+        ]);
+    }
+
+    /**
+     * "Hoàn thành" một việc CHƯA nhận — nhận và xong một lượt (`TaskPolicy::complete`), trong "⋮" để dòng chờ nhận chỉ
+     * có một nút chính ("Đã nhận"). Đúng hộp thoại và Action của {@see self::completeTaskAction()}; tên riêng vì một tên
+     * chỉ ở một chỗ trên bảng.
+     */
+    protected function completePendingTaskAction(): Action
+    {
+        return $this->completeTaskAction()
+            ->name('completePending')
+            ->visible(fn (Task $record): bool => $record->status === TaskStatus::Pending);
+    }
+
+    /**
+     * Nút chính "Giao lại" của một dòng BỊ TRẢ LẠI (kiểm toán màn hình 2026-10-21, mục 6): đúng hộp thoại của
+     * {@see self::reassignTaskAction()} (cùng cổng `TaskPolicy::reassign`, cùng ô, cùng `ReassignTask`), đứng ngoài
+     * dòng thay vì trong "⋮" — việc bị trả lại chỉ chờ đúng một việc của người giao. Tên riêng vì một tên chỉ ở một chỗ
+     * trên bảng; nút "Giao lại" trong "⋮" vẫn còn cho mọi trạng thái (các bảng và test khác gọi nó theo tên `reassign`).
+     */
+    protected function reassignReturnedTaskAction(): Action
+    {
+        return $this->reassignTaskAction()
+            ->name('reassignReturned')
+            ->button()
+            ->size('sm')
+            ->color('primary')
+            ->visible(fn (Task $record): bool => $record->status === TaskStatus::Declined);
     }
 
     /**
@@ -221,8 +291,11 @@ trait ProvidesTaskActions
     }
 
     /**
-     * "Xem" — khung chỉ đọc: mô tả, các mốc, lý do/ghi chú. Mã vụ, KHÔNG tên khách. Cổng: `TaskPolicy::view`
-     * (mọi dòng của bảng đã qua `visibleTo()`; hỏi lại để nút không bao giờ mở một việc người xem không thấy).
+     * "Xem" — khung: mô tả, các mốc, lý do/ghi chú, mã vụ (liên kết tới tab "Công việc" của hồ sơ khi người xem mở
+     * được hồ sơ), khối "Diễn biến" (`TaskTimeline`), và ở chân các nút người xem được bấm
+     * ({@see self::taskViewFooterActions()}). KHÔNG tên khách. Cổng: `TaskPolicy::view` (mọi dòng của bảng đã qua
+     * `visibleTo()`; hỏi lại để nút không bao giờ mở một việc người xem không thấy). Mọi chuông/thư/lời nhắc về một
+     * việc mở thẳng khung này (`TaskResource::taskUrl()`).
      */
     protected function viewTaskAction(): Action
     {
@@ -232,8 +305,9 @@ trait ProvidesTaskActions
             ->color('gray')
             ->authorize(fn (Task $record): bool => Gate::allows('view', $record))
             ->modalHeading(fn (Task $record): string => $record->title)
-            ->modalContent(fn (Task $record) => view('filament.admin.tasks.task-detail', ['task' => $record]))
+            ->modalContent(fn (Task $record) => view('filament.admin.tasks.task-detail', ['task' => $record, 'viewer' => $this->taskActor()]))
             ->modalSubmitAction(false)
+            ->extraModalFooterActions(fn (): array => $this->taskViewFooterActions())
             ->modalCancelActionLabel(__('tasks.actions.close'));
     }
 
@@ -407,9 +481,13 @@ trait ProvidesTaskActions
      * Bốn ô nội dung của một việc, chung cho "Giao việc" và "Sửa": độ dài = độ dài cột (MariaDB strict).
      * Mặc định người dùng chỉ phải gõ TIÊU ĐỀ — ưu tiên "Thường", không hạn.
      *
+     * Kiểm toán màn hình 2026-10-21 (mục 9): ô "Mức ưu tiên" bắt buộc không có nút xoá ("×"); `$newTask` (hộp "Giao
+     * việc") — lịch hạn không cho chọn ngày đã qua (`AssignTask` vẫn từ chối dưới khoá). "Sửa" thì không: một việc đã
+     * quá hạn vẫn giữ được hạn cũ (`ValidatesTaskInput::cleanDueDate()`).
+     *
      * @return list<TextInput|DatePicker|Select|Textarea>
      */
-    protected function taskDetailFields(): array
+    protected function taskDetailFields(bool $newTask = false): array
     {
         return [
             TextInput::make('title')
@@ -421,6 +499,7 @@ trait ProvidesTaskActions
             DatePicker::make('due_date')
                 ->label(__('tasks.fields.due_date'))
                 ->helperText(__('tasks.fields.due_date_help'))
+                ->minDate($newTask ? fn (): string => today()->toDateString() : null)
                 ->native(false)
                 ->displayFormat('d/m/Y'),
             Select::make('priority')
@@ -428,6 +507,7 @@ trait ProvidesTaskActions
                 ->options(TaskPriority::options())
                 ->default(TaskPriority::Normal->value)
                 ->required()
+                ->selectablePlaceholder(false)
                 ->native(false),
             Textarea::make('description')
                 ->label(__('tasks.fields.description'))
