@@ -224,18 +224,7 @@ class ListTasks extends ListRecords
                     ->native(false)
                     ->live()
                     ->afterStateUpdated(fn (Set $set): mixed => $set('assignee_id', null)),
-                Select::make('assignee_id')
-                    ->label(__('tasks.fields.assignee'))
-                    ->helperText(fn (Get $get): string => self::assigneeHelp(filled($get('matter_id')) ? 'tasks.fields.assignee_help_matter' : 'tasks.fields.assignee_help_general'))
-                    ->options(fn (Get $get): array => app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()))
-                    ->searchable()
-                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => TaskAssignees::searchOptions(
-                        app(TaskAssignees::class)->options($this->assignMatter($get('matter_id')), $this->taskActor()),
-                        $search,
-                    ))
-                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
-                    ->required()
-                    ->native(false),
+                $this->assigneeSelect(fn (Get $get): ?Matter => $this->assignMatter($get('matter_id'))),
                 ...$this->taskDetailFields(),
                 Hidden::make('submission_key'),
             ])

@@ -14,10 +14,14 @@ use App\Actions\Task\UpdateTask;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
+use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
+use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\MatterTab;
 use App\Support\Search\LetterD;
 use App\Support\Tasks\ReassignmentDueDate;
+use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
@@ -25,6 +29,7 @@ use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -292,17 +297,7 @@ trait ProvidesTaskActions
             ->modalSubmitActionLabel(__('tasks.actions.reassign_submit'))
             ->fillForm(fn (Task $record): array => ['due_date' => self::suggestedDueDate($record)])
             ->schema(fn (Task $record): array => [
-                Select::make('assignee_id')
-                    ->label(__('tasks.fields.assignee'))
-                    ->helperText(self::assigneeHelp($record->matter_id === null ? 'tasks.fields.assignee_help_general' : 'tasks.fields.assignee_help_matter'))
-                    ->options(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record))
-                    ->searchable()
-                    // Gộp integ-fa (làn fa3): "doan" ra "Đoàn" trong ĐÚNG danh sách trên (`ReassignTask` hỏi lại).
-                    // Gộp integ-fa (rà soát chéo, mục 19): chỉ so phần TÊN của nhãn, không phần "đang giữ … việc".
-                    ->getSearchResultsUsing(fn (?string $search): array => TaskAssignees::searchOptions(app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record), $search))
-                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
-                    ->required()
-                    ->native(false),
+                $this->assigneeSelect(fn (): ?Matter => $record->matter, $record),
                 DatePicker::make('due_date')
                     ->label(__('tasks.fields.due_date'))
                     ->helperText(fn (): string => $record->due_date !== null && $record->due_date->toDateString() < today()->toDateString()
@@ -322,6 +317,45 @@ trait ProvidesTaskActions
                     setDueDate: true,
                 ),
             ));
+    }
+
+    /**
+     * Ô "Giao cho" — MỘT bản cho ba hộp thoại ("Giao việc" ở trang Công việc, "Giao việc" ở tab Công việc của hồ sơ,
+     * "Giao lại"): bày đúng {@see TaskAssignees::options()} (Action hỏi lại dưới khoá), tìm không dấu chỉ trên phần
+     * tên ({@see TaskAssignees::searchOptions()} — gộp integ-fa, làn fa3 và rà soát chéo mục 19).
+     *
+     * Sửa 2026-10-21: danh sách RỖNG (việc của một hồ sơ mà đội ngũ giữ việc không còn ai khác) không còn là một ô
+     * trống "Không có kết quả tìm kiếm phù hợp": câu gợi ý dưới ô và câu lỗi khi bấm gửi đều là
+     * {@see TaskAssignees::emptyListReason()} — vì sao rỗng, phải làm gì — và người đổi được đội ngũ có liên kết
+     * "Mở tab Đội ngũ của hồ sơ" ngay cạnh nhãn ô.
+     *
+     * @param  Closure(Get): ?Matter  $matter  hồ sơ của việc (null = việc chung)
+     */
+    protected function assigneeSelect(Closure $matter, ?Task $replacing = null): Select
+    {
+        $options = fn (Get $get): array => app(TaskAssignees::class)->options($matter($get), $this->taskActor(), $replacing);
+        $emptyReason = fn (Get $get): ?string => $options($get) === []
+            ? app(TaskAssignees::class)->emptyListReason($matter($get), $this->taskActor())
+            : null;
+
+        return Select::make('assignee_id')
+            ->label(__('tasks.fields.assignee'))
+            ->helperText(fn (Get $get): string => $emptyReason($get)
+                ?? self::assigneeHelp($matter($get) === null ? 'tasks.fields.assignee_help_general' : 'tasks.fields.assignee_help_matter'))
+            ->hintAction(Action::make('openMatterTeam')
+                ->label(__('tasks.assign.open_team_tab'))
+                ->icon(Heroicon::OutlinedUserGroup)
+                ->url(fn (Get $get): ?string => ($team = $matter($get)) === null ? null : MatterTab::url($team->getKey(), TeamRelationManager::class))
+                ->visible(fn (Get $get): bool => $emptyReason($get) !== null
+                    && ($team = $matter($get)) !== null
+                    && Gate::forUser($this->taskActor())->allows('manageTeam', $team)))
+            ->options($options)
+            ->searchable()
+            ->getSearchResultsUsing(fn (?string $search, Get $get): array => TaskAssignees::searchOptions($options($get), $search))
+            ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
+            ->required()
+            ->validationMessages(['required' => fn (Get $get): ?string => $emptyReason($get)])
+            ->native(false);
     }
 
     /**

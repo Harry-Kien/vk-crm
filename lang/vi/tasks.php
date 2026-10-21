@@ -591,6 +591,13 @@ return [
         // `workload_scope` nối sau câu gợi ý của ô "Giao cho" — ProvidesTaskActions::assigneeHelp()).
         'workload' => 'đang giữ :held việc anh/chị thấy được, :overdue quá hạn',
         'workload_none' => 'không có việc nào anh/chị thấy được',
+        // Sửa 2026-10-21: ô "Giao cho" rỗng — TaskAssignees::emptyListReason(). Không dấu hai chấm trong câu (Livewire
+        // đọc dấu hai chấm của câu lỗi như tham số luật khi so trong test).
+        'empty_matter_can_manage' => 'Chưa có ai nhận được việc này — việc của hồ sơ :code chỉ giao được cho người trong đội ngũ giữ việc (luật sư phụ trách, luật sư cộng sự, trợ lý), không tính anh/chị, người đang giữ chính việc này, người theo dõi và người đã trả lại hồ sơ. Thêm người vào tab "Đội ngũ" của hồ sơ rồi giao lại.',
+        'empty_matter_ask' => 'Chưa có ai nhận được việc này — việc của hồ sơ :code chỉ giao được cho người trong đội ngũ giữ việc (luật sư phụ trách, luật sư cộng sự, trợ lý), không tính anh/chị, người đang giữ chính việc này, người theo dõi và người đã trả lại hồ sơ. Nhờ luật sư phụ trách hồ sơ hoặc trưởng phòng thêm người vào đội ngũ rồi giao lại.',
+        'empty_matter_restricted' => 'Chưa có ai nhận được việc này — :code là hồ sơ hạn chế, chỉ luật sư phụ trách và quản trị viên trong đội ngũ của hồ sơ mở được nó, nên chỉ họ nhận được việc (không tính anh/chị và người đang giữ chính việc này). Muốn giao cho người khác, quản trị viên phải được thêm vào đội ngũ của hồ sơ.',
+        'empty_general' => 'Chưa có ai nhận được việc này — không còn nhân sự nào khác đang làm việc.',
+        'open_team_tab' => 'Mở tab Đội ngũ của hồ sơ',
         'workload_scope' => 'Số việc bên mỗi tên chỉ tính những việc anh/chị xem được — người đó có thể còn giữ việc trên hồ sơ khác.',
     ],
 

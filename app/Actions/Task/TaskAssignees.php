@@ -3,6 +3,7 @@
 namespace App\Actions\Task;
 
 use App\Actions\Performance\BuildTeamWorkload;
+use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -97,6 +98,31 @@ class TaskAssignees
                 ? __('tasks.assign.workload_none')
                 : __('tasks.assign.workload', ['held' => $held[$user->getKey()], 'overdue' => $overdue[$user->getKey()] ?? 0]))])
             ->all();
+    }
+
+    /**
+     * Câu nói VÌ SAO {@see self::options()} rỗng và PHẢI LÀM GÌ (sửa 2026-10-21 — chủ văn phòng gặp ô "Giao cho" rỗng
+     * trong hộp thoại "Giao lại", không một lời giải thích). Không phải một luật thứ hai: chỉ gọi khi chính danh sách
+     * đã rỗng. Việc của một hồ sơ: chỉ người trong đội ngũ giữ việc nhận được, nên lối ra là thêm người vào đội ngũ —
+     * người đổi được đội ngũ (`MatterPolicy::manageTeam`) được chỉ tới tab "Đội ngũ", người khác được bảo nhờ luật
+     * sư phụ trách hoặc trưởng phòng. Việc chung: không còn nhân sự nào khác đang làm việc.
+     */
+    public function emptyListReason(?Matter $matter, User $actor): string
+    {
+        if ($matter === null) {
+            return __('tasks.assign.empty_general');
+        }
+
+        // Hồ sơ hạn chế: chỉ luật sư phụ trách và quản trị viên trong đội ngũ mở được hồ sơ — "thêm người vào đội ngũ"
+        // không giúp gì với nhân sự khác. `!== Normal` (không `=== Restricted`): không rõ thì coi là hạn chế, cùng thành
+        // ngữ đóng-khi-không-chắc của `Matter`.
+        if ($matter->confidentiality !== Confidentiality::Normal) {
+            return __('tasks.assign.empty_matter_restricted', ['code' => $matter->code]);
+        }
+
+        return __(Gate::forUser($actor)->allows('manageTeam', $matter) ? 'tasks.assign.empty_matter_can_manage' : 'tasks.assign.empty_matter_ask', [
+            'code' => $matter->code,
+        ]);
     }
 
     /** Giữa tên và câu khối lượng việc trong nhãn của {@see self::options()}. */
