@@ -454,7 +454,9 @@ khi ai đó bận, nghỉ hay rời vụ. Hai thứ được giao: **một hồ 
 3. **Trả lại không gỡ ai khỏi vụ.** Người giao (nếu còn theo dõi hồ sơ), luật sư phụ trách và người quản lý
    hồ sơ (trưởng phòng; với hồ sơ hạn chế truy cập là quản trị viên, vì trưởng phòng không mở được hồ sơ đó)
    nhận chuông và thư kèm lý do; tab "Đội ngũ" và trang **Theo dõi đội ngũ** hiện "cần phân công lại". Người đã
-   trả lại hồ sơ không nhận được việc mới của hồ sơ đó, và việc họ còn giữ trên hồ sơ hiện "Cần giao lại".
+   trả lại hồ sơ không nhận được việc mới của hồ sơ đó, và việc họ còn giữ trên hồ sơ hiện "Cần giao lại" — mỗi người
+   đã giao các việc ấy (nếu chưa nhận lời báo trả lại hồ sơ ở trên) nhận một chuông "n việc trên hồ sơ … cần giao lại"
+   (từ 2026-10-21).
    Người quản lý xử lý bằng các nút sẵn có: gỡ người đó khỏi đội ngũ và thêm người khác, hoặc bàn giao vụ cho
    luật sư khác. Lý do trả lại chỉ
    hiện cho người quản lý được đội ngũ và chính người trả lại.
@@ -466,6 +468,10 @@ khi ai đó bận, nghỉ hay rời vụ. Hai thứ được giao: **một hồ 
 toán, không kinh doanh). Trên trang Công việc, ô **"Vụ việc"** để trống là một **việc chung** (không thuộc vụ nào —
 ví dụ tra cứu trước buổi tư vấn một khách tiềm năng, cập nhật mẫu hợp đồng), giao được cho bất kỳ nhân sự nào đang
 làm việc; chọn một vụ (chỉ các vụ đang mở anh/chị được giao việc) thì người nhận là người trong đội ngũ của vụ đó.
+Hồ sơ đã chọn mà kết thúc, bị huỷ hay đổi luật sư phụ trách trong lúc hộp thoại đang mở thì bấm "Giao việc" bị từ chối
+ngay dưới ô "Vụ việc" ("Không giao được việc trên hồ sơ này…") — việc không bao giờ lặng lẽ thành việc chung (từ
+2026-10-21). Người đã **"Trả lại" hồ sơ** không giao việc trên hồ sơ đó nữa: hồ sơ không còn ở ô "Vụ việc", tab "Công
+việc" của hồ sơ không có nút "Giao việc" cho họ (từ 2026-10-21).
 Ô "Giao cho" ghi bên tên mỗi người số việc họ đang giữ và số việc quá hạn — chỉ đếm việc anh/chị xem được (nhãn
 ghi "… việc anh/chị thấy được", và câu gợi ý dưới ô nhắc người đó có thể còn giữ việc trên hồ sơ khác) — để cân khối
 lượng trước khi giao. Ghi việc cần làm, đặt hạn và mức ưu tiên. Bấm "Giao việc" hai lần trên cùng một hộp
@@ -489,12 +495,22 @@ sơ mở nhầm" cũng vậy (từ 2026-10-18): hồ sơ huỷ thì các việc 
 khôi phục hồ sơ thì chúng trở lại như cũ; sau khi huỷ, mỗi người đang giữ hay đã giao một việc như vậy (trừ người bấm)
 nhận một chuông nói điều đó (hồ sơ hạn chế họ không mở được: không ghi mã).
 
+**Người nhận không tự sửa, giao lại hay huỷ việc người khác giao cho mình** (từ 2026-10-21) — kể cả khi họ là luật
+sư phụ trách hay trưởng phòng (ví dụ việc trưởng phòng giao cho luật sư phụ trách): nhóm nút "…" của họ không có
+"Sửa", "Giao lại", "Huỷ việc"; họ bấm **"Trả lại"** kèm lý do (ví dụ "xin giao cho trợ lý X") để người giao quyết. Việc
+riêng (người giao cũng là người giữ — sau một lần nhận thay hay bàn giao) thì vẫn tự sửa, giao lại, huỷ được; huỷ việc
+của chính mình không tự báo mình.
+
 **Sửa, giao lại, huỷ — người liên quan đều được báo** (từ 2026-10-16). Người giao, luật sư phụ trách hay trưởng
 phòng **"Sửa"** hạn, mức ưu tiên, tiêu đề hay mô tả của một việc người khác đang giữ (chờ nhận hay đang làm): người
 giữ việc nhận chuông và thư nêu điều đã đổi — "hạn 30/10 → 23/10", "ưu tiên Thường → Gấp", tiêu đề cũ; mô tả chỉ
-báo "đã được sửa" (đọc ở nút "Xem"). Nhật ký ghi giá trị cũ và mới của hạn, ưu tiên, tiêu đề. **"Giao lại"** đặt
+báo "đã được sửa" (đọc ở nút "Xem"). Người sửa không phải người giao (luật sư phụ trách hay trưởng phòng sửa việc
+người khác giao): người giao nhận một chuông nêu cùng điều đã đổi (từ 2026-10-21). Nhật ký ghi giá trị cũ và mới của
+hạn, ưu tiên, tiêu đề. **"Giao lại"** đặt
 được hạn mới: hộp thoại điền sẵn hạn cũ nếu còn ở tương lai, và gợi ý một hạn mới nếu hạn cũ đã qua (hôm nay cộng
-đúng số ngày người trước có). Luật sư phụ trách hay trưởng phòng giao lại hay huỷ một việc **người khác giao**:
+đúng số ngày người trước có). Hộp thoại "Giao lại" mở từ trước khi người khác thay đổi việc đó (sửa hạn, người nhận
+bấm "Đã nhận"…) thì bấm lưu bị từ chối ("Việc này vừa được thay đổi…") — hạn người kia vừa đặt không bị ghi đè; đóng
+hộp thoại, tải lại trang rồi giao lại (từ 2026-10-21). Luật sư phụ trách hay trưởng phòng giao lại hay huỷ một việc **người khác giao**:
 người giao gốc nhận một chuông (người nhận mới, hay lý do huỷ); khôi phục lại việc đó thì người giao gốc cũng nhận
 một chuông kèm lý do. Lời báo "đã nhận" và "đã hoàn thành" tới người giao; người giao đã rời vụ hay nghỉ thì luật sư
 phụ trách nhận thay, như lời báo "bị trả lại". Khi chính luật sư phụ trách là người giữ việc, hai tin này (và tin
@@ -506,7 +522,10 @@ việc (đã nghỉ, rời đội ngũ, sang "Người theo dõi", trả lại h
 
 **Mở lại, khôi phục** (từ 2026-10-16). Một việc đã **"Hoàn thành"** được **"Mở lại"** (nút "⋮" trên dòng): người
 giao, luật sư phụ trách hay trưởng phòng mở lại khi kết quả chưa đạt — **bắt buộc ghi nhận xét** ("yêu cầu làm
-lại"); chính người đã bấm "Hoàn thành" mở lại được trong **24 giờ đầu** khi bấm nhầm (không bắt buộc lý do). Việc
+lại"); chính người đã bấm "Hoàn thành" mở lại được trong **24 giờ đầu** khi bấm nhầm (không bắt buộc lý do). Hộp thoại
+của người giao, luật sư phụ trách hay trưởng phòng có ô **"Hạn"** điền sẵn như ô Hạn của "Giao lại" — hạn cũ còn ở
+hôm nay hay tương lai thì giữ, đã qua thì hôm nay cộng số ngày người giữ việc đã có — để việc mở lại không thành quá hạn
+ngay; nhật ký ghi hạn cũ và mới khi đổi. Người tự mở lại vì bấm nhầm không đổi hạn (từ 2026-10-21). Việc
 trở về "Đang làm" cho cùng người; người giữ việc nhận chuông và thư kèm nhận xét (người tự mở lại thì người giao được
 báo). Người giữ việc từ đó đã nghỉ, rời đội ngũ, sang "Người theo dõi" hay trả lại hồ sơ thì không ai được báo "làm
 tiếp": việc hiện "Cần giao lại", và màn hình nói rõ điều đó để anh/chị bấm "Giao lại". Một việc đã **"Huỷ"** được
@@ -586,6 +605,11 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
    chuyển với hạn mới (hôm nay cộng số ngày người cũ đã có — từ 2026-10-18). Trên hồ sơ đã kết thúc không chuyển việc
    cho ai được nữa: hộp thoại chỉ còn "Để Cần giao lại". Chuông cho người giao về các việc ĐÃ chuyển chỉ là tin: người
    giao đã đi thì luật sư phụ trách nhận thay, không chuyển tiếp tới trưởng phòng.
+   Người bị gỡ đã **giao** việc cho người khác trên hồ sơ (chờ nhận, đang làm, bị trả lại) mà rời đội ngũ thì không
+   còn mở được hồ sơ (trừ trưởng phòng, quản trị viên): các việc đó đổi **người giao** sang luật sư phụ trách — người
+   nhận, trạng thái, hạn giữ nguyên, nhật ký ghi người giao cũ — nên chúng hiện ở "Tôi đã giao" của luật sư phụ trách
+   (việc giao cho chính luật sư phụ trách thành việc riêng của họ). Hộp thoại gỡ nói trước số việc đó; luật sư phụ trách
+   nhận một chuông nêu số việc nay họ theo dõi, trừ khi chính họ bấm gỡ (từ 2026-10-21).
 2. **Nghỉ việc, khoá truy cập, xoá, đổi chức danh**: việc nội bộ còn dở (đang giữ, đã giao cho người khác còn
    mở, hồ sơ được giao chờ nhận) **chặn** vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi
    việc dở khác, và câu chặn chỉ đường. **Khoá truy cập ngay** nêu ba con số đó trong hộp xác nhận và ghi vào

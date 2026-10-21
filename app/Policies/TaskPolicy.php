@@ -9,6 +9,7 @@ use App\Enums\Role;
 use App\Enums\TaskStatus;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
@@ -77,7 +78,8 @@ class TaskPolicy
      * Giao việc TRÊN MỘT VỤ: vụ chưa huỷ, đang mở; người giao xem được vụ và có `matter.update`; và là
      * quản lý/quản trị, hoặc ngồi ghế luật sư phụ trách/luật sư cộng sự của chính vụ đó mà không mang vai
      * trợ lý (cùng lý lẽ `MatterPolicy::manageTeam()`: một luật sư bị đổi chức danh sang trợ lý không
-     * giữ quyền của ghế cũ). Gọi qua `Gate::allows('assignOnMatter', [Task::class, $matter])`.
+     * giữ quyền của ghế cũ) và chưa "Trả lại" ghế đó (sửa sau kiểm toán 2026-10-21, mục 6). Gọi qua
+     * `Gate::allows('assignOnMatter', [Task::class, $matter])`.
      */
     public function assignOnMatter(User|ClientUser $user, Matter $matter): bool
     {
@@ -94,6 +96,13 @@ class TaskPolicy
         }
 
         if ($user->hasRole(Role::Assistant->value)) {
+            return false;
+        }
+
+        // Sửa sau kiểm toán 2026-10-21 (mục 6): người đã "Trả lại" ghế của mình trong vụ (`MatterUser::scopeReturned()`,
+        // kể cả ghế luật sư phụ trách vừa được bàn giao) không giao việc trên vụ đó nữa — cùng luật "không nhận việc
+        // mới" của `TaskAssignees`.
+        if (MatterUser::query()->where('matter_id', $matter->getKey())->where('user_id', $user->getKey())->returned()->exists()) {
             return false;
         }
 
@@ -230,6 +239,14 @@ class TaskPolicy
     /**
      * Người QUẢN LÝ được một việc: thấy việc đó, VÀ là người giao, luật sư phụ trách hiện tại của vụ, hoặc
      * quản lý/quản trị. Người nhận không tự sửa/giao lại/huỷ việc của mình — họ "Trả lại".
+     *
+     * Sửa sau kiểm toán 2026-10-21 (mục 2): vế "luật sư phụ trách / quản lý / quản trị" KHÔNG áp cho việc NGƯỜI KHÁC giao
+     * cho chính `$user` (`assignee_id` là họ, `assigned_by` là người khác) — trước bản sửa, luật sư phụ trách nhận một
+     * việc trưởng phòng giao vẫn tự sửa hạn/ưu tiên, tự huỷ, tự giao lại nó. Họ "Trả lại" kèm lý do như mọi người nhận;
+     * người giao (hay luật sư phụ trách / quản lý khác) quyết. Đường có sẵn giữ nguyên: việc RIÊNG (người giao = người
+     * giữ — sau một lần nhận thay hay bàn giao, `ReassignTask` mục "Nhận thay") vẫn quản lý được bằng vế người giao.
+     * Áp cho mọi trạng thái: việc họ đã "Trả lại", hay đã hoàn thành (ngoài 24 giờ "bấm nhầm" của
+     * {@see self::completedRecentlyBy()}), vẫn là việc người khác giao cho họ.
      */
     private function manages(User|ClientUser $user, Task $task): bool
     {
@@ -237,8 +254,15 @@ class TaskPolicy
             return false;
         }
 
-        return $task->assigned_by === $user->getKey()
-            || Task::isSupervisor($user)
+        if ($task->assigned_by === $user->getKey()) {
+            return true;
+        }
+
+        if ($task->assignee_id === $user->getKey()) {
+            return false;
+        }
+
+        return Task::isSupervisor($user)
             || ($task->matter_id !== null && $task->matter?->lead_lawyer_id === $user->getKey());
     }
 

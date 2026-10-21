@@ -60,6 +60,15 @@ use Spatie\Activitylog\Models\Activity;
  * lần sửa hạn/mô tả, hay hai việc "Photo hồ sơ") mà vẫn báo thành công. Không mã (gọi từ nơi không có hộp thoại),
  * hay mã không đúng dạng: không chống trùng.
  *
+ * # Vụ không còn giao việc được (sửa sau kiểm toán 2026-10-21, mục 1)
+ *
+ * `$matter` đã chọn mà, dưới khoá, vụ đã huỷ (không tìm thấy) hay `assignOnMatter` từ chối (vụ đã kết thúc, người giao
+ * không còn ngồi ghế giao việc, đã trả lại ghế…): {@see ValidationException} trên ô `matter_id` với MỘT câu
+ * (`tasks.lifecycle.matter_unavailable`) — không bao giờ một việc chung thay thế. Ô "Vụ việc" của trang Công việc luôn gửi
+ * giá trị đã chọn tới đây (`ListTasks::submittedMatter()`); màn hình không đoán. Tab "Công việc" của vụ không có ô đó:
+ * câu đi bằng thông báo (`ReportsActionFailures`). Người giao bị vô hiệu / không được giao việc chung vẫn là lời từ
+ * chối chung {@see AuthorizationException}.
+ *
  * # Báo người nhận
  *
  * Chuông + thư `staff.task.assigned`, xếp `->afterCommit()` ({@see QueuesTaskNotices}); job lọc
@@ -107,7 +116,7 @@ class AssignTask
                 $lockedMatter = $this->scopelessly(Matter::query())->lockForUpdate()->find($matter->getKey());
 
                 if ($lockedMatter === null) {
-                    $this->refuse();
+                    $this->refuseMatter();
                 }
             }
 
@@ -120,7 +129,7 @@ class AssignTask
                 : Gate::forUser($actor)->allows('assignOnMatter', [Task::class, $lockedMatter]);
 
             if (! $allowed) {
-                $this->refuse();
+                $lockedMatter === null ? $this->refuse() : $this->refuseMatter();
             }
 
             $lockedAssignee = User::query()->withTrashed()->whereKey($assignee->getKey())->lockForUpdate()->first();
@@ -195,6 +204,16 @@ class AssignTask
     private function refuse(): never
     {
         throw new AuthorizationException(__('tasks.errors.unavailable'));
+    }
+
+    /**
+     * Sửa sau kiểm toán 2026-10-21 (mục 1) — xem docblock lớp, mục "Vụ không còn giao việc được": gắn vào ô "Vụ việc", một
+     * câu cho mọi nguyên nhân (đã kết thúc, đã huỷ, không tồn tại, người giao không còn giao việc được trên vụ) — không
+     * phân biệt "không có quyền" với "không tồn tại" (SPEC §10.10).
+     */
+    private function refuseMatter(): never
+    {
+        throw ValidationException::withMessages(['matter_id' => [__('tasks.lifecycle.matter_unavailable')]]);
     }
 
     private function refuseAssignee(): never

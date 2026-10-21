@@ -32,6 +32,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Trang "Công việc" — xem docblock {@see TaskResource}. Bốn tab trên CÙNG một phạm vi
@@ -231,7 +232,12 @@ class ListTasks extends ListRecords
                     ->placeholder(__('tasks.assign.matter_none'))
                     ->helperText(__('tasks.assign.matter_help'))
                     ->options(fn (): array => $this->assignableMatters())
-                    ->visible(fn (): bool => $this->assignableMatters() !== [])
+                    // Sửa sau kiểm toán 2026-10-21 (mục 1): một vụ ĐÃ CHỌN luôn được gửi — kể cả khi nó vừa rời danh sách
+                    // (kết thúc, huỷ, bàn giao giữa lúc mở và lúc lưu): ô không ẩn đi, luật "in:" của ô không nuốt giá trị
+                    // (nhãn của một giá trị ngoài danh sách là câu chung), và `AssignTask` quyết dưới khoá, từ chối dưới
+                    // chính ô này. Trước bản sửa ô ẩn lúc gửi, giá trị bị bỏ và việc thành VIỆC CHUNG.
+                    ->visible(fn (Get $get): bool => $this->assignableMatters() !== [] || filled($get('matter_id')))
+                    ->getOptionLabelUsing(fn (mixed $value): string => $this->assignableMatters()[(int) $value] ?? __('tasks.lifecycle.matter_unavailable_label'))
                     ->searchable()
                     // Gộp integ-fa (làn fa3): "dat dai" ra "đất đai" trong ĐÚNG danh sách trên (`AssignTask` hỏi lại).
                     ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => $this->assignableMatters()))
@@ -248,7 +254,7 @@ class ListTasks extends ListRecords
                 $action,
                 fn () => app(AssignTask::class)->handle(
                     actor: $this->taskActor(),
-                    matter: $this->assignMatter($data['matter_id'] ?? null),
+                    matter: $this->submittedMatter($data['matter_id'] ?? null),
                     assignee: User::query()->withTrashed()->findOrFail($data['assignee_id'] ?? null),
                     title: (string) ($data['title'] ?? ''),
                     description: $data['description'] ?? null,
@@ -260,9 +266,10 @@ class ListTasks extends ListRecords
     }
 
     /**
-     * Vụ của ô "Vụ việc" — chỉ trong {@see TaskAssignees::assignableMatters()}: một id ngoài danh sách đó (gửi tay)
-     * đã bị luật "in:" của ô chặn trước khi tới đây; ở đây không bao giờ đọc một vụ ngoài danh sách. Rỗng hay
-     * ngoài danh sách: `null` (việc chung — với id gửi tay, form đã từ chối).
+     * Vụ của ô "Vụ việc" cho Ô NGƯỜI NHẬN — chỉ trong {@see TaskAssignees::assignableMatters()}: ở đây không bao giờ đọc
+     * một vụ ngoài danh sách (tên đội ngũ của một vụ hạn chế không vào ô chọn). Rỗng hay ngoài danh sách: `null` (danh
+     * sách người nhận của việc chung). Lần LƯU không dùng hàm này — {@see self::submittedMatter()} (sửa sau kiểm toán
+     * 2026-10-21, mục 1: trước bản sửa lần lưu dùng hàm này, và một vụ vừa rời danh sách thành việc chung).
      */
     private function assignMatter(mixed $matterId): ?Matter
     {
@@ -271,6 +278,30 @@ class ListTasks extends ListRecords
         }
 
         return Matter::query()->find((int) $matterId);
+    }
+
+    /**
+     * Vụ ĐÃ CHỌN của lần lưu "Giao việc" (sửa sau kiểm toán 2026-10-21, mục 1): để trống là việc chung; đã chọn thì không
+     * bao giờ `null` — vụ (kể cả đã huỷ: `AssignTask` khoá lại và từ chối) đi tới `AssignTask`, nơi quyết dưới khoá. Một
+     * id không có vụ nào (gửi tay) nhận đúng câu từ chối của `AssignTask` dưới ô "Vụ việc" — không phân biệt với vụ có
+     * thật mà người giao không giao việc được (SPEC §10.10). Khác {@see self::assignMatter()} (chỉ để dựng ô người nhận,
+     * chỉ trong danh sách).
+     */
+    private function submittedMatter(mixed $matterId): ?Matter
+    {
+        if (blank($matterId)) {
+            return null;
+        }
+
+        $matter = filter_var($matterId, FILTER_VALIDATE_INT) === false
+            ? null
+            : Matter::query()->withTrashed()->find((int) $matterId);
+
+        if ($matter === null) {
+            throw ValidationException::withMessages(['matter_id' => [__('tasks.lifecycle.matter_unavailable')]]);
+        }
+
+        return $matter;
     }
 
     /**

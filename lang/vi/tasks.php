@@ -690,6 +690,16 @@ return [
         ],
     ],
 
+    // Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn vòng đời (PROGRESS, mục cùng tên).
+    'lifecycle' => [
+        // Mục 5: người nhận tự mở lại (bấm nhầm) không đổi hạn của mình.
+        'reopen_due_own' => 'Anh/chị tự mở lại việc của mình nên không đổi được hạn — nhờ người giao việc nếu cần hạn mới.',
+        // Mục 1: hồ sơ đã chọn không còn nhận việc mới — một câu cho mọi nguyên nhân (SPEC §10.10). Không dấu hai chấm
+        // (Livewire đọc dấu hai chấm của câu lỗi như tham số luật khi so trong test).
+        'matter_unavailable' => 'Không giao được việc trên hồ sơ này — hồ sơ đã kết thúc hay đã huỷ, hoặc anh/chị không còn được giao việc trên hồ sơ. Chưa có việc nào được tạo — chọn hồ sơ khác, hoặc giao như một việc chung nếu việc không thuộc hồ sơ nào.',
+        'matter_unavailable_label' => '(hồ sơ đã chọn không còn nhận việc mới)',
+    ],
+
     // Lời nhắc người giao (chưa được nhận, quá hạn) về một việc "Cần giao lại" vì người nhận. :who đã escape ở chuông.
     'reminder_needs_reassignment' => ':who không còn giữ được việc này (đã nghỉ, rời đội ngũ, trả lại hồ sơ hoặc không còn mở được hồ sơ) — việc hiện "Cần giao lại": hãy giao lại.',
 
@@ -699,6 +709,11 @@ return [
         'updated' => [
             'title' => 'Một việc anh/chị đang giữ vừa được sửa',
             'body' => ':who đã sửa việc ":title": :changes.',
+        ],
+        // Sửa sau kiểm toán 2026-10-21 (mục 2): người khác sửa việc anh/chị giao — chỉ chuông.
+        'updated_by_other' => [
+            'title' => 'Việc anh/chị giao vừa được người khác sửa',
+            'body' => ':who đã sửa việc ":title" anh/chị giao: :changes.',
         ],
         'reopened' => [
             'title' => 'Việc anh/chị đã hoàn thành được mở lại — cần làm tiếp',

@@ -145,7 +145,8 @@ class TaskAssignees
      * Các vụ `$actor` giao việc được (làn fa1, phán quyết 3 — ô "Vụ việc" của nút "Giao việc" trên trang "Công
      * việc"): vụ đang mở mà `TaskPolicy::assignOnMatter` cho phép (luật sư phụ trách/cộng sự của vụ, quản lý, quản
      * trị; không trợ lý), theo mã. Truy vấn lọc trước đúng các vế của cổng đó (vụ mở, xem được, có `matter.update`,
-     * ghế luật sư phụ trách/cộng sự với người không phải quản lý/quản trị); rồi mọi vụ còn lại hỏi cổng — một luật.
+     * ghế luật sư phụ trách/cộng sự chưa trả lại với người không phải quản lý/quản trị); rồi mọi vụ còn lại hỏi cổng —
+     * một luật.
      * Nhãn: mã — tiêu đề vụ (người giao xem được vụ). `AssignTask` hỏi lại dưới khoá.
      *
      * @return array<int, string>
@@ -164,7 +165,11 @@ class TaskAssignees
                 ->where('matters.lead_lawyer_id', $actor->getKey())
                 ->orWhereHas('team', fn (Builder $team): Builder => $team
                     ->whereKey($actor->getKey())
-                    ->whereIn('matter_user.role_in_matter', [MatterRole::Lead->value, MatterRole::Associate->value]))))
+                    ->whereIn('matter_user.role_in_matter', [MatterRole::Lead->value, MatterRole::Associate->value])))
+                // Sửa sau kiểm toán 2026-10-21 (mục 6): ghế đã "Trả lại" — vế mới của `assignOnMatter`.
+                ->whereDoesntHave('team', fn (Builder $team): Builder => $team
+                    ->whereKey($actor->getKey())
+                    ->where(fn (Builder $returned): Builder => self::returned($returned))))
             ->orderBy('matters.code')
             ->get()
             ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('assignOnMatter', [Task::class, $matter]))
@@ -199,6 +204,12 @@ class TaskAssignees
             ->where(fn (Builder $seat): Builder => self::notDeclined($seat))
             ->exists()
             && Gate::forUser($member)->allows('view', $matter);
+    }
+
+    /** Ghế đã "Trả lại" — `MatterUser::scopeReturned()` trên bảng `matter_user` của quan hệ `team`. */
+    private static function returned(Builder $seat): Builder
+    {
+        return $seat->whereNull('matter_user.accepted_at')->whereNotNull('matter_user.declined_at');
     }
 
     /** Ghế chưa "Trả lại" — phủ định của `MatterUser::scopeReturned()` trên bảng `matter_user` của quan hệ `team`. */

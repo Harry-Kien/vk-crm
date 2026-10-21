@@ -9897,6 +9897,77 @@ cũ đổi theo hành vi mới: URL thông báo (`AssignerGoneTest`, `TaskFinalF
 --test` sạch. Không migration, không seeder, không lịch, không `.env`. Chưa chạy MariaDB (thứ tự dùng `DATE()` và
 `COALESCE` — cùng nghĩa trên MariaDB và SQLite).
 
+### Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn vòng đời
+
+Đợt kiểm toán luồng "Công việc" 2026-10-21 tái hiện 8 phát hiện về vòng đời một việc (4 quan trọng, 4 nhỏ); làn này
+(nhánh `fix-tasks-a`) sửa cả 8. Phần nhắc việc / thông báo / ô đếm là làn song song khác. Test mới:
+`tests/Feature/Tasks/LifecycleAuditFixTest.php` (19 test, mọi lần bấm có màn hình qua Livewire); mỗi mục: test đỏ
+trước khi sửa, rồi phép thử ngược cho từng điều kiện mới.
+
+1. **(Quan trọng) "Giao việc" ở trang Công việc thành VIỆC CHUNG khi vụ đã chọn vừa kết thúc/huỷ.** Nguyên nhân: ô
+   `matter_id` `->visible(false)` khi `assignableMatters()` rỗng lúc gửi → giá trị bị bỏ; lần lưu đọc vụ qua
+   `assignMatter()` (chỉ trong danh sách) → `null` → `AssignTask` tạo việc chung (vụ hạn chế: tiêu đề lộ cho mọi trưởng
+   phòng); còn vụ khác trong danh sách thì luật "in:" của ô từ chối bằng câu chung. Sửa: ô không ẩn khi đã có giá trị,
+   `getOptionLabelUsing()` cho giá trị ngoài danh sách (luật "in:" không nuốt giá trị), lần lưu qua
+   `ListTasks::submittedMatter()` (không bao giờ `null` cho một vụ đã chọn; id không có vụ → cùng câu); `AssignTask`
+   từ chối dưới khoá bằng `ValidationException` trên `matter_id` — một câu `tasks.lifecycle.matter_unavailable` cho
+   mọi nguyên nhân (SPEC §10.10); tab Công việc của vụ nhận câu đó bằng thông báo. `TaskActionsTest` đổi theo (hai lời
+   từ chối trên vụ nay ở ô `matter_id`). Test: 3 ca (kết thúc, huỷ, bàn giao) + còn vụ khác + id gõ tay. Phép thử
+   ngược (đều đỏ): trả `visible` về cũ; `AssignTask` trả lời từ chối chung; bỏ `getOptionLabelUsing`; lưu qua
+   `assignMatter()`.
+2. **(Quan trọng) Người nhận là luật sư phụ trách/quản lý tự sửa/huỷ/giao lại việc người khác giao cho mình.**
+   Nguyên nhân: `TaskPolicy::manages()` cho vế luật sư phụ trách/quản lý mà không hỏi người đó có phải người nhận.
+   Sửa: người nhận một việc NGƯỜI KHÁC giao không quản lý được nó (mọi trạng thái — cả "Mở lại" ngoài 24 giờ bấm nhầm);
+   việc riêng (người giao = người giữ, sau nhận thay/bàn giao) giữ nguyên. `UpdateTask`: người sửa không phải người
+   giao → chuông `TaskAlert::UPDATED_BY_OTHER` (`tasks.notice.updated_by_other`, nêu điều đã đổi; chỉ chuông). Hai test
+   cũ ghim kịch bản cũ ("luật sư phụ trách tự sửa / chuyển tiếp việc trưởng phòng giao" — `Fa1TaskNoticesTest`,
+   `TaskFollowUpsTest` r1) đổi sang việc riêng. Phép thử ngược: bỏ vế người nhận → 2 test đỏ; bỏ lời báo người giao →
+   đỏ. Vế "việc riêng thì không báo người giao" là mutant tương đương (job `SendTaskNotice` chống trùng theo id dòng
+   nhật ký cho cùng người).
+3. **(Quan trọng) Gỡ luật sư cộng sự làm việc họ ĐÃ GIAO thành mồ côi.** Nguyên nhân: `RemoveTeamMember` chỉ xử lý việc
+   người bị gỡ đang giữ. Sửa: sau khi gỡ, người đó không còn mở được hồ sơ (`MatterPolicy::view`, tài khoản còn hoạt
+   động) thì mọi việc còn mở họ là người giao trên hồ sơ đổi người giao sang luật sư phụ trách (cùng cách
+   `MoveTasksOnHandover::transferAssigner()`: `task_assigner_changed`, `reason = team_member_removed`, `own_task` khi
+   thành việc riêng của luật sư phụ trách); `team_member_removed` ghi `tasks_followed_by_lead`; `SendTeamDepartureNotices`
+   gửi luật sư phụ trách MỘT chuông `TeamDepartureAlert::TASKS_FOLLOWED` nêu số việc (không khi chính họ bấm; thuộc tính
+   job mới có mặc định — job cũ trong hàng đợi vẫn chạy); hộp thoại "Gỡ" nói trước con số
+   (`RemoveTeamMember::assignedTasksLeadWouldFollow()`, hỏi chính `MatterPolicy::view` trên bản sao vụ không có người bị
+   gỡ). `TransferStaffWork` truyền `transferAssigned: false` (nó tự chuyển các việc đó sang người nhận). Phép thử ngược
+   (đều đỏ): bỏ bước đổi người giao; bỏ câu hỏi "còn mở được hồ sơ"; bỏ chuông; chuông cả khi chính luật sư phụ trách
+   bấm; bỏ câu của hộp thoại; bỏ cờ `own_task`.
+4. **(Quan trọng) "Giao lại" ghi đè lặng lẽ hạn người khác vừa sửa.** Nguyên nhân: hộp thoại điền hạn lúc mở,
+   `ReassignTask` `setDueDate: true` không so `updated_at`. Sửa: `ReassignTask(expectedUpdatedAt:)` như `UpdateTask`, ô ẩn
+   `mounted_updated_at` điền lúc mở; lệch → `tasks.validation.changed_meanwhile` dưới ô "Giao cho". Phép thử ngược (đều
+   đỏ): bỏ phép so; màn hình không truyền giá trị.
+5. **(Nhỏ) "Mở lại" việc đã quá hạn không đặt được hạn mới.** Sửa: `ReopenTask(?string $dueDate, bool $setDueDate)`;
+   hộp thoại của người giao/luật sư phụ trách/quản lý có ô Hạn điền sẵn `ReassignmentDueDate::suggest()` (cùng luật
+   "Giao lại", câu gợi ý dùng chung); `task_reopened` ghi `due_date_from`/`due_date_to` khi đổi; người giữ tự mở lại (bấm
+   nhầm) không có ô Hạn và Action từ chối đổi hạn (`tasks.lifecycle.reopen_due_own`). `RestoreTask` không đổi (giữ hạn
+   là cố ý). `Fa1ReopenRestoreTest` (tỉ lệ đúng hạn sau mở lại) nay giữ hạn cũ một cách tường minh. Phép thử ngược (đều
+   đỏ): bỏ ô Hạn; Action bỏ qua hạn; cho người tự mở lại đổi hạn; bỏ dòng nhật ký.
+6. **(Nhỏ) Người đã "Trả lại hồ sơ" vẫn giao việc trên hồ sơ đó.** Sửa: `TaskPolicy::assignOnMatter` từ chối người có
+   ghế `MatterUser::scopeReturned()` (kể cả ghế luật sư phụ trách vừa bàn giao; quản lý/quản trị không đổi);
+   `TaskAssignees::assignableMatters()` lọc trước cùng vế. Phép thử ngược: bỏ vế ở policy → đỏ; bỏ vế lọc trước của
+   danh sách là mutant tương đương (danh sách hỏi lại cổng cho từng vụ).
+7. **(Nhỏ) Người giữ việc trả lại hồ sơ — người GIAO việc không được báo.** Sửa: `DeclineMatterAssignment` xếp
+   `SendSeatReturnedTaskNotices` khi người trả lại còn giữ việc trên hồ sơ: mỗi người giao (trừ người trả lại, trừ người
+   đã nhận lời báo trả lại ghế, chỉ người mở được hồ sơ) một chuông gộp `SeatReturnedTasksAlert` "n việc trên hồ sơ …
+   cần giao lại" (`internal_flow.seat_returned_tasks`). Phép thử ngược (đều đỏ): bỏ lời báo; bỏ vế "đã được báo"; không
+   loại người trả lại.
+8. **(Nhỏ) Tự báo chính mình khi huỷ.** Sửa: `CancelTask` không báo người giữ khi người giữ là người huỷ. Phép thử ngược:
+   bỏ vế đó → đỏ.
+
+Không đụng tệp của làn nhắc việc trừ `TaskAlert` (một hằng số `UPDATED_BY_OTHER`); chuỗi mới của `lang/vi/tasks.php` ở
+khối `lifecycle` riêng và một mục `notice.updated_by_other`. Không migration, không seeder, không lịch, không `.env`.
+QUY-TRINH (phần giao việc) cập nhật. **Kiểm chứng:** `tests/Feature/Tasks` 411 passed; cả bộ `pest --parallel --processes=4` (trước khi thêm nhãn lý do, cùng cây mã): 10.564 test, 10.512 passed, 42 skipped, 10 đỏ — 3 là `ActivityReasonLabelsTest` (hằng số lý do mới `RemoveTeamMember::ASSIGNER_REASON` chưa có nhãn `activity.reasons.task_assigner_changed.team_member_removed`; đã thêm, tệp 8/8 xanh), 7 là test trần tải tệp đỏ vì PHP dòng lệnh của container đặt `upload_max_filesize=2M` (năm tệp chạy lại với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh); `pint --test`
+sạch. Chưa chạy MariaDB (không migration; truy vấn mới chỉ `whereDoesntHave`/`whereKey`/`lockForUpdate` theo thành ngữ
+có sẵn).
+
+**Câu hỏi cho chủ văn phòng:** (a) luật sư phụ trách nhận việc trưởng phòng giao nay không tự chuyển tiếp ("Giao lại")
+cho trợ lý được — phải "Trả lại" kèm lý do để trưởng phòng giao; nếu văn phòng muốn luật sư phụ trách được tự phân việc
+đó (người giao vẫn được báo), đó là một ngoại lệ riêng cho "Giao lại". (b) Lời báo "mở lại" cho người giữ chưa nêu hạn
+mới (hạn hiện ở dòng việc) — thêm vào chuông/thư nếu cần.
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm

@@ -71,9 +71,12 @@ it('still sends the decline to the assigner when they are still on the matter', 
         ->and($this->lead->notifications()->where('type', TaskAlert::class)->count())->toBe(0);
 });
 
+// Sửa sau kiểm toán 2026-10-21 (mục 2): người nhận một việc NGƯỜI KHÁC giao (trưởng phòng giao cho luật sư phụ trách)
+// không tự chuyển tiếp nó nữa — `LifecycleAuditFixTest`. Người giữ còn giao lại được chỉ một việc RIÊNG của họ (người
+// giao = người giữ, sau một lần nhận thay), và r1 vẫn đúng ở đó.
 it('does not ring the person who reassigns a task they were holding themselves (r1)', function () {
     $task = Task::factory()->forMatter($this->matter)->status(TaskStatus::Accepted)->create([
-        'title' => 'Chuẩn bị hồ sơ', 'assignee_id' => $this->lead->id, 'assigned_by' => $this->manager->id,
+        'title' => 'Chuẩn bị hồ sơ', 'assignee_id' => $this->lead->id, 'assigned_by' => $this->lead->id,
     ]);
 
     $this->actingAs($this->lead, 'web');
