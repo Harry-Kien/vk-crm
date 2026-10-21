@@ -366,8 +366,11 @@ function m13t2RevenueWidgetTotal(array $extraFilters = []): int
     ]])->instance();
 
     $getData = new ReflectionMethod($instance, 'getData');
+    $data = $getData->invoke($instance)['datasets'][0]['data'];
 
-    return (int) array_sum($getData->invoke($instance)['datasets'][0]['data']);
+    // 2026-10-21: biểu đồ là xu hướng từ đầu năm (RevenueFilters::trendWindow()); kỳ 01/09 – 30/09 là CỘT CUỐI
+    // (09/2026) — cột đó, không phải tổng cả biểu đồ, là số phải bằng CollectedRevenue của kỳ.
+    return (int) end($data);
 }
 
 it('sums CollectedRevenue::query() to the over-time widget for every viewer, a payment on the last day of the period included', function () {
