@@ -31,6 +31,12 @@ class TeamDepartureAlert extends Notification
     public const TASKS_HANDLED = 'tasks_handled';
 
     /**
+     * Sửa sau kiểm toán 2026-10-21 (mục 3): gửi luật sư phụ trách — các việc người bị gỡ đã giao trên hồ sơ nay do họ
+     * theo dõi (`$moved` = số việc). Nút "Mở" về tab "Công việc" của hồ sơ.
+     */
+    public const TASKS_FOLLOWED = 'tasks_followed';
+
+    /**
      * @param  string|null  $code  mã hồ sơ được phép hiện; `null`: câu chung "một hồ sơ"
      * @param  int  $moved  số việc đã chuyển cho `$to`
      * @param  int  $left  số việc để "Cần giao lại"

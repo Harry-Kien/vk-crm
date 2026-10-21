@@ -249,7 +249,8 @@ class TeamRelationManager extends RelationManager
             // Làn fa2, phán quyết 1: ghế còn chờ nhận thì nói rõ gỡ là rút lời giao; việc người đó đang giữ hiện trong
             // form bên dưới, kèm ô chọn người nhận thay (RemoveTeamMember từ chối gỡ khi chưa chọn).
             ->modalDescription(fn (User $record): string => __('team.tab.actions.remove_description')
-                .($record->pivot?->assignmentStatus() === MatterAssignmentStatus::Pending ? ' '.__('internal_flow.team_removal.pending_seat') : ''))
+                .($record->pivot?->assignmentStatus() === MatterAssignmentStatus::Pending ? ' '.__('internal_flow.team_removal.pending_seat') : '')
+                .$this->followedByLeadSentence($matter, $record))
             ->schema(fn (User $record): array => $this->removalTaskFields($matter, $record))
             ->authorize(fn (): bool => Gate::allows('manageTeam', $matter))
             // Vai `lead` chỉ đổi qua bàn giao vụ việc (M7, R6) — nút "Gỡ" không có việc gì trên
@@ -269,6 +270,20 @@ class TeamRelationManager extends RelationManager
                     fn () => app(RemoveTeamMember::class)->handle($matter, Auth::user(), $record, $recipient, $leave),
                 );
             });
+    }
+
+    /**
+     * Sửa sau kiểm toán 2026-10-21 (mục 3): câu thêm của hộp thoại gỡ — số việc còn mở `$member` đã giao cho người khác
+     * mà luật sư phụ trách sẽ theo dõi thay ({@see RemoveTeamMember::assignedTasksLeadWouldFollow()}); rỗng khi không có.
+     */
+    private function followedByLeadSentence(Matter $matter, User $member): string
+    {
+        $count = app(RemoveTeamMember::class)->assignedTasksLeadWouldFollow($matter, $member);
+
+        return $count === 0 ? '' : ' '.__('internal_flow.team_removal.assigned_followed_by_lead', [
+            'count' => $count,
+            'lead' => (string) $matter->leadLawyer?->name,
+        ]);
     }
 
     /**

@@ -1,22 +1,26 @@
 <?php
 
+use App\Actions\Matter\DeclineMatterAssignment;
 use App\Actions\Task\CancelTask;
 use App\Actions\Task\ReassignTask;
 use App\Actions\Task\ReopenTask;
+use App\Actions\Task\TaskAssignees;
 use App\Actions\Task\UpdateTask;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
-use App\Actions\Matter\DeclineMatterAssignment;
-use App\Actions\Task\TaskAssignees;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\TasksRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
 use App\Filament\Admin\Resources\Tasks\Pages\ListTasks;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Notifications\Staff\MatterAssignmentAlert;
+use App\Notifications\Staff\SeatReturnedTasksAlert;
 use App\Notifications\Staff\TaskAlert;
+use App\Notifications\Staff\TeamDepartureAlert;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
@@ -450,4 +454,121 @@ it('treats a returned lead seat the same way, but not a seat still awaiting acce
     expect(Gate::forUser($this->associate)->allows('assignOnMatter', [Task::class, $matter->fresh()]))->toBeFalse()
         ->and(app(TaskAssignees::class)->assignableMatters($this->associate))->not->toHaveKey($matter->id)
         ->and(Gate::forUser($this->manager)->allows('assignOnMatter', [Task::class, $matter->fresh()]))->toBeTrue();
+});
+
+// =============================================================================================
+// MỤC 3 — gỡ một luật sư cộng sự: việc họ ĐÃ GIAO trên hồ sơ không thành mồ côi
+// =============================================================================================
+
+function lcTeamTab(Matter $matter)
+{
+    return test()->livewire(TeamRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class]);
+}
+
+/**
+ * Luật sư cộng sự đã giao ba việc còn mở (một đang làm, một bị trả lại, một giao cho chính luật sư phụ trách) và một việc
+ * đã xong. Trưởng phòng gỡ họ: hộp thoại nói trước "2 việc … luật sư phụ trách theo dõi"; sau đó ba việc còn mở đổi
+ * người giao sang luật sư phụ trách (việc giao cho chính luật sư phụ trách thành việc riêng của họ), nhật ký
+ * `task_assigner_changed` có `reason`, việc đã xong giữ nguyên; luật sư phụ trách nhận MỘT chuông nêu 2 việc, và hai
+ * việc nằm ở "Tôi đã giao" của họ. Phép thử ngược: bỏ bước đổi người giao trong `RemoveTeamMember` → đỏ; bỏ chuông → đỏ.
+ */
+it('hands the open tasks a removed associate had given over to the lead lawyer, who is told how many they now follow', function () {
+    $given = lcTask($this->associate, $this->assistant);
+    $returned = lcTask($this->associate, $this->otherAssistant, TaskStatus::Declined, ['title' => 'Việc bị trả lại']);
+    $toLead = lcTask($this->associate, $this->lead, TaskStatus::Pending, ['title' => 'Việc giao cho luật sư phụ trách']);
+    $done = lcTask($this->associate, $this->assistant, TaskStatus::Completed, ['title' => 'Việc đã xong']);
+
+    $this->actingAs($this->manager, 'web');
+
+    lcTeamTab($this->matter)
+        ->mountTableAction('removeMember', $this->associate)
+        ->assertMountedActionModalSee(__('internal_flow.team_removal.assigned_followed_by_lead', ['count' => 2, 'lead' => 'Luật sư Khang']))
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    expect($this->matter->team()->whereKey($this->associate->id)->exists())->toBeFalse()
+        ->and($given->fresh()->assigned_by)->toBe($this->lead->id)
+        ->and($returned->fresh()->assigned_by)->toBe($this->lead->id)
+        ->and($returned->fresh()->status)->toBe(TaskStatus::Declined)
+        ->and($toLead->fresh()->assigned_by)->toBe($this->lead->id)
+        ->and($done->fresh()->assigned_by)->toBe($this->associate->id);
+
+    $changes = Activity::query()->where('event', 'task_assigner_changed')->orderBy('id')->get();
+    expect($changes)->toHaveCount(3)
+        ->and($changes->pluck('properties.reason')->unique()->all())->toBe(['team_member_removed'])
+        ->and($changes->pluck('properties.previous_assigner_id')->unique()->all())->toBe([$this->associate->id])
+        ->and($changes->firstWhere('subject_id', $toLead->id)->getExtraProperty('own_task'))->toBeTrue();
+
+    $bells = $this->lead->notifications()->where('type', TeamDepartureAlert::class)->get();
+    expect($bells)->toHaveCount(1)
+        ->and($bells->first()->data['title'])->toBe(__('internal_flow.team_removal.tasks_followed.title'))
+        ->and($bells->first()->data['body'])->toContain('2 việc');
+
+    $this->actingAs($this->lead, 'web');
+    $this->livewire(ListTasks::class, ['activeTab' => 'assigned'])
+        ->assertCanSeeTableRecords([$given, $returned])
+        ->assertCanNotSeeTableRecords([$toLead]);
+});
+
+/** Người gỡ chính là luật sư phụ trách: việc vẫn sang họ, không tự báo mình. Người bị gỡ vẫn mở được hồ sơ: không đổi gì. */
+it('does not ring the lead lawyer who removes the member, and leaves alone a removed member who can still open the matter', function () {
+    $given = lcTask($this->associate, $this->assistant);
+
+    $this->actingAs($this->lead, 'web');
+    lcTeamTab($this->matter)->callTableAction('removeMember', $this->associate)->assertHasNoTableActionErrors();
+
+    expect($given->fresh()->assigned_by)->toBe($this->lead->id)
+        ->and($this->lead->notifications()->where('type', TeamDepartureAlert::class)->count())->toBe(0);
+
+    // Trưởng phòng ngồi ghế luật sư cộng sự rồi bị gỡ: vẫn mở được hồ sơ (xem mọi hồ sơ), việc họ giao ở lại với họ.
+    $this->matter->addTeamMember($this->otherManager, MatterRole::Associate);
+    $managers = lcTask($this->otherManager, $this->assistant, extra: ['title' => 'Việc trưởng phòng giao']);
+
+    $this->actingAs($this->manager, 'web');
+    lcTeamTab($this->matter)
+        ->mountTableAction('removeMember', $this->otherManager)
+        ->assertMountedActionModalDontSee(__('internal_flow.team_removal.assigned_followed_by_lead', ['count' => 1, 'lead' => 'Luật sư Khang']))
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    expect($managers->fresh()->assigned_by)->toBe($this->otherManager->id);
+});
+
+// =============================================================================================
+// MỤC 7 — người giữ việc trả lại hồ sơ: người GIAO việc được báo
+// =============================================================================================
+
+/**
+ * Luật sư cộng sự (ghế còn chờ nhận) đang giữ ba việc trên hồ sơ: hai do một luật sư cộng sự khác giao, một do luật sư
+ * phụ trách giao. Họ "Trả lại" hồ sơ: người giao hai việc nhận MỘT chuông "2 việc trên hồ sơ … cần giao lại"; luật sư
+ * phụ trách (đã nhận lời báo trả lại ghế) và trưởng phòng không nhận thêm; người trả lại không tự báo mình. Phép thử
+ * ngược: bỏ lời báo người giao trong `DeclineMatterAssignment` → đỏ; bỏ vế "trừ người đã được báo" → đỏ.
+ */
+it('tells the people who gave tasks to someone returning the matter, once each, how many need reassigning', function () {
+    $giver = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Phong']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id, 'code' => 'KT-VD-05']);
+    $matter->addTeamMember($giver, MatterRole::Associate);
+    $matter->addTeamMember($this->associate, MatterRole::Associate, $this->lead);
+
+    $one = lcTask($giver, $this->associate, TaskStatus::Pending, ['title' => 'Việc một'], $matter);
+    $two = lcTask($giver, $this->associate, TaskStatus::Accepted, ['title' => 'Việc hai'], $matter);
+    lcTask($this->lead, $this->associate, TaskStatus::Pending, ['title' => 'Việc của luật sư phụ trách'], $matter);
+    lcTask($this->associate, $this->associate, TaskStatus::Accepted, ['title' => 'Việc riêng'], $matter);
+    lcTask($giver, $this->associate, TaskStatus::Declined, ['title' => 'Việc đã trả lại'], $matter);
+
+    app(DeclineMatterAssignment::class)->handle($matter, $this->associate, 'Xung đột lợi ích');
+
+    $bells = $giver->notifications()->where('type', SeatReturnedTasksAlert::class)->get();
+    expect($bells)->toHaveCount(1)
+        ->and($bells->first()->data['title'])->toBe(__('internal_flow.seat_returned_tasks.title'))
+        ->and($bells->first()->data['body'])->toContain('2 việc')
+        ->and($bells->first()->data['body'])->toContain('KT-VD-05')
+        ->and($this->lead->notifications()->where('type', SeatReturnedTasksAlert::class)->count())->toBe(0)
+        ->and($this->lead->notifications()->where('type', MatterAssignmentAlert::class)->count())->toBe(1)
+        ->and($this->manager->notifications()->where('type', SeatReturnedTasksAlert::class)->count())->toBe(0)
+        ->and($this->associate->notifications()->where('type', SeatReturnedTasksAlert::class)->count())->toBe(0);
+
+    // Hai việc hiện "Cần giao lại", và người giao giao lại được.
+    expect(Task::query()->needsReassignment()->whereKey([$one->id, $two->id])->count())->toBe(2)
+        ->and(Gate::forUser($giver)->allows('reassign', $one->fresh()))->toBeTrue();
 });

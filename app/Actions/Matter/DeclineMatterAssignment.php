@@ -5,11 +5,14 @@ namespace App\Actions\Matter;
 use App\Actions\Matter\Concerns\OpensMatterSeat;
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\MatterAssignmentStatus;
+use App\Jobs\SendSeatReturnedTaskNotices;
 use App\Models\Matter;
 use App\Models\MatterUser;
+use App\Models\Task;
 use App\Models\User;
 use App\Notifications\Staff\MatterAssignmentAlert;
 use App\Support\Audit;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -33,6 +36,13 @@ use Illuminate\Validation\ValidationException;
  * Không ai nhận hai lần; người trả lại không tự báo mình. Mỗi người một job, xếp sau commit; job hỏi lại
  * "còn hoạt động và còn xem được vụ" khi chạy — một vụ hạn chế không bao giờ báo cho người không mở được
  * nó.
+ *
+ * # Người giao các việc người đó đang giữ (sửa sau kiểm toán 2026-10-21, mục 7)
+ *
+ * Người trả lại ghế còn giữ việc nội bộ trên hồ sơ (chờ nhận, đang làm) thì các việc đó hiện "Cần giao lại" (vế
+ * `seat_declined`). Trước bản sửa chỉ người giao GHẾ được báo; người giao từng VIỆC (một luật sư cộng sự khác…) không
+ * biết. Nay {@see SendSeatReturnedTaskNotices} báo mỗi người giao một chuông gộp "n việc trên hồ sơ … cần giao lại" —
+ * trừ người trả lại (việc riêng) và những người đã nhận lời báo trả lại ghế ở trên.
  *
  * Bấm lần hai khi ghế đã "Trả lại": trả về ghế, không ghi thêm gì. Ghế đã nhận thì không trả lại ở đây —
  * người đó trao đổi với luật sư phụ trách hay quản lý.
@@ -83,6 +93,25 @@ class DeclineMatterAssignment
 
             foreach ($recipients as $recipientId) {
                 $this->queueSeatNotice($locked, $actor->getKey(), MatterAssignmentAlert::DECLINED, $recipientId, $activity);
+            }
+
+            // Sửa sau kiểm toán 2026-10-21 (mục 7) — xem docblock lớp, mục "Người giao các việc người đó đang giữ".
+            $held = Task::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->where('matter_id', $locked->getKey())
+                ->where('assignee_id', $actor->getKey())
+                ->held()
+                ->orderBy('id')
+                ->get(['id', 'assigned_by']);
+
+            if ($activity !== null && $held->contains(fn (Task $task): bool => $task->assigned_by !== $actor->getKey() && ! $recipients->contains($task->assigned_by))) {
+                SendSeatReturnedTaskNotices::dispatch(
+                    $locked->getKey(),
+                    $actor->getKey(),
+                    (int) $activity->getKey(),
+                    $held->modelKeys(),
+                    $recipients->all(),
+                )->afterCommit();
             }
 
             return $seat;

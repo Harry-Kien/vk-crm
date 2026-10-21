@@ -40,6 +40,22 @@ return [
             'body_left' => ':member đã rời đội ngũ :matter (do :who gỡ): :count việc họ đang giữ hiện ở "Cần giao lại" — hãy giao lại ở tab "Công việc" của hồ sơ.',
             'body_plain' => ':member đã rời đội ngũ :matter (do :who gỡ).',
         ],
+        // Sửa sau kiểm toán luồng Công việc 2026-10-21 (mục 3): việc người bị gỡ đã giao sang luật sư phụ trách theo dõi.
+        // Hộp thoại gỡ (TeamRelationManager) — :lead là tên luật sư phụ trách, chưa escape (Filament escape mô tả).
+        'assigned_followed_by_lead' => 'Người này đã giao :count việc còn mở trên hồ sơ cho người khác. Rời đội ngũ thì họ không còn mở được hồ sơ, nên :lead (luật sư phụ trách) sẽ theo dõi các việc đó thay — chúng sang mục "Tôi đã giao" của :lead.',
+        // Chuông App\Notifications\Staff\TeamDepartureAlert::TASKS_FOLLOWED; dùng body_moved (:count = số việc).
+        'tasks_followed' => [
+            'title' => 'Anh/chị theo dõi thay các việc của người vừa rời đội ngũ',
+            'body_moved' => ':member đã rời đội ngũ :matter (do :who gỡ) và không còn mở được hồ sơ: :count việc họ đã giao trên hồ sơ nay do anh/chị theo dõi — chúng ở mục "Tôi đã giao" của anh/chị.',
+        ],
+    ],
+
+    // Sửa sau kiểm toán luồng Công việc 2026-10-21 (mục 7): chuông App\Notifications\Staff\SeatReturnedTasksAlert
+    // (App\Jobs\SendSeatReturnedTaskNotices) — người giữ việc anh/chị giao đã trả lại hồ sơ. :member, :code đã escape.
+    'seat_returned_tasks' => [
+        'title' => 'Người giữ việc anh/chị giao đã trả lại hồ sơ',
+        'body' => ':member đã trả lại hồ sơ :code — :count việc anh/chị giao cho họ trên hồ sơ này cần giao lại cho người khác (việc hiện "Cần giao lại").',
+        'open' => 'Mở tab Công việc của hồ sơ',
     ],
 
     // Gộp integ-fa (rà soát chéo 2026-10-18, mục 10): chuông App\Notifications\Staff\MatterCancelledTasksAlert

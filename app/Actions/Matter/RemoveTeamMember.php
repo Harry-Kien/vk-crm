@@ -4,8 +4,10 @@ namespace App\Actions\Matter;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Actions\Portal\TriageClientRequest;
+use App\Actions\Task\MoveTasksOnHandover;
 use App\Actions\Task\ReassignTask;
 use App\Enums\MatterRole;
+use App\Enums\TaskStatus;
 use App\Exceptions\TeamMemberHasOpenWork;
 use App\Jobs\SendTeamDepartureNotices;
 use App\Models\Matter;
@@ -127,6 +129,19 @@ use Illuminate\Validation\ValidationException;
  * qua MỘT chỗ, {@see self::reassignHeldTask()} (cờ lời báo: xem đó).
  * `$notify = false` (chỉ {@see TransferStaffWork}): không xếp {@see SendTeamDepartureNotices} — người gọi tự gửi
  * MỘT lời báo tổng hợp cho cả lô.
+ *
+ * # Việc người đó ĐÃ GIAO trên vụ (sửa sau kiểm toán 2026-10-21, mục 3)
+ *
+ * Trước bản sửa chỉ việc người bị gỡ đang GIỮ được xử lý: việc họ đã giao cho người khác ở lại với họ làm người giao,
+ * trong khi họ không còn mở được hồ sơ — không ở "Tôi đã giao" của ai, lời "bị trả lại", "chưa nhận", "quá hạn" cho
+ * người giao rơi vào khoảng trống. Nay, SAU khi gỡ, nếu người đó không còn mở được hồ sơ (`MatterPolicy::view`, tài
+ * khoản còn hoạt động — quản lý/quản trị viên xem mọi hồ sơ thì không đổi gì), mọi việc còn mở (chờ nhận, đang làm, bị
+ * trả lại) của vụ mà họ là người giao — kể cả việc riêng của họ vừa chuyển hay để "Cần giao lại" ở trên — đổi người giao
+ * sang luật sư phụ trách, cùng cách {@see MoveTasksOnHandover::transferAssigner()} ({@see self::transferAssigned()}):
+ * người nhận, trạng thái, hạn, lý do trả lại giữ nguyên. Dòng `team_member_removed` ghi `tasks_followed_by_lead`;
+ * {@see SendTeamDepartureNotices} báo luật sư phụ trách MỘT chuông nêu số việc nay họ theo dõi (không khi chính họ bấm).
+ * Hộp thoại gỡ nói trước con số đó ({@see self::assignedTasksLeadWouldFollow()}). `$transferAssigned = false`: chỉ
+ * {@see TransferStaffWork} (tự chuyển các việc đó sang người nhận của nó).
  */
 class RemoveTeamMember
 {
@@ -135,20 +150,27 @@ class RemoveTeamMember
     /** Giá trị ô "người nhận thay" có nghĩa "để Cần giao lại" (màn hình gửi lên). */
     public const LEAVE_FOR_REASSIGNMENT = 'leave';
 
+    /** `reason` của dòng `task_assigner_changed` khi việc người bị gỡ đã giao sang luật sư phụ trách (sửa 2026-10-21). */
+    public const ASSIGNER_REASON = 'team_member_removed';
+
     /**
      * @param  User|null  $taskRecipient  làn fa2: người nhận thay việc nội bộ người bị gỡ đang giữ trên vụ
      * @param  bool  $leaveForReassignment  làn fa2: để các việc đó "Cần giao lại" thay vì chuyển
      * @param  bool  $notify  làn fa2, vòng sửa 1 (I2): `false` — không xếp {@see SendTeamDepartureNotices} (xem
      *                        docblock lớp)
+     * @param  bool  $transferAssigned  sửa sau kiểm toán 2026-10-21 (mục 3): `false` — không đổi người giao của việc
+     *                                  người bị gỡ đã giao (docblock lớp, mục "Việc người đó ĐÃ GIAO"); chỉ
+     *                                  {@see TransferStaffWork}, nơi tự chuyển các việc đó (sang người nhận) trước khi gỡ,
+     *                                  hay gỡ rồi thêm lại chính người nhận
      *
      * @throws ValidationException
      * @throws TeamMemberHasOpenWork
      */
-    public function handle(Matter $matter, User $actor, User $member, ?User $taskRecipient = null, bool $leaveForReassignment = false, bool $notify = true): void
+    public function handle(Matter $matter, User $actor, User $member, ?User $taskRecipient = null, bool $leaveForReassignment = false, bool $notify = true, bool $transferAssigned = true): void
     {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
-        DB::transaction(function () use ($matter, $actor, $member, $taskRecipient, $leaveForReassignment, $notify): void {
+        DB::transaction(function () use ($matter, $actor, $member, $taskRecipient, $leaveForReassignment, $notify, $transferAssigned): void {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             $pivot = $locked->team()->whereKey($member->getKey())->first()?->pivot;
@@ -214,12 +236,18 @@ class RemoveTeamMember
 
             $locked->team()->detach($member->getKey());
 
+            // Sửa sau kiểm toán 2026-10-21 (mục 3) — xem docblock lớp, mục "Việc người đó ĐÃ GIAO trên vụ". Hỏi SAU khi gỡ.
+            $followed = $transferAssigned && ! $this->stillOpens($member, $locked)
+                ? $this->transferAssigned($locked, $member, $actor)
+                : [];
+
             $removed = Audit::record('team_member_removed', $locked, [
                 'user_id' => $member->getKey(),
                 'role' => $pivot->role_in_matter->value,
                 'tasks_moved' => count($moved),
                 'tasks_left_for_reassignment' => count($left),
                 'task_recipient_id' => $moved === [] ? null : $taskRecipient?->getKey(),
+                'tasks_followed_by_lead' => count($followed),
             ], $actor);
 
             if ($notify && $removed !== null) {
@@ -231,9 +259,98 @@ class RemoveTeamMember
                     $moved,
                     $left,
                     $moved === [] ? null : $taskRecipient?->getKey(),
+                    $followed,
                 )->afterCommit();
             }
         });
+    }
+
+    /**
+     * Số việc còn mở `$member` đã giao cho NGƯỜI KHÁC trên `$matter` mà luật sư phụ trách sẽ theo dõi thay nếu gỡ họ bây
+     * giờ (docblock lớp, mục "Việc người đó ĐÃ GIAO trên vụ") — câu của hộp thoại gỡ. 0 khi họ vẫn mở được hồ sơ sau khi
+     * rời đội ngũ (quản lý, quản trị viên…): hỏi CHÍNH `MatterPolicy::view` trên một bản sao của vụ mang đội ngũ không có
+     * họ, không viết lại luật xem vụ. Việc giao cho chính luật sư phụ trách (sẽ thành việc riêng của họ) không đếm.
+     */
+    public function assignedTasksLeadWouldFollow(Matter $matter, User $member): int
+    {
+        if ($matter->lead_lawyer_id === null) {
+            return 0;
+        }
+
+        $without = (clone $matter)->setRelation('team', $matter->team()->get()->reject(fn (User $user): bool => $user->is($member))->values());
+
+        if ($member->is_active && ! $member->trashed() && Gate::forUser($member)->allows('view', $without)) {
+            return 0;
+        }
+
+        return $this->scopelessly(Task::query())
+            ->where('matter_id', $matter->getKey())
+            ->where('assigned_by', $member->getKey())
+            ->where('assignee_id', '!=', $member->getKey())
+            ->open()
+            ->get(['id', 'assignee_id', 'status'])
+            ->reject(fn (Task $task): bool => self::becomesLeadsOwn($task, (int) $matter->lead_lawyer_id))
+            ->count();
+    }
+
+    /** `$member` (vừa rời đội ngũ) còn mở được `$locked` — tài khoản còn hoạt động và `MatterPolicy::view`. */
+    private function stillOpens(User $member, Matter $locked): bool
+    {
+        return $member->is_active && ! $member->trashed() && Gate::forUser($member)->allows('view', $locked);
+    }
+
+    /**
+     * Docblock lớp, mục "Việc người đó ĐÃ GIAO trên vụ": mọi việc còn mở (chờ nhận, đang làm, bị trả lại) của vụ mà
+     * `$member` là người giao đổi người giao sang luật sư phụ trách — cùng cách {@see MoveTasksOnHandover::transferAssigner()}
+     * (dòng `task_assigner_changed`, `reason` = {@see self::ASSIGNER_REASON}; việc luật sư phụ trách còn giữ thành việc
+     * riêng của họ, `own_task`).
+     *
+     * @return list<int> id các việc NGƯỜI KHÁC luật sư phụ trách đang giữ (hay đã trả lại) — luật sư phụ trách theo dõi
+     */
+    private function transferAssigned(Matter $locked, User $member, User $actor): array
+    {
+        $leadId = $locked->lead_lawyer_id;
+
+        if ($leadId === null) {
+            return [];
+        }
+
+        $tasks = $this->scopelessly(Task::query())
+            ->where('matter_id', $locked->getKey())
+            ->where('assigned_by', $member->getKey())
+            ->open()
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $followed = [];
+
+        foreach ($tasks as $task) {
+            $own = self::becomesLeadsOwn($task, $leadId);
+
+            $task->update(['assigned_by' => $leadId]);
+
+            Audit::record('task_assigner_changed', $task, [
+                'matter_id' => $locked->getKey(),
+                'status' => $task->status->value,
+                'previous_assigner_id' => $member->getKey(),
+                'assigner_id' => $leadId,
+                'reason' => self::ASSIGNER_REASON,
+                ...($own ? ['own_task' => true] : []),
+            ], causer: $actor);
+
+            if (! $own) {
+                $followed[] = (int) $task->getKey();
+            }
+        }
+
+        return $followed;
+    }
+
+    /** Việc thành việc RIÊNG của luật sư phụ trách khi họ thành người giao: họ còn giữ nó (không phải đã trả lại). */
+    private static function becomesLeadsOwn(Task $task, int $leadId): bool
+    {
+        return $task->assignee_id === $leadId && $task->status !== TaskStatus::Declined;
     }
 
     /**

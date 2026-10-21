@@ -402,7 +402,7 @@ class TransferStaffWork
         $removed = 0;
 
         if ($fromSeat !== null) {
-            app(RemoveTeamMember::class)->handle($locked, $actor, $from, leaveForReassignment: $refusals !== [], notify: false);
+            app(RemoveTeamMember::class)->handle($locked, $actor, $from, leaveForReassignment: $refusals !== [], notify: false, transferAssigned: false);
             $removed = 1;
         }
 
@@ -430,7 +430,7 @@ class TransferStaffWork
     private function seatRecipient(Matter $locked, User $actor, User $to, MatterRole $role): int
     {
         if ($locked->team()->whereKey($to->getKey())->exists()) {
-            app(RemoveTeamMember::class)->handle($locked, $actor, $to, leaveForReassignment: true, notify: false);
+            app(RemoveTeamMember::class)->handle($locked, $actor, $to, leaveForReassignment: true, notify: false, transferAssigned: false);
         }
 
         app(AddTeamMember::class)->handle($locked, $actor, $to, self::roleFor($to, $role), notify: false);
