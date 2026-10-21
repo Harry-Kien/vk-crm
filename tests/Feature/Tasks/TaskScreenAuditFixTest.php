@@ -570,6 +570,10 @@ it('links the matter code in the view frame to the matter\'s task tab, and says 
         ->mountAction(TestAction::make('view')->table($task))
         ->assertSeeHtml('href="'.e(TaskColumns::matterTabUrl($this->matter->id)).'"');
 
+    // Chính khung (không phải cột "Vụ việc" của bảng, cùng đường dẫn) mang liên kết.
+    $frame = view('filament.admin.tasks.task-detail', ['task' => $task->fresh(), 'viewer' => $this->lan])->render();
+    expect($frame)->toContain('href="'.e(TaskColumns::matterTabUrl($this->matter->id)).'"');
+
     $html = view('filament.admin.tasks.task-detail', ['task' => $general->fresh(), 'viewer' => $this->lan])->render();
     expect($html)->toContain(e(__('tasks.detail.general')))->not->toContain('relation=');
 });
@@ -599,9 +603,16 @@ it('shows the history of the task in the view frame: assigned, returned with rea
         ->toContain('Đang quá tải tuần này')
         ->toContain(e(__('tasks.timeline.reassigned', ['who' => 'Luật sư Khang', 'from' => 'Ngô Thị Lan', 'to' => 'Đinh Văn Tùng'])))
         ->toContain(e(__('tasks.timeline.reopened', ['who' => 'Luật sư Khang'])))
-        ->toContain('Thiếu chữ ký của khách')
-        ->toContain(today()->addDays(9)->format('d/m/Y'))
-        ->toContain(today()->addDays(12)->format('d/m/Y'));
+        ->toContain(e(__('tasks.timeline.comment', ['text' => 'Thiếu chữ ký của khách'])))
+        ->toContain(e(__('tasks.timeline.reason', ['text' => 'Đang quá tải tuần này'])))
+        ->toContain(e(__('tasks.timeline.due_changed', [
+            'from' => today()->addDays(5)->format('d/m/Y'),
+            'to' => today()->addDays(9)->format('d/m/Y'),
+        ])))
+        ->toContain(e(__('tasks.notice.changes.due_date', [
+            'from' => today()->addDays(9)->format('d/m/Y'),
+            'to' => today()->addDays(12)->format('d/m/Y'),
+        ])));
 });
 
 it('never shows another task\'s history in the view frame', function () {
