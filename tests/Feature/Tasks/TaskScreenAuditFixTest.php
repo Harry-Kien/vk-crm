@@ -251,7 +251,7 @@ it('reassigns a declined task straight from its primary row button', function ()
         ->assignee_id->toBe($this->tung->id);
 });
 
-it('shows one compact summary cell below md and keeps the detail columns from md up', function () {
+it('shows one compact summary cell below xl and keeps the detail columns from xl up', function () {
     $task = scrTask([
         'title' => 'Soạn đơn khởi kiện',
         'due_date' => today()->addDay(),
@@ -263,8 +263,8 @@ it('shows one compact summary cell below md and keeps the detail columns from md
 
     $columns = collect($page->instance()->getTable()->getColumns());
 
-    expect($columns->get('summary')?->getHiddenFrom())->toBe('md')
-        ->and($columns->except('summary')->map(fn ($column) => $column->getVisibleFrom())->unique()->values()->all())->toBe(['md']);
+    expect($columns->get('summary')?->getHiddenFrom())->toBe('xl')
+        ->and($columns->except('summary')->map(fn ($column) => $column->getVisibleFrom())->unique()->values()->all())->toBe(['xl']);
 
     // Tóm tắt: tiêu đề, trạng thái; hạn · mã vụ · người giao; mức ưu tiên khi không phải "Thường".
     $html = (string) TaskColumns::renderSummary($task->fresh(['matter', 'assignee', 'assigner']));
@@ -300,12 +300,20 @@ it('flags a task that needs reassigning in the summary cell too', function () {
     expect($html)->toContain(e(__('tasks.columns.assignee_inactive')))->toContain('var(--danger-600)');
 });
 
-it('gives the task title column a minimum width so it never shrinks to one word per line', function () {
+it('gives the task title column a minimum width so it never shrinks to one word per line, with the status under it', function () {
+    $task = scrTask(['title' => 'Liên hệ nhân chứng', 'decline_reason' => 'Đang trực phiên toà'], TaskStatus::Declined);
+
     $this->actingAs($this->lead, 'web');
+    $page = scrList('all');
+    $title = $page->instance()->getTable()->getColumn('title');
 
-    $title = scrList('all')->instance()->getTable()->getColumn('title');
+    expect($title->getExtraHeaderAttributes()['style'] ?? '')->toContain('min-width:15rem');
 
-    expect($title->getExtraHeaderAttributes()['style'] ?? '')->toContain('min-width:16rem');
+    // Trạng thái và lý do trả lại ngay dưới tiêu đề, thay cột "Trạng thái" riêng (đo: tám cột không vừa 1280–1366px).
+    expect($page->instance()->getTable()->getColumn('status'))->toBeNull();
+    $html = (string) TaskColumns::renderStatus($task);
+    expect($html)->toContain(e(__('tasks.status.declined')))->toContain('Đang trực phiên toà');
+    $page->assertSee('Đang trực phiên toà');
 });
 
 it('hides the column that is always me: assignee on awaiting/active, assigner on assigned', function () {

@@ -32,17 +32,27 @@ use Illuminate\Support\HtmlString;
  * Đo trên điện thoại 390px trước bản sửa: bảng rộng 1132px, cột "Việc" 77px, cột "Hạn" ở x=472, nút "Đã nhận" ở
  * x=782 — phải vuốt ngang hai màn hình mới tới nút (đúng đường người dùng tới từ thông báo đẩy). Nay:
  *
- *  - dưới `md` chỉ MỘT cột, "summary" ({@see self::renderSummary()}, `->hiddenFrom('md')`): tiêu đề + trạng thái;
- *    hạn · mã vụ · người giao (hay người nhận); mức ưu tiên khi không phải "Thường"; dòng "cần giao lại" khi có;
- *  - từ `md` trở lên các cột chi tiết như cũ (`->visibleFrom('md')`), cột "Việc" rộng tối thiểu 16rem (ở 1366px
- *    nó từng bị bóp còn mỗi chữ một dòng, dòng cao 180px).
+ *  - dưới {@see self::FULL_FROM} chỉ MỘT cột, "summary" ({@see self::renderSummary()}): tiêu đề; trạng thái, mức
+ *    ưu tiên (khi không phải "Thường"), hạn; mã vụ · người giao (hay người nhận); dòng "cần giao lại" khi có. Chỉ
+ *    một nút chính đứng cạnh (`ProvidesTaskActions::taskRecordActions()`);
+ *  - từ {@see self::FULL_FROM} trở lên các cột chi tiết như cũ, cột "Việc" rộng tối thiểu 15rem (ở 1366px nó từng bị
+ *    bóp còn mỗi chữ một dòng, dòng cao 180px; 15rem chứ không 16rem: ở 1280px tab "Tất cả" vừa khít 896px), tiêu đề
+ *    các cột hẹp được xuống dòng, trạng thái nằm dưới tiêu đề việc ({@see self::renderStatus()}) thay cho một cột
+ *    riêng. Đo lại sau bản sửa: tab "Tất cả" rộng đúng bằng vùng nội dung ở 1280px (896) và 1366px (982).
  *
- * Hai lớp `md:fi-hidden` / `md:fi-visible` là của chính Filament (có trong `theme.css` đã biên dịch) — không lớp
+ * Hai lớp `xl:fi-hidden` / `xl:fi-visible` là của chính Filament (có trong `theme.css` đã biên dịch) — không lớp
  * Tailwind nào viết tay. Cột luôn là chính người xem (người nhận ở "Chờ tôi nhận"/"Đang làm", người giao ở "Tôi
  * đã giao") ẩn qua hai closure của {@see self::make()}.
  */
 final class TaskColumns
 {
+    /**
+     * Từ cỡ màn hình này trở lên: bảng đủ cột; dưới đó: một cột tóm tắt (docblock lớp, "Hai bố cục"). `xl` (1280px),
+     * không `md`: từ `lg` thanh menu trái chiếm ~384px, nên ở 1024–1279px vùng nội dung chỉ 640–896px — đo trên trình
+     * duyệt, tám cột của tab "Tất cả" cần ~950px; ở 768–1023px (không thanh menu) cũng không đủ.
+     */
+    public const FULL_FROM = 'xl';
+
     /** Trong ngần này ngày tới hạn thì tô vàng — một việc nội bộ ngắn hơn một mốc tố tụng (7 ngày). */
     public const DUE_SOON_DAYS = 2;
 
@@ -81,20 +91,23 @@ final class TaskColumns
                 ->formatStateUsing(fn (Task $record): HtmlString => self::renderSummary($record))
                 ->html()
                 ->wrap()
-                ->hiddenFrom('md'),
+                ->hiddenFrom(self::FULL_FROM),
             TextColumn::make('title')
                 ->label(__('tasks.columns.title'))
                 ->weight('semibold')
+                // Trạng thái nằm ngay dưới tiêu đề (chip + lý do trả lại / ghi chú hoàn thành / chờ nhận từ bao giờ), không
+                // thành một cột riêng: đo ở 1280–1366px, tám cột không vừa vùng nội dung (docblock lớp, "Hai bố cục").
+                ->description(fn (Task $record): HtmlString => self::renderStatus($record))
                 ->wrap()
-                ->extraHeaderAttributes(['style' => 'min-width:16rem'])
-                ->visibleFrom('md')
+                ->extraHeaderAttributes(['style' => 'min-width:15rem'])
+                ->visibleFrom(self::FULL_FROM)
                 // Gộp integ-fa (làn fa3): "đ" như "d" — chỉ thu hẹp truy vấn của bảng, `visibleTo()` không đổi.
                 ->searchable(query: LetterD::searchable('title')),
             $withMatter ? TextColumn::make('matter.code')
                 ->label(__('tasks.columns.matter'))
                 ->placeholder(__('tasks.columns.general'))
                 ->url(fn (Task $record): ?string => $record->matter_id === null ? null : self::matterTabUrl($record->matter_id))
-                ->visibleFrom('md')
+                ->visibleFrom(self::FULL_FROM)
                 ->searchable(query: LetterD::searchable('matter.code')) : null,
             TextColumn::make('assignee.name')
                 ->label(__('tasks.columns.assignee'))
@@ -102,7 +115,9 @@ final class TaskColumns
                     ? __('tasks.columns.assignee_'.$record->reassignmentReason())
                     : null)
                 ->color(fn (Task $record): ?string => in_array($record->reassignmentReason(), self::ASSIGNEE_REASONS, true) ? 'danger' : null)
-                ->visibleFrom('md')
+                ->wrap()
+                ->wrapHeader()
+                ->visibleFrom(self::FULL_FROM)
                 ->hidden($hideAssignee ?? false)
                 // Kiểm toán màn hình 2026-10-21 (mục 7): tìm theo tên người, kể cả người đã nghỉ.
                 ->searchable(query: self::searchPerson('assignee')),
@@ -114,7 +129,9 @@ final class TaskColumns
                     ? __('tasks.columns.'.$record->reassignmentReason())
                     : null)
                 ->color(fn (Task $record): ?string => in_array($record->reassignmentReason(), self::ASSIGNER_REASONS, true) ? 'danger' : null)
-                ->visibleFrom('md')
+                ->wrap()
+                ->wrapHeader()
+                ->visibleFrom(self::FULL_FROM)
                 ->hidden($hideAssigner ?? false)
                 ->searchable(query: self::searchPerson('assigner'))
                 ->toggleable(),
@@ -123,34 +140,24 @@ final class TaskColumns
                 ->html()
                 ->formatStateUsing(fn (Task $record): HtmlString => self::renderDue($record))
                 ->placeholder(__('tasks.due.none'))
-                ->visibleFrom('md')
+                ->wrap()
+                ->wrapHeader()
+                ->visibleFrom(self::FULL_FROM)
                 ->sortable(),
             TextColumn::make('priority')
                 ->label(__('tasks.columns.priority'))
                 ->badge()
                 ->formatStateUsing(fn (TaskPriority $state): string => $state->label())
                 ->color(fn (TaskPriority $state): string => $state->color())
-                ->visibleFrom('md')
+                ->wrapHeader()
+                ->visibleFrom(self::FULL_FROM)
                 // Kiểm toán màn hình 2026-10-21 (mục 3): tăng dần = Gấp trước (`Task::priorityRankSql()`).
                 ->sortable(query: fn (Builder $query, string $direction): Builder => $query
                     ->orderByRaw(Task::priorityRankSql().' '.($direction === 'desc' ? 'desc' : 'asc'))),
-            TextColumn::make('status')
-                ->label(__('tasks.columns.status'))
-                ->badge()
-                ->formatStateUsing(fn (TaskStatus $state): string => $state->label())
-                ->color(fn (TaskStatus $state): string => $state->color())
-                ->description(fn (Task $record): ?string => match ($record->status) {
-                    TaskStatus::Declined => $record->decline_reason,
-                    TaskStatus::Completed => $record->completion_note,
-                    TaskStatus::Pending => __('tasks.waiting', ['since' => $record->assigned_at->diffForHumans()]),
-                    default => null,
-                })
-                ->visibleFrom('md')
-                ->wrap(),
             TextColumn::make('assigned_at')
                 ->label(__('tasks.columns.assigned_at'))
                 ->dateTime('H:i d/m/Y')
-                ->visibleFrom('md')
+                ->visibleFrom(self::FULL_FROM)
                 ->sortable()
                 ->toggleable(isToggledHiddenByDefault: true),
         ]));
@@ -173,7 +180,7 @@ final class TaskColumns
     }
 
     /**
-     * Ô tóm tắt của MỘT việc — cột duy nhất dưới `md` (docblock lớp, "Hai bố cục"). Mọi chữ người dùng gõ (tiêu đề),
+     * Ô tóm tắt của MỘT việc — cột duy nhất dưới {@see self::FULL_FROM} (docblock lớp, "Hai bố cục"). Mọi chữ người dùng gõ (tiêu đề),
      * tên người và mã vụ đi qua `e()`; màu chỉ qua biến CSS của Filament. Cùng câu chữ với các cột chi tiết: trạng
      * thái `TaskStatus::label()`, hạn {@see self::dueParts()}, lý do "cần giao lại" `tasks.columns.*`.
      */
@@ -191,17 +198,13 @@ final class TaskColumns
 
         [$date, $text, $colour] = self::dueParts($task);
         $due = $date === null
-            ? '<span>'.e($text).'</span>'
+            ? sprintf('<span>%s</span>', e($text))
             : sprintf('<span style="font-weight:600;color:%s">%s · %s</span>', $colour, e($date), e($text));
 
-        $facts = [
-            $due,
-            '<span>'.e($task->matter?->code ?? __('tasks.columns.general')).'</span>',
-            '<span>'.e($who).'</span>',
-        ];
+        $chips = self::chip($task->status->color(), $task->status->label());
 
         if ($task->priority !== TaskPriority::Normal) {
-            $facts[] = sprintf('<span style="font-weight:600;color:var(--%s-600)">%s</span>', $task->priority->color(), e($task->priority->label()));
+            $chips .= self::chip($task->priority->color(), $task->priority->label());
         }
 
         $reason = $task->reassignmentReason();
@@ -211,27 +214,51 @@ final class TaskColumns
             default => null,
         };
 
+        // Dòng 1: tiêu đề, cả bề ngang. Dòng 2: trạng thái, ưu tiên (khi không phải "Thường"), hạn. Dòng 3: mã vụ · ai
+        // giao cho ai. Dòng 4 (khi có): vì sao cần giao lại.
         return new HtmlString(sprintf(
             '<div data-vk-task-summary style="display:flex;flex-direction:column;gap:0.25rem;min-width:0;white-space:normal">'
-                .'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem">'
-                .'<span style="font-weight:600;overflow-wrap:anywhere">%s</span>%s</div>'
-                .'<div style="display:flex;flex-wrap:wrap;column-gap:0.375rem;row-gap:0.125rem;font-size:0.8125rem;%s">%s</div>%s</div>',
+                .'<span style="font-weight:600;overflow-wrap:anywhere">%s</span>'
+                .'<span style="display:flex;flex-wrap:wrap;align-items:center;gap:0.25rem 0.375rem;font-size:0.8125rem">%s%s</span>'
+                .'<span style="font-size:0.8125rem;%s">%s · %s</span>%s</div>',
             e($task->title),
-            self::statusChip($task->status),
+            $chips,
+            $due,
             $muted,
-            implode('<span aria-hidden="true">·</span>', $facts),
-            $flag === null ? '' : sprintf('<div style="font-size:0.75rem;font-weight:600;color:var(--danger-600)">%s</div>', e($flag)),
+            e($task->matter?->code ?? __('tasks.columns.general')),
+            e($who),
+            $flag === null ? '' : sprintf('<span style="font-size:0.75rem;font-weight:600;color:var(--danger-600)">%s</span>', e($flag)),
         ));
     }
 
-    /** Nhãn trạng thái dạng chip — bản nội tuyến của badge cột "Trạng thái" (cùng nhãn, cùng màu `TaskStatus::color()`). */
-    private static function statusChip(TaskStatus $status): string
+    /**
+     * Trạng thái dưới tiêu đề ở bảng đủ cột: chip `TaskStatus::label()` và — như cột "Trạng thái" trước đây — lý do trả
+     * lại, ghi chú hoàn thành, hay "chờ nhận từ …". Chữ người dùng gõ qua `e()`.
+     */
+    public static function renderStatus(Task $task): HtmlString
+    {
+        $note = match ($task->status) {
+            TaskStatus::Declined => $task->decline_reason,
+            TaskStatus::Completed => $task->completion_note,
+            TaskStatus::Pending => $task->assigned_at === null ? null : __('tasks.waiting', ['since' => $task->assigned_at->diffForHumans()]),
+            default => null,
+        };
+
+        return new HtmlString(sprintf(
+            '<span style="display:flex;flex-direction:column;align-items:flex-start;gap:0.125rem;margin-top:0.25rem;font-weight:400">%s%s</span>',
+            self::chip($task->status->color(), $task->status->label()),
+            blank($note) ? '' : sprintf('<span style="font-size:0.8125rem;white-space:pre-line;color:color-mix(in srgb, var(--gray-500) 95%%, transparent)">%s</span>', e($note)),
+        ));
+    }
+
+    /** Một chip màu (trạng thái, ưu tiên) — bản nội tuyến của badge các cột (cùng nhãn, cùng màu `color()` của enum). */
+    private static function chip(string $colour, string $label): string
     {
         return sprintf(
             '<span style="flex:none;font-size:0.75rem;font-weight:600;line-height:1.25rem;padding:0 0.375rem;border-radius:0.375rem;'
                 .'color:var(--%1$s-600);background:color-mix(in srgb, var(--%1$s-500) 12%%, transparent)">%2$s</span>',
-            $status->color(),
-            e($status->label()),
+            $colour,
+            e($label),
         );
     }
 
