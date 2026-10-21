@@ -726,4 +726,76 @@ return [
             'reason' => 'Lý do, nhận xét',
         ],
     ],
+
+    // =============================================================================================================
+    // Kiểm toán luồng Công việc 2026-10-21 — làn nhắc việc và con số (khối riêng của làn; không sửa chuỗi ở trên).
+    // =============================================================================================================
+
+    // Q3 — lời nhắc việc GỘP (App\Jobs\SendTaskReminderDigest): chuông TaskReminderAlert và thư TaskReminder với
+    // `$batch`. :list đã escape ở chuông (mỗi việc: `"tiêu đề" (mã · hạn · …)`, nối bằng "; ").
+    'reminder_digest' => [
+        'due' => 'hạn :date',
+        'no_due' => 'không đặt hạn',
+        'by' => 'do :assigner giao',
+        'reassign' => 'cần giao lại',
+        'detail' => [
+            'awaiting' => 'đã chờ :detail',
+            'unaccepted' => 'chưa nhận sau :detail',
+            'overdue' => 'quá hạn :detail ngày',
+            'overdue_assigner' => 'quá hạn :detail ngày',
+        ],
+        'alert' => [
+            'awaiting' => [
+                'title' => ':count việc đang chờ anh/chị nhận',
+                'body' => 'Các việc đã chờ anh/chị nhận quá 24 giờ làm việc: :list. Bấm "Đã nhận" hoặc "Trả lại" ở mục Công việc.',
+            ],
+            'unaccepted' => [
+                'title' => ':count việc được giao chưa được nhận',
+                'body' => 'Các việc chưa được nhận (tính theo giờ làm việc): :list. Hãy trao đổi với người nhận hoặc giao lại.',
+            ],
+            'due_soon' => [
+                'title' => ':count việc của anh/chị sắp đến hạn',
+                'body' => 'Các việc đến hạn từ hôm nay tới hết ngày làm việc kế tiếp: :list.',
+            ],
+            'overdue' => [
+                'title' => ':count việc của anh/chị đã quá hạn',
+                'body' => 'Các việc đã quá hạn: :list. Hãy hoàn thành, hoặc báo người giao để dời hạn.',
+            ],
+            'overdue_assigner' => [
+                'title' => ':count việc anh/chị giao hoặc theo dõi đã quá hạn',
+                'body' => 'Các việc đã quá hạn: :list.',
+            ],
+            'due_soon_assigner' => [
+                'title' => ':count việc sắp đến hạn mà không còn người làm',
+                'body' => 'Người giữ các việc dưới đây không còn làm được việc — hãy giao lại: :list.',
+            ],
+        ],
+        'email' => [
+            'item' => 'Việc',
+            'subject' => [
+                'awaiting' => ':count việc đang chờ anh/chị nhận',
+                'unaccepted' => ':count việc được giao chưa được nhận',
+                'due_soon' => ':count việc của anh/chị sắp đến hạn',
+                'overdue' => ':count việc của anh/chị đã quá hạn',
+                'overdue_assigner' => ':count việc anh/chị giao hoặc theo dõi đã quá hạn',
+                'due_soon_assigner' => ':count việc sắp đến hạn mà không còn người làm',
+            ],
+            'headline' => [
+                'awaiting' => ':count việc dưới đây đã chờ anh/chị nhận quá 24 giờ làm việc.',
+                'unaccepted' => ':count việc dưới đây chưa được nhận (tính theo giờ làm việc) — hãy trao đổi với người nhận hoặc giao lại.',
+                'due_soon' => ':count việc dưới đây đến hạn từ hôm nay tới hết ngày làm việc kế tiếp.',
+                'overdue' => ':count việc dưới đây đã quá hạn — hãy hoàn thành, hoặc báo người giao để dời hạn.',
+                'overdue_assigner' => ':count việc anh/chị giao (hoặc nhận thay người giao) dưới đây đã quá hạn.',
+                'due_soon_assigner' => ':count việc dưới đây sắp đến hạn mà người giữ không còn làm được việc — hãy giao lại.',
+            ],
+            'action' => [
+                'awaiting' => 'Mở mục Công việc để bấm "Đã nhận" hoặc "Trả lại"',
+                'unaccepted' => 'Mở mục Công việc',
+                'due_soon' => 'Mở mục Công việc — các việc anh/chị đang giữ',
+                'overdue' => 'Mở mục Công việc — các việc quá hạn của anh/chị',
+                'overdue_assigner' => 'Mở mục Công việc',
+                'due_soon_assigner' => 'Mở mục Công việc',
+            ],
+        ],
+    ],
 ];

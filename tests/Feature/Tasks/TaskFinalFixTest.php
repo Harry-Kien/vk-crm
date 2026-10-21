@@ -359,9 +359,10 @@ it('opens, from each dashboard tile, exactly the rows its number counts', functi
         ->assertSeeHtml(e($links['seats']));
 });
 
-it('points the overdue reminder of a task nobody accepted yet to "Chờ tôi nhận", where it is listed', function () {
-    tkFfTask($this->matter, $this->assistant, $this->lead, extra: ['title' => 'Nộp bản sao', 'due_date' => '2026-10-13']);
-    tkFfTask($this->matter, $this->assistant, $this->lead, TaskStatus::Accepted, ['title' => 'Đối chiếu chứng cứ', 'due_date' => '2026-10-13']);
+// Kiểm toán 2026-10-21 (Q3): hai việc quá hạn của cùng một người trong một lượt là MỘT chuông gộp — mỗi ca một việc để
+// giữ đúng điều test này ghim (đường dẫn của lời nhắc một việc theo trạng thái).
+it('points the overdue reminder of a task nobody accepted yet to "Chờ tôi nhận", where it is listed', function (TaskStatus $status, string $title, string $tab) {
+    tkFfTask($this->matter, $this->assistant, $this->lead, $status, ['title' => $title, 'due_date' => '2026-10-13']);
 
     tkFfTravel('2026-10-14 09:00');
     app(RemindPendingWork::class)->handle();
@@ -371,12 +372,11 @@ it('points the overdue reminder of a task nobody accepted yet to "Chờ tôi nh�
         ->mapWithKeys(fn ($n): array => [Task::query()->findOrFail($n->data['viewData']['task_id'])->title => $n->data['actions'][0]['url']])
         ->all();
 
-    // So theo tên việc, không theo thứ tự đọc chuông (MariaDB và SQLite trả khác nhau).
-    expect($urls)->toEqual([
-        'Nộp bản sao' => TaskResource::getUrl('index', ['tab' => 'awaiting'], panel: 'admin'),
-        'Đối chiếu chứng cứ' => TaskResource::getUrl('index', ['tab' => 'active'], panel: 'admin'),
-    ]);
-});
+    expect($urls)->toEqual([$title => TaskResource::getUrl('index', ['tab' => $tab], panel: 'admin')]);
+})->with([
+    'chưa nhận' => [TaskStatus::Pending, 'Nộp bản sao', 'awaiting'],
+    'đang làm' => [TaskStatus::Accepted, 'Đối chiếu chứng cứ', 'active'],
+]);
 
 // =============================================================================================
 // F6 — cổng 404 của ba khối "Việc của tôi" và ô bảng điều khiển

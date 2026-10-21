@@ -148,9 +148,12 @@ it('tells the assigner after 48 business hours, and the current lead instead whe
     remindNow();
 
     expect(taskReminderMails('staff.task.reminder.unaccepted', $this->manager))->toBe(0)
-        // Luật sư phụ trách nhận thay cho việc của quản lý đã nghỉ, và nhận lời báo của việc chính họ giao: 2 thư.
-        ->and(taskReminderMails('staff.task.reminder.unaccepted', $this->lead))->toBe(2)
-        ->and(collect(reminderBells($this->lead))->pluck('body')->implode(' '))->toContain('Trợ lý Lan');
+        // Luật sư phụ trách nhận thay cho việc của quản lý đã nghỉ, và nhận lời báo của việc chính họ giao — kiểm toán
+        // 2026-10-21 (Q3): MỘT thư gộp, một chuông, liệt kê cả hai việc (trước đó: 2 thư).
+        ->and(taskReminderMails('staff.task.reminder.unaccepted', $this->lead))->toBe(1)
+        ->and(reminderBells($this->lead))->toHaveCount(1)
+        ->and(collect(reminderBells($this->lead))->pluck('body')->implode(' '))->toContain('Trợ lý Lan')
+        ->toContain('Nộp án phí')->toContain('Gặp nhân chứng')->toContain(__('tasks.reminder_digest.by', ['assigner' => 'Trưởng phòng Hà']));
 });
 
 it('sends nothing once the assignee accepts between the run and the job', function () {

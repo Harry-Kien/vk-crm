@@ -30,6 +30,10 @@ use Illuminate\Mail\Mailables\Envelope;
  *
  * Làn fa1 (phán quyết 5): `$needsReassignment` — người nhận việc không còn làm được việc này (việc hiện "Cần giao
  * lại") — thêm câu `tasks.reminder_needs_reassignment` vào câu mở đầu của các loại báo người giao, như chuông.
+ *
+ * Gộp (kiểm toán 2026-10-21, Q3 — `SendTaskReminderDigest`): `$batch` khác rỗng là MỘT thư cho nhiều việc của cùng một
+ * người nhận trong một lượt — CÙNG mẫu; tiêu đề và câu mở đầu theo bộ chữ `tasks.reminder_digest.email` (số việc), mỗi
+ * việc một dòng (`TaskReminderAlert::digestItem()`); dòng sổ thư gắn việc đầu, `LEDGER_TIER` mang khoá của từng việc.
  */
 class TaskReminder extends BrandedMailable
 {
@@ -56,6 +60,8 @@ class TaskReminder extends BrandedMailable
         public string $ledgerKey,
         public ?string $onBehalfOf = null,
         public bool $needsReassignment = false,
+        /** @var list<array{title: string, code: ?string, due: ?string, assignee: string, detail: string, assigner: ?string, reassign: bool}> */
+        public array $batch = [],
     ) {}
 
     protected function template(): string
@@ -76,11 +82,17 @@ class TaskReminder extends BrandedMailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: __('tasks.reminder.email.subject.'.$this->kindKey()));
+        return new Envelope(subject: $this->batch === []
+            ? __('tasks.reminder.email.subject.'.$this->kindKey())
+            : __('tasks.reminder_digest.email.subject.'.$this->digestKind(), ['count' => count($this->batch)]));
     }
 
     public function content(): Content
     {
+        if ($this->batch !== []) {
+            return $this->digestContent();
+        }
+
         $task = $this->task;
         $line = fn (string $key, string $value): array => ['label' => __('tasks.email.fields.'.$key), 'value' => $value];
 
@@ -109,6 +121,31 @@ class TaskReminder extends BrandedMailable
                 'office' => OfficeProfile::current()->legalName(),
             ],
         );
+    }
+
+    /** Thư gộp — xem docblock lớp, đoạn "Gộp". */
+    private function digestContent(): Content
+    {
+        return new Content(
+            view: 'emails.staff.task-notice',
+            text: 'emails.staff.task-notice-text',
+            with: [
+                'recipientName' => $this->recipient->name,
+                'headline' => __('tasks.reminder_digest.email.headline.'.$this->digestKind(), ['count' => count($this->batch)]),
+                'details' => array_map(fn (array $row): array => [
+                    'label' => __('tasks.reminder_digest.email.item'),
+                    'value' => TaskReminderAlert::digestItem($this->kind, $row),
+                ], $this->batch),
+                'url' => TaskReminderAlert::digestUrl($this->kind, $this->recipient, $this->batch),
+                'action' => __('tasks.reminder_digest.email.action.'.$this->digestKind()),
+                'office' => OfficeProfile::current()->legalName(),
+            ],
+        );
+    }
+
+    private function digestKind(): string
+    {
+        return str_replace('reminder.', '', $this->kind);
     }
 
     /** Thư tới người nhận THAY người giao — cùng định nghĩa của chuông (`TaskReminderAlert::onBehalf()`). */

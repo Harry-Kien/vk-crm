@@ -138,14 +138,13 @@ it('keeps the assigner\'s own words and the "Tôi đã giao" link when the assig
         && $mail->envelope()->subject === __('tasks.email.subject.declined', ['name' => 'Trợ lý Lan']));
 });
 
+// Kiểm toán 2026-10-21 (Q3): hai lời nhắc cùng loại cho cùng một người trong một lượt là MỘT lời gộp — việc chính luật sư
+// phụ trách giao (câu của người giao, tab "Tôi đã giao") tách sang ca riêng để test này vẫn ghim lời nhắc một việc.
 it('words the two assigner reminders for the current lead standing in, and links them to the matter\'s task tab', function () {
     tkAgTravel('2026-10-12 09:00');
 
     $unaccepted = Task::factory()->forMatter($this->matter)->create([
         'title' => 'Nộp án phí', 'assignee_id' => $this->assistant->id, 'assigned_by' => $this->associate->id, 'assigned_at' => now(),
-    ]);
-    $own = Task::factory()->forMatter($this->matter)->create([
-        'title' => 'Gặp nhân chứng', 'assignee_id' => $this->assistant->id, 'assigned_by' => $this->lead->id, 'assigned_at' => now(),
     ]);
     $overdue = Task::factory()->forMatter($this->matter)->status(TaskStatus::Accepted)->create([
         'title' => 'Nộp bản khai', 'assignee_id' => $this->assistant->id, 'assigned_by' => $this->associate->id,
@@ -165,10 +164,7 @@ it('words the two assigner reminders for the current lead standing in, and links
         ->and($bells[$unaccepted->id]['actions'][0]['url'])->toBe($matterTab)
         ->and($bells[$overdue->id]['title'])->toBe(__('tasks.reminder.alert.overdue_assigner_on_behalf.title'))
         ->and($bells[$overdue->id]['body'])->toContain('Luật sư Cộng Sự Cũ')
-        ->and($bells[$overdue->id]['actions'][0]['url'])->toBe($matterTab)
-        // Việc chính luật sư phụ trách giao: câu của người giao, tab "Tôi đã giao".
-        ->and($bells[$own->id]['title'])->toBe(__('tasks.reminder.alert.unaccepted.title'))
-        ->and($bells[$own->id]['actions'][0]['url'])->toBe(TaskResource::getUrl('index', ['tab' => 'assigned'], panel: 'admin'));
+        ->and($bells[$overdue->id]['actions'][0]['url'])->toBe($matterTab);
 
     Mail::assertSent(TaskReminder::class, fn (TaskReminder $mail): bool => $mail->hasTo($this->lead->email)
         && $mail->task->is($unaccepted)
@@ -177,9 +173,54 @@ it('words the two assigner reminders for the current lead standing in, and links
     Mail::assertSent(TaskReminder::class, fn (TaskReminder $mail): bool => $mail->hasTo($this->lead->email)
         && $mail->task->is($overdue)
         && $mail->envelope()->subject === __('tasks.reminder.email.subject.overdue_assigner_on_behalf'));
+});
+
+it('words the reminder of a task the lead assigned themselves as the assigner\'s, linked to "Tôi đã giao"', function () {
+    tkAgTravel('2026-10-12 09:00');
+
+    $own = Task::factory()->forMatter($this->matter)->create([
+        'title' => 'Gặp nhân chứng', 'assignee_id' => $this->assistant->id, 'assigned_by' => $this->lead->id, 'assigned_at' => now(),
+    ]);
+
+    tkAgTravel('2026-10-19 09:30');
+    app(RemindPendingWork::class)->handle();
+
+    $bell = collect(tkAgBells($this->lead, TaskReminderAlert::class))->sole();
+
+    expect($bell['viewData']['task_id'])->toBe($own->id)
+        ->and($bell['title'])->toBe(__('tasks.reminder.alert.unaccepted.title'))
+        ->and($bell['actions'][0]['url'])->toBe(TaskResource::getUrl('index', ['tab' => 'assigned'], panel: 'admin'));
+
     Mail::assertSent(TaskReminder::class, fn (TaskReminder $mail): bool => $mail->hasTo($this->lead->email)
         && $mail->task->is($own)
         && $mail->envelope()->subject === __('tasks.reminder.email.subject.unaccepted'));
+});
+
+/** Kiểm toán 2026-10-21 (Q3): lời gộp trộn việc nhận thay và việc của chính mình — dòng nhận thay ghi "do … giao", nút về tab "Tất cả". */
+it('folds an on-behalf and an own unaccepted task into one digest that names the absent assigner and opens "Tất cả"', function () {
+    tkAgTravel('2026-10-12 09:00');
+
+    Task::factory()->forMatter($this->matter)->create([
+        'title' => 'Nộp án phí', 'assignee_id' => $this->assistant->id, 'assigned_by' => $this->associate->id, 'assigned_at' => now(),
+    ]);
+    Task::factory()->forMatter($this->matter)->create([
+        'title' => 'Gặp nhân chứng', 'assignee_id' => $this->assistant->id, 'assigned_by' => $this->lead->id, 'assigned_at' => now(),
+    ]);
+    $this->associate->forceFill(['is_active' => false])->save();
+
+    tkAgTravel('2026-10-19 09:30');
+    app(RemindPendingWork::class)->handle();
+
+    $bell = collect(tkAgBells($this->lead, TaskReminderAlert::class))->sole();
+
+    expect($bell['title'])->toBe(__('tasks.reminder_digest.alert.unaccepted.title', ['count' => 2]))
+        ->and($bell['body'])->toContain('Nộp án phí')->toContain('Gặp nhân chứng')
+        ->toContain(__('tasks.reminder_digest.by', ['assigner' => 'Luật sư Cộng Sự Cũ']))
+        ->and($bell['actions'][0]['url'])->toBe(TaskResource::getUrl('index', ['tab' => 'all'], panel: 'admin'));
+
+    expect(Mail::sent(TaskReminder::class, fn (TaskReminder $mail): bool => $mail->hasTo($this->lead->email)))->toHaveCount(1);
+    Mail::assertSent(TaskReminder::class, fn (TaskReminder $mail): bool => $mail->hasTo($this->lead->email)
+        && $mail->envelope()->subject === __('tasks.reminder_digest.email.subject.unaccepted', ['count' => 2]));
 });
 
 // =========================================================================================

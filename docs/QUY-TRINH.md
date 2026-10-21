@@ -653,6 +653,11 @@ Từ 2026-10-21 (sửa sau kiểm toán luồng Công việc):
   chính thao tác đã nêu hạn; từ ngày làm việc sau lịch nhắc chạy như thường. Người giao đã làm gì đó với một việc
   quá hạn trong ngày (sửa, giao lại, mở lại…) không nhận lời báo "quá hạn" của việc đó hôm ấy; người giữ việc vẫn
   được nhắc.
+- **Một thư mỗi người mỗi lượt:** nhiều việc cùng một loại nhắc cho cùng một người trong một lượt (ví dụ 8 việc vừa
+  chuyển sang một người, hay 3 việc cùng quá hạn) là **một** chuông và **một** thư "n việc …" liệt kê từng việc —
+  tiêu đề, mã hồ sơ, hạn, đã chờ / quá hạn bao lâu, và với lời báo người giao: người giữ, "do … giao" khi nhận thay,
+  "cần giao lại" — như lời nhắc hồ sơ. Một việc thì vẫn là lời nhắc riêng như trước. Nhịp nhắc không đổi (quá hạn vẫn
+  mỗi ngày làm việc một lần); mỗi việc vẫn chỉ được nhắc một lần cho mỗi khoá nhắc, dù nằm trong thư gộp.
 
 **Trên bảng điều khiển** — ô **"Việc cần xử lý của tôi"**: việc chờ tôi nhận, việc của tôi đã quá hạn (chờ
 nhận hay đang làm, trên hồ sơ còn mở — cùng một nghĩa "quá hạn" với lịch nhắc), hồ sơ chờ tôi nhận, việc tôi giao bị trả lại; bấm một ô để mở đúng danh sách — trang mở ra

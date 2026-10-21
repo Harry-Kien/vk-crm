@@ -8,6 +8,7 @@ use App\Actions\Task\TaskAssignees;
 use App\Enums\MatterAssignmentStatus;
 use App\Enums\TaskStatus;
 use App\Jobs\SendSeatReminderDigest;
+use App\Jobs\SendTaskReminderDigest;
 use App\Jobs\SendWorkReminder;
 use App\Models\Matter;
 use App\Models\MatterUser;
@@ -94,13 +95,18 @@ use Throwable;
  * `SendUnansweredIntakeReminderMail`), nên một hộp thư hỏng chỉ có một chuỗi thử mỗi ngày, lượt đầu hôm sau
  * thử lại. `withoutOverlapping(30)` ở lịch. Mỗi việc/hồ sơ một `try`: một lỗi không dừng lượt nhắc.
  *
- * # Lời nhắc hồ sơ gộp theo người (vòng sửa polish 1 — phán quyết controller (3))
+ * # Lời nhắc gộp theo người (vòng sửa polish 1 — phán quyết controller (3); việc: kiểm toán 2026-10-21, Q3)
  *
  * Một lô bàn giao hàng loạt N hồ sơ chạm ngưỡng cùng một lượt. Lời nhắc HỒ SƠ không xếp từng ghế: lượt gom
  * theo (loại nhắc, người nhận) ({@see self::queueSeat()}, {@see self::dispatchSeatReminders()}). Một hồ sơ
  * thì một {@see SendWorkReminder} như cũ; nhiều hồ sơ thì MỘT {@see SendSeatReminderDigest} — một chuông
  * và một thư liệt kê các hồ sơ, cho người được giao ("chờ anh/chị nhận") và cho từng người giao hay quản
- * lý ("chưa được nhận"). Lời nhắc việc không gộp (mỗi việc một tiêu đề, một hạn riêng).
+ * lý ("chưa được nhận"). Lời nhắc VIỆC cũng vậy từ kiểm toán 2026-10-21 (Q3 — sau `TransferStaffWork` 8 việc một lượt
+ * là 8 thư + 8 chuông cho người nhận, 48 giờ sau 8 thư cho người giao; 3 việc quá hạn 10 ngày là 30 thư):
+ * {@see self::queue()} gom theo (loại, người nhận), {@see self::dispatchTaskReminders()} xếp một {@see SendWorkReminder}
+ * cho một việc, MỘT {@see SendTaskReminderDigest} cho nhiều việc — một chuông và một thư liệt kê tiêu đề, hạn, người giữ
+ * của các việc. Khoá và nhịp của từng việc không đổi (chờ nhận một lần mỗi lần giao, sắp đến hạn một lần mỗi hạn, quá hạn
+ * mỗi ngày làm việc một lần); `queued` vẫn đếm (người × việc).
  *
  * Ghế mà người được giao không còn nhận được hồ sơ (đã nghỉ việc, không còn mở được vụ) không nhắc ai:
  * không "hãy nhận" cho người đã nghỉ, không "X chưa nhận" cho người giao —
@@ -135,6 +141,14 @@ class RemindPendingWork
      */
     private array $seatReminders = [];
 
+    /**
+     * Lời nhắc VIỆC của lượt này, gom trước khi xếp: `[loại][id người nhận][id việc] = khoá nhắc` — kiểm toán
+     * 2026-10-21 (Q3), xem docblock lớp, mục "Lời nhắc gộp theo người".
+     *
+     * @var array<string, array<int, array<int, string>>>
+     */
+    private array $taskReminders = [];
+
     public function __invoke(): array
     {
         return $this->handle();
@@ -150,6 +164,7 @@ class RemindPendingWork
         }
 
         $queued = 0;
+        $this->taskReminders = [];
 
         foreach ($this->awaitingTasks($clock) as $task) {
             $queued += $this->guarded(fn (): int => $this->remindAwaitingTask($task, $clock));
@@ -194,6 +209,8 @@ class RemindPendingWork
                     array_values(array_filter($this->taskAssignerAudience($task), fn (User $user): bool => ! self::assignerActedToday($task, self::OVERDUE_ASSIGNER, $user))),
                 )));
         }
+
+        $this->dispatchTaskReminders();
 
         return ['queued' => $queued];
     }
@@ -531,9 +548,33 @@ class RemindPendingWork
             return 0;
         }
 
-        SendWorkReminder::dispatch($subject, $subjectId, $kind, $recipient->getKey(), $key)->afterCommit();
+        // Kiểm toán 2026-10-21 (Q3): gom, xếp ở cuối lượt ({@see self::dispatchTaskReminders()}).
+        $this->taskReminders[$kind][$recipient->getKey()][$subjectId] = $key;
 
         return 1;
+    }
+
+    /**
+     * Xếp các lời nhắc việc đã gom (kiểm toán 2026-10-21, Q3) — một việc: {@see SendWorkReminder} như trước; nhiều việc
+     * cho cùng (loại, người nhận): MỘT {@see SendTaskReminderDigest}. Cùng khuôn {@see self::dispatchSeatReminders()}.
+     */
+    private function dispatchTaskReminders(): void
+    {
+        foreach ($this->taskReminders as $kind => $byRecipient) {
+            foreach ($byRecipient as $recipientId => $tasks) {
+                $this->guarded(function () use ($kind, $recipientId, $tasks): int {
+                    if (count($tasks) === 1) {
+                        SendWorkReminder::dispatch(self::SUBJECT_TASK, (int) array_key_first($tasks), $kind, $recipientId, (string) reset($tasks))->afterCommit();
+                    } else {
+                        SendTaskReminderDigest::dispatch($kind, $recipientId, $tasks)->afterCommit();
+                    }
+
+                    return 0;
+                });
+            }
+        }
+
+        $this->taskReminders = [];
     }
 
     /** @param  callable(): int  $step */
