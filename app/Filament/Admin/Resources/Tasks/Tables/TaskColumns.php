@@ -42,7 +42,8 @@ final class TaskColumns
      */
     public static function eagerLoad(Builder $query): Builder
     {
-        return $query->with([
+        // `withLastRestoredAt()`: dòng "Chờ nhận từ …" đọc `Task::awaitingSince()` không một truy vấn mỗi dòng.
+        return $query->withLastRestoredAt()->with([
             'matter.team',
             'assignee' => fn (BelongsTo $assignee): BelongsTo => $assignee->withTrashed(),
             'assigner' => fn (BelongsTo $assigner): BelongsTo => $assigner->withTrashed(),
@@ -98,7 +99,8 @@ final class TaskColumns
                 ->description(fn (Task $record): ?string => match ($record->status) {
                     TaskStatus::Declined => $record->decline_reason,
                     TaskStatus::Completed => $record->completion_note,
-                    TaskStatus::Pending => __('tasks.waiting', ['since' => $record->assigned_at->diffForHumans()]),
+                    // Kiểm toán 2026-10-21 (Q1): cùng mốc "bắt đầu chờ nhận" của lịch nhắc — lần khôi phục muộn hơn mốc giao.
+                    TaskStatus::Pending => __('tasks.waiting', ['since' => $record->awaitingSince()?->diffForHumans()]),
                     default => null,
                 })
                 ->wrap(),

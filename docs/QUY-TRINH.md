@@ -623,8 +623,8 @@ vụ, ghi rõ việc "do … giao" và mở thẳng tab "Công việc" của h�
 |---|---|---|
 | Việc hay hồ sơ chờ nhận quá **24 giờ làm việc** | người nhận | một lần cho mỗi lần giao |
 | Vẫn chưa nhận sau **48 giờ làm việc** — hay ngay ở mốc **24 giờ** khi người nhận không còn làm được việc (từ 2026-10-18) | người giao (người giao đã nghỉ hay rời vụ thì luật sư phụ trách của vụ; với hồ sơ, nếu chính luật sư phụ trách là người chưa nhận thì trưởng phòng) | một lần cho mỗi lần giao |
-| Việc **đến hạn hôm nay hoặc ngày mai** | người nhận | một lần cho mỗi hạn (dời hạn thì nhắc lại cho hạn mới) |
-| Việc **đến hạn hôm nay hoặc ngày mai** mà người nhận không còn làm được việc (từ 2026-10-18) | người giao (hay luật sư phụ trách nhận thay), kèm câu "cần giao lại" | một lần cho mỗi hạn |
+| Việc **đến hạn từ hôm nay tới hết ngày làm việc kế tiếp** (từ 2026-10-21: sáng Thứ Sáu nhắc cả hạn Thứ Bảy, Chủ nhật và Thứ Hai; trước đó là "hôm nay hoặc ngày mai" theo lịch — hạn Thứ Hai chỉ được nhắc sáng Thứ Hai, hạn Chủ nhật không bao giờ) | người nhận | một lần cho mỗi hạn (dời hạn thì nhắc lại cho hạn mới) |
+| Việc **đến hạn từ hôm nay tới hết ngày làm việc kế tiếp** mà người nhận không còn làm được việc (từ 2026-10-18) | người giao (hay luật sư phụ trách nhận thay), kèm câu "cần giao lại" | một lần cho mỗi hạn |
 | Việc **quá hạn** | người nhận và người giao (việc riêng — người giao chính là người giữ: chỉ người nhận khi họ còn làm được việc, không thì luật sư phụ trách nhận thay; từ 2026-10-18) | mỗi ngày làm việc một lần |
 
 Mỗi lời nhắc là một chuông và một thư; không ai nhận hai lần cùng một lời nhắc, và lời nhắc chỉ tới người
@@ -642,6 +642,17 @@ hay trưởng phòng ("n hồ sơ chưa được nhận"). Hồ sơ mà người
 sơ) không nhắc ai nữa, kể cả lời báo "chưa nhận": ghế đó hiện **"Cần phân công lại"** ở tab "Đội ngũ" và ở
 dòng "Hồ sơ cần phân công lại" của Theo dõi đội ngũ — gỡ người đó khỏi đội ngũ, hay bàn giao vụ. Một vụ hạn chế truy cập chỉ nhắc người mở được vụ (luật sư phụ trách, quản trị viên). Máy chủ
 thư hỏng: chuông vẫn tới, thư được thử một chuỗi mỗi ngày cho mỗi người, lượt đầu hôm sau thử lại.
+
+Từ 2026-10-21 (sửa sau kiểm toán luồng Công việc):
+- **Khôi phục một việc đã quá hạn:** việc giữ mốc giao gốc cho tỉ lệ "Việc hoàn thành đúng hạn", nhưng đồng hồ
+  **chờ nhận** chạy lại từ lúc khôi phục — lời nhắc "chờ nhận" tới sau 24 giờ làm việc kể từ lúc khôi phục, câu "đã
+  chờ …" và dòng "Chờ nhận từ …" trên trang Công việc đếm từ đó (trước đây 30 phút sau khi khôi phục người nhận đã
+  nhận "đã chờ 57 giờ", người giao "chưa nhận sau 57 giờ").
+- **Không nhắc hạn ngay sau một thao tác:** việc vừa được giao, giao lại (kể cả bàn giao, chuyển việc hàng loạt),
+  sửa hạn, mở lại hay khôi phục **trong ngày hôm nay** không có lời "sắp đến hạn" hay "quá hạn" hôm đó — lời báo của
+  chính thao tác đã nêu hạn; từ ngày làm việc sau lịch nhắc chạy như thường. Người giao đã làm gì đó với một việc
+  quá hạn trong ngày (sửa, giao lại, mở lại…) không nhận lời báo "quá hạn" của việc đó hôm ấy; người giữ việc vẫn
+  được nhắc.
 
 **Trên bảng điều khiển** — ô **"Việc cần xử lý của tôi"**: việc chờ tôi nhận, việc của tôi đã quá hạn (chờ
 nhận hay đang làm, trên hồ sơ còn mở — cùng một nghĩa "quá hạn" với lịch nhắc), hồ sơ chờ tôi nhận, việc tôi giao bị trả lại; bấm một ô để mở đúng danh sách — trang mở ra

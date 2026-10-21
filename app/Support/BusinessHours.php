@@ -137,6 +137,26 @@ final readonly class BusinessHours
     }
 
     /**
+     * NGÀY làm việc đầu tiên SAU ngày chứa `$day` (ở múi giờ văn phòng), lúc nửa đêm — Thứ Sáu → Thứ Hai, Thứ Bảy
+     * → Thứ Hai. Cửa sổ "sắp đến hạn" của lịch nhắc việc (`RemindPendingWork`, kiểm toán 2026-10-21, Q2) đi tới hết
+     * ngày này, nên một hạn Thứ Hai (hay Chủ nhật) được nhắc trong ngày làm việc trước đó.
+     */
+    public function nextWorkingDay(CarbonInterface $day): CarbonImmutable
+    {
+        $cursor = $this->local($day)->startOfDay();
+
+        for ($i = 0; $i < self::MAX_DAYS; $i++) {
+            $cursor = $cursor->addDay();
+
+            if (in_array($cursor->dayOfWeekIso, $this->days, true)) {
+                return $cursor;
+            }
+        }
+
+        throw new LogicException('Không tìm được ngày làm việc kế tiếp.');
+    }
+
+    /**
      * Khung giờ làm việc của ngày chứa `$day` (ở múi giờ văn phòng), hoặc null nếu ngày đó không làm
      * việc.
      *

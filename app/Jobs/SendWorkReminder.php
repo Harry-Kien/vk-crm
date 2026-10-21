@@ -291,7 +291,8 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
     {
         return match ($this->kind) {
             RemindPendingWork::AWAITING, RemindPendingWork::UNACCEPTED => FirstResponseClock::formatMinutes(
-                AcceptanceClock::fromConfig()->waitedMinutes($task->assigned_at),
+                // Kiểm toán 2026-10-21 (Q1): từ lần giao, hay lần khôi phục muộn hơn — cùng mốc của lịch nhắc.
+                AcceptanceClock::fromConfig()->waitedMinutes($task->awaitingSince()),
             ),
             RemindPendingWork::DUE_SOON, RemindPendingWork::DUE_SOON_ASSIGNER => (string) $task->due_date?->format('d/m/Y'),
             default => (string) ($task->due_date === null ? 0 : (int) $task->due_date->diffInDays(today())),

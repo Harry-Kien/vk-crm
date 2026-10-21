@@ -12,6 +12,8 @@ use App\Enums\TaskStatus;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Policies\TaskPolicy;
 use App\Support\Scopes\ClientPortalScope;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Database\Factories\TaskFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -608,6 +610,105 @@ class Task extends Model
             ->first();
 
         return TaskStatus::tryFrom((string) $row?->getExtraProperty('from', ''));
+    }
+
+    /**
+     * Các dòng nhật ký ĐẶT LẠI LỊCH của một việc (kiểm toán 2026-10-21, Q5): giao, giao lại (cả bàn giao vụ, chuyển việc
+     * hàng loạt — đều ghi `task_reassigned`), mở lại, khôi phục; cộng `task_updated` có đổi hạn
+     * ({@see self::rescheduledToday()}).
+     */
+    public const RESCHEDULE_EVENTS = ['task_assigned', 'task_reassigned', 'task_reopened', 'task_restored'];
+
+    /**
+     * Mốc BẮT ĐẦU CHỜ NHẬN của lần giao hiện tại (kiểm toán 2026-10-21, Q1) — MỘT định nghĩa cho đồng hồ "chờ nhận" của
+     * lịch nhắc (`RemindPendingWork`: lượt chọn, lần hỏi lại lúc gửi, khoá `awaiting@…`), câu "đã chờ" của lời nhắc
+     * (`SendWorkReminder`) và dòng "Chờ nhận từ …" của bảng việc (`TaskColumns`): mốc giao (`assigned_at`), hay lần
+     * "Khôi phục" gần nhất nếu muộn hơn.
+     *
+     * Vì sao không chỉ `assigned_at`: `RestoreTask` (mục "Mốc giao") GIỮ mốc giao gốc khi khôi phục một việc mà hạn đã
+     * qua — để huỷ rồi khôi phục không đưa một việc đã trễ ra khỏi tỉ lệ đúng hạn (`scopeAssignedByDueDate()`, tỉ lệ vẫn
+     * đọc `assigned_at`). Nhưng người nhận chỉ bắt đầu chờ nhận lại từ lúc khôi phục: đọc `assigned_at` thì 30 phút sau
+     * khôi phục họ nhận "đã chờ 57 giờ" và người giao "chưa nhận sau 57 giờ".
+     *
+     * Lần khôi phục đọc từ dòng nhật ký `task_restored` mới nhất (bảng `tasks` không có cột cho nó) — từ cột phụ
+     * `last_restored_at` khi truy vấn đã nạp ({@see self::scopeWithLastRestoredAt()}), không thì một truy vấn.
+     */
+    public function awaitingSince(): ?CarbonImmutable
+    {
+        if ($this->assigned_at === null) {
+            return null;
+        }
+
+        $assigned = CarbonImmutable::instance($this->assigned_at);
+        $restored = array_key_exists('last_restored_at', $this->attributes)
+            ? ($this->attributes['last_restored_at'] === null ? null : CarbonImmutable::instance($this->asDateTime($this->attributes['last_restored_at'])))
+            : $this->latestRestoredAt();
+
+        return $restored !== null && $restored->greaterThan($assigned) ? $restored : $assigned;
+    }
+
+    /** Nạp sẵn cột phụ `last_restored_at` cho {@see self::awaitingSince()} — một truy vấn con, không một truy vấn mỗi dòng. */
+    public function scopeWithLastRestoredAt(Builder $query): Builder
+    {
+        return $query->addSelect(['last_restored_at' => Activity::query()
+            ->select('created_at')
+            ->where('subject_type', $this->getMorphClass())
+            ->whereColumn('subject_id', $this->qualifyColumn('id'))
+            ->where('event', 'task_restored')
+            ->orderByDesc('id')
+            ->limit(1)]);
+    }
+
+    private function latestRestoredAt(): ?CarbonImmutable
+    {
+        $at = Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('event', 'task_restored')
+            ->latest('id')
+            ->value('created_at');
+
+        return $at === null ? null : CarbonImmutable::instance($this->asDateTime($at));
+    }
+
+    /**
+     * Lịch của việc vừa được ĐẶT LẠI hôm nay (kiểm toán 2026-10-21, Q5): lần giao, giao lại, sửa hạn, mở lại hay khôi
+     * phục gần nhất ({@see self::RESCHEDULE_EVENTS}, và `task_updated` có `due_date` trong `changed`) xảy ra trong ngày của
+     * `$now` (múi giờ văn phòng). MỘT định nghĩa cho lượt chọn và lần hỏi lại lúc gửi của lời nhắc "sắp đến hạn" / "quá
+     * hạn" (`RemindPendingWork::taskReminderHolds()`): người nhận vừa nhận lời báo "được giao" / "đã sửa" / "mở lại" /
+     * "khôi phục" nêu hạn — một lời nhắc hạn nửa giờ sau là tiếng ồn. Ngày làm việc sau lịch nhắc chạy như mọi việc.
+     */
+    public function rescheduledToday(?CarbonInterface $now = null): bool
+    {
+        return $this->eventsOn($now)
+            ->where(fn (Builder $kind): Builder => $kind->whereIn('event', self::RESCHEDULE_EVENTS)->orWhere('event', 'task_updated'))
+            ->get(['event', 'properties'])
+            ->contains(fn (Activity $row): bool => $row->event !== 'task_updated'
+                || in_array('due_date', (array) $row->getExtraProperty('changed', []), true));
+    }
+
+    /**
+     * `$userId` đã thao tác trên việc này trong ngày của `$now` — bất kỳ dòng nhật ký `task_*` nào họ gây ra (kiểm toán
+     * 2026-10-21, Q5): lời báo "quá hạn" cho người giao không tới người vừa làm việc với chính việc đó hôm nay.
+     */
+    public function handledTodayBy(int $userId, ?CarbonInterface $now = null): bool
+    {
+        return $this->eventsOn($now)
+            ->where('causer_id', $userId)
+            ->where('event', 'like', 'task_%')
+            ->exists();
+    }
+
+    /** Dòng nhật ký của việc này trong ngày (múi giờ văn phòng) chứa `$now`. */
+    private function eventsOn(?CarbonInterface $now): Builder
+    {
+        $start = CarbonImmutable::instance($now ?? now())->setTimezone((string) config('app.timezone'))->startOfDay();
+
+        return Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<', $start->addDay());
     }
 
     public function isOverdue(): bool
