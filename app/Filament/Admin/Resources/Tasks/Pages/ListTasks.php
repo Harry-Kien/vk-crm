@@ -9,6 +9,7 @@ use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Tasks\Concerns\ProvidesTaskActions;
 use App\Filament\Admin\Resources\Tasks\Tables\TaskColumns;
+use App\Filament\Admin\Resources\Tasks\Tables\TaskFilters;
 use App\Filament\Admin\Resources\Tasks\TaskResource;
 use App\Filament\Admin\Widgets\Tasks\MatterAssignmentsAwaitingMeWidget;
 use App\Models\Matter;
@@ -25,7 +26,6 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Enums\FiltersLayout;
-use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
@@ -45,7 +45,16 @@ use Illuminate\Support\Str;
  *  - "Tất cả": mọi việc tôi được thấy — với quản lý/quản trị là danh sách theo dõi toàn văn phòng (trong
  *    phạm vi vụ họ xem được), có bộ lọc vụ việc, người nhận, người giao, quá hạn, cần giao lại (`Task::scopeNeedsReassignment()`).
  *
- * Mọi tab cùng một thứ tự (`Task::scopeOrderedForWork()`): việc còn mở trước theo hạn, việc đã đóng sau.
+ * Mọi tab cùng một thứ tự mặc định (`Task::scopeOrderedForWork()`): việc còn mở trước theo hạn — cùng ngày thì Gấp >
+ * Cao > Thường, việc Gấp không hạn đứng cùng việc hạn hôm nay — việc đã đóng sau; bấm tiêu đề cột "Hạn"/"Ưu tiên" sắp
+ * theo cột đó trước (thứ tự mặc định chỉ còn phân xử phần hoà).
+ *
+ * Kiểm toán màn hình 2026-10-21 (làn màn hình): tab "Tất cả" mặc định chỉ việc còn mở (bộ lọc "Chỉ việc còn mở", bật
+ * sẵn, tắt được); bộ lọc nhanh "Hạn hôm nay", "Hạn 7 ngày tới", "Việc của tôi (còn mở)" ({@see TaskFilters}); cột luôn
+ * là chính người xem ẩn (người nhận ở "Chờ tôi nhận"/"Đang làm", người giao ở "Tôi đã giao"); tab và bộ lọc mặc định
+ * bỏ qua lúc Filament tìm một dòng theo id (`excludeQueryWhenResolvingRecord()` / `excludeWhenResolvingRecord()`) —
+ * đường dẫn của một thông báo (`TaskResource::taskUrl()`) mở khung "Xem" của việc kể cả khi nó đã sang tab khác hay
+ * đã đóng; phạm vi `visibleTo()` thì không bao giờ bỏ qua.
  * Bộ lọc "Chỉ việc quá hạn" là việc còn mở đã qua hạn trên vụ còn mở hay việc chung, mà người nhận còn GIỮ ĐƯỢC
  * (`overdue()` + `onLiveMatter()` + `heldBySeatedAssignee()` — làn fa1, phán quyết 5) — cùng định nghĩa với ô quá
  * hạn của bảng điều khiển và lịch nhắc (`Task::scopeOverdueToHandle()`): việc của vụ đã kết thúc chỉ còn huỷ,
@@ -92,11 +101,14 @@ class ListTasks extends ListRecords
             'awaiting' => Tab::make(__('tasks.tabs.awaiting'))
                 ->badge(fn (): ?int => ($count = Task::query()->visibleTo($user)->awaitingAcceptanceBy($user)->count()) > 0 ? $count : null)
                 ->badgeColor('warning')
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query->awaitingAcceptanceBy($user)),
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->awaitingAcceptanceBy($user))
+                ->excludeQueryWhenResolvingRecord(),
             'active' => Tab::make(__('tasks.tabs.active'))
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query->inProgressFor($user)),
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->inProgressFor($user))
+                ->excludeQueryWhenResolvingRecord(),
             'assigned' => Tab::make(__('tasks.tabs.assigned'))
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query->assignedBy($user)),
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->assignedBy($user))
+                ->excludeQueryWhenResolvingRecord(),
             'all' => Tab::make(__('tasks.tabs.all')),
         ];
     }
@@ -104,9 +116,18 @@ class ListTasks extends ListRecords
     public function table(Table $table): Table
     {
         return $table
-            ->columns(TaskColumns::make())
-            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query)->orderedForWork())
+            ->columns(TaskColumns::make(
+                hideAssignee: fn (): bool => in_array($this->activeTab, ['awaiting', 'active'], true),
+                hideAssigner: fn (): bool => $this->activeTab === 'assigned',
+            ))
+            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query))
+            ->defaultSort(fn (Builder $query): Builder => $query->orderedForWork())
+            ->recordAction('view')
             ->filters([
+                TaskFilters::openOnly(fn (): bool => ($this->activeTab ?? 'all') === 'all'),
+                TaskFilters::dueToday(),
+                TaskFilters::dueWeek(),
+                TaskFilters::mineOpen(fn (): User => $this->taskActor()),
                 SelectFilter::make('status')
                     ->label(__('tasks.filters.status'))
                     ->multiple()
@@ -134,14 +155,8 @@ class ListTasks extends ListRecords
                 SelectFilter::make('priority')
                     ->label(__('tasks.filters.priority'))
                     ->options(TaskPriority::options()),
-                Filter::make('overdue')
-                    ->label(__('tasks.filters.overdue'))
-                    ->toggle()
-                    ->query(fn (Builder $query): Builder => $query->overdue()->onLiveMatter()->heldBySeatedAssignee()),
-                Filter::make('needs_reassignment')
-                    ->label(__('tasks.filters.needs_reassignment'))
-                    ->toggle()
-                    ->query(fn (Builder $query): Builder => $query->needsReassignment()),
+                TaskFilters::overdue(),
+                TaskFilters::needsReassignment(),
             ])
             ->filtersLayout(FiltersLayout::AboveContentCollapsible)
             ->recordActions($this->taskRecordActions())
@@ -225,7 +240,7 @@ class ListTasks extends ListRecords
                     ->live()
                     ->afterStateUpdated(fn (Set $set): mixed => $set('assignee_id', null)),
                 $this->assigneeSelect(fn (Get $get): ?Matter => $this->assignMatter($get('matter_id'))),
-                ...$this->taskDetailFields(),
+                ...$this->taskDetailFields(newTask: true),
                 Hidden::make('submission_key'),
             ])
             ->successNotificationTitle(__('tasks.actions.assign_success'))

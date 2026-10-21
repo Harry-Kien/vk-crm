@@ -131,7 +131,8 @@ it('keeps the assigner\'s own words and the "Tôi đã giao" link when the assig
 
     expect($bells)->toHaveCount(1)
         ->and($bells[0]['title'])->toBe(__('tasks.alert.declined.title'))
-        ->and($bells[0]['actions'][0]['url'])->toBe(TaskResource::getUrl('index', ['tab' => 'assigned'], panel: 'admin'))
+        // Kiểm toán màn hình 2026-10-21: tab "Tôi đã giao", mở thẳng khung "Xem" của việc.
+        ->and($bells[0]['actions'][0]['url'])->toBe(TaskResource::taskUrl($task, 'assigned'))
         ->and(tkAgBells($this->lead, TaskAlert::class))->toBe([]);
 
     Mail::assertSent(TaskNotice::class, fn (TaskNotice $mail): bool => $mail->hasTo($this->associate->email)
@@ -189,7 +190,7 @@ it('words the reminder of a task the lead assigned themselves as the assigner\'s
 
     expect($bell['viewData']['task_id'])->toBe($own->id)
         ->and($bell['title'])->toBe(__('tasks.reminder.alert.unaccepted.title'))
-        ->and($bell['actions'][0]['url'])->toBe(TaskResource::getUrl('index', ['tab' => 'assigned'], panel: 'admin'));
+        ->and($bell['actions'][0]['url'])->toBe(TaskResource::taskUrl($own, 'assigned'));
 
     Mail::assertSent(TaskReminder::class, fn (TaskReminder $mail): bool => $mail->hasTo($this->lead->email)
         && $mail->task->is($own)
@@ -390,7 +391,7 @@ it('sends a later decline of such a task to the new lead as its assigner', funct
 
     expect($bells)->toHaveCount(1)
         ->and($bells[0]['title'])->toBe(__('tasks.alert.declined.title'))
-        ->and($bells[0]['actions'][0]['url'])->toBe(TaskResource::getUrl('index', ['tab' => 'assigned'], panel: 'admin'))
+        ->and($bells[0]['actions'][0]['url'])->toBe(TaskResource::taskUrl($task, 'assigned'))
         ->and(tkAgBells($this->lead, TaskAlert::class))->toBe([]);
 });
 

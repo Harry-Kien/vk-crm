@@ -372,7 +372,8 @@ it('points the overdue reminder of a task nobody accepted yet to "Chờ tôi nh�
         ->mapWithKeys(fn ($n): array => [Task::query()->findOrFail($n->data['viewData']['task_id'])->title => $n->data['actions'][0]['url']])
         ->all();
 
-    expect($urls)->toEqual([$title => TaskResource::getUrl('index', ['tab' => $tab], panel: 'admin')]);
+    // Kiểm toán màn hình 2026-10-21: cùng tab, và mở thẳng khung "Xem" của đúng việc.
+    expect($urls)->toEqual([$title => TaskResource::taskUrl(Task::query()->where('title', $title)->sole(), $tab)]);
 })->with([
     'chưa nhận' => [TaskStatus::Pending, 'Nộp bản sao', 'awaiting'],
     'đang làm' => [TaskStatus::Accepted, 'Đối chiếu chứng cứ', 'active'],

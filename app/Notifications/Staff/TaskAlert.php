@@ -167,9 +167,13 @@ class TaskAlert extends Notification
             'actions' => [
                 Action::make('open')
                     ->label(__('tasks.alert.open'))
-                    ->url($standIn !== null
-                        ? StandIn::url($this->task, $standIn)
-                        : TaskResource::getUrl('index', ['tab' => self::tabFor($this->kind, $this->task)], panel: 'admin'))
+                    ->url(match (true) {
+                        $standIn !== null => StandIn::url($this->task, $standIn),
+                        // Người vừa mất việc không còn xem được nó: chỉ tab, không id việc (docblock lớp).
+                        $generic => TaskResource::getUrl('index', ['tab' => self::tabFor($this->kind, $this->task)], panel: 'admin'),
+                        // Kiểm toán màn hình 2026-10-21 (mục 5): mở thẳng khung "Xem" của đúng việc, trên đúng tab.
+                        default => TaskResource::taskUrl($this->task, self::tabFor($this->kind, $this->task)),
+                    })
                     ->markAsRead()
                     ->toArray(),
             ],

@@ -72,12 +72,17 @@ abstract class MyTasksWidget extends TableWidget
             ->query(function (): Builder {
                 $user = $this->taskActor();
 
-                return TaskColumns::eagerLoad($this->narrow(Task::query()->visibleTo($user), $user))
-                    ->orderByRaw('CASE WHEN tasks.due_date IS NULL THEN 1 ELSE 0 END')
-                    ->orderBy('tasks.due_date')
-                    ->orderBy('tasks.id');
+                return TaskColumns::eagerLoad($this->narrow(Task::query()->visibleTo($user), $user));
             })
-            ->columns(TaskColumns::make())
+            // Kiểm toán màn hình 2026-10-21 (mục 4): cùng thứ tự với trang Công việc — việc còn mở trước; trước đó khối
+            // "Tôi đã giao" xếp theo hạn trần nên một việc đã xong (hạn sớm) đứng trên việc còn phải theo dõi.
+            ->defaultSort(fn (Builder $query): Builder => $query->orderedForWork())
+            ->recordAction('view')
+            // Cột luôn là chính người xem thì ẩn (mục 2): người nhận ở "Chờ tôi nhận"/"Đang làm", người giao ở "Tôi đã giao".
+            ->columns(TaskColumns::make(
+                hideAssignee: fn (): bool => in_array($this->group(), ['awaiting', 'active'], true),
+                hideAssigner: fn (): bool => $this->group() === 'assigned',
+            ))
             ->recordActions($this->taskRecordActions())
             ->headerActions([
                 Action::make('openAll')

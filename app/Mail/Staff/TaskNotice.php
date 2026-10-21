@@ -119,7 +119,8 @@ class TaskNotice extends BrandedMailable
                 'details' => $this->details(),
                 'url' => $this->standIn() !== null
                     ? StandIn::url($this->task, (string) $this->standIn())
-                    : TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor($this->kind, $this->task)], panel: 'admin'),
+                    // Kiểm toán màn hình 2026-10-21 (mục 5): mở thẳng khung "Xem" của đúng việc, trên đúng tab.
+                    : TaskResource::taskUrl($this->task, TaskAlert::tabFor($this->kind, $this->task)),
                 'action' => __($this->langKey('action')),
                 'office' => $office->legalName(),
             ],

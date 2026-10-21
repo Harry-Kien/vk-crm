@@ -62,6 +62,35 @@ class TaskResource extends Resource
     }
 
     /**
+     * Kiểm toán màn hình 2026-10-21 (mục 9): nhãn model viết thường ("công việc" — câu chữ giữa dòng) nên breadcrumb
+     * mặc định ra "công việc › Danh sách"; breadcrumb là một tên trang, viết hoa như mọi trang khác.
+     */
+    public static function getBreadcrumb(): string
+    {
+        return __('tasks.navigation_label');
+    }
+
+    /**
+     * Đường dẫn mở thẳng khung "Xem" của MỘT việc trên tab `$tab` (kiểm toán màn hình 2026-10-21, mục 5) — mọi chuông,
+     * thư, lời nhắc và thông báo đẩy về một việc trỏ về đây. Hai tham số `tableAction`/`tableActionRecord` là của
+     * Filament (`InteractsWithActions::$defaultTableAction`): trang mở rồi tự gắn nút "Xem" lên dòng đó.
+     *
+     * Không mở một cửa nào mới: dòng được tìm trong `getEloquentQuery()` = `Task::visibleTo()` của NGƯỜI ĐANG XEM (tab
+     * và bộ lọc mặc định bỏ qua lúc tìm dòng — `excludeQueryWhenResolvingRecord()`: việc đã đổi tab hay đã đóng vẫn
+     * mở được), rồi `TaskPolicy::view` của nút "Xem". Người không (còn) xem được việc chỉ thấy trang Công việc, không
+     * khung nào, không chữ nào của việc. Nút "Xem" có hộp thoại, nên Filament cho mở từ đường dẫn (nút không hộp thoại
+     * như "Đã nhận" không bao giờ chạy từ một đường dẫn — `mountedFromUrl`).
+     */
+    public static function taskUrl(Task $task, string $tab): string
+    {
+        return self::getUrl('index', [
+            'tab' => $tab,
+            'tableAction' => 'view',
+            'tableActionRecord' => $task->getKey(),
+        ], panel: 'admin');
+    }
+
+    /**
      * Huy hiệu trên thanh điều hướng: số việc ĐANG CHỜ người đang đăng nhập bấm "Đã nhận" — con số duy
      * nhất cần một cú bấm của chính họ. Không có thì không hiện gì.
      */

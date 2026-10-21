@@ -9,6 +9,7 @@ use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Tasks\Concerns\ProvidesTaskActions;
 use App\Filament\Admin\Resources\Tasks\Tables\TaskColumns;
+use App\Filament\Admin\Resources\Tasks\Tables\TaskFilters;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
@@ -78,8 +79,15 @@ class TasksRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('title')
             ->columns(TaskColumns::make(withMatter: false))
-            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query->visibleTo($this->taskActor()))->orderedForWork())
+            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query->visibleTo($this->taskActor())))
+            // Kiểm toán màn hình 2026-10-21 (mục 3): thứ tự MẶC ĐỊNH — một cú bấm lên tiêu đề cột sắp trước.
+            ->defaultSort(fn (Builder $query): Builder => $query->orderedForWork())
+            ->recordAction('view')
             ->filters([
+                // Kiểm toán màn hình 2026-10-21 (mục 8): cùng ba bộ lọc của trang Công việc, cùng scope.
+                TaskFilters::overdue(),
+                TaskFilters::needsReassignment(),
+                TaskFilters::open(),
                 SelectFilter::make('status')
                     ->label(__('tasks.filters.status'))
                     ->multiple()
@@ -112,7 +120,7 @@ class TasksRelationManager extends RelationManager
             ->fillForm(fn (): array => ['submission_key' => (string) Str::uuid(), 'priority' => TaskPriority::Normal->value])
             ->schema(fn (): array => [
                 $this->assigneeSelect(fn (): Matter => $this->matter()),
-                ...$this->taskDetailFields(),
+                ...$this->taskDetailFields(newTask: true),
                 Hidden::make('submission_key'),
             ])
             ->successNotificationTitle(__('tasks.actions.assign_success'))

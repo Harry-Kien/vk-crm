@@ -63,6 +63,14 @@ return [
 
     'waiting' => 'Chờ nhận từ :since',
 
+    // Kiểm toán màn hình 2026-10-21 (mục 1): ô tóm tắt của một dòng dưới md (`TaskColumns::renderSummary()`) — ai
+    // giao cho ai, nhìn từ người đang xem. :name, :from, :to là tên người (đã escape khi in).
+    'summary' => [
+        'from' => 'Từ :name',
+        'to' => 'Giao cho :name',
+        'between' => ':from → :to',
+    ],
+
     'filters' => [
         'status' => 'Trạng thái',
         'matter' => 'Vụ việc',
@@ -70,7 +78,16 @@ return [
         'assigner' => 'Người giao',
         'priority' => 'Ưu tiên',
         'overdue' => 'Chỉ việc quá hạn',
-        'needs_reassignment' => 'Cần giao lại (người nhận đã nghỉ, rời đội ngũ, trả lại hay không còn mở được hồ sơ)',
+        // Kiểm toán màn hình 2026-10-21 (mục 8): nhãn ngắn, phần giải thích chuyển vào chú thích dưới công tắc.
+        'needs_reassignment' => 'Cần giao lại',
+        'needs_reassignment_help' => 'Người nhận đã nghỉ, rời đội ngũ hồ sơ, đã trả lại hồ sơ hay không còn mở được hồ sơ — hoặc người giao một việc bị trả lại đã như vậy.',
+        'open_only' => 'Chỉ việc còn mở',
+        'open_only_help' => 'Tắt để xem cả việc đã hoàn thành và đã huỷ.',
+        'open' => 'Còn mở',
+        'due_today' => 'Hạn hôm nay',
+        'due_week' => 'Hạn 7 ngày tới',
+        'mine_open' => 'Việc của tôi (còn mở)',
+        'mine_open_help' => 'Việc anh/chị đang giữ: chờ nhận hoặc đang làm.',
     ],
 
     'empty' => [
@@ -118,6 +135,8 @@ return [
         'complete_success' => 'Đã báo hoàn thành. Người giao được báo nếu còn theo dõi việc này.',
         'view' => 'Xem',
         'view_heading' => 'Chi tiết việc',
+        // Kiểm toán màn hình 2026-10-21 (mục 1): nút "⋮" gom mọi thao tác phụ của một dòng.
+        'more' => 'Thao tác khác',
         'close' => 'Đóng',
         'edit' => 'Sửa',
         'edit_heading' => 'Sửa việc',
@@ -155,6 +174,35 @@ return [
         'completion_note' => 'Ghi chú khi hoàn thành',
         'cancel_reason' => 'Lý do huỷ',
         'none' => '—',
+        // Kiểm toán màn hình 2026-10-21 (mục 5): khối "Diễn biến" — nhật ký của chính việc này (`TaskTimeline`).
+        'history' => 'Diễn biến',
+        'history_empty' => 'Chưa có diễn biến nào được ghi lại.',
+        'open_matter' => 'Mở tab Công việc của hồ sơ',
+    ],
+
+    // Khối "Diễn biến" (`App\Support\Tasks\TaskTimeline`). :who, :assignee, :from, :to là tên người; ghi chú (lý do,
+    // nhận xét, điều đã đổi) in ở dòng dưới. Blade escape khi in.
+    'timeline' => [
+        'system' => 'Hệ thống',
+        'someone' => 'một nhân sự',
+        'assigned' => ':who giao việc cho :assignee',
+        'accepted' => ':who đã nhận việc',
+        'declined' => ':who trả lại việc',
+        'completed' => ':who báo hoàn thành',
+        'cancelled' => ':who huỷ việc',
+        'reassigned' => ':who giao lại việc từ :from cho :to',
+        'taken_over' => ':who tự nhận lại việc từ :from',
+        'reopened' => ':who mở lại việc',
+        'restored' => ':who khôi phục việc',
+        'updated' => ':who sửa việc',
+        'assigner_changed' => 'Người giao đổi từ :from sang :to',
+        'due' => 'Hạn: :date',
+        'due_changed' => 'Hạn: :from → :to',
+        'reason' => 'Lý do: :text',
+        'comment' => 'Nhận xét: :text',
+        'note' => 'Ghi chú: :text',
+        'handover' => 'Do bàn giao hồ sơ',
+        'transfer' => 'Do chuyển việc của nhân sự',
     ],
 
     // "Việc của tôi" (trang của chính mình, M13): ba khối.

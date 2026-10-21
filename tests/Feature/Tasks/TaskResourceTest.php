@@ -326,7 +326,10 @@ it('shows the assignee only accept, decline, complete and view — never edit, r
     tkListPage('awaiting')
         ->assertTableActionVisible('accept', $this->pending)
         ->assertTableActionVisible('decline', $this->pending)
-        ->assertTableActionVisible('complete', $this->pending)
+        // Kiểm toán màn hình 2026-10-21: "Hoàn thành" một việc chưa nhận nằm trong "⋮" (`completePending`) — dòng chờ
+        // nhận chỉ có một nút chính, "Đã nhận".
+        ->assertTableActionHidden('complete', $this->pending)
+        ->assertTableActionVisible('completePending', $this->pending)
         ->assertTableActionVisible('view', $this->pending)
         ->assertTableActionHidden('edit', $this->pending)
         ->assertTableActionHidden('reassign', $this->pending)

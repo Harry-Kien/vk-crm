@@ -389,19 +389,74 @@ class Task extends Model
 
     /**
      * Thứ tự của mọi danh sách việc (làn tk, vòng sửa polish 1 — rà soát Task 1, m8): việc còn mở trước
-     * (chờ nhận, đang làm, bị trả lại), việc đã đóng (hoàn thành, huỷ) sau; trong mỗi nhóm theo hạn, việc
-     * không hạn cuối nhóm, rồi việc mới giao trước. Tab "Công việc" của vụ và cả bốn tab của trang Công việc
-     * dùng chung — một việc đã xong không chen giữa những việc còn phải làm.
+     * (chờ nhận, đang làm, bị trả lại), việc đã đóng (hoàn thành, huỷ) sau. Tab "Công việc" của vụ, cả bốn tab
+     * của trang Công việc và ba khối "Việc của tôi" dùng chung — một việc đã xong không chen giữa những việc còn
+     * phải làm.
+     *
+     * Trong mỗi nhóm (kiểm toán màn hình 2026-10-21, mục 3 — trước đó ưu tiên không có mặt trong thứ tự, nên một
+     * việc Gấp không hạn nằm DƯỚI một việc Thường hạn 30 ngày):
+     *
+     *  1. theo NGÀY CẦN LÀM: hạn của việc; việc **Gấp không hạn** tính như hạn HÔM NAY — "gấp" là làm ngay, nên nó
+     *     đứng cùng những việc hạn hôm nay (và đứng đầu nhóm đó nhờ bước 2), dưới những việc đã quá hạn (đã trễ, mỗi
+     *     ngày trễ thêm một ngày). Cao/Thường không hạn vẫn ở cuối nhóm — không có ngày nào để so;
+     *  2. cùng ngày thì Gấp > Cao > Thường ({@see self::priorityRankSql()}) — cả cho việc không hạn ở cuối nhóm;
+     *  3. rồi việc mới giao trước.
+     *
+     * "Hôm nay" theo `APP_TIMEZONE` lúc truy vấn (`today()`), cùng nghĩa với "Hạn hôm nay" của cột hạn. Bảng việc đặt
+     * scope này làm thứ tự MẶC ĐỊNH (`->defaultSort()`), không trong `modifyQueryUsing()`: một cú bấm lên tiêu đề cột
+     * "Hạn"/"Ưu tiên" sắp trước, thứ tự này chỉ còn phân xử phần hoà.
      */
     public function scopeOrderedForWork(Builder $query): Builder
     {
         $open = TaskStatus::openValues();
+        $workDay = 'COALESCE(DATE(tasks.due_date), CASE WHEN tasks.priority = ? THEN ? END)';
+        $bindings = [TaskPriority::Urgent->value, today()->toDateString()];
 
         return $query
             ->orderByRaw('CASE WHEN tasks.status IN ('.implode(', ', array_fill(0, count($open), '?')).') THEN 0 ELSE 1 END', $open)
-            ->orderByRaw('CASE WHEN tasks.due_date IS NULL THEN 1 ELSE 0 END')
-            ->orderBy('tasks.due_date')
+            ->orderByRaw("CASE WHEN {$workDay} IS NULL THEN 1 ELSE 0 END", $bindings)
+            ->orderByRaw($workDay, $bindings)
+            ->orderByRaw(self::priorityRankSql())
             ->orderByDesc('tasks.id');
+    }
+
+    /**
+     * Hạng của mức ưu tiên trong SQL — Gấp 0, Cao 1, Thường 2 (số nhỏ = làm trước): bước 2 của
+     * {@see self::scopeOrderedForWork()} và cột "Ưu tiên" sắp xếp được (`TaskColumns`: tăng dần = Gấp trước). Không
+     * sắp theo chuỗi của cột: "high" < "normal" < "urgent" theo chữ cái là một thứ tự vô nghĩa.
+     */
+    public static function priorityRankSql(): string
+    {
+        return sprintf(
+            "CASE tasks.priority WHEN '%s' THEN 0 WHEN '%s' THEN 1 ELSE 2 END",
+            TaskPriority::Urgent->value,
+            TaskPriority::High->value,
+        );
+    }
+
+    /**
+     * Việc còn mở có hạn từ hôm nay tới hết `$days` ngày nữa (theo `APP_TIMEZONE`) — bộ lọc "Hạn hôm nay" (`0`) và
+     * "Hạn 7 ngày tới" (`7`) của trang Công việc (kiểm toán màn hình 2026-10-21, mục 8). Việc đã quá hạn không ở đây
+     * (bộ lọc "Chỉ việc quá hạn"), việc đã đóng không ở đây.
+     */
+    public function scopeDueWithinDays(Builder $query, int $days): Builder
+    {
+        return $query->open()
+            ->whereNotNull($this->qualifyColumn('due_date'))
+            ->whereDate($this->qualifyColumn('due_date'), '>=', today()->toDateString())
+            ->whereDate($this->qualifyColumn('due_date'), '<=', today()->addDays($days)->toDateString());
+    }
+
+    /**
+     * Việc `$user` đang GIỮ — chờ nhận hay đang làm: hợp của {@see self::scopeAwaitingAcceptanceBy()} và
+     * {@see self::scopeInProgressFor()} (bộ lọc "Việc của tôi (còn mở)", kiểm toán màn hình 2026-10-21). Việc họ đã
+     * trả lại không ở đây — nó đã về tay người giao.
+     */
+    public function scopeHeldBy(Builder $query, User $user): Builder
+    {
+        return $query->where(fn (Builder $mine): Builder => $mine
+            ->where(fn (Builder $awaiting): Builder => $awaiting->awaitingAcceptanceBy($user))
+            ->orWhere(fn (Builder $active): Builder => $active->inProgressFor($user)));
     }
 
     /**

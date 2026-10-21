@@ -9816,6 +9816,87 @@ không còn giữ được" trên trang chủ (đảo phán quyết làn fa1) kh
 lại năm tệp đó với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh. `pint --test` sạch. Chưa chạy
 MariaDB (không migration; truy vấn mới: truy vấn con `activity_log` theo `subject`/`event`, `LIKE 'task_%'`).
 
+### Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn màn hình
+
+Nhánh `fix-tasks-c`, chạy song song hai làn khác (vòng đời: `TaskPolicy`, `ReassignTask`, `ReopenTask`, `CancelTask`,
+`RemoveTeamMember`, `UpdateTask`, ô `matter_id` của "Giao việc"; nhắc việc: `RemindPendingWork`, `MyWorkQueueWidget`,
+huy hiệu/tab đếm). Làn này chỉ chạm màn hình: bố cục nút, khung "Xem", bộ lọc, cột, thứ tự, đường dẫn thông báo.
+
+- **Mục 1–2 (bố cục).** `TaskColumns`: dưới `TaskColumns::FULL_FROM = 'xl'` một cột tóm tắt (`renderSummary()`: tiêu đề;
+  trạng thái, ưu tiên khi không "Thường", hạn tô màu; mã vụ · ai giao/giao cho ai; dòng đỏ "cần giao lại"), từ `xl` các
+  cột chi tiết (`visibleFrom`/`hiddenFrom` — lớp `xl:fi-visible`/`xl:fi-hidden` có sẵn trong `theme.css`, không lớp
+  Tailwind viết tay). **Lệch đề xuất "dưới md", có chủ ý:** đo trên trình duyệt, từ `lg` thanh menu trái để lại 640–896px
+  cho tám cột, ở 768–1023px cũng không đủ — nên bố cục gọn dùng tới 1279px. Trạng thái (chip + lý do trả lại / ghi chú
+  hoàn thành / chờ nhận từ) nằm dưới tiêu đề việc (`renderStatus()`) thay cột "Trạng thái" riêng; cột "Việc" tối thiểu
+  15rem (16rem làm tab "Tất cả" ở 1280px rộng hơn vùng nội dung 8px); tên người và tiêu đề cột hẹp được xuống dòng. Cột
+  luôn là chính người xem ẩn (closure `hideAssignee`/`hideAssigner` của `TaskColumns::make()`): "Người nhận" ở "Chờ tôi
+  nhận"/"Đang làm", "Người giao" ở "Tôi đã giao" — cả ba khối Việc của tôi. `ProvidesTaskActions::taskRecordActions()`:
+  MỘT nút chính ngoài dòng — "Đã nhận" (chờ nhận), "Hoàn thành" (đang làm; `complete` ẩn khi chờ nhận), "Giao lại" cho
+  việc bị trả lại (mục 6, `reassignReturned` — chính hộp thoại/Action của `reassign`); còn lại trong "⋮": Xem,
+  `completePending` ("Hoàn thành" khi chưa nhận — `TaskPolicy::complete` cho phép nhận và xong một lượt), Trả lại, Sửa,
+  Giao lại, Huỷ, Mở lại, Khôi phục. Bấm dòng = "Xem" (`recordAction('view')`). "Giao lại" trong "⋮" vẫn có cho MỌI trạng
+  thái (một tên chỉ ở một chỗ trên bảng; nút ẩn thì Filament không cho mở — nên dòng bị trả lại có "Giao lại" cả ngoài
+  lẫn trong "⋮"; mọi test và làn khác gọi `reassign` theo tên vẫn chạy).
+- **Mục 3–4 (thứ tự).** `Task::scopeOrderedForWork()`: việc còn mở trước; theo "ngày cần làm" — hạn, việc **Gấp không
+  hạn tính như hôm nay** (dưới việc đã quá hạn, đầu nhóm hạn hôm nay: "gấp" là làm ngay); cùng ngày Gấp > Cao > Thường
+  (`Task::priorityRankSql()`); việc mới giao trước. Bảng việc đặt nó làm `->defaultSort()` thay vì trong
+  `modifyQueryUsing()` — trước đó bấm cột "Hạn" KHÔNG sắp gì (thứ tự cố định đứng trước mọi `ORDER BY` của cột). Cột "Ưu
+  tiên" sắp được (tăng dần = Gấp trước). Khối "Tôi đã giao" của Việc của tôi dùng cùng thứ tự (việc đã xong không còn
+  đứng trên việc còn mở).
+- **Mục 5 (thông báo → khung Xem).** `TaskResource::taskUrl($task, $tab)` = `?tab=…&tableAction=view&tableActionRecord=id`
+  (Filament 5 hỗ trợ sẵn: `InteractsWithActions::$defaultTableAction`, mở bằng `wire:init` và chỉ cho nút CÓ hộp thoại
+  — `mountedFromUrl`). Dùng ở chuông và thư việc (`TaskAlert`, `TaskNotice`), lời nhắc (`TaskReminderAlert` — chuông và thư
+  `TaskReminder`) và thông báo đẩy "được giao" (`PushTopic`, chỉ id việc). Ba tab có `excludeQueryWhenResolvingRecord()`,
+  mọi bộ lọc công tắc `excludeWhenResolvingRecord()`: việc đã đổi tab hay đã đóng vẫn mở; phạm vi `visibleTo()` thì
+  không bao giờ bỏ — người không còn xem được việc chỉ thấy trang. Không đổi: lời báo cho người vừa mất việc (chỉ tab,
+  không id), lời báo cho người nhận THAY người giao (tab "Công việc" của hồ sơ — relation manager không có cơ chế mở nút
+  từ URL của trang), các thông báo nhiều việc (`MatterCancelledTasksAlert`, `StaffWorkTransferAlert`, `TeamDepartureAlert`,
+  `StaffWorkTransferred`). Khung "Xem": chân khung là chính các hàm dựng nút của dòng (`taskViewFooterActions()`, cùng
+  `->authorize()`, mỗi nút `cancelParentActions()`; "Huỷ việc" đổi tên `cancelTask` vì `cancel` là nút "Đóng" của khung —
+  trùng tên thì nút "Đóng" đè mất); mã vụ là liên kết tới tab Công việc của hồ sơ khi `MatterPolicy::view` cho phép; khối
+  "Diễn biến" (`App\Support\Tasks\TaskTimeline`) đọc nhật ký có `subject` là CHÍNH việc đó, in câu tiếng Việt (giao,
+  nhận, trả lại + lý do, giao lại + hạn mới, tự nhận lại, mở lại + nhận xét, sửa + điều đã đổi qua `TaskChangeSummary`,
+  huỷ, khôi phục, đổi người giao khi bàn giao), không bao giờ in thuộc tính thô. **Quyết định cần chủ văn phòng biết:**
+  lý do "Trả lại" của người giữ trước hiện cho người giữ sau (cùng việc, cùng người theo dõi).
+- **Mục 7.** Ô tìm của bảng việc tìm cả tên người nhận/người giao (`LetterD`, kể cả người đã nghỉ — `withTrashed()` trong
+  `whereHas`), chỉ trong `visibleTo()`.
+- **Mục 8.** `Tables/TaskFilters` — mỗi bộ lọc một scope có sẵn: "Chỉ việc còn mở" (bật sẵn, chỉ tab "Tất cả"), "Hạn hôm
+  nay"/"Hạn 7 ngày tới" (`Task::scopeDueWithinDays()` mới — `open()` + khoảng ngày), "Việc của tôi (còn mở)"
+  (`Task::scopeHeldBy()` mới = `awaitingAcceptanceBy` ∪ `inProgressFor`), "Chỉ việc quá hạn" và "Cần giao lại" (chuyển từ
+  `ListTasks`, nhãn ngắn, giải thích ở chú thích dưới công tắc). Tab "Công việc" của hồ sơ thêm "Chỉ việc quá hạn",
+  "Cần giao lại", "Còn mở".
+- **Mục 9.** `TaskResource::getBreadcrumb()` = "Công việc"; ô "Mức ưu tiên" `selectablePlaceholder(false)`; lịch hạn của
+  hai hộp "Giao việc" (trang và tab hồ sơ) `minDate(today())` qua `taskDetailFields(newTask: true)`, "Sửa" giữ nguyên.
+- **Không làm:** thứ tự widget trang chủ (SPEC §7.1, cần chủ văn phòng); năng lực mới.
+- **Cho người gộp:** làn nhắc việc đang thu hẹp "Chờ tôi nhận"/"Đang làm" về việc còn giữ được — đụng `getTabs()` (làn
+  này thêm `excludeQueryWhenResolvingRecord()` vào ba tab). Test của làn khác gọi `complete` trên việc CHỜ NHẬN phải đổi
+  sang `completePending`.
+
+**Đo bố cục** (Playwright, Chromium, dữ liệu mẫu; ảnh `before-*`/`after-*` ở scratchpad `fix-c/`):
+
+| | Trước | Sau |
+|---|---|---|
+| 390px, "Chờ tôi nhận" | bảng 1132px trong khung 358px; cột "Việc" 77px; "Hạn" x=472; "Đã nhận" x=782–881; dòng 297px | bảng 358/358; "Đã nhận" x=227–326; dòng 233px |
+| 390px, "Đang làm" / "Tất cả" / tab Công việc hồ sơ | bảng 1025 / 1154 / — | 358 / 358 / 358; "Hoàn thành" x=204–326 |
+| 1024px | — | bảng 640/640 (bố cục gọn) |
+| 1280px, ba tab | — | bảng 896/896 |
+| 1366px, "Chờ tôi nhận" | bảng 1223 trong 982; "Việc" 83px; "Trả lại" x=1281–1342 (khung tới 1334: bị cắt) | 982/982; "Việc" 338px; "Đã nhận" x=1179–1278; dòng 129px |
+| 1366px, "Tất cả" | bảng 1241; "Trả lại" x=1298–1360; dòng tới 297px | 982/982; "Việc" 295px; dòng 105–130px |
+
+Đường từ thông báo (`?tab=awaiting&tableAction=view&tableActionRecord=2`, 390px): khung "Xem" mở ngay, nút "Đã nhận",
+"Hoàn thành", "Trả lại", "Đóng" trong màn hình; khối "Diễn biến" đo trên một việc tạo qua Action (giao → trả lại → giao
+lại kèm hạn mới) in đủ ba dòng.
+
+**Kiểm chứng.** `TaskScreenAuditFixTest` (31 test) đỏ trước khi sửa (27 đỏ/lỗi, 4 xanh là các phép thử "không lộ" vốn
+đúng). Phép thử ngược: 43 mutant — 40 đỏ; ba mutant sống được làm đỏ bằng test chặt hơn (M26 liên kết mã vụ trong khung,
+M28 "Nhận xét", M29 hạn mới của lần giao lại); M13/M43 là mutant tương đương có ghi: "Chỉ việc còn mở" được giữ ở tab
+"Tất cả" bằng HAI rào (`->visible()` và điều kiện trong `->query()`), bỏ một rào vẫn xanh, bỏ cả hai thì đỏ (M42). Test
+cũ đổi theo hành vi mới: URL thông báo (`AssignerGoneTest`, `TaskFinalFixTest`, `TaskPushTest`, `PushTopicTest`),
+`completePending` (`TaskResourceTest`, `TaskPolishFixTest`, `TaskPushTest`), tab "Tất cả" mặc định chỉ việc còn mở
+(`TaskPolishFixTest`). `tests/Feature/Tasks` 423 passed. Cả bộ `--parallel --processes=2` (tại `84cc553c`, máy chạy chung với hai làn kia): 10.576 test — 10.526 passed, 42 skipped, 8 đỏ: 7 là test trần tải tệp đỏ vì `upload_max_filesize=2M` của PHP dòng lệnh (chạy lại năm tệp với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh) và 1 là `HandoverPackageSectionTest` so giờ `now()->subMinutes(2)` theo phút — máy chậm qua ranh phút; chạy lại tệp: 14/14 xanh (không liên quan làn này). `pint
+--test` sạch. Không migration, không seeder, không lịch, không `.env`. Chưa chạy MariaDB (thứ tự dùng `DATE()` và
+`COALESCE` — cùng nghĩa trên MariaDB và SQLite).
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
