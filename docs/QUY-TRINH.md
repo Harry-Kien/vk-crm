@@ -504,7 +504,7 @@ lời nhắc cho người giao) mới chuyển tiếp. Người giao không còn
 việc (đã nghỉ, rời đội ngũ, sang "Người theo dõi", trả lại hồ sơ) thì "Sửa" không báo họ: màn hình nói việc hiện
 "Cần giao lại".
 
-**Mở lại, khôi phục** (từ 2026-10-16). Một việc đã **"Hoàn thành"** được **"Mở lại"** (nhóm nút "…" trên dòng): người
+**Mở lại, khôi phục** (từ 2026-10-16). Một việc đã **"Hoàn thành"** được **"Mở lại"** (nút "⋮" trên dòng): người
 giao, luật sư phụ trách hay trưởng phòng mở lại khi kết quả chưa đạt — **bắt buộc ghi nhận xét** ("yêu cầu làm
 lại"); chính người đã bấm "Hoàn thành" mở lại được trong **24 giờ đầu** khi bấm nhầm (không bắt buộc lý do). Việc
 trở về "Đang làm" cho cùng người; người giữ việc nhận chuông và thư kèm nhận xét (người tự mở lại thì người giao được
@@ -518,6 +518,38 @@ người đã trả lại không bị đẩy việc lần nữa, và việc nằ
 **quá hạn** không làm nó thành "việc nhận sau hạn": ngày giao cũ được giữ, nên việc vẫn tính trong tỉ lệ "Việc hoàn
 thành đúng hạn" (từ 2026-10-18). Hồ sơ đã kết thúc thì không mở lại hay
 khôi phục được việc — bấm nút là nghe ngay lý do. Nhật ký ghi mỗi lần mở lại (kèm ghi chú hoàn thành cũ) và khôi phục.
+
+**Dùng trang Công việc — trên điện thoại và máy tính** (từ 2026-10-21, sau kiểm toán màn hình).
+
+- Mỗi dòng có **một nút chính**: **"Đã nhận"** khi việc chờ anh/chị nhận, **"Hoàn thành"** khi anh/chị đang làm,
+  **"Giao lại"** khi việc anh/chị giao bị trả lại. Mọi thao tác khác — "Xem", "Trả lại", "Hoàn thành" ngay khi chưa
+  nhận (nhận và xong một lượt), "Sửa", "Giao lại", "Huỷ việc", "Mở lại", "Khôi phục" — nằm trong nút **"⋮"** cuối
+  dòng. Bấm vào dòng là mở "Xem".
+- Trên **điện thoại** (và mọi màn hình hẹp hơn 1280px) mỗi việc là một ô gọn, không phải vuốt ngang: tên việc; trạng
+  thái, mức ưu tiên (khi Cao hay Gấp) và hạn tô màu; mã hồ sơ · ai giao (hay giao cho ai); một dòng đỏ khi việc cần
+  giao lại. Trên **máy tính** bảng đủ cột, trạng thái (kèm lý do trả lại hay ghi chú hoàn thành) nằm ngay dưới tên
+  việc; cột luôn là chính anh/chị được ẩn ("Người nhận" ở "Chờ tôi nhận" và "Đang làm", "Người giao" ở "Tôi đã
+  giao" — cả ba khối của Việc của tôi cũng vậy).
+- **Thứ tự**: việc còn mở trước, việc đã xong hay đã huỷ sau. Trong việc còn mở: theo hạn — việc đã quá hạn trước,
+  rồi việc hạn hôm nay (việc **Gấp không đặt hạn** đứng cùng nhóm này, đầu nhóm: "gấp" là làm ngay), rồi hạn xa
+  dần; cùng một ngày thì Gấp, rồi Cao, rồi Thường; việc không hạn cuối (Cao trước Thường). Bấm tiêu đề cột **"Hạn"**
+  hay **"Ưu tiên"** để sắp theo cột đó (Ưu tiên: Gấp trước, bấm lần nữa thì ngược lại).
+- **Từ một thông báo** — chuông, thư, lời nhắc hay thông báo trên điện thoại về một việc — bấm "Mở" là tới thẳng
+  khung **"Xem"** của đúng việc đó, trên đúng tab (việc đã đổi tab hay đã xong vẫn mở được). Khung "Xem" có ở chân các
+  nút anh/chị được bấm với việc đó (đúng các nút của dòng), mã hồ sơ bấm được (mở tab "Công việc" của hồ sơ), và
+  khối **"Diễn biến"**: ai giao cho ai (kèm hạn), ai đã nhận, trả lại kèm lý do, giao lại cho ai (kèm hạn mới), mở lại
+  kèm nhận xét, sửa (điều đã đổi), huỷ, khôi phục, đổi người giao khi bàn giao hồ sơ. Diễn biến chỉ là của chính việc
+  đó, và chỉ người xem được việc mới mở được khung — việc anh/chị không còn xem được (đã giao cho người khác, hồ sơ hạn
+  chế) thì trang Công việc mở ra mà không có khung nào. Lời báo về một việc trên hồ sơ anh/chị nhận THAY người giao
+  vẫn mở tab "Công việc" của hồ sơ.
+- **Tìm**: ô tìm kiếm tìm theo tên việc, mã hồ sơ, và **tên người nhận, người giao** (gõ "Ngô Thị Lan"; "đ" như "d"),
+  kể cả người đã nghỉ — luôn chỉ trong những việc anh/chị thấy được.
+- **Bộ lọc nhanh**: "Hạn hôm nay", "Hạn 7 ngày tới" (việc còn mở), "Việc của tôi (còn mở)" (chờ nhận hay đang làm),
+  "Chỉ việc quá hạn", "Cần giao lại" (chú thích dưới công tắc nói khi nào một việc cần giao lại). Tab **"Tất cả"** mặc
+  định chỉ hiện việc còn mở — bộ lọc "Chỉ việc còn mở" bật sẵn; tắt nó (hay bấm "×" trên nhãn bộ lọc) để xem cả việc
+  đã hoàn thành, đã huỷ. Tab "Công việc" của hồ sơ có "Chỉ việc quá hạn", "Cần giao lại", "Còn mở".
+- Hộp **"Giao việc"**: lịch hạn không cho chọn ngày đã qua; ô "Mức ưu tiên" luôn có một giá trị (mặc định Thường,
+  không xoá trắng được). Hộp "Sửa" vẫn giữ được hạn cũ đã qua.
 
 **Khi bàn giao vụ.** Việc đang mở của luật sư phụ trách cũ trên vụ đó chuyển sang luật sư phụ trách mới ở
 trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao liệt kê chúng; người bấm bàn giao cho chính mình thì
