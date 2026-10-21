@@ -162,7 +162,8 @@ it('walks a first call from the phone to the client portal: notice, green check,
         ->and($client->name)->toBe('Võ Thị Lần Đầu')
         ->and($client->phone)->toBe('0988 000 101')
         ->and($matter->parties()->where('is_our_client', false)->sole()->phone_normalized)->toBe('84977000101')
-        ->and(Client::query()->count())->toBe(13);
+        // 14 khách của dữ liệu mẫu (12 + hai khách nhân viên kinh doanh đem về, 2026-10-21) + khách vừa tạo.
+        ->and(Client::query()->count())->toBe(15);
 
     // ── Bước 2b — soạn hợp đồng M9: tổng giá trị điền sẵn bằng phí đã báo; người soạn chỉ thêm lịch thu.
     $billing = fn () => $this->livewire(BillingRelationManager::class, ['ownerRecord' => $matter->fresh(), 'pageClass' => ViewMatter::class]);

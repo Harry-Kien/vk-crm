@@ -38,7 +38,12 @@ it('seeds the demo sales account like every other demo staff account', function 
 });
 
 it('seeds leads of the sales person in several statuses, with care notes, one due for a call and one handed to a lawyer', function () {
-    $leads = IntakeRequest::query()->where('created_by', $this->sales->id)->get();
+    // 2026-10-21: `SalesRevenueDemoSeeder` thêm hai lead của người này đã thành hồ sơ (luật sư chuyển đổi, có tiền
+    // — trang Doanh thu, bộ lọc "Nhân viên kinh doanh"); ở đây là các lead còn đang theo, như từ làn kd.
+    $all = IntakeRequest::query()->where('created_by', $this->sales->id)->get();
+    $leads = $all->whereNull('matter_id')->values();
+
+    expect($all->where('status', IntakeStatus::Won)->whereNotNull('matter_id'))->toHaveCount(2);
 
     expect($leads->count())->toBeGreaterThanOrEqual(4)
         ->and($leads->pluck('status')->unique()->count())->toBeGreaterThanOrEqual(4)
@@ -58,8 +63,8 @@ it('seeds leads of the sales person in several statuses, with care notes, one du
     $this->actingAs($this->sales, 'web');
 
     $this->livewire(ListIntakeRequests::class)
-        ->assertCanSeeTableRecords($leads)
-        ->assertCountTableRecords($leads->count());
+        ->assertCanSeeTableRecords($all)
+        ->assertCountTableRecords($all->count());
 
     $due = $leads->filter(fn (IntakeRequest $lead): bool => $lead->next_follow_up_at !== null && $lead->next_follow_up_at->lessThanOrEqualTo(now()->endOfDay()));
 

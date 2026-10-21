@@ -6,6 +6,7 @@ use App\Filament\Admin\Widgets\Revenue\ClosedWithBalanceWidget;
 use App\Filament\Admin\Widgets\Revenue\LoadPerLawyerWidget;
 use App\Filament\Admin\Widgets\Revenue\MatterMixByPracticeAreaWidget;
 use App\Filament\Admin\Widgets\Revenue\ReceivablesDonutWidget;
+use App\Filament\Admin\Widgets\Revenue\RevenueByPersonWidget;
 use App\Filament\Admin\Widgets\Revenue\RevenueByStageWidget;
 use App\Filament\Admin\Widgets\Revenue\RevenueOverTimeWidget;
 use App\Models\Contract;
@@ -33,12 +34,13 @@ beforeEach(function () {
     $this->admin = User::factory()->withRole(Role::Admin)->create();
 });
 
-/** Năm biểu đồ của trang (bảng "Hồ sơ đã đóng còn nợ" riêng bên dưới). */
+/** Sáu biểu đồ của trang (bảng "Hồ sơ đã đóng còn nợ" riêng bên dưới) — "Doanh thu theo người" từ 2026-10-21. */
 function rvChartWidgets(): array
 {
     return [
         ReceivablesDonutWidget::class,
         RevenueOverTimeWidget::class,
+        RevenueByPersonWidget::class,
         RevenueByStageWidget::class,
         MatterMixByPracticeAreaWidget::class,
         LoadPerLawyerWidget::class,
@@ -173,15 +175,16 @@ it('draws the chart form and the split selectors small in the corner of the head
         ->toContain('wire:model.live="filter"');
 });
 
-it('lays the page out full width with the four filters on one row and the count switch explained behind an info button', function () {
+// 2026-10-21: năm ô trên một hàng — thêm "Nhân viên kinh doanh" cạnh "Luật sư phụ trách".
+it('lays the page out full width with the five filters on one row and the count switch explained behind an info button', function () {
     $this->actingAs($this->admin, 'web');
 
     $page = Livewire::test(RevenueDashboard::class);
 
     expect($page->instance()->getMaxContentWidth())->toBe(Width::Full)
-        ->and($page->instance()->getFiltersForm()->getColumns('lg'))->toBe(4)
-        ->and($page->instance()->getFiltersForm()->getColumns('xl'))->toBe(4)
-        ->and($page->instance()->getFiltersForm()->getColumns('2xl'))->toBe(4)
+        ->and($page->instance()->getFiltersForm()->getColumns('lg'))->toBe(5)
+        ->and($page->instance()->getFiltersForm()->getColumns('xl'))->toBe(5)
+        ->and($page->instance()->getFiltersForm()->getColumns('2xl'))->toBe(5)
         ->and($page->instance()->getFiltersForm()->getColumns('default'))->toBe(1);
 
     $html = $page->html();
@@ -192,10 +195,10 @@ it('lays the page out full width with the four filters on one row and the count 
         ->and(substr($html, 0, strpos($html, $help)))->toContain('data-info-tip="')
         ->and(substr_count($html, $help))->toBe(1);
 
-    // Ba ô chọn và công tắc đứng trước hai ô ngày của "Tuỳ chọn" (hàng đầu không xô lệch).
+    // Bốn ô chọn và công tắc đứng trước hai ô ngày của "Tuỳ chọn" (hàng đầu không xô lệch).
     $fields = array_map(fn ($component): string => $component->getName(), $page->instance()->getFiltersForm()->getFlatFields(withHidden: true));
 
-    expect(array_values($fields))->toBe(['period', 'lawyer_id', 'practice_area_id', 'by_count', 'date_from', 'date_to']);
+    expect(array_values($fields))->toBe(['period', 'lawyer_id', 'sales_id', 'practice_area_id', 'by_count', 'date_from', 'date_to']);
 });
 
 /**

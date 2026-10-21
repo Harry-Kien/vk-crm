@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Widgets\Revenue;
 use App\Enums\ChartKind;
 use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
+use App\Filament\Admin\Widgets\Revenue\Concerns\HasRevenueEmptyState;
 use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\User;
 use App\Support\Billing\CollectedRevenue;
@@ -34,6 +35,7 @@ use Illuminate\Support\Facades\Auth;
 class RevenueOverTimeWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasRevenueEmptyState;
     use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use RequiresBillingView;
@@ -70,14 +72,17 @@ class RevenueOverTimeWidget extends ChartWidget
 
     /**
      * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
-     * đề. `chart-with-table` đọc nó nếu widget khai.
+     * đề. `chart-with-table` đọc nó nếu widget khai. Đang lọc một nhân viên kinh doanh thì thêm nghĩa của bộ
+     * lọc đó (2026-10-21).
      */
     public function getExplanation(): string
     {
+        $filters = RevenueFilters::fromPageFilters($this->pageFilters);
+
         return __('widgets.revenue_dashboard.over_time.explanation', [
             'range' => $this->window()->rangeLabel(),
-            'period' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
-        ]);
+            'period' => $filters->rangeLabel(),
+        ]).($filters->salesId !== null ? ' '.__('widgets.revenue_dashboard.sales_filter_meaning') : '');
     }
 
     /** Cách chia cột đang chọn; giá trị lạ (Livewire nhận từ trình duyệt) rơi về tháng. */
@@ -141,7 +146,7 @@ class RevenueOverTimeWidget extends ChartWidget
     {
         return [
             'plugins' => ['legend' => ['display' => false], ...MoneyChart::pluginOptions()],
-            'scales' => ['y' => ['ticks' => ['precision' => 0]]],
+            'scales' => ['y' => MoneyChart::valueAxis()],
         ];
     }
 

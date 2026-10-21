@@ -7,6 +7,7 @@ use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
+use App\Filament\Admin\Widgets\Revenue\Concerns\HasRevenueEmptyState;
 use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\Contract;
 use App\Models\Instalment;
@@ -17,6 +18,7 @@ use App\Support\Billing\Money;
 use App\Support\Billing\OpenReceivables;
 use App\Support\Billing\RevenueColours;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Billing\SalesAttribution;
 use App\Support\Charts\MoneyChart;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Widgets\ChartWidget;
@@ -75,6 +77,16 @@ use Illuminate\Support\Facades\Auth;
  * phụ trách hôm nay), nên tổng không còn là "giá trị đã ký của MỘT tập vụ việc" nữa, và một dòng
  * đối chiếu lúc đó sẽ so sánh hai thứ không cùng bản chất.
  *
+ * # Bộ lọc nhân viên kinh doanh (2026-10-21) — MỘT nghĩa
+ *
+ * Hồ sơ người đó đem về từ tiếp nhận (`App\Support\Billing\SalesAttribution`), áp ĐỀU cho cả ba lát và phần
+ * đối chiếu — cùng một tập hồ sơ, nên dòng đối chiếu tổng vẫn hiện (chỉ bộ lọc luật sư tắt nó).
+ *
+ * # Trạng thái rỗng (2026-10-21)
+ *
+ * Ba lát đều 0 thì khung in một câu thay cho vành khuyên/trục rỗng (`HasRevenueEmptyState`). Không có dạng
+ * "Đường" — xem {@see self::chartKinds()}.
+ *
  * # Hồ sơ đã huỷ (gộp integ-fa, rà soát chéo 2026-10-18, mục 12)
  *
  * Lát "đã thu" đếm cả khoản thu (chưa huỷ) trên hồ sơ đã huỷ — `withTrashed()` + `listableBy()`, đúng luật của ô "Đã
@@ -90,6 +102,7 @@ use Illuminate\Support\Facades\Auth;
 class ReceivablesDonutWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasRevenueEmptyState;
     use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use RequiresBillingView;
@@ -127,13 +140,22 @@ class ReceivablesDonutWidget extends ChartWidget
             $explanation .= ' '.__('widgets.revenue_dashboard.donut.description_lawyer_filtered');
         }
 
+        if ($filters->salesId !== null) {
+            $explanation .= ' '.__('widgets.revenue_dashboard.sales_filter_meaning');
+        }
+
         return $explanation;
     }
 
-    /** Dạng gốc là "tròn" (vẽ bằng doughnut, xem pieChartType()); cột và đường là hai dạng thay thế. */
+    /**
+     * Dạng gốc là "tròn" (vẽ bằng doughnut, xem pieChartType()); cột là dạng thay thế. Không có "Đường"
+     * (2026-10-21, ảnh của chủ văn phòng): ba lát là các phần của MỘT tổng, không phải một chuỗi theo thứ tự —
+     * một đường nối "đã thu" với "quá hạn" là một hình vô nghĩa. Lựa chọn "Đường" đã lưu từ trước rơi về dạng
+     * gốc (`HasSwitchableChartKind::mountHasSwitchableChartKind()`).
+     */
     protected function chartKinds(): array
     {
-        return [ChartKind::Pie, ChartKind::Bar, ChartKind::Line];
+        return [ChartKind::Pie, ChartKind::Bar];
     }
 
     /** "Tròn" của widget này là vòng doughnut như từ đầu (M9), không phải pie đặc. */
@@ -215,11 +237,14 @@ class ReceivablesDonutWidget extends ChartWidget
         [$from, $to] = $filters->bounds();
         $reconciledStatuses = [ContractStatus::Active->value, ContractStatus::Completed->value];
 
-        // An ninh (listableBy) + lĩnh vực: ÁP DỤNG ĐỀU cho cả ba lát. KHÔNG gồm bộ lọc luật sư —
-        // I2: mỗi lát tự quyết định NGHĨA của bộ lọc luật sư, ngay bên dưới.
+        // An ninh (listableBy) + lĩnh vực + nhân viên kinh doanh (2026-10-21 — một nghĩa duy nhất: hồ sơ người đó
+        // đem về, `SalesAttribution`): ÁP DỤNG ĐỀU cho cả ba lát và phần đối chiếu. KHÔNG gồm bộ lọc luật sư —
+        // I2: mỗi lát tự quyết định NGHĨA của bộ lọc luật sư, ngay bên dưới. Lát "còn phải thu"/"quá hạn" nhận
+        // bộ lọc kinh doanh qua `OpenReceivables`, cùng định nghĩa.
         $baseMatterScope = fn (Builder $q): Builder => $q
             ->listableBy($user)
-            ->when($filters->practiceAreaId, fn (Builder $q2, int $v) => $q2->where('matter_type_id', $v));
+            ->when($filters->practiceAreaId, fn (Builder $q2, int $v) => $q2->where('matter_type_id', $v))
+            ->tap(fn (Builder $q2) => SalesAttribution::constrainMatters($q2, $filters->salesId));
 
         $contractPeriodScope = fn (Builder $q): Builder => $q
             ->withoutGlobalScope(ClientPortalScope::class)

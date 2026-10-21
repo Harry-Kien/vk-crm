@@ -50,7 +50,7 @@ sau bước mật khẩu — đọc ở Mailpit. Tài khoản demo và secret n�
 (`APP_ENV=local`): seed của máy chủ thật không tạo tài khoản nào. Chi tiết: `docs/CAI-DAT.md`,
 "Tài khoản dùng thử".
 
-Sau `migrate:fresh --seed` dữ liệu mẫu có 27 vụ việc, 12 khách hàng, 16 tài khoản cổng khách và 10
+Sau `migrate:fresh --seed` dữ liệu mẫu có 29 vụ việc, 14 khách hàng, 16 tài khoản cổng khách và 10
 nhân sự (9 tài khoản ở bảng trên, cộng một luật sư "đã nghỉ việc" của M13, không đăng nhập được).
 Hai mươi vụ đầu mang các tình huống cố ý: vụ 1–3 quá hạn cập nhật, vụ 4–5 có hạn trong 3 ngày,
 vụ 6–9 thiếu giấy tờ, vụ 10–14 có tài liệu chờ duyệt, vụ 20 xung đột lợi ích với khách hàng số 2;
@@ -148,9 +148,14 @@ lại `php artisan db:seed --force` (dữ liệu tham chiếu, an toàn chạy l
 hữu Vũ Thị Em); *Trịnh Văn Hùng* và *Lưu Thị Nga* — một cặp đối nhau, lần gọi sau ra Vàng vì lần gọi
 trước; *Kiều Văn Chờ* — quá hạn phản hồi, hiện trên trang chủ của `troly1@`; *Mạc Văn Kiện* — đã bị
 từ chối vì xung đột (người ghi là `troly1@`, chỉ thấy "Văn phòng từ chối"; `quanly@` thấy lý do);
-*Phạm Thị Dung* — khách cũ gọi về việc mới, đã chuyển thành vụ (vụ thứ 27, vụ cuối của dữ liệu mẫu; luật sư `luatsu2@`, phí
+*Phạm Thị Dung* — khách cũ gọi về việc mới, đã chuyển thành vụ (vụ thứ 27; luật sư `luatsu2@`, phí
 đã báo hiện sẵn ở form soạn hợp đồng); *Đặng Thị Thu Hương* — đã báo giá, chờ `luatsu1@` chuyển
 thành vụ; và một bản đã ẩn danh vì quá hạn lưu.
+
+**Tiền do nhân viên kinh doanh đem về** (`SalesRevenueDemoSeeder`, 2026-10-21, chỉ dev/test): hai lead của
+`kinhdoanh@` — *Ngô Thanh Tùng* (`luatsu1@`) và *Trịnh Văn Hậu* (`luatsu2@`) — được luật sư chuyển thành hồ sơ
+(vụ thứ 28 và 29, hai khách mới), có hợp đồng và khoản thu (hai khoản về hôm seed). Trang **Doanh thu**, ô
+**Nhân viên kinh doanh** chọn `kinhdoanh@`: thấy tiền người đó đem về.
 
 ## Cấu trúc
 

@@ -22,6 +22,7 @@ use App\Models\StageLog;
 use App\Models\StageLogView;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\SalesRevenueDemoSeeder;
 use Database\Seeders\Support\DemoPdf;
 use Database\Seeders\TeamPerformanceSeeder;
 use Filament\Facades\Filament;
@@ -68,10 +69,12 @@ it('seeds the land dispute checklist with twelve items and eleven more templates
         ->and($land->items->first()->name)->toContain('Giấy tờ tuỳ thân');
 });
 
-it('seeds twelve clients each with one or two portal accounts', function () {
-    expect(Client::count())->toBe(12)
+// 2026-10-21: cộng hai khách MỚI mà nhân viên kinh doanh đem về (`SalesRevenueDemoSeeder`, chuyển đổi từ tiếp nhận) —
+// khách vừa thành khách chưa có tài khoản cổng; mười hai khách của `ClientSeeder` vẫn mỗi khách một hoặc hai tài khoản.
+it('seeds twelve clients each with one or two portal accounts, plus the two clients the sales person brought in', function () {
+    expect(Client::count())->toBe(14)
         ->and(ClientUser::count())->toBe(16)
-        ->and(Client::doesntHave('clientUsers')->count())->toBe(0)
+        ->and(Client::doesntHave('clientUsers')->pluck('phone')->sort()->values()->all())->toBe(SalesRevenueDemoSeeder::PHONES)
         ->and(Client::withCount('clientUsers')->get()->max('client_users_count'))->toBe(2)
         ->and(ClientUser::where('email', 'khach1@example.com')->exists())->toBeTrue();
 });
@@ -144,11 +147,12 @@ it('lets the documented first demo client walk the whole paperwork journey', fun
  * closedMatter()` thêm đúng một vụ đã đóng, để Task 4/11 sinh và giải nén được một gói bàn giao
  * thật từ dữ liệu mẫu; `IntakeSeeder` (`ConvertIntakeToMatter` gắn một khách đã có vào vụ mới,
  * đính chính SPEC §12 ngày 2026-10-03) thêm vụ thứ 23. M13 Task 8 (`TeamPerformanceSeeder`) thêm bốn vụ cho
- * trang theo dõi đội ngũ — 27 vụ.
+ * trang theo dõi đội ngũ — 27 vụ. 2026-10-21: `SalesRevenueDemoSeeder` thêm hai vụ nhân viên kinh doanh đem về từ
+ * tiếp nhận (cũng qua `ConvertIntakeToMatter`, hai khách mới) — 29 vụ, ba vụ mở từ tiếp nhận.
  */
-it('seeds twenty matters with the deliberate situations from the spec, plus one restricted, one closed and one opened from an intake', function () {
-    expect(Matter::count())->toBe(27)
-        ->and(IntakeRequest::query()->whereNotNull('matter_id')->count())->toBe(1)
+it('seeds twenty matters with the deliberate situations from the spec, plus one restricted, one closed and three opened from an intake', function () {
+    expect(Matter::count())->toBe(29)
+        ->and(IntakeRequest::query()->whereNotNull('matter_id')->count())->toBe(3)
         ->and(Matter::where('last_client_update_at', '<', now()->subDays(14))->count())->toBeGreaterThanOrEqual(3)
         ->and(Deadline::query()->upcoming(3)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(2)
         ->and(MatterChecklistItem::where('status', ChecklistItemStatus::Missing)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(4)

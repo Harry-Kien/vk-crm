@@ -78,6 +78,22 @@ final class MoneyChart
     }
 
     /**
+     * Cấu hình của TRỤC GIÁ TRỊ (tiền hay số đếm) cho biểu đồ cột/đường của trang Doanh thu (2026-10-21, ảnh của
+     * chủ văn phòng: nhãn trục lặp "0, 0, 0, 1, 1, 1"). Bắt đầu từ 0 (một cột không bắt đầu từ 0 phóng đại chênh
+     * lệch, và Chart.js không tự lấy 0 cho dạng đường) và vạch là số nguyên (`precision: 0`) — không còn vạch
+     * 0,2 / 0,4 / … mà bộ định dạng rút gọn làm tròn thành cùng một chữ. Từ 0 lên, với tối đa 11 vạch (mặc định
+     * của Chart.js) khoảng vạch "đẹp" (1, 2, 5 × 10ⁿ) không nhỏ hơn khoảng một phần mười giá trị lớn nhất, nên hai vạch kề
+     * nhau rút gọn (một chữ số lẻ) ra hai chữ khác nhau; `public/charts/money.js` vẫn bỏ một nhãn trùng nhãn ngay
+     * trước nó, phòng một trường hợp chưa nghĩ tới.
+     *
+     * @return array{beginAtZero: true, ticks: array{precision: 0}}
+     */
+    public static function valueAxis(): array
+    {
+        return ['beginAtZero' => true, 'ticks' => ['precision' => 0]];
+    }
+
+    /**
      * URL của script, kèm `?v=` là 12 ký tự hex đầu của sha256 nội dung tệp — cùng lý do
      * `App\Support\Pwa\RegisterScript::url()`: mẫu máy chủ web giữ `.js` tĩnh một năm `immutable`.
      */

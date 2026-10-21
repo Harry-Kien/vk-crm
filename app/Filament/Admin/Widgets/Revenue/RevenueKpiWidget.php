@@ -37,6 +37,9 @@ use Illuminate\Support\Facades\Auth;
  *  - **Hợp đồng ký mới** — {@see SignedContracts::query()}, chung với "Cơ cấu theo lĩnh vực": số hợp đồng
  *    đang hiệu lực/đã hoàn tất ký trong kỳ và tổng giá trị.
  *
+ * **Bộ lọc nhân viên kinh doanh** (2026-10-21): cả bốn ô theo MỘT nghĩa — hồ sơ người đó đem về từ tiếp nhận
+ * (`App\Support\Billing\SalesAttribution`), gắn qua ba truy vấn trên; câu ⓘ của mỗi ô nói thêm nghĩa đó.
+ *
  * **So với kỳ trước** — {@see RevenueFilters::previousPeriod()}: cùng khoảng đã qua của kỳ liền trước
  * (hay khoảng dài bằng nhau với "Tuỳ chọn"). ▲ xanh khi tăng, ▼ đỏ khi giảm, "0 %" khi bằng, "—" khi kỳ
  * trước bằng 0 (không chia cho 0, cũng không in "▲ ∞").
@@ -97,7 +100,10 @@ class RevenueKpiWidget extends Widget
         // Rà soát gộp làn rv (2026-10-16): trang "Công nợ" không lọc theo luật sư hay lĩnh vực, nên khi trang này
         // đang lọc một trong hai, ô "Còn phải thu"/"Quá hạn" không dẫn sang đó (số trên ô và tổng của trang mở ra
         // sẽ khác nhau mà không màn hình nào nói vì sao). Câu ⓘ nói rõ điều này.
-        $narrowed = $filters->lawyerId !== null || $filters->practiceAreaId !== null;
+        // 2026-10-21: cả bộ lọc nhân viên kinh doanh — trang "Công nợ" cũng không có nó.
+        $narrowed = $filters->hasPerson() || $filters->practiceAreaId !== null;
+        // Đang lọc một nhân viên kinh doanh: mỗi câu ⓘ nói thêm nghĩa của bộ lọc đó (một nghĩa cho cả bốn ô).
+        $salesNote = $filters->salesId !== null ? ' '.__('widgets.revenue_dashboard.sales_filter_meaning') : '';
         $receivablesUrl = ! $narrowed && Receivables::canBeOpenedBy($user) ? Receivables::getUrl(panel: 'admin') : null;
 
         $collected = (int) CollectedRevenue::filtered($user, $filters, $filters->bounds())->sum('amount');
@@ -124,7 +130,7 @@ class RevenueKpiWidget extends Widget
                 'url' => null,
                 'accent' => RevenueColours::COLLECTED,
                 'tone' => null,
-                'explanation' => __('widgets.revenue_dashboard.kpi.collected.explanation', ['range' => $filters->rangeLabel()]),
+                'explanation' => __('widgets.revenue_dashboard.kpi.collected.explanation', ['range' => $filters->rangeLabel()]).$salesNote,
             ],
             [
                 'key' => 'outstanding',
@@ -137,7 +143,7 @@ class RevenueKpiWidget extends Widget
                 'url' => $receivablesUrl,
                 'accent' => RevenueColours::OUTSTANDING,
                 'tone' => null,
-                'explanation' => __('widgets.revenue_dashboard.kpi.outstanding.explanation'),
+                'explanation' => __('widgets.revenue_dashboard.kpi.outstanding.explanation').$salesNote,
             ],
             [
                 'key' => 'overdue',
@@ -150,7 +156,7 @@ class RevenueKpiWidget extends Widget
                 'url' => $receivablesUrl === null ? null : Receivables::overdueListUrl(),
                 'accent' => RevenueColours::OVERDUE,
                 'tone' => $overdue > 0 ? 'danger' : null,
-                'explanation' => __('widgets.revenue_dashboard.kpi.overdue.explanation'),
+                'explanation' => __('widgets.revenue_dashboard.kpi.overdue.explanation').$salesNote,
             ],
             [
                 'key' => 'signed',
@@ -163,7 +169,7 @@ class RevenueKpiWidget extends Widget
                 'url' => null,
                 'accent' => 'var(--gray-400)',
                 'tone' => null,
-                'explanation' => __('widgets.revenue_dashboard.kpi.signed.explanation', ['range' => $filters->rangeLabel()]),
+                'explanation' => __('widgets.revenue_dashboard.kpi.signed.explanation', ['range' => $filters->rangeLabel()]).$salesNote,
             ],
         ];
     }

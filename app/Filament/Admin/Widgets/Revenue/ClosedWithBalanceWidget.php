@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Billing\SalesAttribution;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -95,6 +96,8 @@ class ClosedWithBalanceWidget extends TableWidget
             ->closed()
             ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q->where('matter_type_id', $v))
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('lead_lawyer_id', $v))
+            // 2026-10-21: nhân viên kinh doanh — hồ sơ người đó đem về từ tiếp nhận (`SalesAttribution`).
+            ->tap(fn (Builder $q) => SalesAttribution::constrainMatters($q, $filters->salesId))
             // `whereRaw`, không `havingRaw` trên bí danh: HAVING không GROUP BY tham chiếu một
             // bí danh không phải hàm tổng hợp là hành vi không chuẩn hoá giữa SQLite và MariaDB
             // (dự án chạy test trên cả hai — xem docblock `BillingSummary::outstandingExpression()`

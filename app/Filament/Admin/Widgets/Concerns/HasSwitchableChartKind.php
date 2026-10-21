@@ -183,9 +183,10 @@ trait HasSwitchableChartKind
 
         if ($native === ChartKind::Pie) {
             // Từ tròn sang cột/đường: một chuỗi duy nhất thì chú giải thừa, và trục giá trị phải bắt đầu từ 0
-            // (một cột không bắt đầu từ 0 phóng đại chênh lệch).
+            // (một cột không bắt đầu từ 0 phóng đại chênh lệch), vạch là số nguyên — không vạch 0,2 / 0,4 nào để
+            // trục tiền rút gọn thành "0, 0, 0, 1, 1, 1" (2026-10-21, ảnh vành khuyên ở dạng cột của chủ văn phòng).
             $options['plugins']['legend'] = [...($options['plugins']['legend'] ?? []), 'display' => false];
-            $options['scales'] = ['y' => ['beginAtZero' => true]];
+            $options['scales'] = ['y' => ['beginAtZero' => true, 'ticks' => ['precision' => 0]]];
 
             return $options;
         }

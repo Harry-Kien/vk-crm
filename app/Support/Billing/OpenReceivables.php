@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Builder;
  *  - vụ trong `Matter::listableBy($viewer)` (P3 — vụ `restricted` không lọt vào số của người không xem được);
  *  - luật sư = luật sư phụ trách HIỆN TẠI của vụ (`matters.lead_lawyer_id`, I2 của M9: tiền còn treo
  *    thuộc về người đang cầm vụ), lĩnh vực = loại của vụ;
+ *  - nhân viên kinh doanh (2026-10-21) = người đã đem hồ sơ về từ tiếp nhận ({@see SalesAttribution});
  *  - `$signedBounds` (tuỳ chọn): chỉ hợp đồng có `signed_at` trong khoảng đó — "việc đã ký trong kỳ" của
  *    vành khuyên. Bỏ trống thì mọi hợp đồng.
  */
@@ -39,6 +40,7 @@ final class OpenReceivables
                 ->whereHas('matter', fn (Builder $matter) => $matter
                     ->listableBy($viewer)
                     ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q->where('matter_type_id', $v))
-                    ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('lead_lawyer_id', $v))));
+                    ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('lead_lawyer_id', $v))
+                    ->tap(fn (Builder $q) => SalesAttribution::constrainMatters($q, $filters->salesId))));
     }
 }

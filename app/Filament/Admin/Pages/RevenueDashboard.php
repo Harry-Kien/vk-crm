@@ -8,13 +8,14 @@ use App\Filament\Admin\Widgets\Revenue\ClosedWithBalanceWidget;
 use App\Filament\Admin\Widgets\Revenue\LoadPerLawyerWidget;
 use App\Filament\Admin\Widgets\Revenue\MatterMixByPracticeAreaWidget;
 use App\Filament\Admin\Widgets\Revenue\ReceivablesDonutWidget;
+use App\Filament\Admin\Widgets\Revenue\RevenueByPersonWidget;
 use App\Filament\Admin\Widgets\Revenue\RevenueByStageWidget;
 use App\Filament\Admin\Widgets\Revenue\RevenueKpiWidget;
 use App\Filament\Admin\Widgets\Revenue\RevenueOverTimeWidget;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Billing\RevenueFilters;
-use App\Support\Scopes\ClientPortalScope;
+use App\Support\Billing\RevenuePeople;
 use App\Support\Search\LetterD;
 use BackedEnum;
 use Filament\Forms\Components\DatePicker;
@@ -22,6 +23,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
 use Filament\Pages\Dashboard;
 use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
@@ -65,10 +67,20 @@ use UnitEnum;
  * (`payments.attributed_lawyer_id` "lúc thu" hay `matters.lead_lawyer_id` "hiện tại", kế hoạch
  * M9 P2) và mỗi widget in đúng nghĩa nó dùng.
  *
+ * # Xem tiền của MỘT người (2026-10-21, chủ văn phòng: "chọn riêng từng luật sư phụ trách hoặc nhân viên kinh
+ * doanh thì phải hiện đúng số tiền mà người đó đã làm")
+ *
+ * Ô "Nhân viên kinh doanh" (`sales_id`) đứng cạnh ô "Luật sư phụ trách": MỌI số của các hồ sơ người đó đem về
+ * từ tiếp nhận (`App\Support\Billing\SalesAttribution` — một nghĩa, không hai như luật sư). Chọn cả hai là giao.
+ * Ô trống in "Tất cả" / "Tất cả lĩnh vực" (placeholder); đổi người thì ô lĩnh vực về "Tất cả" (bộ lọc của
+ * trang được nhớ trong phiên — không để một lĩnh vực chọn từ lần trước lặng lẽ thu hẹp số của người mới chọn).
+ * Đang chọn một người thì dòng phụ dưới tiêu đề nói đang xem tiền của AI và theo LUẬT nào ({@see self::getSubheading()}).
+ * Hai biểu đồ so sánh ("Doanh thu theo người", "Tải theo luật sư") vẫn hiện mọi người và tô người đang chọn.
+ *
  * # Phân quyền — MỘT định nghĩa
  *
  * Trang mở cho ai có `billing.view` (kể cả luật sư — họ thấy số liệu CỦA MÌNH nhưng không thấy
- * hai widget toàn văn phòng, vốn tự đòi thêm `revenue.viewAny` ở `canView()` riêng). Mọi widget
+ * ba widget toàn văn phòng, vốn tự đòi thêm `revenue.viewAny` ở `canView()` riêng). Mọi widget
  * lấy tập vụ việc gốc từ `Matter::scopeListableBy($user)` — không widget nào tự viết lại điều kiện
  * "vụ này ai được xem tiền".
  *
@@ -76,15 +88,16 @@ use UnitEnum;
  *
  * `getSubheading()` chỉ in câu chung "Số liệu gồm các vụ việc anh/chị được xem." (cùng chuỗi với
  * trang "Công nợ", `billing.receivables.scope_note`) — không một widget nào được thêm "(đã ẩn N
- * vụ hạn chế)" hay bất kỳ con số nào tiết lộ RẰNG có vụ bị loại.
+ * vụ hạn chế)" hay bất kỳ con số nào tiết lộ RẰNG có vụ bị loại. Câu "Đang xem: …" (2026-10-21) đứng trước câu
+ * đó và chỉ in tên của một người CÓ trong ô chọn của người xem — không bao giờ tên của một id gõ tay.
  *
  * # Làn rv (2026-10-15) — gọn như một CRM chuyên nghiệp
  *
  * Chủ văn phòng: "nhiều chữ nhìn rối quá". (1) Hàng ô số `RevenueKpiWidget` đứng ĐẦU, hết bề ngang.
  * (2) Mỗi biểu đồ một tiêu đề ngắn và một dòng phụ; cách tính giấu sau nút ⓘ (`getExplanation()` của
  * từng widget, view `chart-with-table`). (3) Trang dùng hết bề ngang (`$maxContentWidth = Full`), lưới hai
- * cột từ `lg`, một cột trên điện thoại. (4) Bộ lọc trên MỘT hàng (bốn cột từ `lg`): Kỳ, Luật sư phụ trách,
- * Lĩnh vực, công tắc "Đếm theo số vụ" (nhãn ở trên như ba ô kia, giải thích sau ⓘ); hai ô ngày của "Tuỳ
+ * cột từ `lg`, một cột trên điện thoại. (4) Bộ lọc trên MỘT hàng (năm cột từ `lg` từ 2026-10-21): Kỳ, Luật sư
+ * phụ trách, Nhân viên kinh doanh, Lĩnh vực, công tắc "Đếm theo số vụ" (nhãn ở trên như các ô kia, giải thích sau ⓘ); hai ô ngày của "Tuỳ
  * chọn" xuống hàng sau, để hàng đầu không xô lệch khi bật/tắt chúng. (Mục "không có ô đổi kiểu biểu đồ"
  * ở trên đã được thay từ 2026-10-10 — `HasSwitchableChartKind`, mỗi widget chỉ mời dạng không nói sai.)
  */
@@ -113,15 +126,37 @@ class RevenueDashboard extends Dashboard
         return __('widgets.revenue_dashboard.title');
     }
 
+    /**
+     * Câu chung về phạm vi (SPEC §10.10). Đang chọn một người (2026-10-21) thì đứng trước câu đó một câu nói đang
+     * xem tiền của AI và theo LUẬT nào — luật sư: đã thu theo người phụ trách lúc tiền về, còn lại theo người phụ
+     * trách hiện tại; nhân viên kinh doanh: mọi số của hồ sơ người đó đem về từ tiếp nhận. Tên chỉ lấy từ ô chọn
+     * của người xem ({@see self::lawyerOptions()}, {@see self::salesOptions()}): một id gõ tay ngoài danh sách
+     * (người chỉ dính vào vụ hạn chế) không in ra tên nào.
+     */
     public function getSubheading(): string|Htmlable|null
     {
-        return __('billing.receivables.scope_note');
+        $filters = RevenueFilters::fromPageFilters($this->filters);
+        $viewing = [];
+
+        if ($filters->lawyerId !== null && filled($name = static::lawyerOptions()[$filters->lawyerId] ?? null)) {
+            $viewing[] = __('widgets.revenue_dashboard.viewing.lawyer', ['name' => $name]);
+        }
+
+        if ($filters->salesId !== null && filled($name = static::salesOptions()[$filters->salesId] ?? null)) {
+            $viewing[] = __('widgets.revenue_dashboard.viewing.sales', ['name' => $name]);
+        }
+
+        if ($viewing === []) {
+            return __('billing.receivables.scope_note');
+        }
+
+        return __('widgets.revenue_dashboard.viewing.prefix').' '.implode('; ', $viewing).'. '.__('billing.receivables.scope_note');
     }
 
     /**
      * Cổng của cả TRANG. Chỉ `billing.view` — KHÁC `Receivables::canAccess()` (đòi thêm
      * `revenue.viewAny`): luật sư có `billing.view` nhưng không có `revenue.viewAny` phải VÀO
-     * ĐƯỢC trang này (họ thấy số liệu của vụ mình), chỉ không thấy hai widget toàn văn phòng.
+     * ĐƯỢC trang này (họ thấy số liệu của vụ mình), chỉ không thấy ba widget toàn văn phòng.
      * Trợ lý không có `billing.view` nhận 404 qua `AnswerDeniedPanelRequestsWithNotFound`.
      */
     public static function canAccess(): bool
@@ -140,7 +175,8 @@ class RevenueDashboard extends Dashboard
      * Tuỳ chọn của ô "Luật sư" (luật đầy đủ ở chú thích của ô trong {@see self::filtersForm()}): luật sư phụ
      * trách ít nhất một vụ người xem liệt kê được, hoặc được ghi doanh thu trên một khoản thu chưa huỷ của
      * một vụ người xem liệt kê được (kể cả vụ đã huỷ). Fix round 1 (m3, làn fa3): tách thành hàm để ô chọn
-     * tìm trên máy chủ ({@see LetterD::searchOptions()}) trên ĐÚNG danh sách này.
+     * tìm trên máy chủ ({@see LetterD::searchOptions()}) trên ĐÚNG danh sách này. Từ 2026-10-21 truy vấn nằm ở
+     * {@see RevenuePeople::lawyerOptions()} (dùng chung với "Doanh thu theo người"), nguyên văn.
      *
      * @return array<int, string>
      */
@@ -148,27 +184,34 @@ class RevenueDashboard extends Dashboard
     {
         $user = Auth::user();
 
-        if (! $user instanceof User) {
-            return [];
-        }
+        return $user instanceof User ? RevenuePeople::lawyerOptions($user) : [];
+    }
 
-        return User::query()
-            ->where(fn ($q) => $q
-                ->whereHas('leadMatters', fn ($matters) => $matters->listableBy($user))
-                ->orWhereHas('attributedPayments', fn ($payments) => $payments
-                    ->withoutGlobalScope(ClientPortalScope::class)
-                    ->whereNull('voided_at')
-                    ->whereHas('instalment.contract.matter', fn ($matters) => $matters->withTrashed()->listableBy($user))))
-            ->orderBy('name')
-            ->pluck('name', 'id')
-            ->all();
+    /**
+     * Tuỳ chọn của ô "Nhân viên kinh doanh" (2026-10-21) — {@see RevenuePeople::salesOptions()}: người có vai Kinh
+     * doanh đang hoạt động, và người (kể cả đã nghỉ) từng là người xử lý một tiếp nhận đã thành hồ sơ có tiền mà
+     * người xem liệt kê được.
+     *
+     * @return array<int, string>
+     */
+    public static function salesOptions(): array
+    {
+        $user = Auth::user();
+
+        return $user instanceof User ? RevenuePeople::salesOptions($user) : [];
     }
 
     public function filtersForm(Schema $schema): Schema
     {
-        // Làn rv: một hàng bốn ô từ `lg` (hai ô từ `sm`, một ô trên điện thoại). Ghi đủ mọi mốc: `columns()`
-        // GỘP với mốc sẵn có của `HasFiltersForm` (md 2, xl 3, 2xl 4), nên chỉ ghi `lg` thì từ `xl` lại còn 3.
-        return $schema->columns(['default' => 1, 'sm' => 2, 'md' => 2, 'lg' => 4, 'xl' => 4, '2xl' => 4])->components([
+        // Làn rv: một hàng từ `lg` (hai ô từ `sm`, một ô trên điện thoại) — năm ô từ 2026-10-21 (thêm "Nhân viên
+        // kinh doanh"). Ghi đủ mọi mốc: `columns()` GỘP với mốc sẵn có của `HasFiltersForm` (md 2, xl 3, 2xl 4),
+        // nên chỉ ghi `lg` thì từ `xl` lại còn 3.
+        //
+        // 2026-10-21: đổi người (luật sư hay kinh doanh) thì ô lĩnh vực về "Tất cả" — bộ lọc được nhớ trong phiên,
+        // và một lĩnh vực chọn từ lần trước không được lặng lẽ thu hẹp số "người này đem về bao nhiêu".
+        $resetPracticeArea = fn (Set $set) => $set('practice_area_id', null);
+
+        return $schema->columns(['default' => 1, 'sm' => 2, 'md' => 2, 'lg' => 5, 'xl' => 5, '2xl' => 5])->components([
             Select::make('period')
                 ->label(__('widgets.revenue_dashboard.filters.period'))
                 ->options([
@@ -200,11 +243,24 @@ class RevenueDashboard extends Dashboard
                 // `CancelMatter` vẫn đếm ở "Đã thu", nên luật sư được ghi số tiền đó vẫn lọc ra được.
                 // `listableBy()` giữ nguyên: vụ hạn chế đã huỷ không đưa tên nào tới người không thấy nó.
                 ->options(fn (): array => static::lawyerOptions())
+                ->placeholder(__('widgets.revenue_dashboard.filters.all_people'))
                 ->native(false)
                 ->searchable()
                 // Fix round 1 (m3, làn fa3): tìm trên máy chủ trong ĐÚNG danh sách trên ("dinh" ra "Đinh").
                 ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => static::lawyerOptions()))
-                ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS),
+                ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
+                ->afterStateUpdated($resetPracticeArea),
+            // 2026-10-21: nhân viên kinh doanh — mọi số của hồ sơ người đó đem về từ tiếp nhận (`SalesAttribution`).
+            // Danh sách qua `listableBy()` như ô luật sư: không cái tên nào chỉ dính vào vụ hạn chế.
+            Select::make('sales_id')
+                ->label(__('widgets.revenue_dashboard.filters.sales'))
+                ->options(fn (): array => static::salesOptions())
+                ->placeholder(__('widgets.revenue_dashboard.filters.all_people'))
+                ->native(false)
+                ->searchable()
+                ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => static::salesOptions()))
+                ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
+                ->afterStateUpdated($resetPracticeArea),
             Select::make('practice_area_id')
                 ->label(__('widgets.revenue_dashboard.filters.practice_area'))
                 ->options(fn () => MatterType::query()
@@ -212,6 +268,8 @@ class RevenueDashboard extends Dashboard
                     ->orderBy('id')
                     ->pluck('name', 'id')
                     ->all())
+                // 2026-10-21: ô trống nói rõ là mọi lĩnh vực.
+                ->placeholder(__('widgets.revenue_dashboard.filters.all_practice_areas'))
                 ->native(false)
                 ->searchable(),
             // Làn rv: nhãn ở trên (`inline(false)`) cho thẳng hàng với ba ô chọn; đoạn giải thích sau ⓘ.
@@ -239,9 +297,10 @@ class RevenueDashboard extends Dashboard
     }
 
     /**
-     * Bảy widget doanh thu (hàng ô số của làn rv đứng đầu), đăng ký TƯỜNG MINH ở đây — KHÔNG `Filament::getWidgets()` (điều 1
+     * Tám widget doanh thu (hàng ô số của làn rv đứng đầu), đăng ký TƯỜNG MINH ở đây — KHÔNG `Filament::getWidgets()` (điều 1
      * của kế hoạch M9 Task 9): mỗi widget đặt `$isDiscovered = false` nên panel không tự gom
-     * chúng vào trang chủ §7.1 lẫn vào đây; trang này là nơi DUY NHẤT liệt kê chúng.
+     * chúng vào trang chủ §7.1 lẫn vào đây; trang này là nơi DUY NHẤT liệt kê chúng. "Doanh thu theo người"
+     * (2026-10-21) đứng ngay sau biểu đồ xu hướng; người không có `revenue.viewAny` không thấy nó.
      *
      * @return array<class-string<Widget>>
      */
@@ -251,6 +310,7 @@ class RevenueDashboard extends Dashboard
             RevenueKpiWidget::class,
             ReceivablesDonutWidget::class,
             RevenueOverTimeWidget::class,
+            RevenueByPersonWidget::class,
             RevenueByStageWidget::class,
             MatterMixByPracticeAreaWidget::class,
             LoadPerLawyerWidget::class,

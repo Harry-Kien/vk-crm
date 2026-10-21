@@ -16,7 +16,8 @@ use Illuminate\Database\Eloquent\Builder;
  *  - chỉ hợp đồng `active` và `completed` (lượt rà soát cuối M9, M7 — cùng quần thể phần đối chiếu của
  *    vành khuyên: hợp đồng đã huỷ không còn là "việc đã ký"; `draft` tự ra ngoài vì chưa có `signed_at`);
  *  - vụ nằm trong `Matter::listableBy($viewer)` (P3: vụ `restricted` không lọt vào số tổng hợp);
- *  - bộ lọc luật sư = luật sư phụ trách HIỆN TẠI (`matters.lead_lawyer_id`), lĩnh vực = loại của vụ.
+ *  - bộ lọc luật sư = luật sư phụ trách HIỆN TẠI (`matters.lead_lawyer_id`), lĩnh vực = loại của vụ;
+ *  - bộ lọc nhân viên kinh doanh (2026-10-21) = hồ sơ người đó đem về từ tiếp nhận ({@see SalesAttribution}).
  *
  * @see RevenueFilters
  */
@@ -34,6 +35,7 @@ final class SignedContracts
             ->whereHas('matter', fn (Builder $q) => $q
                 ->listableBy($viewer)
                 ->when($filters->lawyerId, fn (Builder $mq, int $v) => $mq->where('lead_lawyer_id', $v))
-                ->when($filters->practiceAreaId, fn (Builder $mq, int $v) => $mq->where('matter_type_id', $v)));
+                ->when($filters->practiceAreaId, fn (Builder $mq, int $v) => $mq->where('matter_type_id', $v))
+                ->tap(fn (Builder $mq) => SalesAttribution::constrainMatters($mq, $filters->salesId)));
     }
 }

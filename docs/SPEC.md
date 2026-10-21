@@ -2224,6 +2224,51 @@ Nhắc thanh toán cho khách, Kho tài liệu, Kết nối AI…) giữ nguyên
   đợi sau commit, ghi sổ thư như mọi thư khác (không gửi lại từ sổ thư), tối đa 3 lần mỗi 10 phút, audit
   `test_mail_requested`.
 
+**Đính chính 2026-10-21 — trang "Doanh thu": xem tiền theo từng người (chủ văn phòng: "chọn riêng từng luật sư
+phụ trách hoặc nhân viên kinh doanh thì phải hiện đúng số tiền mà người đó đã làm, lĩnh vực mặc định là tất
+cả").** *Phán quyết controller 2026-10-21, chờ chủ văn phòng xác nhận* (hai luật tính tiền cho người):
+- **Tiền của luật sư — không đổi (M9 P2).** Đã thu theo `payments.attributed_lawyer_id` (luật sư phụ trách LÚC
+  tiền về); còn phải thu, quá hạn, hợp đồng ký mới, hồ sơ đã đóng còn nợ theo luật sư phụ trách HIỆN TẠI.
+- **Tiền của nhân viên kinh doanh — mới.** MỌI số (đã thu, còn phải thu, quá hạn, hợp đồng ký mới, theo giai đoạn,
+  theo lĩnh vực, vành khuyên, hồ sơ đã đóng còn nợ) của các hồ sơ người đó **đem về**: hồ sơ mở từ một bản ghi
+  tiếp nhận (`intake_requests.matter_id`) mà người đó là người được giao xử lý (`intake_requests.assigned_to`).
+  Hồ sơ mở thẳng, hay bản ghi không giao cho ai, không thuộc nhân viên kinh doanh nào. MỘT định nghĩa:
+  `App\Support\Billing\SalesAttribution`. **Không migration:** sau khi chuyển thành hồ sơ, bản ghi tiếp nhận
+  không sửa được nữa (`IntakeRequest::isClosedToChanges()` là cổng của mọi Action ghi; không bàn giao, nghỉ việc
+  hay câu UPDATE nào đụng `assigned_to`), nên `assigned_to` hiện tại CHÍNH LÀ người xử lý lúc chuyển đổi; nhật ký
+  `intake_converted` không mang người xử lý (causer là người bấm — thường là luật sư), nên không phải mốc tốt hơn.
+  Bộ lọc nhân viên kinh doanh đi qua cùng `Matter::scopeListableBy()` như mọi số khác: vụ hạn chế không lọt.
+- **Bộ lọc.** Ô **"Nhân viên kinh doanh"** cạnh ô "Luật sư phụ trách" (năm ô trên một hàng từ `lg`): người có
+  vai Kinh doanh đang hoạt động, cộng người — kể cả đã nghỉ hay tài khoản đã xoá mềm — từng được giao một bản ghi
+  tiếp nhận đã thành hồ sơ có hợp đồng đã ký (bản nháp không tính) mà người xem liệt kê được
+  (`RevenuePeople::salesOptions()`); tìm không dấu
+  như ô luật sư (`LetterD::searchOptions()`). Chọn cả hai ô là GIAO của hai tập. Ô trống in "Tất cả" / "Tất cả
+  lĩnh vực". Bộ lọc của trang được nhớ trong phiên, nên **đổi người thì ô lĩnh vực về "Tất cả"** — một lĩnh vực
+  chọn từ lần trước không lặng lẽ thu hẹp số của người mới chọn.
+- **Dòng phụ dưới tiêu đề** khi đang chọn một người: "Đang xem tiền của: … (luật sư phụ trách — …)" / "(nhân viên
+  kinh doanh — mọi số của các hồ sơ người này đem về từ tiếp nhận)", trước câu phạm vi chung; tên chỉ lấy từ ô
+  chọn của người xem (một id gõ tay ngoài danh sách không in tên nào). Câu ⓘ của từng ô số và biểu đồ tiền thêm
+  nghĩa của bộ lọc kinh doanh khi nó đang bật. Ô "Còn phải thu"/"Quá hạn" không dẫn sang "Công nợ" khi đang lọc
+  một người (trang đó không có hai bộ lọc này).
+- **Biểu đồ mới "Doanh thu theo người"** (`RevenueByPersonWidget`, ngay sau biểu đồ xu hướng): cột ngang, tiền ĐÃ
+  THU trong kỳ của từng luật sư (lúc tiền về) hoặc từng nhân viên kinh doanh (ô chọn riêng "Luật sư"/"Kinh
+  doanh"; mở ở "Kinh doanh" khi trang chỉ đang chọn một nhân viên kinh doanh), giảm dần, kèm bảng số; tiền của hồ
+  sơ không qua nhân viên kinh doanh nào gom vào một cột xám cuối. Theo kỳ và lĩnh vực, KHÔNG theo hai bộ lọc
+  người: vẫn hiện mọi người để so, người đang chọn giữ màu chuỗi, người khác nhạt hơn, bảng số ghi "— đang xem".
+  Chỉ người có `revenue.viewAny` (404 cả khi mount thẳng). Một nguồn số liệu (`RevenuePeople::collectedPerPerson()`
+  đọc `CollectedRevenue::filtered()`): ô "Đã thu" = cột của kỳ trong biểu đồ xu hướng = tổng "Doanh thu theo
+  người" (khi không chọn người) = `CollectedRevenue`, cho cả văn phòng, một luật sư và một nhân viên kinh doanh.
+  **"Tải theo luật sư"** cũng thôi thu hẹp còn một cột khi chọn một luật sư: hiện mọi luật sư, tô người đang chọn.
+- **Trạng thái rỗng.** Mọi biểu đồ của trang mà mọi giá trị bằng 0 (hay không có mục nào) in một câu trong khung
+  ("Không có số tiền nào trong kỳ với bộ lọc đang chọn." — câu về hợp đồng/vụ đang mở cho biểu đồ đếm), không vẽ
+  trục rỗng, không có nút "Xem bảng số". Trục giá trị của mọi biểu đồ cột/đường bắt đầu từ 0 với vạch nguyên
+  (`MoneyChart::valueAxis()`), và `public/charts/money.js` không in một nhãn trục trùng nhãn ngay trước nó — hết
+  "0, 0, 0, 1, 1, 1".
+- **"Tỉ lệ thu tiền"** (vành khuyên đã thu / còn phải thu / quá hạn) chỉ còn dạng Tròn và Cột: ba lát là các phần
+  của một tổng, dạng Đường vẽ một đường phẳng vô nghĩa. Lựa chọn "Đường" đã lưu rơi về dạng gốc.
+- Dữ liệu mẫu: `SalesRevenueDemoSeeder` (cuối `DemoDataSeeder`) — hai lead của `kinhdoanh@` thành hồ sơ có hợp
+  đồng và khoản thu, qua đúng các Action.
+
 ### 7.5 Theo dõi đội ngũ và hiệu suất
 
 **Bổ sung 2026-10-04 (M13).** Ba trang tự viết trên panel `admin`, trả lời hai câu hỏi khác nhau —
@@ -2969,6 +3014,15 @@ sách, vụ `restricted` của M2, vụ đã kết thúc của M7 Task 3, rồi 
 nhất. Con số đo bằng cách gieo đúng `DatabaseSeeder` trong
 `tests/Feature/Acceptance/InstallGuideColdReadTest.php` (test "promises the demo data the seeder really
 builds"), cùng con số `README.md` ghi; test đó cũng giữ cho mục này không còn số thứ tự cũ.
+
+**Đính chính 2026-10-21 — tiền do nhân viên kinh doanh đem về.** `SalesRevenueDemoSeeder`, gọi CUỐI
+`DemoDataSeeder`, cho hai lead của nhân viên kinh doanh mẫu (`kinhdoanh@`, người ghi và người được giao) đi
+qua đúng các Action tới tiền: gọi lại, tư vấn, "Chuyển cho luật sư", báo phí, luật sư được chuyển lead chuyển
+thành hồ sơ (khách mới), soạn và ghi nhận ký hợp đồng, kế toán ghi khoản thu (hai khoản về đúng ngày seed, để
+kỳ mặc định "Tháng này" của trang Doanh thu có số khi chọn người đó — §7.4, đính chính 2026-10-21). Từ đó
+`migrate:fresh --seed` dựng **29 vụ** và **14 khách hàng**; vụ chuyển từ tiếp nhận của M10 vẫn là **vụ thứ 27**,
+hai vụ của nhân viên kinh doanh là vụ thứ 28 và 29 (vụ có id lớn nhất vẫn là một vụ mở từ tiếp nhận). Chạy lại
+không thêm gì (dừng khi đã có bản ghi mang SĐT `0966 300 201`).
 
 ---
 

@@ -16,6 +16,7 @@ use Carbon\CarbonImmutable;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DemoDataSeeder;
 use Database\Seeders\IntakeSeeder;
+use Database\Seeders\SalesRevenueDemoSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
@@ -73,8 +74,10 @@ it('seeds an intake record in every status, each one written through RecordIntak
         ->exists())->toBeTrue("{$intake->code} chưa từng được kiểm tra xung đột"));
 
     // Người liên hệ chưa là khách hàng (R2): seeder không thêm hồ sơ khách nào — bản ghi chuyển thành
-    // vụ việc gắn vào một khách ĐÃ CÓ.
-    expect(Client::query()->count())->toBe(12);
+    // vụ việc gắn vào một khách ĐÃ CÓ. (2026-10-21: `SalesRevenueDemoSeeder`, chạy sau, chuyển hai lead của nhân viên
+    // kinh doanh thành hồ sơ của hai khách MỚI — không phải seeder này.)
+    expect(Client::query()->whereNotIn('phone', SalesRevenueDemoSeeder::PHONES)->count())->toBe(12)
+        ->and(Client::query()->count())->toBe(14);
 });
 
 it('plants two calls that oppose each other, each found by the second source of the other check', function () {
@@ -190,7 +193,8 @@ it('anonymises one lost call past its retention through the real action, and kee
 it('converts one call into a matter of an existing client through the conversion action, and suggests the quote for its contract', function () {
     isdSeed();
 
-    $won = IntakeRequest::query()->where('status', IntakeStatus::Won)->sole();
+    // 2026-10-21: hai lead của nhân viên kinh doanh (`SalesRevenueDemoSeeder`) cũng đã thành hồ sơ — đây là bản của M10.
+    $won = IntakeRequest::query()->where('status', IntakeStatus::Won)->where('contact_name', 'Phạm Thị Dung')->sole();
     $matter = Matter::query()->findOrFail($won->matter_id);
 
     expect($won->client_id)->toBe($matter->client_id)
@@ -226,8 +230,9 @@ it('does not seed the intake records a second time', function () {
     $this->seed(IntakeSeeder::class);
 
     expect(IntakeRequest::withTrashed()->count())->toBe($before)
-        // 23 vụ trước M13 + bốn vụ của TeamPerformanceSeeder (M13 Task 8).
-        ->and(Matter::query()->count())->toBe(27);
+        // 23 vụ trước M13 + bốn vụ của TeamPerformanceSeeder (M13 Task 8) + hai vụ nhân viên kinh doanh đem về
+        // (SalesRevenueDemoSeeder, 2026-10-21) — lần gieo lại thứ hai của DemoDataSeeder cũng không thêm vụ nào.
+        ->and(Matter::query()->count())->toBe(29);
 });
 
 /**

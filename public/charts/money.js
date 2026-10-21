@@ -73,8 +73,17 @@
                 options.scales = options.scales || {};
                 options.scales[valueAxis] = options.scales[valueAxis] || {};
                 options.scales[valueAxis].ticks = options.scales[valueAxis].ticks || {};
-                options.scales[valueAxis].ticks.callback = function (tick) {
-                    return compact(tick);
+                // 2026-10-21: hai vạch kề nhau rút gọn ra CÙNG một chữ ("0, 0, 0, 1, 1, 1" trong ảnh của chủ văn
+                // phòng) thì vạch sau không in nhãn. PHP đã đặt trục từ 0 với vạch nguyên (MoneyChart::valueAxis());
+                // đây là lưới cuối cho trường hợp chưa nghĩ tới.
+                options.scales[valueAxis].ticks.callback = function (tick, index, ticks) {
+                    var label = compact(tick);
+
+                    if (index > 0 && ticks && ticks[index - 1] && compact(ticks[index - 1].value) === label) {
+                        return '';
+                    }
+
+                    return label;
                 };
             }
 

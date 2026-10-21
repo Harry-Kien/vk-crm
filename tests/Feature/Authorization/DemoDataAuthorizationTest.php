@@ -53,14 +53,17 @@ it('gives each role the reach the spec describes on the seeded office', function
      * việc đã bàn giao sang luatsu3) và một vụ `restricted` của luatsu1 — tổng 27; kế toán 22 + 3 = 25 (vụ
      * `restricted` không); luatsu1 phụ trách thêm hai vụ (một thường, một `restricted`): 9 + 2 = 11.
      *
+     * 2026-10-21 (`SalesRevenueDemoSeeder`): HAI vụ THƯỜNG nhân viên kinh doanh đem về, một của luatsu1, một của
+     * luatsu2 (luatsu1 không ở đội ngũ vụ đó) — tổng 29; kế toán 25 + 2 = 27; luatsu1 11 + 1 = 12.
+     *
      * Admin luôn thấy $all (bypass mọi nhánh của scopeListableBy qua vai trò admin). Numbers xác
      * nhận bằng `bin/dev artisan tinker` trên chính bộ seeder này (xem task-10-report.md, cập
      * nhật M7 Task 3; M10 cập nhật khi gộp main vào làn, vòng sửa 1 của rà soát cuối).
      */
-    expect($all)->toBe(27)
+    expect($all)->toBe(29)
         ->and(Matter::query()->listableBy($admin)->count())->toBe($all)
-        ->and(Matter::query()->listableBy($accountant)->count())->toBe(25)
-        ->and($lawyerMatters)->toBe(11)
+        ->and(Matter::query()->listableBy($accountant)->count())->toBe(27)
+        ->and($lawyerMatters)->toBe(12)
         ->and($accountant->can('view', Matter::first()))->toBeFalse();
 
     Matter::query()->listableBy($lawyer)->get()

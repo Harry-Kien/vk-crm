@@ -118,10 +118,41 @@ return [
             'date_from' => 'Từ ngày',
             'date_to' => 'Đến ngày',
             'lawyer' => 'Luật sư phụ trách',
+            // 2026-10-21: xem tiền theo từng người — ô thứ hai, và chữ của ô trống.
+            'sales' => 'Nhân viên kinh doanh',
+            'all_people' => 'Tất cả',
+            'all_practice_areas' => 'Tất cả lĩnh vực',
             'practice_area' => 'Lĩnh vực',
             'by_count' => 'Đếm theo số vụ',
             // Làn rv: chữ này nằm sau nút ⓘ cạnh công tắc, không còn in dưới công tắc.
             'by_count_help' => 'Bật để đếm theo số vụ việc thay vì tổng giá trị. Chỉ đổi con số được đo trên biểu đồ "Cơ cấu theo lĩnh vực", không thêm trục nào khác.',
+        ],
+        // 2026-10-21: dòng phụ dưới tiêu đề khi đang chọn một người — đang xem tiền của ai, theo luật nào.
+        'viewing' => [
+            'prefix' => 'Đang xem tiền của:',
+            'lawyer' => ':name (luật sư phụ trách — tiền đã thu tính cho người phụ trách lúc tiền về; còn phải thu, quá hạn và hợp đồng tính cho người phụ trách hiện tại)',
+            'sales' => ':name (nhân viên kinh doanh — mọi số của các hồ sơ người này đem về từ tiếp nhận)',
+        ],
+        // 2026-10-21: thêm vào câu ⓘ của mỗi ô số/biểu đồ khi đang lọc một nhân viên kinh doanh.
+        'sales_filter_meaning' => 'Bộ lọc nhân viên kinh doanh: mọi số của các hồ sơ người đó đem về — hồ sơ được mở từ một bản ghi tiếp nhận mà người đó là người được giao xử lý; hồ sơ mở thẳng không thuộc nhân viên kinh doanh nào.',
+        // 2026-10-21: câu trong khung khi mọi giá trị của biểu đồ bằng 0 — thay cho trục rỗng.
+        'empty' => [
+            'money' => 'Không có số tiền nào trong kỳ với bộ lọc đang chọn.',
+            'count' => 'Không có hợp đồng nào ký trong kỳ với bộ lọc đang chọn.',
+            'load' => 'Không có vụ việc nào đang mở với bộ lọc đang chọn.',
+        ],
+        // 2026-10-21: biểu đồ "Doanh thu theo người" — RevenueByPersonWidget.
+        'by_person' => [
+            'heading' => 'Doanh thu theo người',
+            'description_lawyer' => 'Tiền về :range · theo luật sư',
+            'description_sales' => 'Tiền về :range · theo kinh doanh',
+            'explanation_lawyer' => 'Tiền về trong kỳ (:range), cộng cho từng luật sư phụ trách LÚC tiền về, xếp giảm dần; kể cả tiền đã thu của hợp đồng sau đó bị huỷ. Theo bộ lọc kỳ và lĩnh vực của trang. Khi đang chọn một người, biểu đồ vẫn hiện mọi người để so — người đang chọn tô đậm, người khác nhạt hơn. Không chọn người thì tổng các cột bằng ô "Đã thu".',
+            'explanation_sales' => 'Tiền về trong kỳ (:range), cộng cho nhân viên kinh doanh đã đem hồ sơ về — người được giao xử lý bản ghi tiếp nhận đã chuyển thành hồ sơ đó; xếp giảm dần. Cột "Hồ sơ không qua nhân viên kinh doanh" gom tiền của hồ sơ mở thẳng hoặc bản ghi tiếp nhận không giao cho ai. Theo bộ lọc kỳ và lĩnh vực của trang. Khi đang chọn một người, biểu đồ vẫn hiện mọi người để so — người đang chọn tô đậm. Không chọn người thì tổng các cột bằng ô "Đã thu".',
+            'filter_lawyer' => 'Luật sư',
+            'filter_sales' => 'Kinh doanh',
+            'series' => 'Tiền đã thu',
+            'selected' => ':name — đang xem',
+            'no_sales' => 'Hồ sơ không qua nhân viên kinh doanh',
         ],
         // làn rv (2026-10-15): hàng ô số đầu trang — RevenueKpiWidget.
         'kpi' => [
@@ -212,7 +243,7 @@ return [
         'load_per_lawyer' => [
             'heading' => 'Tải theo luật sư',
             'description' => 'Số vụ đang mở, tại hôm nay',
-            'explanation' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách hiện tại. KHÔNG phụ thuộc bộ lọc thời gian của trang. Bộ lọc luật sư (luật sư phụ trách hiện tại của vụ) thu hẹp còn đúng một cột.',
+            'explanation' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách hiện tại. KHÔNG phụ thuộc bộ lọc thời gian của trang. Đang chọn một luật sư thì vẫn hiện mọi luật sư để so — người đang chọn tô đậm, người khác nhạt hơn. Bộ lọc nhân viên kinh doanh không đổi biểu đồ này; lĩnh vực vẫn thu hẹp.',
             'series' => 'Số vụ đang mở',
         ],
         'closed_with_balance' => [

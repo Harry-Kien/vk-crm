@@ -7,7 +7,7 @@ use Illuminate\Support\Carbon;
 /**
  * Đọc MỘT lần bộ lọc trang doanh thu (`RevenueDashboard::filtersForm()`, `HasFiltersForm`) từ
  * mảng `$this->pageFilters` mà mỗi widget nhận qua `InteractsWithPageFilters` — MỘT nơi diễn
- * dịch bốn trường lọc thành kiểu dữ liệu widget dùng được, để sáu widget không viết lại phép
+ * dịch các trường lọc thành kiểu dữ liệu widget dùng được, để các widget không viết lại phép
  * tính khoảng ngày hay ép kiểu id sáu lần khác nhau.
  *
  * **Phím tắt kỳ = một ô chọn, không phải hai ô ngày luôn bật** (kế hoạch M9, "Bộ lọc"): `period`
@@ -17,8 +17,12 @@ use Illuminate\Support\Carbon;
  *
  * **Không có bộ lọc nào ép "của ai"** — đó là việc của `Matter::scopeListableBy($user)`, chạy Ở
  * TẦNG TRUY VẤN của từng widget (P3), không phải của lớp này. `RevenueFilters` chỉ đọc Ý MUỐN
- * của người xem (đã chọn kỳ nào, luật sư nào, lĩnh vực nào, đếm theo gì); nó không biết và không
- * cần biết người xem là ai.
+ * của người xem (đã chọn kỳ nào, luật sư nào, nhân viên kinh doanh nào, lĩnh vực nào, đếm theo gì);
+ * nó không biết và không cần biết người xem là ai.
+ *
+ * **Hai bộ lọc người** (2026-10-21): `lawyerId` (luật sư phụ trách — hai nghĩa của M9 P2, mỗi truy vấn tự
+ * chọn nghĩa của nó) và `salesId` (nhân viên kinh doanh — hồ sơ người đó đem về từ tiếp nhận,
+ * {@see SalesAttribution}). Chọn cả hai là GIAO của hai tập.
  */
 final class RevenueFilters
 {
@@ -29,6 +33,7 @@ final class RevenueFilters
         public readonly ?int $practiceAreaId,
         public readonly bool $byCount,
         private readonly string $period = 'this_month',
+        public readonly ?int $salesId = null,
     ) {}
 
     /** @param  array<string, mixed>|null  $pageFilters */
@@ -46,11 +51,35 @@ final class RevenueFilters
             practiceAreaId: filled($pageFilters['practice_area_id'] ?? null) ? (int) $pageFilters['practice_area_id'] : null,
             byCount: (bool) ($pageFilters['by_count'] ?? false),
             period: in_array($period, ['this_quarter', 'this_year', 'custom'], true) ? $period : 'this_month',
+            salesId: filled($pageFilters['sales_id'] ?? null) ? (int) $pageFilters['sales_id'] : null,
+        );
+    }
+
+    /** Đang chọn một người (luật sư phụ trách hay nhân viên kinh doanh) không. */
+    public function hasPerson(): bool
+    {
+        return $this->lawyerId !== null || $this->salesId !== null;
+    }
+
+    /**
+     * Cùng kỳ, cùng lĩnh vực, cùng thứ được đo — BỎ hai bộ lọc người. Cho biểu đồ SO SÁNH người với người
+     * ("Doanh thu theo người"): nó vẫn hiện mọi người khi trang đang chọn một người, và chỉ tô người đó.
+     */
+    public function withoutPeople(): self
+    {
+        return new self(
+            from: $this->from->copy(),
+            to: $this->to->copy(),
+            lawyerId: null,
+            practiceAreaId: $this->practiceAreaId,
+            byCount: $this->byCount,
+            period: $this->period,
+            salesId: null,
         );
     }
 
     /**
-     * Kỳ để SO SÁNH của hàng ô số đầu trang (làn rv, 2026-10-15: "▲ 12 % so với kỳ trước"), cùng luật sư
+     * Kỳ để SO SÁNH của hàng ô số đầu trang (làn rv, 2026-10-15: "▲ 12 % so với kỳ trước"), cùng hai bộ lọc người
      * và lĩnh vực, chỉ khác khoảng ngày:
      *
      *  - **Tháng/quý/năm này: CÙNG KHOẢNG ĐÃ QUA của kỳ liền trước.** Hôm nay 15/10 thì "tháng này" so với
@@ -92,6 +121,7 @@ final class RevenueFilters
             practiceAreaId: $this->practiceAreaId,
             byCount: $this->byCount,
             period: $this->period,
+            salesId: $this->salesId,
         );
     }
 
@@ -129,7 +159,7 @@ final class RevenueFilters
      * Khoảng của biểu đồ XU HƯỚNG "Doanh thu theo tháng/quý/năm" (2026-10-21, chủ văn phòng: chọn "Theo quý"
      * khi kỳ là "Tháng này" chỉ ra một cột phủ kín khung). Kết thúc ở cuối kỳ đang chọn; bắt đầu ở đầu năm
      * của ngày cuối kỳ (`month`, `quarter`) hoặc đầu năm của 4 năm trước đó (`year`) — sớm hơn nếu chính kỳ
-     * (tuỳ chọn) bắt đầu sớm hơn. Luật sư, lĩnh vực, đếm theo gì giữ nguyên. Các ô số đầu trang và các biểu
+     * (tuỳ chọn) bắt đầu sớm hơn. Hai bộ lọc người, lĩnh vực, đếm theo gì giữ nguyên. Các ô số đầu trang và các biểu
      * đồ khác vẫn đọc đúng kỳ ({@see self::bounds()} của bản gốc).
      */
     public function trendWindow(string $granularity): self
@@ -146,6 +176,7 @@ final class RevenueFilters
             practiceAreaId: $this->practiceAreaId,
             byCount: $this->byCount,
             period: $this->period,
+            salesId: $this->salesId,
         );
     }
 

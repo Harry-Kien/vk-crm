@@ -430,13 +430,16 @@ it('§14.8 gives a dev install that runs in Git Bash and generates the key befor
  * vụ việc, 12 khách hàng, 8 nhân sự") mà `migrate:fresh --seed` nay dựng 27 vụ, 12 khách, 10 nhân sự (9
  * đang hoạt động) và 16 tài khoản cổng; vụ chuyển từ tiếp nhận là vụ thứ 27, không phải 23. Test gieo
  * đúng `DatabaseSeeder` và so với chữ của hai tài liệu.
+ *
+ * 2026-10-21: `SalesRevenueDemoSeeder` (cuối `DemoDataSeeder`) thêm hai hồ sơ nhân viên kinh doanh đem về, hai
+ * khách mới — 29 vụ, 14 khách; vụ chuyển từ tiếp nhận của M10 vẫn là vụ thứ 27.
  */
 it('§14.8 promises the demo data the seeder really builds', function () {
     config(['media-library.prefix' => 'test-'.Str::random(16)]);
     $this->seed(DatabaseSeeder::class);
 
-    expect(Matter::query()->withoutGlobalScopes()->count())->toBe(27)
-        ->and(Client::query()->withoutGlobalScopes()->count())->toBe(12)
+    expect(Matter::query()->withoutGlobalScopes()->count())->toBe(29)
+        ->and(Client::query()->withoutGlobalScopes()->count())->toBe(14)
         ->and(ClientUser::query()->withoutGlobalScopes()->count())->toBe(16)
         ->and(User::query()->count())->toBe(10)
         ->and(User::query()->where('is_active', true)->count())->toBe(9)
@@ -445,13 +448,14 @@ it('§14.8 promises the demo data the seeder really builds', function () {
         ->toBe(Matter::query()->withoutGlobalScopes()->max('id'));
 
     $readme = igcFile('README.md');
-    expect(str_replace("\n", ' ', $readme))->toContain('27 vụ việc, 12 khách hàng, 16 tài khoản cổng khách và 10')
+    expect(str_replace("\n", ' ', $readme))->toContain('29 vụ việc, 14 khách hàng, 16 tài khoản cổng khách và 10')
         ->and($readme)->toContain('vụ thứ 27')
         ->and($readme)->not->toContain('vụ thứ 23')
         ->and($readme)->not->toContain('Dữ liệu mẫu có 20 vụ việc');
 
     expect(str_replace("\n", ' ', igcSection(igcFile('docs/CAI-DAT.md'), '# Cài lại VK-CRM trên một máy trống', '## Cần có sẵn trên máy')))
-        ->toContain('27 vụ việc, 12 khách hàng, 10 nhân')
+        ->toContain('29 vụ việc')
+        ->toContain('14 khách hàng, 10 nhân')
         ->toContain('16 tài khoản cổng khách')
         ->not->toContain('21 vụ việc');
 
@@ -461,6 +465,9 @@ it('§14.8 promises the demo data the seeder really builds', function () {
     expect($section12)->toContain('**Đính chính 2026-10-09')
         ->toContain('**vụ thứ 27**')
         ->toContain('**27 vụ**')
+        ->toContain('**Đính chính 2026-10-21')
+        ->toContain('**29 vụ**')
+        ->toContain('**14 khách hàng**')
         ->not->toMatch('/vụ (việc )?thứ\s+(\*\*)?23/u');
 });
 

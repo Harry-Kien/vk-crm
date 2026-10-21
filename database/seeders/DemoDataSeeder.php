@@ -68,5 +68,10 @@ class DemoDataSeeder extends Seeder
         // Làn tk, Task 1 — việc giao nội bộ mẫu: SAU mọi seeder trên (đọc đội ngũ vụ của `MatterSeeder`, vụ
         // `restricted` và luật sư đã nghỉ việc của `TeamPerformanceSeeder`). Dòng riêng, như dòng trên.
         $this->call(TaskSeeder::class);
+
+        // 2026-10-21 — tiền do nhân viên kinh doanh đem về: hai lead của `kinhdoanh@` thành hồ sơ có hợp đồng và
+        // khoản thu (trang Doanh thu, bộ lọc "Nhân viên kinh doanh"). CUỐI CÙNG: các seeder trên không thấy hai
+        // hồ sơ này, nên số liệu mẫu của chúng giữ nguyên.
+        $this->call(SalesRevenueDemoSeeder::class);
     }
 }

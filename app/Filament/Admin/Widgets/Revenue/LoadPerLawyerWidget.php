@@ -6,9 +6,12 @@ use App\Enums\ChartKind;
 use App\Enums\Permission;
 use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
+use App\Filament\Admin\Widgets\Revenue\Concerns\HasRevenueEmptyState;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\Billing\RevenueColours;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Charts\MoneyChart;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Contracts\Support\Htmlable;
@@ -24,9 +27,13 @@ use Illuminate\Support\Facades\Gate;
  *
  * **KHÔNG phụ thuộc bộ lọc thời gian của trang.** Đây là một ẢNH CHỤP HIỆN TẠI ("ai đang cầm bao
  * nhiêu vụ ngay lúc này"), không phải một số phát sinh trong một kỳ — nên đổi kỳ lọc trên trang
- * KHÔNG đổi widget này (có test khẳng định đúng điều đó). Bộ lọc luật sư (`matters.lead_lawyer_id`),
- * nếu chọn, chỉ còn lại đúng một cột — một phép thu hẹp tầm thường nhưng nhất quán với mọi widget
- * khác.
+ * KHÔNG đổi widget này (có test khẳng định đúng điều đó).
+ *
+ * **Biểu đồ SO SÁNH — không thu hẹp theo người** (2026-10-21, chủ văn phòng: chọn một luật sư để xem người
+ * đó, vẫn phải so được với đồng nghiệp). Chọn một luật sư ở bộ lọc trang thì MỌI luật sư vẫn hiện, cột của
+ * người đang chọn giữ màu chuỗi, cột người khác nhạt đi (`RevenueColours::forPeople()`), bảng số ghi
+ * "đang xem" bên tên người đó. Trước đó bộ lọc luật sư thu hẹp còn đúng một cột. Bộ lọc nhân viên kinh
+ * doanh không đổi biểu đồ này (tải là của luật sư); lĩnh vực vẫn thu hẹp tập vụ.
  *
  * **Gộp theo ID luật sư, không theo tên** (Fix round 1, I3): hai luật sư trùng tên (không hiếm ở
  * Việt Nam) sẽ đè số vụ của nhau nếu khoá là chuỗi tên hiển thị. `counts()` trả về một DANH SÁCH
@@ -36,13 +43,15 @@ use Illuminate\Support\Facades\Gate;
  * **Đòi thêm `revenue.viewAny`** — widget so sánh toàn văn phòng thứ hai (cùng lý do
  * `MatterMixByPracticeAreaWidget`): luật sư không thấy widget này.
  *
- * Cột một chuỗi, một màu `#4a73bd`, không chú giải. Không có bảng số tiền đi kèm (đây là số VỤ,
+ * Cột một chuỗi, một màu `#4a73bd` (hai sắc khi đang chọn một luật sư, xem trên), không chú giải. Không có
+ * vụ đang mở nào thì khung in câu rỗng của biểu đồ đếm (`HasRevenueEmptyState`). Không có bảng số tiền đi kèm (đây là số VỤ,
  * không phải số tiền) — nhưng vẫn giữ cùng view dùng chung để có bảng số ĐẾM, đúng "luôn có một
  * bảng số đi kèm mỗi biểu đồ".
  */
 class LoadPerLawyerWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasRevenueEmptyState;
     use HasSwitchableChartKind;
     use InteractsWithPageFilters;
 
@@ -88,8 +97,15 @@ class LoadPerLawyerWidget extends ChartWidget
 
     public function numberTableRows(): array
     {
+        $selected = RevenueFilters::fromPageFilters($this->pageFilters)->lawyerId;
+
         return collect($this->counts())
-            ->map(fn (array $row): array => ['label' => $row['label'], 'value' => (string) $row['amount']])
+            ->map(fn (array $row): array => [
+                'label' => $row['key'] === $selected
+                    ? __('widgets.revenue_dashboard.by_person.selected', ['name' => $row['label']])
+                    : $row['label'],
+                'value' => (string) $row['amount'],
+            ])
             ->values()
             ->all();
     }
@@ -97,6 +113,7 @@ class LoadPerLawyerWidget extends ChartWidget
     protected function getData(): array
     {
         $counts = $this->counts();
+        $selected = RevenueFilters::fromPageFilters($this->pageFilters)->lawyerId;
 
         return [
             'labels' => array_column($counts, 'label'),
@@ -104,10 +121,19 @@ class LoadPerLawyerWidget extends ChartWidget
                 [
                     'label' => __('widgets.revenue_dashboard.load_per_lawyer.series'),
                     'data' => array_column($counts, 'amount'),
-                    'backgroundColor' => '#4a73bd',
+                    // Không chọn ai: MỘT màu (chuỗi, để dạng tròn tự tô mỗi lát một màu). Chọn một luật sư: tô
+                    // người đó, nhạt những người khác.
+                    'backgroundColor' => $selected === null
+                        ? RevenueColours::PERSON_SELECTED
+                        : RevenueColours::forPeople(array_column($counts, 'key'), $selected),
                 ],
             ],
         ];
+    }
+
+    protected function emptyStateKey(): string
+    {
+        return 'widgets.revenue_dashboard.empty.load';
     }
 
     protected function getOptions(): array
@@ -115,7 +141,7 @@ class LoadPerLawyerWidget extends ChartWidget
         return [
             'indexAxis' => 'y',
             'plugins' => ['legend' => ['display' => false]],
-            'scales' => ['x' => ['ticks' => ['precision' => 0]]],
+            'scales' => ['x' => MoneyChart::valueAxis()],
         ];
     }
 
@@ -140,7 +166,6 @@ class LoadPerLawyerWidget extends ChartWidget
             ->listableBy($user)
             ->open()
             ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q->where('matter_type_id', $v))
-            ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('lead_lawyer_id', $v))
             ->join('users', 'users.id', '=', 'matters.lead_lawyer_id')
             ->groupBy('users.id', 'users.name')
             ->orderByDesc('total')

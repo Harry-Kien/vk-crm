@@ -2,7 +2,8 @@
 
 Đã kiểm chứng thật ngày **2026-09-23**, và đi lại theo đúng chữ ngày **2026-10-08** (Git Bash trên
 Windows, bản clone mới, cổng riêng theo mục "Chạy nhiều bản cùng lúc"): cài phụ thuộc, dựng cơ sở dữ
-liệu từ số không, và cả hai màn hình đều lên với đủ dữ liệu mẫu — 27 vụ việc, 12 khách hàng, 10 nhân
+liệu từ số không, và cả hai màn hình đều lên với đủ dữ liệu mẫu — 29 vụ việc (từ 2026-10-21: thêm hai hồ sơ
+nhân viên kinh doanh `kinhdoanh@` đem về), 14 khách hàng, 10 nhân
 sự (9 đăng nhập được — từ 2026-10-14 có thêm nhân viên kinh doanh `kinhdoanh@`, cộng một luật sư "đã nghỉ việc" của dữ liệu mẫu M13), 16 tài khoản cổng khách.
 Các bước dưới đây là đúng những bước đã chạy, không phải mô tả.
 

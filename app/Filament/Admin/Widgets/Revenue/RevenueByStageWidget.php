@@ -6,11 +6,13 @@ use App\Enums\ChartKind;
 use App\Enums\InstalmentTrigger;
 use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
+use App\Filament\Admin\Widgets\Revenue\Concerns\HasRevenueEmptyState;
 use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\Money;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Billing\SalesAttribution;
 use App\Support\Charts\MoneyChart;
 use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -78,6 +80,7 @@ use Illuminate\Support\Facades\DB;
 class RevenueByStageWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasRevenueEmptyState;
     use HasSwitchableChartKind;
     use InteractsWithPageFilters;
     use RequiresBillingView;
@@ -104,13 +107,16 @@ class RevenueByStageWidget extends ChartWidget
 
     /**
      * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
-     * đề. `chart-with-table` đọc nó nếu widget khai.
+     * đề. `chart-with-table` đọc nó nếu widget khai. Đang lọc một nhân viên kinh doanh thì thêm nghĩa của bộ
+     * lọc đó (2026-10-21).
      */
     public function getExplanation(): string
     {
+        $filters = RevenueFilters::fromPageFilters($this->pageFilters);
+
         return __('widgets.revenue_dashboard.by_stage.explanation', [
-            'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
-        ]);
+            'range' => $filters->rangeLabel(),
+        ]).($filters->salesId !== null ? ' '.__('widgets.revenue_dashboard.sales_filter_meaning') : '');
     }
 
     /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
@@ -152,7 +158,7 @@ class RevenueByStageWidget extends ChartWidget
         return [
             'indexAxis' => 'y',
             'plugins' => ['legend' => ['display' => false], ...MoneyChart::pluginOptions()],
-            'scales' => ['x' => ['ticks' => ['precision' => 0]]],
+            'scales' => ['x' => MoneyChart::valueAxis()],
         ];
     }
 
@@ -187,6 +193,8 @@ class RevenueByStageWidget extends ChartWidget
             ->withTrashed()
             ->listableBy($user)
             ->when($filters->practiceAreaId, fn ($q, int $v) => $q->where('matter_type_id', $v))
+            // 2026-10-21: nhân viên kinh doanh — hồ sơ người đó đem về từ tiếp nhận, cùng định nghĩa với ô "Đã thu".
+            ->tap(fn ($q) => SalesAttribution::constrainMatters($q, $filters->salesId))
             ->select('id');
 
         $base = fn (): Builder => DB::table('payments')

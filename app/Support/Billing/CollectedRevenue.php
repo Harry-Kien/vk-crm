@@ -56,6 +56,9 @@ final class CollectedRevenue
      * cùng closure `listableBy` — và cũng `withTrashed()` như closure đó (làn fa3), để lọc theo lĩnh vực
      * không bỏ lại tiền của vụ đã huỷ.
      *
+     * Bộ lọc thứ ba (2026-10-21): nhân viên kinh doanh — khoản thu của hồ sơ người đó đem về từ tiếp nhận
+     * ({@see SalesAttribution}), cùng `withTrashed()` như lĩnh vực. Chọn cả luật sư lẫn kinh doanh là giao.
+     *
      * @param  array{0: string, 1: string}  $bounds
      * @return Builder<Payment>
      */
@@ -64,6 +67,8 @@ final class CollectedRevenue
         return self::query($viewer, $bounds)
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('attributed_lawyer_id', $v))
             ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q
-                ->whereHas('instalment.contract.matter', fn (Builder $mq) => $mq->withTrashed()->where('matter_type_id', $v)));
+                ->whereHas('instalment.contract.matter', fn (Builder $mq) => $mq->withTrashed()->where('matter_type_id', $v)))
+            ->when($filters->salesId, fn (Builder $q, int $v) => $q
+                ->whereHas('instalment.contract.matter', fn (Builder $mq) => SalesAttribution::constrainMatters($mq->withTrashed(), $v)));
     }
 }

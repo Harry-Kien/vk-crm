@@ -69,7 +69,8 @@ dataset('biểu đồ và các dạng được phép', [
     'vụ việc theo giai đoạn' => [MattersByStageWidget::class, ['bar', 'line', 'pie'], 'bar'],
     'tải theo luật sư' => [LoadPerLawyerWidget::class, ['bar', 'line', 'pie'], 'bar'],
     'cơ cấu lĩnh vực' => [MatterMixByPracticeAreaWidget::class, ['bar', 'line', 'pie'], 'bar'],
-    'đã thu, còn phải thu, quá hạn' => [ReceivablesDonutWidget::class, ['pie', 'bar', 'line'], 'doughnut'],
+    // 2026-10-21: ba lát là các phần của MỘT tổng — dạng "Đường" vẽ một đường phẳng vô nghĩa, nên không còn mời.
+    'đã thu, còn phải thu, quá hạn' => [ReceivablesDonutWidget::class, ['pie', 'bar'], 'doughnut'],
     'doanh thu theo đợt, giai đoạn' => [RevenueByStageWidget::class, ['bar', 'line', 'pie'], 'bar'],
     // Chuỗi theo thời gian và chuỗi tỷ lệ/trung vị: KHÔNG có "tròn" — các giá trị không phải phần của một tổng.
     'doanh thu theo thời gian' => [RevenueOverTimeWidget::class, ['bar', 'line'], 'bar'],
@@ -374,14 +375,15 @@ it('vòng tròn nhiều màu sang cột và sang đường: giữ màu từng m�
 
     expect($bar['data']['datasets'][0]['backgroundColor'])->toBe(['#0ca30c', '#4a73bd', '#d03b3b'])
         ->and($bar['options']['plugins']['legend'])->toBe(['display' => false, 'position' => 'bottom'])
-        ->and($bar['options']['scales'])->toBe(['y' => ['beginAtZero' => true]]);
+        // 2026-10-21: vạch là số nguyên — không vạch lẻ nào để trục tiền rút gọn thành "0, 0, 0, 1, 1, 1".
+        ->and($bar['options']['scales'])->toBe(['y' => ['beginAtZero' => true, 'ticks' => ['precision' => 0]]]);
 
     $line = chartPayloadFor(DoughnutProbeChart::class, 'line');
 
     // Một nét không thể mang ba màu: nét trung tính, điểm giữ màu của từng mục.
     expect($line['data']['datasets'][0]['borderColor'])->toBeString()->toMatch('/^#[0-9a-f]{6}$/')
         ->and($line['data']['datasets'][0]['pointBackgroundColor'])->toBe(['#0ca30c', '#4a73bd', '#d03b3b'])
-        ->and($line['options']['scales'])->toBe(['y' => ['beginAtZero' => true]]);
+        ->and($line['options']['scales'])->toBe(['y' => ['beginAtZero' => true, 'ticks' => ['precision' => 0]]]);
 });
 
 it('widget chỉ có một dạng thì không hiện ô chọn', function () {

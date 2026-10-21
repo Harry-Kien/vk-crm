@@ -6,6 +6,7 @@ use App\Enums\ChartKind;
 use App\Enums\Permission;
 use App\Filament\Admin\Widgets\Concerns\HasSwitchableChartKind;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
+use App\Filament\Admin\Widgets\Revenue\Concerns\HasRevenueEmptyState;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Billing\Money;
@@ -53,6 +54,7 @@ use Illuminate\Support\Str;
 class MatterMixByPracticeAreaWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
+    use HasRevenueEmptyState;
     use HasSwitchableChartKind {
         chartFrameKey as switchableChartFrameKey;
     }
@@ -103,13 +105,16 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
 
     /**
      * Chữ của nút ⓘ cạnh tiêu đề (làn rv, 2026-10-15): cách tính đầy đủ, trước làn rv in thẳng dưới tiêu
-     * đề. `chart-with-table` đọc nó nếu widget khai.
+     * đề. `chart-with-table` đọc nó nếu widget khai. Đang lọc một nhân viên kinh doanh thì thêm nghĩa của bộ
+     * lọc đó (2026-10-21; `SignedContracts` áp nó).
      */
     public function getExplanation(): string
     {
+        $filters = RevenueFilters::fromPageFilters($this->pageFilters);
+
         return __('widgets.revenue_dashboard.mix_by_practice_area.explanation', [
-            'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
-        ]);
+            'range' => $filters->rangeLabel(),
+        ]).($filters->salesId !== null ? ' '.__('widgets.revenue_dashboard.sales_filter_meaning') : '');
     }
 
     /** Một chuỗi số theo từng mục rời nhau: đủ ba dạng, cột là dạng gốc. */
@@ -152,6 +157,17 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         ];
     }
 
+    /**
+     * Mọi lĩnh vực đều 0 (2026-10-21): khung in một câu thay cho mười hai cột rỗng — câu về tiền khi đo giá trị,
+     * câu về hợp đồng khi đếm số vụ (`HasRevenueEmptyState`).
+     */
+    protected function emptyStateKey(): string
+    {
+        return RevenueFilters::fromPageFilters($this->pageFilters)->byCount
+            ? 'widgets.revenue_dashboard.empty.count'
+            : 'widgets.revenue_dashboard.empty.money';
+    }
+
     /** Trục tiền rút gọn (MoneyChart) chỉ khi đo giá trị; đếm số vụ thì trục là số trần. */
     protected function getOptions(): array
     {
@@ -160,7 +176,7 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         return [
             'indexAxis' => 'y',
             'plugins' => ['legend' => ['display' => false], ...$money],
-            'scales' => ['x' => ['ticks' => ['precision' => 0]]],
+            'scales' => ['x' => MoneyChart::valueAxis()],
         ];
     }
 
