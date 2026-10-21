@@ -398,7 +398,9 @@ it('cancels with a reason from the list', function () {
 
 it('turns a refusal of the action into a Vietnamese message instead of an error page', function () {
     $this->actingAs($this->assistant, 'web');
-    $component = tkListPage('awaiting');
+    // Kiểm toán 2026-10-21 (N2): tab "Tất cả" — "Chờ tôi nhận" chỉ có việc người đó còn giữ được (tài khoản còn hoạt
+    // động), nên dòng của một người vừa bị vô hiệu rời tab đó ở lần vẽ lại.
+    $component = tkListPage('all');
 
     // Tài khoản bị vô hiệu trong lúc màn hình đang mở: nút còn hiện (policy không đọc `is_active`), Action
     // từ chối dưới khoá, và người dùng đọc một câu tiếng Việt thay vì một trang lỗi.

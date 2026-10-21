@@ -903,4 +903,17 @@ return [
             ],
         ],
     ],
+
+    // Q4 — chuông "người giữ việc vừa bị khoá truy cập" (App\Notifications\Staff\HolderSuspendedAlert). :who, :list đã escape.
+    'holder_suspended' => [
+        'title' => ':count việc cần giao lại: người giữ vừa bị khoá truy cập',
+        'body' => ':who vừa bị khoá truy cập và không còn làm được :count việc anh/chị giao hoặc theo dõi: :list. Các việc '
+            .'này hiện "Cần giao lại" — hãy giao lại cho người khác hoặc huỷ.',
+    ],
+
+    // Q4 — ô mới của "Việc cần xử lý của tôi" (App\Filament\Admin\Widgets\MyWorkQueueWidget).
+    'my_queue' => [
+        'reassign' => 'Việc tôi giao cần giao lại',
+        'reassign_hint' => 'Người giữ đã bị khoá, đã nghỉ hay không còn giữ được việc',
+    ],
 ];

@@ -9,6 +9,7 @@ use App\Enums\AiRevocationReason;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Http\Middleware\EndDisabledStaffSessions;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
+use App\Jobs\SendSuspendedHolderNotices;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\OpenLeads;
@@ -54,7 +55,9 @@ use Illuminate\Validation\ValidationException;
  *
  * Sau commit: gỡ mọi máy nhận thông báo đẩy ({@see ForgetPushDevice::all()}, lý do
  * {@see ForgetPushDevice::REASON_STAFF_SUSPENDED}) — một máy nằm im không gửi request nào nên bước 1
- * không tới được nó.
+ * không tới được nó. Người đó còn giữ việc nội bộ (chờ nhận, đang làm): người giao mỗi việc — hay người nhận thay
+ * họ — nhận MỘT chuông gộp ({@see SendSuspendedHolderNotices}, kiểm toán 2026-10-21, Q4); trước đó người giao một việc
+ * đang làm không hạn hay hạn xa không bao giờ được báo (lời nhắc chỉ đi khi việc chờ nhận lâu, sắp đến hạn, quá hạn).
  *
  * Quyền: `UserPolicy::suspendAccess` — chỉ quản trị viên, không tự khoá chính mình. Không khoá được
  * quản trị viên đang hoạt động cuối cùng.
@@ -102,7 +105,7 @@ final class SuspendStaffAccess
                 'remember_token' => Str::random(60),
             ])->save();
 
-            Audit::record('staff_access_suspended', $locked, [
+            $event = Audit::record('staff_access_suspended', $locked, [
                 'reason' => $reason,
                 'open_lead_matters' => $openWork->leadMatters->count(),
                 'open_deadlines' => $openWork->deadlines->count(),
@@ -118,6 +121,11 @@ final class SuspendStaffAccess
 
             DB::afterCommit(fn () => app(ForgetPushDevice::class)
                 ->all($locked, $actor, ForgetPushDevice::REASON_STAFF_SUSPENDED));
+
+            // Kiểm toán 2026-10-21 (Q4): người giao các việc người này đang giữ được báo — xem docblock lớp.
+            if ($openTasks->held->isNotEmpty()) {
+                SendSuspendedHolderNotices::dispatch((int) $locked->getKey(), (int) $actor->getKey(), (int) $event->getKey())->afterCommit();
+            }
 
             return $locked;
         }));

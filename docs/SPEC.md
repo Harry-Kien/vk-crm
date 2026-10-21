@@ -2636,6 +2636,23 @@ Không migration, tác vụ lịch hay quyền mới; không mẫu thư mới (c
    quản lý"); việc chung — `tasks.managed.*_general`, nút về trang Công việc lọc sẵn người giao. "Bị trả lại"
    (`SendTaskNotice`) tới MỌI người của `forTaskAssigner()` — cùng tập với các lời nhắc người giao — thay vì người đầu
    tiên.
+3. **Khoá truy cập ngay báo người giao (Q4).** Sau commit `SuspendStaffAccess` xếp `SendSuspendedHolderNotices`: mỗi việc
+   người bị khoá còn giữ, người nhận `forTaskAssigner(decisionNeeded: true)` trừ người bấm — MỘT chuông
+   `HolderSuspendedAlert` mỗi người (số việc, tiêu đề), mở trang Công việc lọc sẵn "Cần giao lại" và người nhận đó. Ô
+   mới "Việc tôi giao cần giao lại" của "Việc cần xử lý của tôi" (người có `TaskPolicy::create`):
+   `Task::assignedBy()->held()->needsReassignment()`, mở tab "Tôi đã giao" với đúng bộ lọc đó.
+4. **Một định nghĩa "chờ tôi nhận" (N2).** `Task::scopeAwaitingAcceptanceBy()` và `scopeInProgressFor()` thêm
+   `heldBySeatedAssignee()` — tab, huy hiệu menu, ô trang chủ, khối "Chờ tôi nhận" và cột Theo dõi đội ngũ cùng một tập.
+5. **Mốc lịch nhắc (Q1, Q2, Q5).** Đồng hồ chờ nhận chạy từ `Task::awaitingSince()` (lần giao, hay lần khôi phục muộn
+   hơn; tỉ lệ đúng hạn vẫn đọc `assigned_at`); "sắp đến hạn" = hạn từ hôm nay tới hết ngày làm việc kế tiếp
+   (`BusinessHours::nextWorkingDay()`) — đính chính câu "đến hạn hôm nay hoặc ngày mai" của làn tk ở trên; không
+   "sắp đến hạn"/"quá hạn" trong ngày của lần giao, giao lại, sửa hạn, mở lại, khôi phục gần nhất (`Task::
+   rescheduledToday()`), không `reminder.overdue_assigner` cho người đã thao tác trên việc hôm đó.
+6. **Lời nhắc việc gộp theo người (Q3).** Nhiều việc cùng (loại, người nhận) trong một lượt `tasks.remind`: MỘT chuông +
+   MỘT thư (`SendTaskReminderDigest`, cùng mẫu `staff.task.reminder.<loại>`, `payload.tier` mang khoá từng việc) —
+   như lời nhắc hồ sơ. Không đẩy. Nhịp và khoá của từng việc không đổi.
+
+Không migration, tác vụ lịch, quyền hay mẫu thư mới.
 
 ---
 

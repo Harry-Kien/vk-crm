@@ -153,7 +153,7 @@ một khách hàng khác.
 | **Ghi lại cuộc gọi, buổi làm việc với khách** | Tab **Liên lạc**, ghi một cuộc gọi trong dưới 15 giây | **[Xong]** M7 Task 8 (`CommunicationLogsRelationManager`) |
 | Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Xong]** M6 (`StaleMattersWidget`, `CheckStaleMatters` + thư `StaleMatterReminder`) |
 | Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Xong]** M7: màn hình bàn giao hàng loạt (`BulkReassign`, chỉ vụ đang mở) và thư tổng hợp cho người nhận (`MatterReassigned`) |
-| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; việc nội bộ (đang giữ, đã giao còn mở, hồ sơ chờ nhận — hộp xác nhận đếm cả ba, làn fa2) qua phần "Việc nội bộ và ghế" của Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
+| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; việc nội bộ (đang giữ, đã giao còn mở, hồ sơ chờ nhận — hộp xác nhận đếm cả ba, làn fa2) qua phần "Việc nội bộ và ghế" của Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng. Từ 2026-10-21: người giao mỗi việc người đó đang giữ (hay người nhận thay — luật sư phụ trách, trưởng phòng) nhận **một** chuông liệt kê các việc cần giao lại, trừ người bấm khoá | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
 
 ### Tìm tài liệu (làn tl, chủ văn phòng 2026-10-15)
 
@@ -667,11 +667,15 @@ Từ 2026-10-21 (sửa sau kiểm toán luồng Công việc):
   mỗi ngày làm việc một lần); mỗi việc vẫn chỉ được nhắc một lần cho mỗi khoá nhắc, dù nằm trong thư gộp.
 
 **Trên bảng điều khiển** — ô **"Việc cần xử lý của tôi"**: việc chờ tôi nhận, việc của tôi đã quá hạn (chờ
-nhận hay đang làm, trên hồ sơ còn mở — cùng một nghĩa "quá hạn" với lịch nhắc), hồ sơ chờ tôi nhận, việc tôi giao bị trả lại; bấm một ô để mở đúng danh sách — trang mở ra
+nhận hay đang làm, trên hồ sơ còn mở — cùng một nghĩa "quá hạn" với lịch nhắc), hồ sơ chờ tôi nhận, việc tôi giao bị trả lại, và (từ 2026-10-21, người giao được việc) **việc tôi giao cần giao lại** — người giữ đã bị khoá, nghỉ việc, rời đội ngũ hay trả lại hồ sơ; mở tab "Tôi đã giao" lọc sẵn "Cần giao lại"; bấm một ô để mở đúng danh sách — trang mở ra
 đã lọc sẵn, nên số dòng bằng số trên ô. Ô chỉ hiện khi có việc. Ô "Hồ sơ chờ tôi nhận" chỉ có với người có mục
 Việc của tôi (luật sư, trợ lý, trưởng phòng); quản trị viên nhận hồ sơ ở tab "Đội ngũ" như trên. Người duyệt được
 văn bản (luật sư, trưởng phòng, quản trị viên) có thêm ô **"Văn bản chờ tôi duyệt"** (từ 2026-10-18): văn bản nhóm B
-đang chờ duyệt mà chính họ duyệt được — bấm vào mở trang **Tài liệu** đã lọc sẵn **"Chờ tôi duyệt"**.
+đang chờ duyệt mà chính họ duyệt được — bấm vào mở trang **Tài liệu** đã lọc sẵn **"Chờ tôi duyệt"**. Ô "Việc chờ tôi
+nhận", số trên mục **Công việc** ở menu trái, tab "Chờ tôi nhận" / "Đang làm" và khối "Chờ tôi nhận" của Việc của tôi
+cùng một nghĩa với Theo dõi đội ngũ (từ 2026-10-21): chỉ việc người đó còn **giữ được** — người đã sang "Người theo
+dõi" hay đã trả lại hồ sơ không còn thấy việc đó ở các chỗ này (họ không bấm "Đã nhận" được); việc vẫn ở tab "Tất cả"
+của họ, nơi họ "Trả lại" được, và ở "Cần giao lại" của người giao.
 
 **Trên Theo dõi đội ngũ** (và trang của một người): việc đang làm, việc chờ nhận, việc quá hạn, việc bị trả
 lại (việc người đó giao, chờ họ giao lại), hồ sơ chưa nhận, hồ sơ trả lại — số trên các vụ người xem được

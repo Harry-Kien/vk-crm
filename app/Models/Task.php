@@ -233,18 +233,28 @@ class Task extends Model
             ->orWhereRaw('DATE('.$assigned.') <= DATE('.$this->qualifyColumn('due_date').')'));
     }
 
-    /** "Chờ tôi nhận": giao cho `$user`, chưa ai bấm "Đã nhận". */
+    /**
+     * "Chờ tôi nhận": giao cho `$user`, chưa ai bấm "Đã nhận", và `$user` còn GIỮ ĐƯỢC việc
+     * ({@see self::scopeHeldBySeatedAssignee()}). Kiểm toán 2026-10-21 (N2): MỘT định nghĩa cho tab "Chờ tôi nhận", huy
+     * hiệu menu (`TaskResource::getNavigationBadge()`), ô "Việc chờ tôi nhận" của bảng điều khiển và khối "Chờ tôi nhận"
+     * của "Việc của tôi" — cùng vế với cột "Việc chờ nhận" của Theo dõi đội ngũ (`BuildTaskWorkload`). Trước bản sửa, việc
+     * chờ nhận của người đã sang "Người theo dõi" là 1 ở ô, huy hiệu và tab mà 0 ở Theo dõi đội ngũ, và họ không bấm "Đã
+     * nhận" được (`TaskPolicy::accept`). Việc đó vẫn ở tab "Tất cả" của họ (họ vẫn "Trả lại" được —
+     * `TaskPolicy::decline`) và ở "Cần giao lại" của người giao.
+     */
     public function scopeAwaitingAcceptanceBy(Builder $query, User $user): Builder
     {
         return $query->where($this->qualifyColumn('assignee_id'), $user->getKey())
-            ->where($this->qualifyColumn('status'), TaskStatus::Pending->value);
+            ->where($this->qualifyColumn('status'), TaskStatus::Pending->value)
+            ->heldBySeatedAssignee();
     }
 
-    /** "Đang làm": `$user` đã nhận, chưa xong. */
+    /** "Đang làm": `$user` đã nhận, chưa xong, và còn giữ được việc — cùng lý do {@see self::scopeAwaitingAcceptanceBy()}. */
     public function scopeInProgressFor(Builder $query, User $user): Builder
     {
         return $query->where($this->qualifyColumn('assignee_id'), $user->getKey())
-            ->where($this->qualifyColumn('status'), TaskStatus::Accepted->value);
+            ->where($this->qualifyColumn('status'), TaskStatus::Accepted->value)
+            ->heldBySeatedAssignee();
     }
 
     /**
