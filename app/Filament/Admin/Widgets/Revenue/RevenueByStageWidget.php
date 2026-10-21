@@ -132,7 +132,11 @@ class RevenueByStageWidget extends ChartWidget
         $buckets = $this->buckets();
 
         return [
-            'labels' => array_column($buckets, 'label'),
+            // Cột/đường: nhãn dài ngắt dòng, không thì Chart.js cắt mất phần đầu (2026-10-21). Tròn: chú giải
+            // giữ nguyên câu.
+            'labels' => $this->activeChartKind() === ChartKind::Pie
+                ? array_column($buckets, 'label')
+                : array_map(MoneyChart::wrapLabel(...), array_column($buckets, 'label')),
             'datasets' => [
                 [
                     'label' => __('widgets.revenue_dashboard.by_stage.series'),

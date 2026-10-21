@@ -125,6 +125,30 @@ final class RevenueFilters
         }
     }
 
+    /**
+     * Khoảng của biểu đồ XU HƯỚNG "Doanh thu theo tháng/quý/năm" (2026-10-21, chủ văn phòng: chọn "Theo quý"
+     * khi kỳ là "Tháng này" chỉ ra một cột phủ kín khung). Kết thúc ở cuối kỳ đang chọn; bắt đầu ở đầu năm
+     * của ngày cuối kỳ (`month`, `quarter`) hoặc đầu năm của 4 năm trước đó (`year`) — sớm hơn nếu chính kỳ
+     * (tuỳ chọn) bắt đầu sớm hơn. Luật sư, lĩnh vực, đếm theo gì giữ nguyên. Các ô số đầu trang và các biểu
+     * đồ khác vẫn đọc đúng kỳ ({@see self::bounds()} của bản gốc).
+     */
+    public function trendWindow(string $granularity): self
+    {
+        $start = match ($granularity) {
+            'year' => $this->to->copy()->startOfYear()->subYearsNoOverflow(4),
+            default => $this->to->copy()->startOfYear(),
+        };
+
+        return new self(
+            from: $start->lessThan($this->from) ? $start : $this->from->copy(),
+            to: $this->to->copy(),
+            lawyerId: $this->lawyerId,
+            practiceAreaId: $this->practiceAreaId,
+            byCount: $this->byCount,
+            period: $this->period,
+        );
+    }
+
     /** Nhãn tiếng Việt của khoảng ngày đang lọc — để mỗi widget in lên chính nó (P2/M9 Task 9, điểm 4). */
     public function rangeLabel(): string
     {

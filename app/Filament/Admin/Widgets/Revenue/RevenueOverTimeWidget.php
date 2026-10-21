@@ -57,11 +57,14 @@ class RevenueOverTimeWidget extends ChartWidget
         ]);
     }
 
-    /** Một dòng phụ: khoảng ngày tiền về (làn rv). Cách tính nằm ở {@see self::getExplanation()}. */
+    /**
+     * Một dòng phụ: khoảng ngày tiền về ĐANG VẼ — khoảng xu hướng {@see RevenueFilters::trendWindow()}, không
+     * phải kỳ đầu trang (2026-10-21). Cách tính nằm ở {@see self::getExplanation()}.
+     */
     public function getDescription(): string|Htmlable|null
     {
         return __('widgets.revenue_dashboard.over_time.description', [
-            'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
+            'range' => $this->window()->rangeLabel(),
         ]);
     }
 
@@ -72,8 +75,21 @@ class RevenueOverTimeWidget extends ChartWidget
     public function getExplanation(): string
     {
         return __('widgets.revenue_dashboard.over_time.explanation', [
-            'range' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
+            'range' => $this->window()->rangeLabel(),
+            'period' => RevenueFilters::fromPageFilters($this->pageFilters)->rangeLabel(),
         ]);
+    }
+
+    /** Cách chia cột đang chọn; giá trị lạ (Livewire nhận từ trình duyệt) rơi về tháng. */
+    private function granularity(): string
+    {
+        return in_array($this->filter, ['month', 'quarter', 'year'], true) ? $this->filter : 'month';
+    }
+
+    /** Khoảng của biểu đồ xu hướng — {@see RevenueFilters::trendWindow()}. */
+    private function window(): RevenueFilters
+    {
+        return RevenueFilters::fromPageFilters($this->pageFilters)->trendWindow($this->granularity());
     }
 
     protected function getFilters(): ?array
@@ -97,7 +113,7 @@ class RevenueOverTimeWidget extends ChartWidget
     public function numberTableRows(): array
     {
         return collect($this->buckets())
-            ->map(fn (int $amount, string $label): array => ['label' => $label, 'value' => Money::format($amount)])
+            ->map(fn (int $amount, string|int $label): array => ['label' => (string) $label, 'value' => Money::format($amount)])
             ->values()
             ->all();
     }
@@ -107,12 +123,15 @@ class RevenueOverTimeWidget extends ChartWidget
         $buckets = $this->buckets();
 
         return [
-            'labels' => array_keys($buckets),
+            // PHP đổi khoá "2026" thành số nguyên: nhãn năm phải về lại chuỗi.
+            'labels' => array_map('strval', array_keys($buckets)),
             'datasets' => [
                 [
                     'label' => __('widgets.revenue_dashboard.over_time.series'),
                     'data' => array_values($buckets),
                     'backgroundColor' => '#4a73bd',
+                    // Ít cột (ví dụ bốn quý) thì cột không phình hết khung (2026-10-21).
+                    'maxBarThickness' => 56,
                 ],
             ],
         ];
@@ -144,26 +163,26 @@ class RevenueOverTimeWidget extends ChartWidget
             return [];
         }
 
-        $filters = RevenueFilters::fromPageFilters($this->pageFilters);
+        // Khoảng XU HƯỚNG (2026-10-21): kết thúc ở cuối kỳ đầu trang, bắt đầu ở đầu năm (tháng, quý) hoặc
+        // 5 năm (năm) — {@see RevenueFilters::trendWindow()}. Luật sư và lĩnh vực vẫn là của trang.
+        $granularity = $this->granularity();
+        $filters = $this->window();
 
-        // "Tiền đã thu trong kỳ, trong tầm nhìn của người xem" là CollectedRevenue (M13 Task 2, tách
+        // "Tiền đã thu trong khoảng, trong tầm nhìn của người xem" là CollectedRevenue (M13 Task 2, tách
         // nguyên văn từ đây — cột P7 của trang hiệu suất đọc cùng truy vấn); hai bộ lọc của trang gắn qua
         // `filtered()` (làn rv: cùng chỗ với ô "Đã thu" đầu trang).
         $rows = CollectedRevenue::filtered($user, $filters, $filters->bounds())
             ->get(['paid_on', 'amount']);
 
-        $granularity = in_array($this->filter, ['month', 'quarter', 'year'], true) ? $this->filter : 'month';
-
+        // Mọi kỳ trong khoảng đều có cột, kỳ chưa có tiền là 0 — một chuỗi thời gian thiếu kỳ đọc sai xu hướng.
         $sums = [];
+        for ($cursor = $filters->from->copy(); $cursor->lessThanOrEqualTo($filters->to); $cursor = $this->nextBucket($cursor, $granularity)) {
+            [$sortKey, $label] = $this->bucketOf($cursor, $granularity);
+            $sums[$sortKey] = ['label' => $label, 'amount' => 0];
+        }
 
         foreach ($rows as $row) {
-            $date = Carbon::parse($row->paid_on);
-            [$sortKey, $label] = match ($granularity) {
-                // Lượt rà soát cuối M9, M4: nhãn quý qua lang/vi, không chữ "Q" viết cứng.
-                'quarter' => ["{$date->year}-{$date->quarter}", __('widgets.revenue_dashboard.over_time.quarter_label', ['quarter' => $date->quarter, 'year' => $date->year])],
-                'year' => [(string) $date->year, (string) $date->year],
-                default => [$date->format('Y-m'), $date->format('m/Y')],
-            };
+            [$sortKey, $label] = $this->bucketOf(Carbon::parse($row->paid_on), $granularity);
 
             $sums[$sortKey] ??= ['label' => $label, 'amount' => 0];
             $sums[$sortKey]['amount'] += (int) $row->amount;
@@ -177,5 +196,26 @@ class RevenueOverTimeWidget extends ChartWidget
         }
 
         return $labelled;
+    }
+
+    /** @return array{0: string, 1: string} Khoá sắp xếp và nhãn của kỳ chứa `$date`. */
+    private function bucketOf(Carbon $date, string $granularity): array
+    {
+        return match ($granularity) {
+            // Lượt rà soát cuối M9, M4: nhãn quý qua lang/vi, không chữ "Q" viết cứng.
+            'quarter' => ["{$date->year}-{$date->quarter}", __('widgets.revenue_dashboard.over_time.quarter_label', ['quarter' => $date->quarter, 'year' => $date->year])],
+            'year' => [(string) $date->year, (string) $date->year],
+            default => [$date->format('Y-m'), $date->format('m/Y')],
+        };
+    }
+
+    /** Ngày đầu của kỳ kế tiếp. */
+    private function nextBucket(Carbon $date, string $granularity): Carbon
+    {
+        return match ($granularity) {
+            'quarter' => $date->copy()->startOfQuarter()->addQuarterNoOverflow(),
+            'year' => $date->copy()->startOfYear()->addYearNoOverflow(),
+            default => $date->copy()->startOfMonth()->addMonthNoOverflow(),
+        };
     }
 }
