@@ -192,7 +192,7 @@ class SendTaskNotice implements ShouldQueue
     private function details(Activity $event): array
     {
         return match ($this->kind) {
-            TaskAlert::UPDATED => ['changes' => TaskChangeSummary::fromEvent($event)],
+            TaskAlert::UPDATED, TaskAlert::UPDATED_BY_OTHER => ['changes' => TaskChangeSummary::fromEvent($event)],
             TaskAlert::REASSIGNED_BY_OTHER => ['assignee' => (string) User::query()->withTrashed()
                 ->whereKey((int) $event->getExtraProperty('assignee_id'))->value('name')],
             default => [],

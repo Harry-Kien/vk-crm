@@ -45,6 +45,13 @@ use Illuminate\Validation\ValidationException;
  * không còn mở được hồ sơ thì không được báo — hỏi {@see TaskAssignees::qualifies()} dưới khoá dòng của họ. Người theo
  * dõi vẫn xem được vụ nên bộ lọc người nhận của job (`forTask()`) không tự chặn được họ. Việc hiện "Cần giao lại", và
  * câu xong của màn hình nói điều đó (`tasks.actions.edit_success_needs_reassignment`), không hứa "họ được báo".
+ *
+ * # Người giao được báo (sửa sau kiểm toán 2026-10-21, mục 2)
+ *
+ * Người sửa không phải người giao (luật sư phụ trách hay quản lý sửa việc một người khác giao): người giao nhận MỘT
+ * chuông {@see TaskAlert::UPDATED_BY_OTHER} nêu điều đã đổi — không thư; job lọc qua `forTask()` (người giao đã nghỉ
+ * hay không còn mở được hồ sơ thì không ai). Việc riêng (người giao = người giữ) mà người giữ vừa được báo "đã sửa" thì
+ * không có lời thứ hai. Người nhận một việc người khác giao không tự sửa được nó nữa (`TaskPolicy::manages()`).
  */
 class UpdateTask
 {
@@ -102,13 +109,21 @@ class UpdateTask
                 ] : []),
             ], causer: $actor);
 
+            $holderNotified = false;
+
             if (in_array($fresh->status, [TaskStatus::Pending, TaskStatus::Accepted], true) && $fresh->assignee_id !== $actor->getKey()) {
                 // Xem docblock lớp, mục "Người giữ không còn giữ được việc" — hỏi dưới khoá dòng của họ (sau vụ và việc).
                 $holder = User::query()->withTrashed()->whereKey($fresh->assignee_id)->lockForUpdate()->first();
 
                 if ($holder !== null && app(TaskAssignees::class)->qualifies($holder, $fresh->matter)) {
                     $this->queueNotice($fresh, TaskAlert::UPDATED, $fresh->assignee_id, $activity);
+                    $holderNotified = true;
                 }
+            }
+
+            // Xem docblock lớp, mục "Người giao được báo" — việc riêng mà người giữ vừa được báo: không lời thứ hai.
+            if ($fresh->assigned_by !== $actor->getKey() && ! ($holderNotified && $fresh->assigned_by === $fresh->assignee_id)) {
+                $this->queueNotice($fresh, TaskAlert::UPDATED_BY_OTHER, $fresh->assigned_by, $activity);
             }
 
             return $fresh;

@@ -64,6 +64,9 @@ class TaskAlert extends Notification
     /** Người giao / luật sư phụ trách / quản lý vừa sửa việc người nhận đang giữ — chuông + thư, nêu điều đã đổi. */
     public const UPDATED = 'updated';
 
+    /** Sửa sau kiểm toán 2026-10-21 (mục 2): người khác (luật sư phụ trách, quản lý) sửa việc người giao đã giao — chuông. */
+    public const UPDATED_BY_OTHER = 'updated_by_other';
+
     /** Việc người nhận đã hoàn thành được người khác "Mở lại" (yêu cầu làm lại) — chuông + thư kèm lý do. */
     public const REOPENED = 'reopened';
 

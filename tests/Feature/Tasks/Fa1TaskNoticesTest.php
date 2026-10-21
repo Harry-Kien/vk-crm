@@ -170,10 +170,11 @@ it('tells nobody when nothing changed, when the task was handed back, or when th
     $returned = fa1Held(TaskStatus::Declined, ['title' => 'Việc đã trả lại']);
     fa1Edit($this->associate, $returned, ['due_date' => '2026-10-21']);
 
-    // Trưởng phòng giao cho luật sư phụ trách; luật sư phụ trách (người quản lý được việc vì phụ trách vụ) tự sửa.
+    // Việc riêng của luật sư phụ trách (người giao = người giữ), chính họ sửa. Sửa sau kiểm toán 2026-10-21 (mục 2): một
+    // việc TRƯỞNG PHÒNG giao cho luật sư phụ trách thì luật sư đó không tự sửa được nữa — `LifecycleAuditFixTest`.
     $own = Task::factory()->forMatter($this->matter)->status(TaskStatus::Accepted)->create([
         'title' => 'Việc của chính luật sư phụ trách',
-        'assigned_by' => $this->manager->id,
+        'assigned_by' => $this->lead->id,
         'assignee_id' => $this->lead->id,
         'due_date' => '2026-10-30',
     ]);

@@ -58,7 +58,8 @@ class CancelTask
                 'reason' => $reason,
             ], causer: $actor);
 
-            if ($from !== TaskStatus::Declined) {
+            // Sửa sau kiểm toán 2026-10-21 (mục 8): người huỷ chính là người giữ (việc riêng) không tự báo mình.
+            if ($from !== TaskStatus::Declined && $fresh->assignee_id !== $actor->getKey()) {
                 $this->queueNotice($fresh, TaskAlert::CANCELLED, $fresh->assignee_id, $activity);
             }
 

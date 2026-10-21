@@ -153,8 +153,9 @@ class ReassignTask
                 $this->queueNotice($fresh, TaskAlert::ASSIGNED, $locked->getKey(), $activity);
             }
 
-            // Làn tk, Task 2 (rà soát Task 1, r1): người giao lại chính là người đang giữ (một quản lý giao
-            // cho luật sư phụ trách, rồi luật sư đó chuyển tiếp) thì không tự báo mình.
+            // Làn tk, Task 2 (rà soát Task 1, r1): người giao lại chính là người đang giữ thì không tự báo mình. Sửa sau
+            // kiểm toán 2026-10-21 (mục 2): đó chỉ còn là việc RIÊNG của họ — người nhận một việc người khác giao (một
+            // quản lý giao cho luật sư phụ trách) không tự chuyển tiếp nó nữa (`TaskPolicy::manages()`), họ "Trả lại".
             // Làn fa1, vòng sửa 1: người gọi hàng loạt tắt riêng lời này (docblock lớp, mục "Người gọi hàng loạt").
             if ($notifyFormerHolder && $from !== TaskStatus::Declined && $previous !== $actor->getKey()) {
                 $this->queueNotice($fresh, TaskAlert::REASSIGNED_AWAY, $previous, $activity);

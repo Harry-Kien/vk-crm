@@ -652,6 +652,11 @@ return [
             'title' => 'Một việc anh/chị đang giữ vừa được sửa',
             'body' => ':who đã sửa việc ":title": :changes.',
         ],
+        // Sửa sau kiểm toán 2026-10-21 (mục 2): người khác sửa việc anh/chị giao — chỉ chuông.
+        'updated_by_other' => [
+            'title' => 'Việc anh/chị giao vừa được người khác sửa',
+            'body' => ':who đã sửa việc ":title" anh/chị giao: :changes.',
+        ],
         'reopened' => [
             'title' => 'Việc anh/chị đã hoàn thành được mở lại — cần làm tiếp',
             'body' => ':who đã mở lại việc ":title". Nhận xét: :reason',
