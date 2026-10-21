@@ -383,6 +383,8 @@ return [
             'matter_reassigned' => 'Bàn giao vụ việc: việc luật sư cũ đã giao trên vụ nay do luật sư phụ trách mới theo dõi',
             // làn fa2: App\Actions\Matter\TransferStaffWork::TRANSFER_REASON.
             'staff_work_transferred' => 'Chuyển việc của nhân sự: việc người này đã giao nay do người nhận việc (hay người thao tác) theo dõi',
+            // Sửa sau kiểm toán 2026-10-21 (mục 3): App\Actions\Matter\RemoveTeamMember::ASSIGNER_REASON.
+            'team_member_removed' => 'Gỡ khỏi đội ngũ: việc người bị gỡ đã giao trên hồ sơ nay do luật sư phụ trách theo dõi',
         ],
     ],
 ];
