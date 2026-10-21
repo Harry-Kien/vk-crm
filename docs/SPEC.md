@@ -2608,6 +2608,17 @@ Không migration, tác vụ lịch hay quyền mới.
     không câu "đang giữ … việc".
 15. **Job xếp trước bản cập nhật.** `SendMatterAssignmentNotice::$withMail` là thuộc tính thường có mặc định, không
     `readonly` khai trong hàm dựng: payload cũ (không có khoá đó) chạy được.
+16. **Rà soát lại (2026-10-18).** (a) Việc lead cũ giao mà lead mới đã TRẢ LẠI trước khi bàn giao: `transferAssigner()`
+    đổi người giao sang lead mới nhưng không coi là việc riêng (không `own_task`, vào danh sách "theo dõi" của thư tổng
+    hợp); `Task::scopeAssignedBy()` giữ việc "Bị trả lại" kể cả khi người giao = người nhận, nên nó ở "Tôi đã giao" của
+    lead mới, và ô "Việc tôi giao bị trả lại" đếm bằng chính scope đó (số bằng số dòng đường dẫn mở ra). (b)
+    `RemindPendingWork`: việc riêng bỏ `reminder.overdue_assigner` chỉ khi người giữ CÒN làm được việc
+    (`ownTaskNeedsNoAssignerReminder()` = `isOwnTask()` và `assigneeCanStillWork()`, ở lượt chọn và lúc gửi); không còn
+    làm được thì người nhận thay của `forTaskAssigner()` (luật sư phụ trách, không bao giờ người quản lý) được báo — như
+    `reminder.due_soon_assigner`. (c) `RestoreTask` giữ `assigned_at` cũ khi hạn đã qua (một mốc mới sau hạn đưa việc
+    trễ ra khỏi tỉ lệ đúng hạn qua `scopeAssignedByDueDate()`); hạn còn ở phía trước hay không hạn thì `assigned_at` =
+    lúc khôi phục như trước. `ReopenTask` không chạm `assigned_at`. (d) Bộ lọc "Chờ tôi duyệt" tính
+    `awaitingApprovalIds()` một lần mỗi request của trang (bộ nhớ `private`, không phải trạng thái Livewire).
 
 Không migration, tác vụ lịch hay quyền mới; không mẫu thư mới (chỉ chuông).
 

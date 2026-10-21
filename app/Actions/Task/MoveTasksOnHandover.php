@@ -64,6 +64,12 @@ use App\Support\Tasks\ReassignmentDueDate;
  * chúng không rơi tới người quản lý). Dòng `task_assigner_changed` của chúng thêm `own_task: true`; chúng không vào
  * danh sách "theo dõi" của thư tổng hợp. Trước bản sửa, `assigned_by` của chúng ở lại với lead cũ, nên một lần bàn giao
  * xanh trọn vẫn để lead cũ "còn việc đã giao" (`OpenTaskWork`) và không cho nghỉ việc được.
+ *
+ * Gộp integ-fa (rà soát lại 2026-10-18): việc lead cũ giao cho lead mới mà lead mới ĐÃ TRẢ LẠI trước khi bàn giao ("Bị
+ * trả lại") cũng đổi người giao sang lead mới, nhưng KHÔNG phải việc riêng — không ai giữ nó; lead mới giao người khác
+ * hay huỷ. Nó ở "Tôi đã giao" của lead mới và ô "Việc tôi giao bị trả lại" (`Task::scopeAssignedBy()` giữ việc bị trả lại
+ * kể cả khi người giao = người nhận), không mang `own_task`, và vào danh sách "theo dõi" của thư tổng hợp như mọi việc
+ * bị trả lại khác.
  */
 class MoveTasksOnHandover
 {
@@ -141,7 +147,8 @@ class MoveTasksOnHandover
         $followed = [];
 
         foreach ($tasks as $task) {
-            $own = $task->assignee_id === $newLead->getKey();
+            // Việc riêng = lead mới còn GIỮ nó (chờ nhận, đang làm); việc lead mới đã trả lại thì theo dõi (docblock lớp).
+            $own = $task->assignee_id === $newLead->getKey() && $task->status !== TaskStatus::Declined;
 
             $task->update(['assigned_by' => $newLead->getKey()]);
 

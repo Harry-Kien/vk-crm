@@ -512,7 +512,9 @@ tiếp": việc hiện "Cần giao lại", và màn hình nói rõ điều đó 
 người nhận cũ, người đó được báo (chính người nhận cũ bấm khôi phục thì việc về thẳng "Đang làm" cho họ, không báo
 ai ngoài người giao); người nhận cũ không còn nhận được việc (đã nghỉ, rời đội ngũ, trả lại hồ sơ) thì
 việc hiện "Cần giao lại" để giao người khác. Việc bị huỷ khi đang **"Bị trả lại"** thì khôi phục về "Bị trả lại" —
-người đã trả lại không bị đẩy việc lần nữa, và việc nằm lại ở "Tôi đã giao" để giao người khác. Hồ sơ đã kết thúc thì không mở lại hay
+người đã trả lại không bị đẩy việc lần nữa, và việc nằm lại ở "Tôi đã giao" để giao người khác. Khôi phục một việc đã
+**quá hạn** không làm nó thành "việc nhận sau hạn": ngày giao cũ được giữ, nên việc vẫn tính trong tỉ lệ "Việc hoàn
+thành đúng hạn" (từ 2026-10-18). Hồ sơ đã kết thúc thì không mở lại hay
 khôi phục được việc — bấm nút là nghe ngay lý do. Nhật ký ghi mỗi lần mở lại (kèm ghi chú hoàn thành cũ) và khôi phục.
 
 **Khi bàn giao vụ.** Việc đang mở của luật sư phụ trách cũ trên vụ đó chuyển sang luật sư phụ trách mới ở
@@ -524,7 +526,9 @@ phụ trách mới — người nhận, trạng thái, hạn và lý do trả l�
 chúng hiện ở tab "Tôi đã giao" và ô "Việc tôi giao bị trả lại" của luật sư phụ trách mới, và thư tổng hợp
 bàn giao có một mục riêng cho chúng. Việc luật sư cũ tự giữ (việc riêng), và việc luật sư cũ đã giao cho chính luật sư
 mới, thành **việc riêng của luật sư mới** (từ 2026-10-18) — nên sau một lần bàn giao không còn gì của luật sư cũ chặn
-cho nghỉ việc. Riêng việc chính luật sư mới đã giao cho luật sư cũ thì ở lại, hiện "Cần giao lại". Lead cũ ở lại làm luật sư cộng sự thì mọi việc ở lại với họ — câu gợi ý
+cho nghỉ việc. Việc luật sư cũ giao mà luật sư mới **đã trả lại** trước khi bàn giao thì không phải việc riêng — không
+ai đang giữ nó: nó nằm ở "Tôi đã giao" (lọc "Bị trả lại") và ô "Việc tôi giao bị trả lại" của luật sư mới, để họ giao
+người khác hay huỷ. Riêng việc chính luật sư mới đã giao cho luật sư cũ thì ở lại, hiện "Cần giao lại". Lead cũ ở lại làm luật sư cộng sự thì mọi việc ở lại với họ — câu gợi ý
 dưới công tắc nói rõ điều đó, và khi mở "Bàn giao hàng loạt" từ màn hình cho nghỉ việc thì công tắc tắt sẵn để
 việc đi theo hồ sơ. Việc chung của người nghỉ việc chuyển được ở phần "Việc nội bộ và ghế" của màn hình hàng
 loạt (xem đính chính bên dưới); việc nào còn sót thì ở lại "Cần giao lại" cho trưởng phòng giao lại.
@@ -602,8 +606,10 @@ Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như
    báo cho người giao về việc đó (đã hoàn thành, sắp đến hạn mà không còn người làm, chưa được nhận) tới luật sư phụ
    trách của hồ sơ khi luật sư phụ trách không phải chính họ — không tới chính họ, và **không bao giờ tới trưởng
    phòng** (từ 2026-10-18: một việc riêng của luật sư phụ trách không thành chuông + thư cho mọi trưởng phòng). Việc
-   riêng quá hạn chỉ nhắc chính người giữ — không có lời báo "quá hạn" cho người giao. Người giữ việc riêng không làm
-   được nữa (nghỉ, mất ghế) thì việc hiện "Cần giao lại".
+   riêng quá hạn mà người giữ còn làm được việc thì chỉ nhắc chính người giữ — không có lời báo "quá hạn" cho người
+   giao. Người giữ việc riêng không làm được nữa (nghỉ, bị khoá, mất ghế) thì việc hiện "Cần giao lại", không ai nhắc họ
+   nữa, và lời báo "quá hạn" đi tới luật sư phụ trách của hồ sơ (khi không phải chính họ) — như lời nhắc "sắp đến hạn";
+   vẫn không bao giờ tới trưởng phòng.
 
 Người giao việc đã rời vụ hay nghỉ việc mà không qua bàn giao (ví dụ một luật sư cộng sự nghỉ) thì lời báo
 "bị trả lại" và các lời nhắc cho người giao (chưa được nhận, sắp đến hạn, quá hạn) đi tới luật sư phụ trách hiện tại của
@@ -617,7 +623,7 @@ vụ, ghi rõ việc "do … giao" và mở thẳng tab "Công việc" của h�
 | Vẫn chưa nhận sau **48 giờ làm việc** — hay ngay ở mốc **24 giờ** khi người nhận không còn làm được việc (từ 2026-10-18) | người giao (người giao đã nghỉ hay rời vụ thì luật sư phụ trách của vụ; với hồ sơ, nếu chính luật sư phụ trách là người chưa nhận thì trưởng phòng) | một lần cho mỗi lần giao |
 | Việc **đến hạn hôm nay hoặc ngày mai** | người nhận | một lần cho mỗi hạn (dời hạn thì nhắc lại cho hạn mới) |
 | Việc **đến hạn hôm nay hoặc ngày mai** mà người nhận không còn làm được việc (từ 2026-10-18) | người giao (hay luật sư phụ trách nhận thay), kèm câu "cần giao lại" | một lần cho mỗi hạn |
-| Việc **quá hạn** | người nhận và người giao (việc riêng — người giao chính là người giữ: chỉ người nhận, từ 2026-10-18) | mỗi ngày làm việc một lần |
+| Việc **quá hạn** | người nhận và người giao (việc riêng — người giao chính là người giữ: chỉ người nhận khi họ còn làm được việc, không thì luật sư phụ trách nhận thay; từ 2026-10-18) | mỗi ngày làm việc một lần |
 
 Mỗi lời nhắc là một chuông và một thư; không ai nhận hai lần cùng một lời nhắc, và lời nhắc chỉ tới người
 lúc gửi vẫn đang giữ việc (hay vẫn là người giao). Việc đã trả lại, việc của vụ đã kết thúc hay đã huỷ không

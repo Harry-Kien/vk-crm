@@ -135,12 +135,20 @@ class DocumentLibrary extends Page implements HasTable
     public const AWAITING_MY_APPROVAL = 'awaiting_my_approval';
 
     /**
+     * Bộ nhớ của {@see self::awaitingApprovalIdsThisRequest()} — id người xem => id văn bản; không phải trạng thái Livewire.
+     *
+     * @var array<int, list<int>>|null
+     */
+    private ?array $awaitingApprovalIdsByViewer = null;
+
+    /**
      * Id các văn bản "chờ tôi duyệt" của `$viewer` (gộp integ-fa, rà soát chéo 2026-10-18, mục 17): văn bản nhóm B
      * (`DocumentGroup::Issued`) đang "Chờ duyệt" (`DocumentStatus::PendingApproval`), trong tập trang này cho người đó
      * thấy (`ListVisibleDocuments`), mà người đó QUA ĐÚNG CỔNG của nút duyệt — `DocumentPolicy::publish`, cổng của
      * `MarkDocumentSignedFiled` ("Đánh dấu đã ký, đã nộp") và của "Trả về bản nháp". Cổng hỏi từng văn bản (MỘT luật,
      * không viết lại bằng SQL); tập văn bản đang chờ duyệt nhỏ. Bộ lọc của trang và ô số "Văn bản chờ tôi duyệt" của bảng
-     * điều khiển (`MyWorkQueueWidget`) cùng đọc hàm này.
+     * điều khiển (`MyWorkQueueWidget`) cùng đọc hàm này — bộ lọc qua {@see self::awaitingApprovalIdsThisRequest()} (một
+     * lần mỗi request), ô số một lần mỗi lần dựng (`MyWorkQueueWidget::getStats()` giữ số của nó).
      *
      * @return list<int>
      */
@@ -161,6 +169,21 @@ class DocumentLibrary extends Page implements HasTable
             ->map(fn (Document $document): int => (int) $document->getKey())
             ->values()
             ->all();
+    }
+
+    /**
+     * {@see self::awaitingApprovalIds()} MỘT lần cho mỗi request của trang (gộp integ-fa, rà soát lại 2026-10-18):
+     * Filament áp bộ lọc nhiều lần trong một request (truy vấn dòng, truy vấn đếm), và mỗi lần hỏi cổng `publish` từng
+     * văn bản. Thuộc tính `private` không đi qua trạng thái Livewire, nên mỗi request (lần dựng, mỗi lần cập nhật) tính
+     * lại từ đầu — không bao giờ cũ hơn request đang chạy.
+     *
+     * @return list<int>
+     */
+    private function awaitingApprovalIdsThisRequest(User $viewer): array
+    {
+        $this->awaitingApprovalIdsByViewer ??= [];
+
+        return $this->awaitingApprovalIdsByViewer[$viewer->getKey()] ??= static::awaitingApprovalIds($viewer);
     }
 
     /** Xem docblock lớp, mục "Cổng" — 404 ở mount VÀ ở mọi request cập nhật Livewire. */
@@ -293,7 +316,7 @@ class DocumentLibrary extends Page implements HasTable
                     ->toggle()
                     ->visible(fn (): bool => Auth::user() instanceof User && Gate::allows(Permission::DocumentPublish->value))
                     ->query(fn (Builder $query): Builder => Auth::user() instanceof User
-                        ? $query->whereKey(static::awaitingApprovalIds(Auth::user()))
+                        ? $query->whereKey($this->awaitingApprovalIdsThisRequest(Auth::user()))
                         : $query->whereRaw('1 = 0')),
             ])
             ->recordActions([

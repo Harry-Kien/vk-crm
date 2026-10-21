@@ -252,11 +252,20 @@ class Task extends Model
      * Việc `$user` tự giữ (gộp integ-fa: người giao = người giữ — nhận thay việc mình đã giao, `ReassignTask`
      * `takeOver`, hay một lần "Giao lại" trả việc về người đã giao nó) không ở đây: nó là việc của chính họ, ở "Chờ tôi
      * nhận" / "Đang làm".
+     *
+     * Trừ việc "Bị trả lại" (gộp integ-fa, rà soát lại 2026-10-18): người giao = người nhận mà việc đã trả lại — lead mới
+     * từng trả lại việc lead cũ giao, rồi bàn giao vụ biến họ thành người giao (`MoveTasksOnHandover::transferAssigner()`;
+     * `TransferStaffWork` đổi người giao sang người bấm cũng vậy). Không ai còn giữ việc; chỉ người giao giao người khác
+     * hay huỷ nó, nên nó ở đây — và ở ô "Việc tôi giao bị trả lại" của bảng điều khiển, đếm bằng chính scope này. Không có
+     * ngoại lệ này nó không ở danh sách nào của ai: không "Chờ tôi nhận" / "Đang làm" (đã trả lại), không "Cần giao lại"
+     * (người giao còn đó), không lời nhắc nào (việc bị trả lại không nhắc).
      */
     public function scopeAssignedBy(Builder $query, User $user): Builder
     {
         return $query->where($this->qualifyColumn('assigned_by'), $user->getKey())
-            ->where($this->qualifyColumn('assignee_id'), '!=', $user->getKey())
+            ->where(fn (Builder $notOwn): Builder => $notOwn
+                ->where($this->qualifyColumn('assignee_id'), '!=', $user->getKey())
+                ->orWhere($this->qualifyColumn('status'), TaskStatus::Declined->value))
             ->where(fn (Builder $tracked): Builder => $tracked
                 ->whereIn($this->qualifyColumn('status'), TaskStatus::openValues())
                 ->orWhere(fn (Builder $done): Builder => $done

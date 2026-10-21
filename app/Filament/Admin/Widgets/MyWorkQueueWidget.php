@@ -124,7 +124,9 @@ class MyWorkQueueWidget extends StatsOverviewWidget
             'awaiting' => $mine()->awaitingAcceptanceBy($user)->count(),
             'overdue' => $mine()->where('tasks.assignee_id', $user->getKey())->overdueToHandle()->count(),
             ...(SeatInbox::onMyWork($user) ? ['seats' => MatterAssignmentsAwaitingMeWidget::seats($user)->count()] : []),
-            'returned' => $mine()->where('tasks.assigned_by', $user->getKey())->returned()->count(),
+            // Cùng scope của tab "Tôi đã giao" mà ô mở ra (`Task::scopeAssignedBy()` — gồm việc bị trả lại mà người giao
+            // cũng là người nhận; gộp integ-fa, rà soát lại 2026-10-18), nên số bằng số dòng.
+            'returned' => $mine()->assignedBy($user)->returned()->count(),
             ...(self::approves($user) ? ['approvals' => count(DocumentLibrary::awaitingApprovalIds($user))] : []),
         ];
     }

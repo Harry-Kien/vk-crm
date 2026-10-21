@@ -1663,12 +1663,15 @@ kiểm tra luồng nội bộ"):
    hay đã bị tạm khoá / vô hiệu — các việc đó hiện ở "Cần giao lại", không ở cả hai nơi.
 3. **Số "Hiệu suất theo kỳ" của kỳ ĐÃ QUA có thể đổi** so với ảnh chụp cũ: tỉ lệ "Việc hoàn thành đúng hạn" nay tính
    cả việc còn giữ đã quá hạn (là việc trễ), bỏ việc người đó nhận khi hạn đã qua, và đọc trạng thái hiện tại (một
-   việc quá hạn được hoàn thành, huỷ hay giao lại sau đó ra khỏi mẫu của kỳ cũ).
+   việc quá hạn được hoàn thành, huỷ hay giao lại sau đó ra khỏi mẫu của kỳ cũ). Huỷ rồi khôi phục một việc đã quá hạn
+   giữ ngày giao cũ, nên việc đó vẫn tính là trễ.
 4. **Kế toán "Đưa về bản nháp"** chỉ được với hợp đồng chính kế toán đó đã kích hoạt (người có `contract.manage` thì
    mọi hợp đồng đủ điều kiện) — phán quyết chờ chủ văn phòng xác nhận.
 5. **Nhận thay:** trên hộp gỡ thành viên và phần "Việc nội bộ và ghế" của Bàn giao hàng loạt, người bấm chọn chính
    mình ("Tôi nhận") thì việc sang thẳng "Đang làm" của họ, không bước "Đã nhận"; bàn giao một vụ cho chính mình cũng
-   vậy. Việc mà người giao chính là người giữ (việc riêng) không ở "Tôi đã giao" và không báo "quá hạn" cho người giao.
+   vậy. Việc mà người giao chính là người giữ (việc riêng) không ở "Tôi đã giao" và không báo "quá hạn" cho người giao
+   — trừ khi người giữ không còn làm được việc: khi đó luật sư phụ trách của hồ sơ nhận lời báo "quá hạn". Việc người
+   giao đã tự trả lại trước một lần bàn giao (nay họ là người giao) nằm ở "Tôi đã giao", lọc "Bị trả lại".
 6. **Nghỉ việc:** một nhân sự còn giữ việc nội bộ (hay đã giao việc còn mở, hay còn hồ sơ chờ nhận) bị chặn vô hiệu
    hoá / xoá / đổi sang Kế toán hay Nhân viên kinh doanh cho tới khi chuyển xong — phần "Việc nội bộ và ghế" của màn
    hình "Bàn giao hàng loạt" (hộp xác nhận nêu các con số, bắt nhập lý do). Hồ sơ người đó PHỤ TRÁCH đi qua phần "Bàn

@@ -28,7 +28,7 @@ use Illuminate\Validation\ValidationException;
  *    cũ đã trả lại nó (kèm lý do, còn trên dòng: `CancelTask` không xoá `declined_at`/`decline_reason`), nên không
  *    đẩy việc lần nữa cho họ và không báo họ; việc nằm lại ở "Tôi đã giao" của người giao để giao người khác;
  *  - mọi trạng thái khác (chờ nhận, đang làm): việc trở về "Chờ nhận" với NGƯỜI NHẬN CŨ: `assigned_at` = bây giờ
- *    (một lần giao mới — đồng hồ nhắc chờ nhận chạy lại), mốc nhận/trả lại/huỷ và lý do cũ xoá trên dòng (giữ trong
+ *    (đồng hồ nhắc chờ nhận chạy lại) trừ khi hạn đã qua (mục "Mốc giao"), mốc nhận/trả lại/huỷ và lý do cũ xoá trên dòng (giữ trong
  *    nhật ký: `task_cancelled` cũ và dòng `task_restored` mới — `reason`, `cancel_reason`). Người nhận cũ được hỏi
  *    lại DƯỚI KHOÁ dòng của họ ({@see TaskAssignees::qualifies()} — khoá sau vụ và việc, thứ tự toàn cục):
  *     - còn nhận được việc: chuông + thư `staff.task.restored` ({@see TaskAlert::RESTORED}) kèm lý do, sau commit;
@@ -36,6 +36,14 @@ use Illuminate\Validation\ValidationException;
  *       lại" (`Task::scopeNeedsReassignment()`: cùng các vế của `qualifies()`), và người khôi phục giao lại.
  *
  * Cả hai nhánh xoá `cancelled_at`/`cancel_reason` trên dòng. Dòng `task_restored` ghi `to` là trạng thái đã về.
+ *
+ * # Mốc giao (gộp integ-fa, rà soát lại 2026-10-18)
+ *
+ * Khôi phục trả việc về CÙNG người nhận — không phải một lần giao cho người mới. `assigned_at` = bây giờ (đồng hồ nhắc
+ * chờ nhận chạy lại) chỉ khi hạn còn ở hôm nay hay tương lai, hay không có hạn: khi đó mốc mới không đổi gì ở tỉ lệ "Việc
+ * hoàn thành đúng hạn". Hạn ĐÃ QUA thì giữ mốc giao cũ: `Task::scopeAssignedByDueDate()` bỏ khỏi tỉ lệ việc người giữ
+ * nhận SAU ngày hạn, nên một mốc giao mới sẽ đưa một việc đã trễ ra khỏi số chỉ bằng huỷ rồi khôi phục — người giữ đã có
+ * cơ hội làm kịp từ lần giao đầu. Lời nhắc quá hạn hằng ngày vẫn đi như mọi việc quá hạn.
  *
  * # Khôi phục về chính người bấm (làn fa1, vòng sửa 2 — c4)
  *
@@ -97,7 +105,10 @@ class RestoreTask
 
                 $fresh->update([
                     'status' => $toSelf ? TaskStatus::Accepted : TaskStatus::Pending,
-                    'assigned_at' => now(),
+                    // Xem docblock lớp, mục "Mốc giao".
+                    'assigned_at' => $fresh->due_date !== null && $fresh->due_date->toDateString() < today()->toDateString()
+                        ? $fresh->assigned_at
+                        : now(),
                     'accepted_at' => $toSelf ? now() : null,
                     'declined_at' => null,
                     'decline_reason' => null,
