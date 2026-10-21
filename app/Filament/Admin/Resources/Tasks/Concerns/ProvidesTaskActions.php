@@ -95,6 +95,8 @@ trait ProvidesTaskActions
             ->modalHeading(fn (Task $record): string => __($own($record) ? 'tasks.reopen.heading_own' : 'tasks.reopen.heading'))
             ->modalDescription(fn (Task $record): string => __($own($record) ? 'tasks.reopen.description_own' : 'tasks.reopen.description'))
             ->modalSubmitActionLabel(__('tasks.reopen.submit'))
+            // Sửa sau kiểm toán 2026-10-21 (mục 5): ô "Hạn" điền sẵn cùng luật "Giao lại"; người tự mở lại thì không có ô.
+            ->fillForm(fn (Task $record): array => $own($record) ? [] : ['due_date' => self::suggestedDueDate($record)])
             ->schema(fn (Task $record): array => self::onClosedMatter($record) ? [] : [
                 Textarea::make('reason')
                     ->label(__('tasks.fields.reason'))
@@ -102,6 +104,7 @@ trait ProvidesTaskActions
                     ->required(fn (): bool => ! $own($record))
                     ->maxLength(Task::REASON_MAX_LENGTH)
                     ->rows(3),
+                ...($own($record) ? [] : [self::followUpDueDateField($record)]),
             ])
             // Làn fa1, vòng sửa 1 (m2): người giữ không còn giữ được việc thì không ai được báo — câu xong nói "Cần giao lại".
             ->successNotificationTitle(fn (Task $record): string => __(Task::query()->whereKey($record->getKey())->needsReassignment()->exists()
@@ -109,7 +112,13 @@ trait ProvidesTaskActions
                 : 'tasks.reopen.success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
                 $action,
-                fn () => app(ReopenTask::class)->handle($record, $this->taskActor(), $data['reason'] ?? null),
+                fn () => app(ReopenTask::class)->handle(
+                    $record,
+                    $this->taskActor(),
+                    $data['reason'] ?? null,
+                    $data['due_date'] ?? null,
+                    setDueDate: ! $own($record),
+                ),
             ));
     }
 
@@ -295,16 +304,16 @@ trait ProvidesTaskActions
             ->authorize(fn (Task $record): bool => Gate::allows('reassign', $record))
             ->modalHeading(__('tasks.actions.reassign_heading'))
             ->modalSubmitActionLabel(__('tasks.actions.reassign_submit'))
-            ->fillForm(fn (Task $record): array => ['due_date' => self::suggestedDueDate($record)])
+            // Sửa sau kiểm toán 2026-10-21 (mục 4): ô ẩn `mounted_updated_at` — `ReassignTask` từ chối khi dòng đã đổi từ
+            // lúc mở (hạn điền sẵn không ghi đè lần sửa của người khác).
+            ->fillForm(fn (Task $record): array => [
+                'due_date' => self::suggestedDueDate($record),
+                'mounted_updated_at' => $record->updated_at?->toDateTimeString(),
+            ])
             ->schema(fn (Task $record): array => [
                 $this->assigneeSelect(fn (): ?Matter => $record->matter, $record),
-                DatePicker::make('due_date')
-                    ->label(__('tasks.fields.due_date'))
-                    ->helperText(fn (): string => $record->due_date !== null && $record->due_date->toDateString() < today()->toDateString()
-                        ? __('tasks.reassign.due_past_help', ['date' => $record->due_date->format('d/m/Y')])
-                        : __('tasks.fields.due_date_help'))
-                    ->native(false)
-                    ->displayFormat('d/m/Y'),
+                self::followUpDueDateField($record),
+                Hidden::make('mounted_updated_at'),
             ])
             ->successNotificationTitle(__('tasks.actions.reassign_success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
@@ -315,6 +324,7 @@ trait ProvidesTaskActions
                     User::query()->withTrashed()->findOrFail($data['assignee_id'] ?? null),
                     $data['due_date'] ?? null,
                     setDueDate: true,
+                    expectedUpdatedAt: $data['mounted_updated_at'] ?? null,
                 ),
             ));
     }
@@ -367,6 +377,21 @@ trait ProvidesTaskActions
     protected static function assigneeHelp(string $key): string
     {
         return __($key).' '.__('tasks.assign.workload_scope');
+    }
+
+    /**
+     * Ô "Hạn" của "Giao lại" (làn fa1) và — sửa sau kiểm toán 2026-10-21 (mục 5) — của "Mở lại": điền sẵn
+     * {@see self::suggestedDueDate()}; hạn cũ đã qua thì câu gợi ý nói đã đề xuất một hạn mới.
+     */
+    private static function followUpDueDateField(Task $record): DatePicker
+    {
+        return DatePicker::make('due_date')
+            ->label(__('tasks.fields.due_date'))
+            ->helperText(fn (): string => $record->due_date !== null && $record->due_date->toDateString() < today()->toDateString()
+                ? __('tasks.reassign.due_past_help', ['date' => $record->due_date->format('d/m/Y')])
+                : __('tasks.fields.due_date_help'))
+            ->native(false)
+            ->displayFormat('d/m/Y');
     }
 
     /**

@@ -642,6 +642,12 @@ return [
         ],
     ],
 
+    // Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn vòng đời (PROGRESS, mục cùng tên).
+    'lifecycle' => [
+        // Mục 5: người nhận tự mở lại (bấm nhầm) không đổi hạn của mình.
+        'reopen_due_own' => 'Anh/chị tự mở lại việc của mình nên không đổi được hạn — nhờ người giao việc nếu cần hạn mới.',
+    ],
+
     // Lời nhắc người giao (chưa được nhận, quá hạn) về một việc "Cần giao lại" vì người nhận. :who đã escape ở chuông.
     'reminder_needs_reassignment' => ':who không còn giữ được việc này (đã nghỉ, rời đội ngũ, trả lại hồ sơ hoặc không còn mở được hồ sơ) — việc hiện "Cần giao lại": hãy giao lại.',
 

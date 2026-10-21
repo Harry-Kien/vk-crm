@@ -2,6 +2,7 @@
 
 use App\Actions\Task\CancelTask;
 use App\Actions\Task\ReassignTask;
+use App\Actions\Task\ReopenTask;
 use App\Actions\Task\UpdateTask;
 use App\Enums\MatterRole;
 use App\Enums\Role;
@@ -13,10 +14,13 @@ use App\Models\Task;
 use App\Models\User;
 use App\Notifications\Staff\TaskAlert;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn vòng đời (PROGRESS, mục cùng tên). Mỗi phần một phát hiện; mọi
@@ -195,4 +199,137 @@ it('does not ring the holder who cancels their own task', function () {
     $held = lcTask($this->lead, $this->assistant);
     app(CancelTask::class)->handle($held, $this->lead, 'Khách rút yêu cầu');
     expect(lcBells($this->assistant, $held))->toBe([__('tasks.alert.cancelled.title')]);
+});
+
+// =============================================================================================
+// MỤC 4 — "Giao lại" không ghi đè lặng lẽ hạn người khác vừa sửa
+// =============================================================================================
+
+/**
+ * Hộp thoại "Giao lại" mở (hạn điền sẵn 26/10), người giao sửa hạn thành 23/10, rồi người mở hộp thoại bấm lưu: từ
+ * chối bằng câu "vừa được thay đổi", hạn 23/10 và người giữ không đổi. Phép thử ngược: bỏ phép so `expectedUpdatedAt`
+ * trong `ReassignTask` (hay bỏ ô ẩn `mounted_updated_at`) → đỏ (việc sang người mới với hạn cũ 26/10).
+ */
+it('refuses a reassignment saved from a dialog opened before someone else changed the task', function () {
+    $task = lcTask($this->associate, $this->assistant);
+
+    $this->actingAs($this->lead, 'web');
+
+    $page = $this->livewire(ListTasks::class, ['activeTab' => 'all'])
+        ->mountAction(TestAction::make('reassign')->table($task))
+        ->assertActionDataSet(['due_date' => '2026-10-26']);
+
+    $this->travel(1)->minutes();
+    app(UpdateTask::class)->handle($task->fresh(), $this->associate, 'Soạn bản tự khai', null, '2026-10-23', TaskPriority::Normal, null);
+
+    $page->setActionData(['assignee_id' => $this->otherAssistant->id])
+        ->callMountedAction()
+        ->assertHasActionErrors(['assignee_id' => __('tasks.validation.changed_meanwhile')]);
+
+    $fresh = $task->fresh();
+    expect($fresh->assignee_id)->toBe($this->assistant->id)
+        ->and($fresh->due_date->toDateString())->toBe('2026-10-23')
+        ->and(Activity::query()->where('event', 'task_reassigned')->count())->toBe(0);
+
+    // Mở lại hộp thoại: hạn mới được điền sẵn, giao lại được.
+    $this->livewire(ListTasks::class, ['activeTab' => 'all'])
+        ->mountAction(TestAction::make('reassign')->table($fresh))
+        ->assertActionDataSet(['due_date' => '2026-10-23'])
+        ->setActionData(['assignee_id' => $this->otherAssistant->id])
+        ->callMountedAction()
+        ->assertHasNoActionErrors();
+
+    expect($task->fresh()->assignee_id)->toBe($this->otherAssistant->id)
+        ->and($task->fresh()->due_date->toDateString())->toBe('2026-10-23');
+});
+
+// =============================================================================================
+// MỤC 5 — "Mở lại" đặt được hạn mới khi hạn cũ đã qua
+// =============================================================================================
+
+function lcDone(array $extra = []): Task
+{
+    return lcTask(test()->associate, test()->assistant, TaskStatus::Completed, [
+        'assigned_at' => '2026-10-10 09:00:00',
+        'due_date' => '2026-10-15',
+        'completed_at' => now()->subHours(2),
+        ...$extra,
+    ]);
+}
+
+/**
+ * Hạn cũ 15/10 đã qua (người giữ có 5 ngày từ 10/10): hộp thoại điền sẵn 26/10 — cùng luật "Giao lại"; lưu thì việc về
+ * "Đang làm" với hạn mới, nhật ký `task_reopened` ghi hạn cũ/mới. Phép thử ngược: bỏ ô Hạn của hộp thoại (hay
+ * `ReopenTask` bỏ qua `$dueDate`) → đỏ (việc mở lại vẫn hạn 15/10 — quá hạn ngay).
+ */
+it('suggests a new due date when reopening a task whose due date has passed, and logs the change', function () {
+    $task = lcDone();
+
+    $this->actingAs($this->associate, 'web');
+
+    $this->livewire(ListTasks::class, ['activeTab' => 'assigned'])
+        ->mountAction(TestAction::make('reopen')->table($task))
+        ->assertActionDataSet(['due_date' => '2026-10-26'])
+        ->setActionData(['reason' => 'Thiếu phụ lục 2'])
+        ->callMountedAction()
+        ->assertHasNoActionErrors();
+
+    $fresh = $task->fresh();
+    $event = Activity::query()->where('event', 'task_reopened')->sole();
+
+    expect($fresh->status)->toBe(TaskStatus::Accepted)
+        ->and($fresh->due_date->toDateString())->toBe('2026-10-26')
+        ->and($event->getExtraProperty('due_date_from'))->toBe('2026-10-15')
+        ->and($event->getExtraProperty('due_date_to'))->toBe('2026-10-26');
+});
+
+/** Người mở lại chọn hạn khác, hay giữ hạn cũ đã qua; hạn không đổi thì nhật ký không có hạn cũ/mới. */
+it('lets the person reopening pick the due date, and logs nothing about it when it is unchanged', function () {
+    $task = lcDone();
+
+    app(ReopenTask::class)->handle($task, $this->associate, 'Làm lại', '2026-10-24', setDueDate: true);
+    expect($task->fresh()->due_date->toDateString())->toBe('2026-10-24');
+
+    $future = lcDone(['title' => 'Việc còn hạn', 'due_date' => '2026-10-30']);
+    $this->actingAs($this->associate, 'web');
+    $this->livewire(ListTasks::class, ['activeTab' => 'assigned'])
+        ->mountAction(TestAction::make('reopen')->table($future))
+        ->assertActionDataSet(['due_date' => '2026-10-30'])
+        ->setActionData(['reason' => 'Làm lại'])
+        ->callMountedAction()
+        ->assertHasNoActionErrors();
+
+    $event = Activity::query()->where('event', 'task_reopened')->where('subject_id', $future->id)->sole();
+    expect($future->fresh()->due_date->toDateString())->toBe('2026-10-30')
+        ->and($event->getExtraProperty('due_date_from'))->toBeNull();
+
+    // Một ngày đã qua khác hạn cũ: từ chối dưới ô Hạn (cùng luật "Giao lại").
+    $again = lcDone(['title' => 'Việc thứ ba']);
+    expect(fn () => app(ReopenTask::class)->handle($again, $this->associate, 'Làm lại', '2026-10-20', setDueDate: true))
+        ->toThrow(ValidationException::class);
+    expect($again->fresh()->status)->toBe(TaskStatus::Completed);
+});
+
+/**
+ * Người nhận tự mở lại (bấm nhầm, trong 24 giờ) không đổi hạn của chính mình: hộp thoại không có ô Hạn, Action từ chối
+ * một hạn khác. Phép thử ngược: bỏ vế "người tự mở lại" trong `ReopenTask` → đỏ.
+ */
+it('keeps the due date when the holder reopens their own task by mistake', function () {
+    $task = lcDone();
+
+    $this->actingAs($this->assistant, 'web');
+
+    $this->livewire(ListTasks::class, ['activeTab' => 'all'])
+        ->mountAction(TestAction::make('reopen')->table($task))
+        ->assertFormFieldDoesNotExist('due_date')
+        ->callMountedAction()
+        ->assertHasNoActionErrors();
+
+    expect($task->fresh()->status)->toBe(TaskStatus::Accepted)
+        ->and($task->fresh()->due_date->toDateString())->toBe('2026-10-15');
+
+    $other = lcDone(['title' => 'Việc khác']);
+    expect(fn () => app(ReopenTask::class)->handle($other, $this->assistant, null, '2026-10-30', setDueDate: true))
+        ->toThrow(ValidationException::class);
+    expect($other->fresh()->status)->toBe(TaskStatus::Completed);
 });

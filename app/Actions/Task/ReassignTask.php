@@ -88,6 +88,9 @@ class ReassignTask
      *                                người giao gốc (docblock lớp)
      * @param  bool  $takeOver  gộp integ-fa: người mới là người bấm thì nhận thay, sang "Đang làm" (docblock lớp, mục
      *                          "Nhận thay"); chỉ đường gỡ thành viên / chuyển việc nội bộ truyền
+     * @param  string|null  $expectedUpdatedAt  sửa sau kiểm toán 2026-10-21 (mục 4): `updated_at` lúc hộp thoại "Giao lại"
+     *                                          mở (ô hạn điền sẵn lúc đó) — dòng đã đổi từ lúc đó thì từ chối, cùng thành
+     *                                          ngữ `UpdateTask`; rỗng: không so (người gọi không có hộp thoại)
      */
     public function handle(
         Task $task,
@@ -99,11 +102,18 @@ class ReassignTask
         bool $notifyNewHolder = true,
         bool $notifyAssigner = true,
         bool $takeOver = false,
+        ?string $expectedUpdatedAt = null,
     ): Task {
-        return DB::transaction(function () use ($task, $actor, $newAssignee, $dueDate, $setDueDate, $notifyFormerHolder, $notifyNewHolder, $notifyAssigner, $takeOver): Task {
+        return DB::transaction(function () use ($task, $actor, $newAssignee, $dueDate, $setDueDate, $notifyFormerHolder, $notifyNewHolder, $notifyAssigner, $takeOver, $expectedUpdatedAt): Task {
             $fresh = $this->openTask($task, $actor);
 
             $this->authorizeTransition($fresh, $actor, 'reassign', TaskStatus::open());
+
+            // Sửa sau kiểm toán 2026-10-21 (mục 4): hạn điền sẵn lúc mở hộp thoại không ghi đè lặng lẽ một lần sửa (hạn,
+            // người nhận bấm "Đã nhận"…) của người khác giữa lúc mở và lúc lưu.
+            if ($expectedUpdatedAt !== null && $fresh->updated_at?->toDateTimeString() !== $expectedUpdatedAt) {
+                throw ValidationException::withMessages(['assignee_id' => [__('tasks.validation.changed_meanwhile')]]);
+            }
 
             $locked = User::query()->withTrashed()->whereKey($newAssignee->getKey())->lockForUpdate()->first();
             // Xem docblock lớp, mục "Nhận thay".
