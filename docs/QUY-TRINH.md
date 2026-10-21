@@ -78,7 +78,10 @@ người" (chỉ là gợi ý).
 5. **Gọi lại và đổi trạng thái** (Đã liên hệ → Đang tư vấn → Đã báo giá, ghi phí đã báo). Lần đầu đổi
    trạng thái là mốc "đã phản hồi"; quá 4 giờ làm việc mà bản ghi còn "Mới" thì hệ thống nhắc.
 6. **Khách đồng ý:** luật sư bấm "Chuyển thành vụ việc" (trợ lý không có nút này) — hệ thống tìm khách
-   cũ theo CCCD/SĐT, hỏi xác nhận đúng người, mở vụ có mã, phí đã báo hiện sẵn ở form soạn hợp đồng.
+   cũ theo CCCD/SĐT, hỏi xác nhận đúng người, mở vụ có mã, phí đã báo hiện sẵn ở form soạn hợp đồng. Ô
+   "Luật sư phụ trách" điền sẵn người tư vấn của bản ghi (người được giao nó) khi họ phụ trách hồ sơ được,
+   không thì người bấm (từ 2026-10-18): người khác người bấm nhận hồ sơ chờ "Đã nhận hồ sơ" kèm chuông và thư;
+   người tư vấn không phải người bấm cũng không phụ trách hồ sơ thì nhận một chuông báo bản ghi đã thành hồ sơ.
    **Không thành:** "Khách không theo tiếp", hoặc "Từ chối" kèm lý do. Từ chối vì xung đột thì chỉ nói
    với người gọi **"Văn phòng xin phép không nhận vụ việc này"**, không giải thích thêm.
 7. **Dữ liệu người không thành khách** tự ẩn danh sau hạn lưu. Ai yêu cầu xoá: báo admin, admin dùng
@@ -150,7 +153,7 @@ một khách hàng khác.
 | **Ghi lại cuộc gọi, buổi làm việc với khách** | Tab **Liên lạc**, ghi một cuộc gọi trong dưới 15 giây | **[Xong]** M7 Task 8 (`CommunicationLogsRelationManager`) |
 | Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Xong]** M6 (`StaleMattersWidget`, `CheckStaleMatters` + thư `StaleMatterReminder`) |
 | Bàn giao khi luật sư nghỉ việc mà không rơi mốc hạn nào | `ReassignMatter` cho một vụ: đổi luật sư phụ trách, chuyển mốc chưa xong và yêu cầu khách chưa đóng; không cho vô hiệu hoá hay xoá người còn giữ việc | **[Xong]** cho từng vụ (M6.5 Task 4, R7, kéo lên từ M7). **[Xong]** M7: màn hình bàn giao hàng loạt (`BulkReassign`, chỉ vụ đang mở) và thư tổng hợp cho người nhận (`MatterReassigned`) |
-| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
+| Khoá NGAY một nhân sự nghỉ đột xuất hoặc bị nghi lộ dữ liệu, khi người đó còn giữ việc | Quản trị viên mở trang sửa nhân sự, bấm **Khoá truy cập ngay** (lý do ít nhất 20 ký tự): đăng xuất mọi phiên, vô hiệu cookie ghi nhớ, thu hồi mọi kết nối AI, gỡ mọi máy nhận thông báo, ghi nhật ký. Việc dở dang giữ nguyên để bàn giao sau: vụ, mốc hạn, yêu cầu khách qua Bàn giao hàng loạt; việc nội bộ (đang giữ, đã giao còn mở, hồ sơ chờ nhận — hộp xác nhận đếm cả ba, làn fa2) qua phần "Việc nội bộ và ghế" của Bàn giao hàng loạt; lead tiếp nhận đang mở (được chuyển tư vấn, đang phụ trách — hộp xác nhận đếm cả hai) qua "Chuyển cho luật sư" hoặc ô "Người phụ trách" trên từng lead, vì Bàn giao hàng loạt không chuyển lead; mở lại bằng công tắc "Đang hoạt động". Không khoá được chính mình hay quản trị viên đang hoạt động cuối cùng | **[Xong]** sửa sau kiểm tra 2026-10-09 (làn fb) |
 
 ### Tìm tài liệu (làn tl, chủ văn phòng 2026-10-15)
 
@@ -159,7 +162,9 @@ nhất ở trên. Dùng nó khi nhớ tên tài liệu, mã hồ sơ hay tên kh
 
 - **Tìm** theo tên tài liệu, mã hồ sơ hoặc tên khách. **Lọc** theo vụ, loại vụ, nhóm (A–D), trạng thái,
   người tải lên (kể cả "khách hàng nộp qua cổng"), khoảng ngày tải lên, và "Vụ của tôi" (vụ mình phụ
-  trách, hoặc vụ có tên mình trong đội).
+  trách, hoặc vụ có tên mình trong đội). Người duyệt được văn bản (luật sư, trưởng phòng, quản trị viên) có thêm
+  bộ lọc **"Chờ tôi duyệt"** (từ 2026-10-18): văn bản nhóm B đã được trình duyệt mà chính mình duyệt được — duyệt ở
+  tab Tài liệu của vụ ("Đánh dấu đã ký, đã nộp" hoặc "Trả về bản nháp").
 - **Tải về** ngay trên dòng (cùng đường tải, cùng sổ ghi ai tải như nút "Tải tệp" trong vụ), hoặc **Mở vụ**
   để tới tab Tài liệu của vụ đó. Tải lên, sửa, công bố, rút lại, chuyển nhóm, xoá vẫn **chỉ** làm ở tab
   Tài liệu của từng vụ.
@@ -204,7 +209,7 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 | Ghi từng khoản tiền thật sự nhận, ai ghi, nhận bằng cách nào | Trang **Công nợ** của kế toán (xem "Kế toán ghi tiền" bên dưới); người ghi, ngày tiền về, cách nhận, mã giao dịch/số biên lai; ghi nhầm thì **huỷ** kèm lý do, khoản đã huỷ vẫn nằm đó | **[Xong]** M9 (Task 5, 8) |
 | Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Hệ thống không TỰ gửi thư đòi nợ quá hạn cho khách — xem "Nhắc lịch thanh toán cho khách" bên dưới | **[Xong]** M9 Task 11 |
 | Nhìn bức tranh tiền: đã thu trên tổng, còn phải thu | Trang **Doanh thu** (nhóm **Tài chính** của menu trái). Trên cùng là một hàng bốn ô số lớn, đọc trong một giây: **Đã thu** (tiền về trong kỳ), **Còn phải thu** và **Quá hạn** (tính tại hôm nay, không theo kỳ — bấm vào mở trang Công nợ, ô Quá hạn đã lọc sẵn, với người mở được trang đó), **Hợp đồng ký mới** (số hợp đồng và tổng giá trị ký trong kỳ); ô Đã thu và ô ký mới có mũi tên ▲/▼ so với cùng khoảng của kỳ liền trước. Dưới đó là các biểu đồ: vành khuyên đã thu / còn phải thu / quá hạn, doanh thu theo thời gian, theo đợt/giai đoạn, cơ cấu theo 12 lĩnh vực, tải theo luật sư, hồ sơ đã kết thúc còn công nợ. Trục và nhãn của biểu đồ ghi tiền gọn ("60 tr", "1,2 tỷ"); rê chuột lên biểu đồ thấy số đầy đủ. Mỗi ô, mỗi biểu đồ chỉ có một tiêu đề ngắn; cách tính (theo ngày ký hay ngày tiền về, theo luật sư lúc thu hay luật sư hiện tại) nằm sau nút **ⓘ** cạnh tiêu đề — bấm để đọc. Bộ lọc kỳ, luật sư, lĩnh vực gọn một hàng trên đầu trang | **[Xong]** M9 Task 9; gọn lại ở làn rv (2026-10-15) |
-| Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ | **[Xong]** M9 |
+| Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ. **Huỷ hồ sơ mở nhầm** còn bị chặn khi hồ sơ **đã có khoản thu chưa huỷ** trên bất kỳ hợp đồng nào (kể cả hợp đồng đã huỷ): tiền đã về không được biến mất — kế toán huỷ các khoản thu đó ở trang Công nợ (ghi lý do) và ghi lại vào đúng hồ sơ, huỷ hợp đồng nếu còn hiệu lực, rồi mới huỷ hồ sơ; hộp thoại huỷ nói điều này trước khi bấm. Khoản thu nằm trên hợp đồng **đã hoàn tất** thì không huỷ được, nên hồ sơ đó không huỷ được như hồ sơ mở nhầm: đóng hồ sơ thay vì huỷ — trước hết bấm "Tắt công bố portal" ở đầu trang vụ việc để khách đang gắn với hồ sơ không còn thấy hồ sơ, hợp đồng và khoản thu trên cổng khách, rồi "Chuyển giai đoạn" sang một giai đoạn kết thúc mà không bật "Công bố cho khách ngay" (khách đó không nhận thư báo kết thúc) — rồi mở hồ sơ mới cho đúng khách hàng hoặc loại vụ việc (câu từ chối nói đúng như vậy). Hồ sơ đã huỷ từ trước luật này mà còn khoản thu: tiền vẫn tính ở Doanh thu và Hiệu suất, và hiện ở "Khoản thu gần đây" với nhãn "Hồ sơ đã huỷ" | **[Xong]** M9; làn fa3 (2026-10-16) |
 
 ### Sửa sai và thay đổi trên một hợp đồng đã ký (sửa sau kiểm tra 2026-10-09, làn fb)
 
@@ -218,7 +223,19 @@ một dòng trong nhật ký hệ thống.
   lại chờ thu theo đúng hạn cũ. Hợp đồng đã hoàn tất (hoặc đã huỷ) thì không bỏ miễn được nữa; miễn
   đợt chưa thu cuối cùng là hoàn tất được ngay, nên kiểm tra kỹ trước khi bấm **Hoàn tất**. Modal
   **Miễn** nay ghi rõ tên đợt, giá trị, số đã thu và phần sẽ thôi đòi trước khi xác nhận.
-- **Ký lại hợp đồng với điều khoản mới, hoặc kích hoạt nhầm khi khách chưa ký:** **Huỷ hợp đồng**
+- **Kích hoạt nhầm (gõ sai ngày ký, thuế suất, giá trị hay lịch thu; hoặc khách chưa ký):** bấm **Đưa về
+  bản nháp** (làn fa3, 2026-10-16) — ở tab này hoặc trên dòng của hồ sơ ở trang **Hợp đồng** của kế toán;
+  luật sư, trưởng phòng và quản trị viên đưa về được mọi hợp đồng đủ điều kiện; kế toán chỉ đưa về được hợp đồng chính mình đã kích hoạt (phán quyết 2026-10-18, chờ chủ văn phòng xác nhận) — hợp đồng người khác kích hoạt thì nút không hiện, nhờ luật sư phụ trách hoặc trưởng phòng; luôn kèm lý do. Hợp đồng về
+  nháp: ngày ký bỏ trống, các đợt "khi ký" và "theo giai đoạn" mất hạn đã tính, cổng khách thôi hiện hợp đồng
+  này; rồi **Sửa bản nháp** và **Kích hoạt (đã ký)** với đúng ngày ký — số `HD-…` giữ nguyên, không có dòng
+  "hợp đồng đã huỷ" nào. Luật sư phụ trách được báo khi người khác làm. Chỉ làm được khi **chưa có khoản thu
+  nào chưa huỷ** (đã ghi tiền tạm ứng thì kế toán **Huỷ khoản thu** ở trang Công nợ trước, kèm lý do, rồi ghi
+  lại sau khi kích hoạt lại), **chưa có phụ lục** và **chưa đợt nào từng được miễn hay dời hạn**; khi đó dùng
+  phụ lục, hoặc huỷ hợp đồng như mục dưới. Hồ sơ **đã kết thúc** thì không đưa về bản nháp được, nút không hiện (sửa bằng phụ lục hoặc
+  huỷ hợp đồng). Thư nhắc và thư báo đã gửi cho khách theo hợp đồng không thu hồi được — nếu khách đã nhận, báo lại
+  cho khách. Bản nháp còn lịch sử khoản thu đã huỷ không có nút **Xoá bản nháp** và không xoá được: sửa rồi kích hoạt lại; hợp đồng đó nhập nhầm hồ sơ thì luật sư phụ trách hoặc trưởng phòng bấm **Kích hoạt (đã ký)** rồi **Huỷ hợp đồng** (kèm lý do) liền tay — hồ sơ đã công bố portal thì khách thấy hợp đồng trong khoảng giữa hai bước — hợp đồng đã huỷ và khoản thu đã huỷ ở lại làm lịch sử, hồ sơ mở nhầm khi đó huỷ được; rồi nhập hợp đồng vào đúng hồ sơ. Luật sư
+  phụ trách chỉ nhận chuông "sửa bản nháp" khi giá trị, thuế suất hay lịch thu (số tiền, ngày) thật sự đổi.
+- **Ký lại hợp đồng với điều khoản mới:** **Huỷ hợp đồng**
   (modal ghi rõ số còn phải thu sẽ không còn được theo dõi), rồi bấm **Soạn hợp đồng mới**. Hợp đồng
   đã huỷ và các khoản đã thu của nó ở lại làm lịch sử (một dòng "Hợp đồng trước của vụ" ở đầu tab);
   lịch thu, công nợ, nhắc quá hạn và khối tiền trên cổng khách theo hợp đồng mới. Một vụ không bao
@@ -236,16 +253,17 @@ Hồ sơ vẫn do luật sư hoặc trưởng phòng mở. Khi hồ sơ đã có
 chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không cần, và không được, mở nội dung hồ sơ.
 
 1. Kế toán mở **Hợp đồng** (menu trái, nhóm **Tài chính**; hoặc nút **Nhập hợp đồng cho hồ sơ** đầu trang Công nợ, hoặc ô
-   "Hồ sơ chưa có hợp đồng" trên trang chủ). Trang mặc định chỉ hiện hồ sơ **chưa có hợp đồng** và hợp
-   đồng **còn nháp**; mỗi dòng có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách, số và trạng
+   "Hồ sơ cần nhập hợp đồng" trên trang chủ). Trang mặc định lọc **Cần nhập hợp đồng** — hồ sơ **đang mở**
+   chưa có hợp đồng nào, hoặc hợp đồng hiện hành **đã huỷ** (làn fa3, 2026-10-16: ô trang chủ đếm đúng tập
+   này; hồ sơ đã kết thúc không còn là việc phải nhập) — và hợp đồng **còn nháp**; mỗi dòng có mã hồ sơ, loại vụ việc, tên khách hàng, luật sư phụ trách, số và trạng
    thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** có tiêu đề, ghi chú, tài liệu hay các
    bên. Kế toán không thấy vụ hạn chế ở đây (vụ hạn chế chỉ hiện với quản trị viên và luật sư phụ trách
-   vụ đó). Tìm theo mã hồ sơ hoặc tên khách; lọc theo loại vụ việc, luật sư.
+   vụ đó). Tìm theo mã hồ sơ hoặc tên khách (gõ không dấu được, kể cả chữ "đ": "Dang" ra "Đặng"); lọc theo loại vụ việc, luật sư.
 2. Bấm **Nhập hợp đồng** trên dòng đó, điền đúng như tờ hợp đồng: tổng giá trị (đã gồm thuế nếu có,
    gõ `50.000.000`), thuế suất, từng đợt (tên, phần trăm **hoặc** số tiền, đến hạn khi ký / vào một ngày /
    khi vụ tới một giai đoạn). Khung xem trước cho thấy số tiền từng đợt và tổng các đợt so với giá trị.
    Số hợp đồng `HD-năm-số` do hệ thống cấp.
-   Hồ sơ có hợp đồng **đã huỷ** (lọc trạng thái "Đã huỷ"): hộp thoại hiện sẵn số đã thu trên hợp đồng đã
+   Hồ sơ có hợp đồng **đã huỷ** (có trong bộ lọc mặc định; hoặc lọc trạng thái "Đã huỷ"): hộp thoại hiện sẵn số đã thu trên hợp đồng đã
    huỷ — chỉ nhập **phần còn phải thu**, không ghi lại khoản đã thu ("Tiền đã thu trên hợp đồng đã huỷ" ngay trên).
 3. Khách **đã ký** và tổng các đợt khớp giá trị: bật **Khách đã ký — kích hoạt luôn**, chọn ngày ký
    (không ở tương lai), rồi bấm **Lưu và kích hoạt** — hợp đồng đang hiệu lực ngay, đợt "khi ký" có hạn.
@@ -255,8 +273,11 @@ chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không c�
 4. Luật sư phụ trách nhận một dòng chuông "Kế toán … đã nhập hợp đồng … — anh/chị kiểm tra lại." (luật sư
    phụ trách đã nghỉ thì các trưởng phòng nhận thay; người nhập không bao giờ nhận chuông của chính mình). Từ lúc
    kích hoạt, mọi thay đổi điều khoản (phụ lục, huỷ, miễn, dời hạn, thư nhắc khách) là việc của luật sư
-   hoặc trưởng phòng ở tab **Hợp đồng và thanh toán** — kế toán kích hoạt nhầm thì báo luật sư huỷ rồi
-   nhập lại.
+   hoặc trưởng phòng ở tab **Hợp đồng và thanh toán**. Kế toán kích hoạt nhầm thì tự bấm **Đưa về bản
+   nháp** trên dòng đó (chỉ hợp đồng chính mình đã kích hoạt; kèm lý do; chưa có khoản thu chưa huỷ, phụ lục, miễn hay dời hạn — xem "Sửa sai và
+   thay đổi trên một hợp đồng đã ký"), sửa bản nháp rồi kích hoạt lại; luật sư phụ trách được báo. Kế toán
+   **sửa** hay **xoá** bản nháp của luật sư thì luật sư phụ trách cũng nhận chuông (luật sư tự sửa vụ mình
+   thì không ai).
 5. Tiền về: nút **Ghi khoản thu** trên dòng của hợp đồng đang hiệu lực mở trang Công nợ lọc sẵn mã hồ sơ
    (xem "Kế toán ghi tiền" ngay dưới).
 
@@ -378,7 +399,7 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
 | Sinh gói bàn giao cho khách | Tệp nén nhóm A/B/C kèm mục lục PDF và toàn bộ tường trình tiến độ, không bao giờ lẫn tài liệu nội bộ; nhóm A là đúng bản văn phòng đã nhận của từng đầu mục | **[Xong]** M7 Task 4/11 — gói tự sinh khi vụ vào giai đoạn kết thúc (sinh lại bằng nút trên trang vụ), ở trạng thái chưa công bố: luật sư xem rồi công bố cho khách; khoá khi hồ sơ đã ghi quyết định tiêu huỷ (làn fm 2026-10-09) |
 | Cho khách tải về từ cổng, có hạn | Quyền tra cứu hết sau 90 ngày mặc định kể từ khi vụ kết thúc, dữ liệu vẫn nguyên bên trong | **[Xong]** M7 Task 5. Hạn hiện ở khối "Lưu trữ hồ sơ" của trang vụ; luật sư phụ trách hoặc quản trị viên gia hạn được, có lý do và nhật ký (làn fm 2026-10-09) |
 | Giữ hồ sơ theo chính sách lưu trữ | Hạn lưu trữ mặc định 10 năm, hệ thống **cảnh báo chứ không bao giờ tự xoá**; quyết định tiêu huỷ được ghi lại | **[Xong]** M7 Task 6 (`FlagRetentionExpiry`, "Ghi quyết định tiêu huỷ") |
-| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm** (ô tìm kiếm sáu nguồn), kết quả luôn đi qua phân quyền | **[Xong]** M7 (trang `Search`) |
+| Tìm lại một hồ sơ cũ bằng bất cứ thứ gì nhớ được | Trang **Tìm kiếm** (ô tìm kiếm sáu nguồn), kết quả luôn đi qua phân quyền. Gõ không dấu được, kể cả chữ "đ": "Dang" ra khách "Đặng", "dat dai" ra "đất đai" — trang **Tài liệu** cũng vậy (làn fa3, 2026-10-16). Ô tìm của danh sách Khách hàng, Vụ việc, Tiếp nhận, Nhân sự, Tài khoản cổng khách, tab Các bên, ô chọn khách hàng / luật sư khi mở vụ, bộ lọc luật sư của Doanh thu và "Người thực hiện" của Nhật ký hoạt động cũng coi "đ" như "d" (fix round 1, 2026-10-18); trang Công việc và tab Công việc của vụ (tiêu đề, mã hồ sơ, bộ lọc), các ô chọn của "Giao việc", "Giao lại", "Thêm thành viên" và Bàn giao hàng loạt cũng vậy (gộp integ-fa, 2026-10-18) | **[Xong]** M7 (trang `Search`) |
 
 ---
 
@@ -438,31 +459,160 @@ khi ai đó bận, nghỉ hay rời vụ. Hai thứ được giao: **một hồ 
 4. Người theo dõi (vai "Người theo dõi") và người tự thêm chính mình không phải bấm nhận. Các thành viên đã
    có trước khi tính năng này chạy coi như đã nhận.
 
-**Giao việc.** Trong tab **"Công việc"** của vụ (luật sư phụ trách, luật sư cộng sự, trưởng phòng) hay trên
-trang **Công việc** (việc chung — trưởng phòng, quản trị viên): ghi việc cần làm, chọn người trong đội ngũ
-của vụ, đặt hạn và mức ưu tiên. Người nhận bấm **"Đã nhận"** hoặc **"Trả lại"** kèm lý do, rồi
+**Giao việc.** Trong tab **"Công việc"** của vụ (luật sư phụ trách, luật sư cộng sự, trưởng phòng), hay bằng nút
+**"Giao việc"** đầu trang **Công việc** (từ 2026-10-16: mọi luật sư, trợ lý, trưởng phòng, quản trị viên — không kế
+toán, không kinh doanh). Trên trang Công việc, ô **"Vụ việc"** để trống là một **việc chung** (không thuộc vụ nào —
+ví dụ tra cứu trước buổi tư vấn một khách tiềm năng, cập nhật mẫu hợp đồng), giao được cho bất kỳ nhân sự nào đang
+làm việc; chọn một vụ (chỉ các vụ đang mở anh/chị được giao việc) thì người nhận là người trong đội ngũ của vụ đó.
+Ô "Giao cho" ghi bên tên mỗi người số việc họ đang giữ và số việc quá hạn — chỉ đếm việc anh/chị xem được (nhãn
+ghi "… việc anh/chị thấy được", và câu gợi ý dưới ô nhắc người đó có thể còn giữ việc trên hồ sơ khác) — để cân khối
+lượng trước khi giao. Ghi việc cần làm, đặt hạn và mức ưu tiên. Bấm "Giao việc" hai lần trên cùng một hộp
+thoại (mạng chậm) chỉ tạo một việc; mở hộp thoại lần nữa để giao một việc khác cùng tên thì là hai việc. Dòng đầu
+trang Công việc nhắc luật sư, trợ lý, trưởng phòng: hồ sơ chờ nhận nằm ở mục **Việc của tôi** (quản trị viên, kế
+toán, kinh doanh không có mục đó — dòng đầu trang chỉ nói trang chứa gì); tab "Chờ tôi nhận" trống mà anh/chị còn hồ
+sơ chờ nhận thì trang chỉ đúng chỗ đó. Người nhận bấm **"Đã nhận"** hoặc **"Trả lại"** kèm lý do, rồi
 **"Hoàn thành"** (ghi chú kết quả tuỳ chọn). Người giao theo dõi ở tab **"Tôi đã giao"**: việc bị trả lại
 cần **"Giao lại"** hoặc **"Huỷ việc"**. Việc hiện **"Cần giao lại"** (cột "Người nhận" ghi lý do; bật bộ lọc
 "Cần giao lại" ở tab "Tất cả") khi người nhận đã nghỉ, đã rời đội ngũ vụ, đã trả lại chính hồ sơ đó, hay không
 còn mở được hồ sơ (ví dụ đổi chức danh sang Kế toán hay Nhân viên kinh doanh) — việc đó đã biến khỏi danh
-sách của họ, nên luật sư phụ trách hay trưởng phòng giao lại. (Hồ sơ không đổi được sang hạn chế truy cập khi
+sách của họ, nên luật sư phụ trách hay trưởng phòng giao lại. (Gỡ một người khỏi tab "Đội ngũ" khi họ còn giữ
+việc thì hộp thoại gỡ bắt chọn trước: chuyển các việc đó cho ai, hay để "Cần giao lại" — xem đính chính bên dưới.) (Hồ sơ không đổi được sang hạn chế truy cập khi
 còn người trong đội ngũ sẽ không mở được nó.) Việc bị trả lại mà người giao đã nghỉ hay không còn mở được hồ sơ cũng vậy (cột "Người
 giao" ghi lý do). Trên một vụ đã kết thúc, người giao không sửa hay giao lại được việc còn mở nữa — chỉ còn
 huỷ; người nhận vẫn bấm "Đã nhận", "Trả lại" hay "Hoàn thành" được (ví dụ việc thu dọn cuối hồ sơ). Người
 nhận một việc "Cần giao lại" vì chính họ (đã sang "Người theo dõi", rời đội ngũ, trả lại hồ sơ, không còn mở
 được hồ sơ) không bấm "Đã nhận" hay "Hoàn thành" được nữa — chỉ còn "Trả lại". Hộp thoại
-kết thúc vụ liệt kê số việc nội bộ còn mở và số người chưa nhận hồ sơ, cùng các việc còn dở khác.
+kết thúc vụ liệt kê số việc nội bộ còn mở và số người chưa nhận hồ sơ, cùng các việc còn dở khác; hộp thoại "Huỷ hồ
+sơ mở nhầm" cũng vậy (từ 2026-10-18): hồ sơ huỷ thì các việc đó biến khỏi trang Công việc của mọi người và thôi nhắc —
+khôi phục hồ sơ thì chúng trở lại như cũ; sau khi huỷ, mỗi người đang giữ hay đã giao một việc như vậy (trừ người bấm)
+nhận một chuông nói điều đó (hồ sơ hạn chế họ không mở được: không ghi mã).
+
+**Sửa, giao lại, huỷ — người liên quan đều được báo** (từ 2026-10-16). Người giao, luật sư phụ trách hay trưởng
+phòng **"Sửa"** hạn, mức ưu tiên, tiêu đề hay mô tả của một việc người khác đang giữ (chờ nhận hay đang làm): người
+giữ việc nhận chuông và thư nêu điều đã đổi — "hạn 30/10 → 23/10", "ưu tiên Thường → Gấp", tiêu đề cũ; mô tả chỉ
+báo "đã được sửa" (đọc ở nút "Xem"). Nhật ký ghi giá trị cũ và mới của hạn, ưu tiên, tiêu đề. **"Giao lại"** đặt
+được hạn mới: hộp thoại điền sẵn hạn cũ nếu còn ở tương lai, và gợi ý một hạn mới nếu hạn cũ đã qua (hôm nay cộng
+đúng số ngày người trước có). Luật sư phụ trách hay trưởng phòng giao lại hay huỷ một việc **người khác giao**:
+người giao gốc nhận một chuông (người nhận mới, hay lý do huỷ); khôi phục lại việc đó thì người giao gốc cũng nhận
+một chuông kèm lý do. Lời báo "đã nhận" và "đã hoàn thành" tới người giao; người giao đã rời vụ hay nghỉ thì luật sư
+phụ trách nhận thay, như lời báo "bị trả lại". Khi chính luật sư phụ trách là người giữ việc, hai tin này (và tin
+"người nhận tự mở lại") không chuyển tiếp tới trưởng phòng — chỉ lời báo cần một người quyết định ("bị trả lại", các
+lời nhắc cho người giao) mới chuyển tiếp. Người giao không còn mở được hồ sơ hạn chế không nhận lời báo nào về việc
+ấy (người vừa mất việc chỉ nhận một chuông chung, không tên việc, không mã vụ). Người giữ việc không còn giữ được
+việc (đã nghỉ, rời đội ngũ, sang "Người theo dõi", trả lại hồ sơ) thì "Sửa" không báo họ: màn hình nói việc hiện
+"Cần giao lại".
+
+**Mở lại, khôi phục** (từ 2026-10-16). Một việc đã **"Hoàn thành"** được **"Mở lại"** (nhóm nút "…" trên dòng): người
+giao, luật sư phụ trách hay trưởng phòng mở lại khi kết quả chưa đạt — **bắt buộc ghi nhận xét** ("yêu cầu làm
+lại"); chính người đã bấm "Hoàn thành" mở lại được trong **24 giờ đầu** khi bấm nhầm (không bắt buộc lý do). Việc
+trở về "Đang làm" cho cùng người; người giữ việc nhận chuông và thư kèm nhận xét (người tự mở lại thì người giao được
+báo). Người giữ việc từ đó đã nghỉ, rời đội ngũ, sang "Người theo dõi" hay trả lại hồ sơ thì không ai được báo "làm
+tiếp": việc hiện "Cần giao lại", và màn hình nói rõ điều đó để anh/chị bấm "Giao lại". Một việc đã **"Huỷ"** được
+**"Khôi phục"** bởi chính người đã huỷ, luật sư phụ trách hay trưởng phòng — bắt buộc lý do: việc về "Chờ nhận" cho
+người nhận cũ, người đó được báo (chính người nhận cũ bấm khôi phục thì việc về thẳng "Đang làm" cho họ, không báo
+ai ngoài người giao); người nhận cũ không còn nhận được việc (đã nghỉ, rời đội ngũ, trả lại hồ sơ) thì
+việc hiện "Cần giao lại" để giao người khác. Việc bị huỷ khi đang **"Bị trả lại"** thì khôi phục về "Bị trả lại" —
+người đã trả lại không bị đẩy việc lần nữa, và việc nằm lại ở "Tôi đã giao" để giao người khác. Khôi phục một việc đã
+**quá hạn** không làm nó thành "việc nhận sau hạn": ngày giao cũ được giữ, nên việc vẫn tính trong tỉ lệ "Việc hoàn
+thành đúng hạn" (từ 2026-10-18). Hồ sơ đã kết thúc thì không mở lại hay
+khôi phục được việc — bấm nút là nghe ngay lý do. Nhật ký ghi mỗi lần mở lại (kèm ghi chú hoàn thành cũ) và khôi phục.
 
 **Khi bàn giao vụ.** Việc đang mở của luật sư phụ trách cũ trên vụ đó chuyển sang luật sư phụ trách mới ở
-trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao liệt kê chúng. Những việc luật sư phụ trách cũ
+trạng thái "Chờ nhận" (ghi nhật ký), và thư tổng hợp bàn giao liệt kê chúng; người bấm bàn giao cho chính mình thì
+các việc sang thẳng "Đang làm" của họ (nhận thay, từ 2026-10-18). Việc đã quá hạn được đặt hạn mới — hôm nay cộng số
+ngày người cũ đã có, như ô "Hạn" của "Giao lại" (từ 2026-10-18). Những việc luật sư phụ trách cũ
 **đã giao cho người khác** trên vụ mà còn mở (chờ nhận, đang làm, bị trả lại) đổi **người giao** sang luật sư
 phụ trách mới — người nhận, trạng thái, hạn và lý do trả lại giữ nguyên, nhật ký ghi người giao cũ — nên
 chúng hiện ở tab "Tôi đã giao" và ô "Việc tôi giao bị trả lại" của luật sư phụ trách mới, và thư tổng hợp
-bàn giao có một mục riêng cho chúng. Lead cũ ở lại làm luật sư cộng sự thì mọi việc ở lại với họ. Việc chung
-của người nghỉ việc ở lại "Cần giao lại" cho trưởng phòng giao lại.
+bàn giao có một mục riêng cho chúng. Việc luật sư cũ tự giữ (việc riêng), và việc luật sư cũ đã giao cho chính luật sư
+mới, thành **việc riêng của luật sư mới** (từ 2026-10-18) — nên sau một lần bàn giao không còn gì của luật sư cũ chặn
+cho nghỉ việc. Việc luật sư cũ giao mà luật sư mới **đã trả lại** trước khi bàn giao thì không phải việc riêng — không
+ai đang giữ nó: nó nằm ở "Tôi đã giao" (lọc "Bị trả lại") và ô "Việc tôi giao bị trả lại" của luật sư mới, để họ giao
+người khác hay huỷ. Riêng việc chính luật sư mới đã giao cho luật sư cũ thì ở lại, hiện "Cần giao lại". Lead cũ ở lại làm luật sư cộng sự thì mọi việc ở lại với họ — câu gợi ý
+dưới công tắc nói rõ điều đó, và khi mở "Bàn giao hàng loạt" từ màn hình cho nghỉ việc thì công tắc tắt sẵn để
+việc đi theo hồ sơ. Việc chung của người nghỉ việc chuyển được ở phần "Việc nội bộ và ghế" của màn hình hàng
+loạt (xem đính chính bên dưới); việc nào còn sót thì ở lại "Cần giao lại" cho trưởng phòng giao lại.
+
+### Đính chính 2026-10-16 — kiểm tra luồng nội bộ (làn fa2)
+
+Chủ văn phòng (2026-10-16): mọi bước giao – nhận phải đúng như văn phòng làm thật, không ai bị bỏ quên.
+
+1. **Gỡ một người khỏi đội ngũ** (tab "Đội ngũ", nút "Gỡ"): nếu người đó còn giữ việc nội bộ trên hồ sơ (chờ nhận
+   hay đang làm), hộp thoại liệt kê các việc đó và bắt chọn **người nhận thay** (mặc định luật sư phụ trách, nếu
+   họ nhận được việc) hoặc **"Để Cần giao lại"**. Ghế còn chờ nhận thì hộp thoại nói rõ gỡ là rút lại lời giao.
+   Người nhận thay nhận chuông + thư "được giao" cho từng việc (như nút "Giao lại"); người giao các việc đó được
+   báo **một** chuông ("đã chuyển cho …" hay "đang Cần giao lại"); người bị gỡ nhận **một** chuông tổng hợp "Anh/chị
+   đã rời đội ngũ hồ sơ … — n việc đã chuyển / chờ giao lại", nên không ai làm tiếp một việc đã sang tay người
+   khác — không thêm chuông nào của từng việc cho người bị gỡ hay người giao (gộp 2026-10-18). Hồ sơ hạn chế mà
+   người bị gỡ không mở được thì chuông của họ không ghi mã. Các việc trong hộp thoại hiện mỗi việc một dòng.
+   Người bấm ngồi một ghế làm việc của hồ sơ (luật sư phụ trách gỡ trợ lý của chính mình) thấy chính mình trong ô
+   với nhãn **"Tôi nhận (… — sang Đang làm)"**, và luật sư phụ trách vẫn là lựa chọn mặc định kể cả khi chính họ
+   bấm: chọn mình thì các việc sang ngay "Đang làm" của mình (nhận thay — không có bước "Đã nhận", không tự báo
+   mình). Ở trang Công việc ("Giao việc", "Giao lại") vẫn không ai tự giao việc cho mình được. Việc đã quá hạn được
+   chuyển với hạn mới (hôm nay cộng số ngày người cũ đã có — từ 2026-10-18). Trên hồ sơ đã kết thúc không chuyển việc
+   cho ai được nữa: hộp thoại chỉ còn "Để Cần giao lại". Chuông cho người giao về các việc ĐÃ chuyển chỉ là tin: người
+   giao đã đi thì luật sư phụ trách nhận thay, không chuyển tiếp tới trưởng phòng.
+2. **Nghỉ việc, khoá truy cập, xoá, đổi chức danh**: việc nội bộ còn dở (đang giữ, đã giao cho người khác còn
+   mở, hồ sơ được giao chờ nhận) **chặn** vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi
+   việc dở khác, và câu chặn chỉ đường. **Khoá truy cập ngay** nêu ba con số đó trong hộp xác nhận và ghi vào
+   nhật ký. Màn hình **"Bàn giao hàng loạt"** có thêm phần **"Việc nội bộ và ghế"**: chọn người cần chuyển việc
+   (cả trợ lý, chuyên viên, luật sư cộng sự — người không phụ trách vụ nào) và người nhận; trên từng hồ sơ, người
+   nhận vào đội ngũ thay ghế (chờ bấm "Đã nhận hồ sơ"), việc người cũ đang giữ chuyển sang "Chờ nhận", việc người
+   cũ đã giao đổi người giao (sang người nhận; việc chính người nhận đang giữ, hay trên hồ sơ người nhận không mở
+   được, thì sang người bấm — dòng kết quả nói riêng số việc đó; người bấm chính là người giữ việc thì việc thành
+   việc riêng của họ; không việc nào bị bỏ qua im lặng), mốc hạn và yêu
+   cầu của khách chuyển theo, người cũ rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng
+   luật. Mỗi hồ sơ một dòng kết quả. Hồ sơ người đó đang phụ trách thì dùng phần "Bàn giao" ở trên. Chỉ việc chung
+   và việc trên hồ sơ đang mở được đếm: việc còn sót trên hồ sơ đã kết thúc hay đã huỷ không chặn nghỉ việc.
+   Bấm nút thì một hộp xác nhận nêu chuyển việc của ai sang ai và các con số, bắt nhập **lý do** (ghi vào nhật ký
+   của nhân sự đó); các con số không đếm hồ sơ người đó đang phụ trách, nên bằng đúng điều sẽ chuyển (từ 2026-10-18).
+   Việc đã quá hạn được chuyển với hạn mới (hôm nay cộng số ngày người cũ đã có). Chỉ ghế làm việc (luật sư cộng sự, trợ lý) mới chuyển sang người nhận; ghế "người theo dõi" hay
+   ghế người cũ đã trả lại thì chỉ gỡ. Việc để "Cần giao lại" sau một lần gỡ khỏi đội ngũ cũng chuyển được ở đây:
+   người nhận được thêm vào đội ngũ hồ sơ đó. Trưởng phòng có thể chọn chính mình làm người nhận (nhận ghế, mốc hạn,
+   yêu cầu của khách, và cả việc nội bộ — trưởng phòng **nhận thay**: các việc sang ngay "Đang làm" của mình, rồi
+   cho nghỉ việc được ngay). Hồ sơ hạn chế trưởng phòng không quản lý được không hiện gì ngoài một
+   dòng "còn n hồ sơ cần quản trị viên chuyển". Người nhận nhận **một** chuông và **một** thư tổng hợp cho cả lô
+   (bao nhiêu hồ sơ, việc nội bộ, mốc hạn, yêu cầu của khách, ghế mới — thay cho chuông, thư của từng ghế, từng
+   mốc, từng việc). Chuông và thư đó **liệt kê từng mốc hạn** đã sang tay người nhận — tên mốc, hồ sơ, hạn, còn bao
+   nhiêu ngày, mức độ — vì lời nhắc theo lịch đã gửi cho người cũ không gửi lại; mốc còn từ 1 ngày trở xuống (bậc nhắc
+   cuối), hôm nay hay đã quá hạn có dấu **GẤP** đứng đầu. Hồ sơ hạn chế người nhận không mở được thì dòng mốc chỉ ghi
+   "Một mốc hạn — một hồ sơ" kèm hạn và mức độ. Người cũ nhận **một** chuông; người giao của các việc nội bộ đã chuyển
+   (hay luật sư phụ trách nhận thay họ) nhận **một** chuông cho mọi việc của họ trong lô; người bấm tự nhận thì không
+   tự báo mình.
+3. **Bàn giao hàng loạt từ màn hình cho nghỉ việc**: công tắc "Giữ luật sư cũ trong đội ngũ" tắt sẵn; mở thường
+   thì bật sẵn, và câu gợi ý nói rõ "giữ làm cộng sự thì việc nội bộ người đó đang giữ KHÔNG chuyển".
+4. **Mở vụ, hay chuyển lead thành vụ, với luật sư phụ trách là người khác**: hồ sơ hiện ở khối "Hồ sơ chờ tôi
+   nhận" của người đó, kèm chuông và thư "Anh/chị được giao phụ trách một hồ sơ mới" — họ bấm "Đã nhận hồ sơ"
+   hay "Trả lại" như mọi lần được giao. Người mở vụ tự phụ trách thì không có bước nhận.
+5. **Đổi luật sư phụ trách**: luật sư bị rút hồ sơ (nếu không phải chính họ bấm) nhận chuông "Hồ sơ … đã được giao
+   cho X" kèm mã hồ sơ (họ vừa phụ trách nó) — rời đội ngũ thì chuông nói thêm việc nội bộ của họ cũng đã chuyển;
+   riêng hồ sơ hạn chế họ không còn mở được thì chuông chỉ đếm, không ghi mã; mọi thành viên còn lại của đội ngũ nhận chuông
+   "Hồ sơ … đổi luật sư phụ trách: A → B", để biết từ nay báo cáo cho ai. Bàn giao hàng loạt: **một** chuông mỗi
+   người cho cả lô — các hồ sơ có luật sư cũ khác nhau thì mỗi mã ghi kèm luật sư cũ của chính nó (từ 2026-10-18).
+6. **Đổi người phụ trách mốc hạn** (nút "Đổi người phụ trách", nút "Sửa", hay thêm mốc giao cho người khác):
+   người giữ mốc mới nhận ngay chuông + thư "Anh/chị được giao một mốc thời hạn", ghi hạn và còn bao nhiêu ngày.
+   Lời nhắc theo bậc (14/7/3/1 ngày) đã gửi cho người cũ không gửi lại — thư này là lời nhắc của bậc gần nhất, một
+   lần; các bậc sau đến người mới như thường. Tự giao cho mình thì không báo. Thư của một mốc vừa thêm không nói
+   tới lời nhắc cũ (chưa có lời nào). Người giữ mốc CŨ (nếu không phải chính họ bấm) nhận một chuông "mốc … đã chuyển
+   cho X" — không thư (từ 2026-10-18).
+7. **Trình duyệt văn bản nội bộ (nhóm B)**: bấm "Trình duyệt" → luật sư phụ trách (không có thì trưởng phòng / quản
+   trị viên duyệt được văn bản) nhận chuông + thư "Một văn bản chờ anh/chị duyệt" — không bao giờ chính người trình:
+   trưởng phòng tự trình khi luật sư phụ trách không duyệt được thì quản trị viên được báo. "Đánh dấu đã ký, đã nộp" →
+   người trình nhận chuông. **"Trả về bản nháp" bắt buộc lý do**, và người trình nhận chuông kèm lý do để biết
+   cần sửa gì.
+8. **Việc riêng sau một lần nhận thay** (gộp 2026-10-18): người nhận thay chính là người đã giao việc đó (hay một
+   lần "Giao lại" trả việc về người đã giao nó) thì việc thành việc riêng của họ: không hiện ở "Tôi đã giao" (đã ở
+   "Chờ tôi nhận" / "Đang làm"), không có nút "Trả lại" (không có ai để trả về — họ "Giao lại" hay "Huỷ" được). Lời
+   báo cho người giao về việc đó (đã hoàn thành, sắp đến hạn mà không còn người làm, chưa được nhận) tới luật sư phụ
+   trách của hồ sơ khi luật sư phụ trách không phải chính họ — không tới chính họ, và **không bao giờ tới trưởng
+   phòng** (từ 2026-10-18: một việc riêng của luật sư phụ trách không thành chuông + thư cho mọi trưởng phòng). Việc
+   riêng quá hạn mà người giữ còn làm được việc thì chỉ nhắc chính người giữ — không có lời báo "quá hạn" cho người
+   giao. Người giữ việc riêng không làm được nữa (nghỉ, bị khoá, mất ghế) thì việc hiện "Cần giao lại", không ai nhắc họ
+   nữa, và lời báo "quá hạn" đi tới luật sư phụ trách của hồ sơ (khi không phải chính họ) — như lời nhắc "sắp đến hạn";
+   vẫn không bao giờ tới trưởng phòng.
 
 Người giao việc đã rời vụ hay nghỉ việc mà không qua bàn giao (ví dụ một luật sư cộng sự nghỉ) thì lời báo
-"bị trả lại" và hai lời nhắc cho người giao (chưa được nhận, quá hạn) đi tới luật sư phụ trách hiện tại của
+"bị trả lại" và các lời nhắc cho người giao (chưa được nhận, sắp đến hạn, quá hạn) đi tới luật sư phụ trách hiện tại của
 vụ, ghi rõ việc "do … giao" và mở thẳng tab "Công việc" của hồ sơ — nơi luật sư phụ trách giao lại hay huỷ.
 
 **Nhắc tự động** (lịch `tasks.remind`, mỗi 30 phút, chỉ trong giờ làm việc Thứ Hai–Thứ Sáu 08:00–17:30):
@@ -470,13 +620,21 @@ vụ, ghi rõ việc "do … giao" và mở thẳng tab "Công việc" của h�
 | Khi nào | Ai nhận | Bao nhiêu lần |
 |---|---|---|
 | Việc hay hồ sơ chờ nhận quá **24 giờ làm việc** | người nhận | một lần cho mỗi lần giao |
-| Vẫn chưa nhận sau **48 giờ làm việc** | người giao (người giao đã nghỉ hay rời vụ thì luật sư phụ trách của vụ; với hồ sơ, nếu chính luật sư phụ trách là người chưa nhận thì trưởng phòng) | một lần cho mỗi lần giao |
+| Vẫn chưa nhận sau **48 giờ làm việc** — hay ngay ở mốc **24 giờ** khi người nhận không còn làm được việc (từ 2026-10-18) | người giao (người giao đã nghỉ hay rời vụ thì luật sư phụ trách của vụ; với hồ sơ, nếu chính luật sư phụ trách là người chưa nhận thì trưởng phòng) | một lần cho mỗi lần giao |
 | Việc **đến hạn hôm nay hoặc ngày mai** | người nhận | một lần cho mỗi hạn (dời hạn thì nhắc lại cho hạn mới) |
-| Việc **quá hạn** | người nhận và người giao | mỗi ngày làm việc một lần |
+| Việc **đến hạn hôm nay hoặc ngày mai** mà người nhận không còn làm được việc (từ 2026-10-18) | người giao (hay luật sư phụ trách nhận thay), kèm câu "cần giao lại" | một lần cho mỗi hạn |
+| Việc **quá hạn** | người nhận và người giao (việc riêng — người giao chính là người giữ: chỉ người nhận khi họ còn làm được việc, không thì luật sư phụ trách nhận thay; từ 2026-10-18) | mỗi ngày làm việc một lần |
 
 Mỗi lời nhắc là một chuông và một thư; không ai nhận hai lần cùng một lời nhắc, và lời nhắc chỉ tới người
 lúc gửi vẫn đang giữ việc (hay vẫn là người giao). Việc đã trả lại, việc của vụ đã kết thúc hay đã huỷ không
-nhắc. Nhiều hồ sơ cùng chờ một người trong một lượt (ví dụ sau một lần bàn giao hàng loạt) là **một** chuông
+nhắc. Người nhận không còn **giữ được** việc — đã sang "Người theo dõi", đã trả lại chính hồ sơ đó, hay không còn mở
+được hồ sơ — không nhận lời nhắc nào nữa (họ không bấm "Đã nhận" hay "Hoàn thành" được), và việc đó không vào số
+"quá hạn" của họ; việc hiện "Cần giao lại", và người giao (hay luật sư phụ trách nhận thay) vẫn được nhắc như bảng
+trên, kèm câu "… không còn giữ được việc này — hãy giao lại" (từ 2026-10-16). Người bị tạm khoá hay vô hiệu cũng vậy:
+việc họ giữ chỉ ở "Cần giao lại", không đồng thời ở số "quá hạn" của họ (từ 2026-10-18). Từ 2026-10-18 người giao không phải
+đợi tới khi việc đã quá hạn hay đã chờ 48 giờ: khi người nhận không còn làm được việc (không còn giữ được việc như
+trên, hay tài khoản đã bị vô hiệu), lời nhắc "sắp đến hạn" và lời báo "chưa được nhận" (ở mốc 24 giờ) đi thẳng tới
+người giao. Nhiều hồ sơ cùng chờ một người trong một lượt (ví dụ sau một lần bàn giao hàng loạt) là **một** chuông
 và **một** thư liệt kê các hồ sơ — cho người được giao ("n hồ sơ đang chờ anh/chị nhận"), và cho mỗi người giao
 hay trưởng phòng ("n hồ sơ chưa được nhận"). Hồ sơ mà người được giao đã nghỉ việc (hay không còn mở được hồ
 sơ) không nhắc ai nữa, kể cả lời báo "chưa nhận": ghế đó hiện **"Cần phân công lại"** ở tab "Đội ngũ" và ở
@@ -486,16 +644,26 @@ thư hỏng: chuông vẫn tới, thư được thử một chuỗi mỗi ngày 
 **Trên bảng điều khiển** — ô **"Việc cần xử lý của tôi"**: việc chờ tôi nhận, việc của tôi đã quá hạn (chờ
 nhận hay đang làm, trên hồ sơ còn mở — cùng một nghĩa "quá hạn" với lịch nhắc), hồ sơ chờ tôi nhận, việc tôi giao bị trả lại; bấm một ô để mở đúng danh sách — trang mở ra
 đã lọc sẵn, nên số dòng bằng số trên ô. Ô chỉ hiện khi có việc. Ô "Hồ sơ chờ tôi nhận" chỉ có với người có mục
-Việc của tôi (luật sư, trợ lý, trưởng phòng); quản trị viên nhận hồ sơ ở tab "Đội ngũ" như trên.
+Việc của tôi (luật sư, trợ lý, trưởng phòng); quản trị viên nhận hồ sơ ở tab "Đội ngũ" như trên. Người duyệt được
+văn bản (luật sư, trưởng phòng, quản trị viên) có thêm ô **"Văn bản chờ tôi duyệt"** (từ 2026-10-18): văn bản nhóm B
+đang chờ duyệt mà chính họ duyệt được — bấm vào mở trang **Tài liệu** đã lọc sẵn **"Chờ tôi duyệt"**.
 
 **Trên Theo dõi đội ngũ** (và trang của một người): việc đang làm, việc chờ nhận, việc quá hạn, việc bị trả
 lại (việc người đó giao, chờ họ giao lại), hồ sơ chưa nhận, hồ sơ trả lại — số trên các vụ người xem được
-xem. Trên bảng có dòng **"Việc cần giao lại: n"** (trưởng phòng, quản trị viên) — kể cả việc của người đã bị
+xem. Ba cột việc đang làm, chờ nhận, quá hạn cùng một nghĩa "đang giữ" (từ 2026-10-18): việc "Cần giao lại" vì người
+đó đã sang "Người theo dõi", trả lại hay không còn mở được hồ sơ không vào cột nào của họ — nó nằm ở dòng "Việc cần
+giao lại". Trên bảng có dòng **"Việc cần giao lại: n"** (trưởng phòng, quản trị viên) — kể cả việc của người đã bị
 vô hiệu hoá, dù dòng của họ ẩn khỏi bảng — bấm vào mở trang Công việc đã lọc sẵn "Cần giao lại", số dòng
 bằng n — và dòng **"Hồ sơ cần phân công lại: n"**, kèm mã từng hồ sơ (bấm mã mở tab "Đội ngũ" của hồ sơ đó):
-hồ sơ còn chờ một người bấm "Đã nhận hồ sơ" mà người đó đã nghỉ việc hay không còn mở được hồ sơ. **Trên Hiệu suất theo kỳ:** cột **"Việc hoàn thành đúng hạn"** (việc có hạn hoàn thành trong kỳ, xong
-không muộn hơn ngày hạn, dạng "80% (4/5)", dưới 5 việc thì "Chưa đủ dữ liệu") và số lần trả lại việc trong
-kỳ. Không xếp hạng, như mọi số của M13.
+hồ sơ còn chờ một người bấm "Đã nhận hồ sơ" mà người đó đã nghỉ việc hay không còn mở được hồ sơ. **Trên Hiệu suất theo kỳ:** cột **"Việc hoàn thành đúng hạn"** — số việc có hạn xong không muộn hơn ngày hạn,
+trên tổng của: việc có hạn hoàn thành trong kỳ **cộng việc người đó còn giữ đã quá hạn mà hạn rơi trong kỳ** (từ
+2026-10-16 — một việc bỏ dở quá hạn tính là trễ, không biến khỏi số như trước); dạng "80% (4/5)", dưới 5 việc thì
+"Chưa đủ dữ liệu". Không tính việc đã huỷ, việc đã trả lại hay giao lại cho người khác, việc của hồ sơ đã kết thúc,
+việc "Cần giao lại" vì người nhận (kể cả người bị tạm khoá), và — từ 2026-10-18 — việc người đó nhận khi hạn đã qua
+(giao lại sau hạn: người nhận chưa từng có cơ hội làm kịp; các đường chuyển hàng loạt nay đặt hạn mới nên hiếm gặp,
+nhưng "Giao lại" vẫn cho giữ đúng hạn cũ đã qua); việc được mở lại để làm lại không còn là "đã hoàn thành" cho tới khi xong lần
+nữa — nên số của kỳ đã qua có thể đổi khi một việc quá hạn được làm xong, huỷ hay giao lại sau đó. Dòng dưới là số
+lần trả lại việc trong kỳ. Không xếp hạng, như mọi số của M13.
 
 ---
 

@@ -58,6 +58,7 @@ function tkAssign(User $actor, ?Matter $matter, User $assignee, array $overrides
         description: $overrides['description'] ?? null,
         dueDate: $overrides['dueDate'] ?? null,
         priority: $overrides['priority'] ?? TaskPriority::Normal,
+        submissionKey: $overrides['submissionKey'] ?? null,
     );
 }
 
@@ -212,7 +213,7 @@ it('refuses an actor who may not assign the work, with one generic refusal', fun
 })->with([
     'trợ lý trên vụ' => ['assistant', false],
     'luật sư ngoài đội ngũ' => ['outsider', false],
-    'luật sư giao việc chung' => ['lawyer', true],
+    // Làn fa1 (phán quyết 3): luật sư và trợ lý nay giao được việc chung — chỉ người không có `matter.view` thì không.
     'kế toán giao việc chung' => ['accountant', true],
     'quản lý đã bị vô hiệu' => ['inactive manager', true],
 ]);
@@ -244,18 +245,21 @@ it('accepts the longest title and description the columns hold, and a due date o
         ->and(mb_strlen($task->fresh()->description))->toBe(Task::DESCRIPTION_MAX_LENGTH);
 });
 
-it('creates one task, not two, when the same assignment is submitted twice in a row', function () {
-    $first = tkAssign($this->lead, $this->matter, $this->assistant);
-    $second = tkAssign($this->lead, $this->matter, $this->assistant);
+it('creates one task, not two, when the same dialog is submitted twice in a row', function () {
+    // Làn fa1 (phán quyết 4): chống trùng theo mã một lần của hộp thoại, không theo tiêu đề.
+    $key = '7f3c2a10-0000-4000-8000-000000000001';
+    $first = tkAssign($this->lead, $this->matter, $this->assistant, ['submissionKey' => $key]);
+    $second = tkAssign($this->lead, $this->matter, $this->assistant, ['submissionKey' => $key]);
 
     expect($second->id)->toBe($first->id)
         ->and(Task::query()->count())->toBe(1)
         ->and(tkEvents($first))->toBe(['task_assigned']);
     Mail::assertSent(TaskNotice::class, 1);
 
-    // Một việc KHÁC (tiêu đề khác) vẫn là một việc mới.
-    tkAssign($this->lead, $this->matter, $this->assistant, ['title' => 'Nộp đơn']);
-    expect(Task::query()->count())->toBe(2);
+    // Một hộp thoại KHÁC (mã khác, hay không mã) là một lần giao mới — kể cả cùng tiêu đề.
+    tkAssign($this->lead, $this->matter, $this->assistant, ['submissionKey' => '7f3c2a10-0000-4000-8000-000000000002']);
+    tkAssign($this->lead, $this->matter, $this->assistant);
+    expect(Task::query()->count())->toBe(3);
 });
 
 it('sends nothing when the assignment is rolled back by the caller, and only after the commit otherwise', function () {
@@ -561,14 +565,14 @@ it('cannot cancel, edit or reassign a completed task', function () {
 // NGƯỜI NHẬN THƯ — không bao giờ ai không còn được xem việc
 // =============================================================================================
 
-it('sends no mail and no bell to an assigner who has left or can no longer see the task', function () {
+it('sends no mail and no bell to an assigner who has left or can no longer see the task — the lead gets it instead', function () {
     $task = tkAssign($this->associate, $this->matter, $this->assistant);
     Mail::fake();
 
     $this->associate->forceFill(['is_active' => false])->save();
     app(AcceptTask::class)->handle($task, $this->assistant);
 
-    Mail::assertNothingSent();
+    Mail::assertNotSent(TaskNotice::class, fn (TaskNotice $mail): bool => $mail->hasTo($this->associate->email));
     expect($this->associate->notifications()->count())->toBe(0);
 
     // Người giao rời đội ngũ: không còn xem được vụ, nên không còn xem được việc.
@@ -576,8 +580,12 @@ it('sends no mail and no bell to an assigner who has left or can no longer see t
     $this->matter->team()->detach($this->associate->id);
     app(CompleteTask::class)->handle($task, $this->assistant, null);
 
-    Mail::assertNothingSent();
+    Mail::assertNotSent(TaskNotice::class, fn (TaskNotice $mail): bool => $mail->hasTo($this->associate->email));
     expect($this->associate->notifications()->count())->toBe(0);
+
+    // Làn fa1 (phán quyết 7): "đã nhận" và "đã hoàn thành" đi qua `forTaskAssigner()` — luật sư phụ trách nhận thay.
+    Mail::assertSent(TaskNotice::class, fn (TaskNotice $mail): bool => $mail->hasTo($this->lead->email) && $mail->kind === TaskNotice::KIND_ACCEPTED);
+    Mail::assertSent(TaskNotice::class, fn (TaskNotice $mail): bool => $mail->hasTo($this->lead->email) && $mail->kind === TaskNotice::KIND_COMPLETED);
 });
 
 it('does not tell an assignee about a task that was reassigned away before the notice went out', function () {

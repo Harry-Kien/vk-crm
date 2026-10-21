@@ -43,7 +43,8 @@ function returnDocument(Matter $matter, DocumentGroup $group = DocumentGroup::Is
 
 function returnToDraftAs(Document $document, User $actor): Document
 {
-    return app(ReturnDocumentToDraft::class)->handle(document: $document, actor: $actor);
+    // Làn fa2, phán quyết 7: lý do trả về là bắt buộc.
+    return app(ReturnDocumentToDraft::class)->handle(document: $document, actor: $actor, reason: 'Cần sửa lại nội dung.');
 }
 
 it('luật sư trả được một bản thảo đang chờ duyệt về lại bản nháp, và Action ghi một dòng nhật ký', function () {

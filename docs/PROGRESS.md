@@ -9209,7 +9209,8 @@ thật sự").
   trách tự nhập hợp đồng vụ mình thì không ai nhận (việc hằng ngày). Hai tab cùng sửa một bản nháp: lời từ chối rõ ràng,
   không mất chữ đã gõ.
 - **Trang "Tài liệu" chung (tl)** — danh sách mọi tài liệu người xem được phép thấy, xuyên các vụ (nhóm Khách hàng & vụ
-  việc): tìm theo tên/mã hồ sơ/tên khách (không dấu: "Dang" ra "Đặng"), lọc vụ (tìm được mọi vụ), nhóm A–D, trạng thái,
+  việc): tìm theo tên/mã hồ sơ/tên khách (không dấu — **đính chính 2026-10-18:** "Dang" ra "Đặng" chỉ đúng trên
+  SQLite; trên MariaDB chữ "đ" không bằng "d" theo collation, nên câu này SAI cho tới bản integ-fa, mục dưới), lọc vụ (tìm được mọi vụ), nhóm A–D, trạng thái,
   người tải, ngày; tải qua route có chữ ký + nhật ký; quyền ở mức truy vấn (nhóm D, vụ hạn chế, đã xoá/tiêu huỷ); Tìm kiếm
   chung có nhóm "Tài liệu". **Kho tài liệu** (quản trị) viết lại bằng lời thường: dải trạng thái + "cần làm gì tiếp", danh
   sách các bước bật Google Drive, chi tiết kỹ thuật và hồ sơ pháp lý thu gọn; dải và ô số không bao giờ trái màu nhau.
@@ -9235,6 +9236,52 @@ của làn st, tài liệu thống nhất (CAI-DAT: không migration/lịch/`.en
 passed trên tệp test đã chạm; pint PASS. Controller sửa thêm khi gộp: luật sư phụ trách tự nhập hợp đồng vụ mình không
 báo ai (bản tích hợp đã cho báo mọi trưởng phòng — tiếng ồn), TDD đỏ trước; 426 test liên quan + tài liệu xanh.
 Để sau (nhỏ): thẻ "Kho tài liệu" trên trang Cài đặt chỉ nêu chế độ lưu, chưa dùng dải đỏ/vàng của trang Kho tài liệu.
+
+### Sửa sau đợt kiểm tra luồng nội bộ theo một ngày làm việc thật (làn fa1, fa2, fa3, gộp qua nhánh integ-fa)
+
+Đợt kiểm tra cuối (2026-10-16, 7 góc nhìn vai trò, mỗi phát hiện được một agent khác kiểm chứng đối nghịch) xác nhận 15
+phát hiện quan trọng khác nhau (20 lượt, 16 hạ xuống nhỏ, 0 bị bác). Ba làn sửa song song từ `96483383`, mỗi làn: task →
+rà soát (giả định có Critical) → vòng sửa → rà soát lại → rà soát toàn làn → vòng sửa nhỏ; rồi gộp qua `integ-fa`, rà
+soát chéo toàn bộ, một vòng sửa cuối và rà soát lại.
+- **fa1 — công việc** (`fix-audit-tasks`, `b147564a` → `46b09685`): "Sửa" việc người khác đang giữ báo người giữ (chuông
+  + thư nêu hạn/ưu tiên cũ → mới); "Mở lại" việc đã hoàn thành, "Khôi phục" việc đã huỷ (về "Bị trả lại" nếu huỷ lúc đó);
+  mọi nhân sự có `matter.view` giao được việc chung, nhãn người nhận kèm số việc "anh/chị thấy được"; chống bấm trùng theo
+  mã một lần của hộp thoại; lời nhắc chỉ tới người còn giữ ghế, người giao được nhắc thay ("sắp đến hạn" và "chưa nhận"
+  sớm hơn); tỉ lệ đúng hạn tính cả việc còn giữ đã quá hạn; thông báo "chỉ để biết" không dội sang mọi trưởng phòng.
+- **fa2 — đội ngũ, bàn giao, nghỉ việc, mốc hạn, trình duyệt văn bản** (`fix-audit-team`, `7511fd6a` → `b9f71914`): gỡ
+  thành viên hỏi việc đang giữ đi đâu (mặc định luật sư phụ trách, hoặc "Để Cần giao lại"); nghỉ việc/khoá/đổi vai bị chặn
+  khi còn việc nội bộ, chuyển bằng phần mới "Việc nội bộ và ghế" của "Bàn giao hàng loạt" (hộp xác nhận + lý do, một thư
+  tổng hợp cho cả lô liệt kê từng mốc hạn kèm "GẤP"); "Bàn giao" mở từ trang nghỉ việc tắt sẵn "giữ người cũ"; mở vụ với
+  luật sư phụ trách khác người tạo → ghế chờ nhận + chuông/thư; đổi luật sư phụ trách báo người cũ và đội ngũ; giao/đổi
+  người phụ trách mốc hạn báo ngay (cả người cũ); trình duyệt văn bản nhóm B báo người duyệt, trả về bản nháp bắt buộc lý do.
+- **fa3 — tiền và tìm kiếm** (`fix-audit-money`, `838f74d5` → `4937f963`): huỷ hồ sơ mở nhầm bị TỪ CHỐI khi còn khoản thu
+  chưa huỷ (tiền đã về không biến mất; hồ sơ huỷ từ trước vẫn được tính vào "Đã thu", Hiệu suất, biểu đồ, "Khoản thu gần
+  đây" với nhãn "Hồ sơ đã huỷ"); "Đưa về bản nháp" cho hợp đồng kích hoạt nhầm (chưa có khoản thu/phụ lục/miễn-dời, hồ sơ
+  còn mở, bắt buộc lý do, luật sư phụ trách được báo); tìm không dấu chữ "đ" (`LetterD`, đổi lúc tìm ở cả hai vế, cả "Ð"):
+  Tìm kiếm, Tài liệu, Hợp đồng, các danh sách Khách hàng/Vụ việc/Tiếp nhận/Nhân sự/Tài khoản cổng/Các bên và các ô chọn.
+  **Lệch phán quyết 3, có chủ ý:** không có migration tính lại cột chuẩn hoá — `Normalizer::name()` đã đổi "đ" → "d" từ M1,
+  mọi đường ghi đi qua hook `saving`; tính lại sẽ không đổi giá trị nào (người rà soát kiểm lại từng đường ghi).
+- **Tích hợp** (`41900b42`, `ad4cd670`, `13668b5a`, `000e6134`): `ReassignTask` có cờ `notifyFormerHolder`,
+  `notifyNewHolder`, `notifyAssigner`, `takeOver` — các đường hàng loạt gửi MỘT lời báo cho cả lô; trưởng phòng/quản lý
+  **tự nhận lại** việc của người rời đi (sang thẳng "Đang làm"); việc của chính mình không leo thang lên mọi trưởng phòng;
+  đường hàng loạt đặt hạn mới khi hạn cũ đã qua và tỉ lệ đúng hạn bỏ việc được giao sau hạn của nó; "Bàn giao" xong thì
+  khoá được người cũ; người giữ việc bị khoá chỉ hiện ở "Cần giao lại"; huỷ hồ sơ báo người giữ/giao việc trên hồ sơ đó và
+  hộp thoại huỷ nêu số việc/ghế đang mở; chuyển tiếp nhận thành vụ mặc định luật sư được giao tiếp nhận và báo người đã xử
+  lý; bộ lọc "Chờ tôi duyệt" ở trang Tài liệu và ô "Văn bản chờ tôi duyệt"; vòng tròn Doanh thu khớp ô "Đã thu"; tìm không
+  dấu "đ" ở trang Công việc, các hộp "Giao việc"/"Giao lại", "Bàn giao hàng loạt", "Thêm thành viên"; job cũ trong hàng đợi
+  vẫn chạy sau nâng cấp (`SendMatterAssignmentNotice::$withMail`). CAI-DAT: một mục nâng cấp chung — **không migration,
+  không seeder, không lịch, không `.env`**; tám mẫu thư nhân sự mới; sáu lời nhắc nội bộ.
+
+**Phán quyết controller chờ chủ văn phòng xác nhận:** (1) người chỉ có `contract.enter` (kế toán) chỉ "Đưa về bản nháp"
+được hợp đồng do chính họ kích hoạt; (2) trưởng phòng/quản lý được tự nhận lại việc của người rời đội ngũ/nghỉ việc; (3)
+khôi phục việc của chính mình thì về thẳng "Đang làm"; (4) việc người lead MỚI đã giao cho lead cũ không tự chuyển khi bàn
+giao (lead cũ vẫn bị chặn nghỉ việc tới khi chuyển bằng "Việc nội bộ và ghế").
+
+**Kiểm chứng:** mỗi làn: RED/GREEN qua Livewire, phép thử ngược cho mọi điều kiện mới (fa1 56, fa2 41, fa3 80 — đều đỏ,
+trừ vài mutant tương đương có ghi), cả bộ xanh trên nhánh làn. Trên `integ-fa`: cả bộ (`--processes=2`) tại `ad4cd670`
+**10453 passed, 42 skipped, 0 failed**; tại `13668b5a` (vòng sửa cuối) **10483 passed, 42 skipped, 0 failed**; MariaDB:
+821 passed (mọi tệp test ba làn đã chạm) + 185 passed (vòng cuối); pint PASS. **Chưa kiểm:** thao tác bằng mắt trên trình
+duyệt thật cho các hộp thoại mới.
 
 ## Ghi chú M14
 
@@ -9675,7 +9722,8 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
   tra nghiệp vụ toàn hệ thống (làn …)" phía trên) — đủ 24/24 lỗi quan trọng.
 - Giao – nhận – xử lý hồ sơ NỘI BỘ: **ĐÃ GỘP** (làn tk). Lỗi luồng nội bộ còn treo: **ĐÃ GỘP** (làn fi). Yêu cầu 2026-10-15 — kế toán nhập hợp đồng (kt),
   trang Tài liệu chung (tl), Kết nối AI (ai), trung tâm Cài đặt (st), trang Doanh thu gọn + nhóm menu (rv): **ĐÃ GỘP**.
-  Còn: đợt kiểm tra chuyên sâu luồng nội bộ theo một ngày làm việc thật (7 góc nhìn). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
+  Đợt kiểm tra chuyên sâu luồng nội bộ theo một ngày làm việc thật (7 góc nhìn) và ba làn sửa fa1/fa2/fa3: **ĐÃ GỘP**
+  (mục "Sửa sau đợt kiểm tra luồng nội bộ…" phía trên; bốn phán quyết controller chờ chủ văn phòng xác nhận). Vai trò nhân viên kinh doanh quản lý lead: **ĐÃ GỘP**
   (mục "Vai trò nhân viên kinh doanh (làn kd)" phía trên). Nhắc lịch thanh toán cho khách: **ĐÃ GỘP** (mục "Nhắc lịch
   thanh toán cho khách (làn nt)" phía trên).
 - Trao đổi gắn theo vụ và theo việc (không làm ứng dụng chat riêng): chủ văn phòng đồng ý hướng này và dặn

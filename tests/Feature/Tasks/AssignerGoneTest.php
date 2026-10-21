@@ -200,7 +200,8 @@ it('makes the new lead the assigner of the open tasks the departing lead gave on
     $completed = Task::factory()->forMatter($this->matter)->status(TaskStatus::Completed)->create([
         'title' => 'Việc đã xong', 'assignee_id' => $this->assistant->id, 'assigned_by' => $this->lead->id,
     ]);
-    // Việc lead cũ giao cho chính lead mới: lead mới không tự làm người giao của việc mình giữ.
+    // Việc lead cũ giao cho chính lead mới: thành việc RIÊNG của lead mới (gộp integ-fa, rà soát chéo mục 1) — không ở
+    // "Tôi đã giao", không trong danh sách "theo dõi" của thư tổng hợp.
     $toNewLead = Task::factory()->forMatter($this->matter)->status(TaskStatus::Accepted)->create([
         'title' => 'Việc của lead mới', 'assignee_id' => $newLead->id, 'assigned_by' => $this->lead->id,
     ]);
@@ -231,9 +232,10 @@ it('makes the new lead the assigner of the open tasks the departing lead gave on
         ->and($declined->fresh()->decline_reason)->toBe($declined->decline_reason)
         ->and($declined->fresh()->assignee_id)->toBe($this->assistant->id)
         ->and($completed->fresh()->assigned_by)->toBe($this->lead->id)
-        ->and($toNewLead->fresh()->assigned_by)->toBe($this->lead->id)
+        ->and($toNewLead->fresh()->assigned_by)->toBe($newLead->id)
+        ->and(Activity::query()->where('event', 'task_assigner_changed')->where('subject_id', $toNewLead->id)->sole()->properties['own_task'] ?? null)->toBeTrue()
         ->and($other->fresh()->assigned_by)->toBe($this->lead->id)
-        ->and(Activity::query()->where('event', 'task_assigner_changed')->count())->toBe(3);
+        ->and(Activity::query()->where('event', 'task_assigner_changed')->count())->toBe(4);
 
     $this->actingAs($newLead, 'web');
     $this->livewire(ListTasks::class, ['activeTab' => 'assigned'])

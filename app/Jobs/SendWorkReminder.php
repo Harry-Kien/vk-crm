@@ -46,7 +46,12 @@ use Throwable;
  *     lại; thư đã có dòng sổ thư `sent` cùng mẫu, cùng người, cùng bản ghi, cùng `payload.tier` thì không
  *     gửi lại ({@see self::alreadyMailed()} — lịch cũng hỏi câu này trước khi xếp).
  *
- * Hai loại báo người giao ({@see RemindPendingWork::isAssignerKind()}) tới người không phải `assigned_by`
+ * Làn fa1 (phán quyết 5): bước 2 với ba loại nhắc người nhận còn hỏi người đó GIỮ ĐƯỢC việc
+ * ({@see RemindPendingWork::assigneeHoldsSeat()}); các loại báo người giao về một việc "Cần giao lại" vì người nhận
+ * (`Task::scopeNeedsReassignment()`) thêm câu `tasks.reminder_needs_reassignment` vào chuông và thư — kể cả loại
+ * `reminder.due_soon_assigner` (làn fa1, vòng sửa 1), chỉ có khi người nhận không còn giữ được việc.
+ *
+ * Các loại báo người giao ({@see RemindPendingWork::isAssignerKind()}) tới người không phải `assigned_by`
  * LÚC GỬI — luật sư phụ trách nhận thay người giao đã rời vụ hay nghỉ việc (`ResolveStaffRecipients::
  * forTaskAssigner()`) — mang tên người giao (vòng sửa 1, I1): chuông và thư dùng câu chữ, đường dẫn của
  * người nhận thay ({@see TaskReminderAlert::onBehalf()}).
@@ -215,6 +220,10 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
         $onBehalfOf = RemindPendingWork::isAssignerKind($this->kind) && $user->getKey() !== $task->assigned_by
             ? $recipients->assignerName($task)
             : null;
+        // Làn fa1 (phán quyết 5): lời báo người giao về một việc mà người nhận không còn làm được (`Task::
+        // scopeNeedsReassignment()` — đã nghỉ, rời đội ngũ, trả lại hồ sơ, không còn mở được hồ sơ) nói rõ "cần giao lại".
+        $needsReassignment = RemindPendingWork::isAssignerKind($this->kind)
+            && Task::query()->withoutGlobalScope(ClientPortalScope::class)->whereKey($task->getKey())->needsReassignment()->exists();
 
         $alerted = $user->notifications()
             ->where('type', TaskReminderAlert::class)
@@ -222,14 +231,14 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
             ->exists();
 
         if (! $alerted) {
-            $user->notify(new TaskReminderAlert($task, $this->kind, $fullKey, $detail, $onBehalfOf));
+            $user->notify(new TaskReminderAlert($task, $this->kind, $fullKey, $detail, $onBehalfOf, $needsReassignment));
         }
 
         if (self::alreadyMailed($task, $user, $this->subject, $this->kind, $this->key)) {
             return;
         }
 
-        Mail::to($user->email)->send(new TaskReminder($task, $this->kind, $user, $detail, $this->key, $onBehalfOf));
+        Mail::to($user->email)->send(new TaskReminder($task, $this->kind, $user, $detail, $this->key, $onBehalfOf, $needsReassignment));
     }
 
     private function remindSeat(User $recipient, ResolveStaffRecipients $recipients): void
@@ -284,7 +293,7 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
             RemindPendingWork::AWAITING, RemindPendingWork::UNACCEPTED => FirstResponseClock::formatMinutes(
                 AcceptanceClock::fromConfig()->waitedMinutes($task->assigned_at),
             ),
-            RemindPendingWork::DUE_SOON => (string) $task->due_date?->format('d/m/Y'),
+            RemindPendingWork::DUE_SOON, RemindPendingWork::DUE_SOON_ASSIGNER => (string) $task->due_date?->format('d/m/Y'),
             default => (string) ($task->due_date === null ? 0 : (int) $task->due_date->diffInDays(today())),
         };
     }

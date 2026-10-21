@@ -1172,8 +1172,9 @@ it('trả một văn bản đang chờ duyệt về bản nháp qua màn hình',
 
     $this->actingAs($lawyer, 'web');
 
+    // Làn fa2 (phán quyết 7): lý do trả về là bắt buộc (DocumentReviewNoticeTest).
     documentsManager($matter)
-        ->callAction(TestAction::make('returnToDraft')->table($document))
+        ->callAction(TestAction::make('returnToDraft')->table($document), data: ['reason' => 'Cần sửa lại phần căn cứ pháp lý.'])
         ->assertHasNoActionErrors();
 
     expect($document->refresh()->status)->toBe(DocumentStatus::InternalDraft);

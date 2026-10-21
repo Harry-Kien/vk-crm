@@ -13,7 +13,10 @@ use Illuminate\Notifications\Notification;
  * … ₫, n đợt) — anh/chị kiểm tra lại." Người nhận và lúc gửi: {@see NotifyLeadLawyerOfContractEntry}.
  *
  * **Tiêu đề theo việc** (đợt polish, m2): `contract_entry.notifications.titles.{event}` — "vừa được
- * nhập (bản nháp)", "vừa được kích hoạt", "vừa được nhập và kích hoạt" — cùng ba khoá với câu thân.
+ * nhập (bản nháp)", "vừa được kích hoạt", "vừa được nhập và kích hoạt" — cùng ba khoá với câu thân. Làn fa3
+ * (2026-10-16) thêm ba việc, cùng khuôn: `reverted` (đưa về bản nháp), `draft_updated` (sửa bản nháp),
+ * `draft_deleted` (xoá bản nháp — `contract_id` trong `viewData` là của hàng đã xoá; nút vẫn mở tab tiền của
+ * vụ). Lý do của "đưa về bản nháp" không vào chuông (nằm ở nhật ký).
  *
  * **Một nút "Mở tab Hợp đồng và thanh toán"** (đợt polish, m9): câu thân bảo người nhận "kiểm tra lại",
  * nên chuông dẫn thẳng tới tab tiền của vụ, chọn bằng `?relation=<khoá của tab>` — khoá tra ngược

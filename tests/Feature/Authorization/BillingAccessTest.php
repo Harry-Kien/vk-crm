@@ -284,7 +284,9 @@ it('refuses the money of a soft deleted matter instead of failing', function () 
     expect($this->admin->can('view', $this->contract))->toBeTrue();
 
     settleChainDebt($this->chain);
-    $this->matter->delete();
+    // Làn fa3, fix round 1 (m9): vụ còn khoản thu chưa huỷ không xoá mềm được nữa (`Matter::deleting`) — dựng
+    // một vụ đã huỷ TỪ TRƯỚC luật đó, không qua hook.
+    $this->matter->forceFill(['deleted_at' => now()])->saveQuietly();
 
     expect(canReadMoney($this->admin, [
         $this->contract->fresh(), $this->instalment->fresh(), $this->payment->fresh(), $this->chain[3]->fresh(),
@@ -293,7 +295,9 @@ it('refuses the money of a soft deleted matter instead of failing', function () 
 
 it('refuses the money of a soft deleted matter even when the caller loaded the trashed matter', function () {
     settleChainDebt($this->chain);
-    $this->matter->delete();
+    // Làn fa3, fix round 1 (m9): vụ còn khoản thu chưa huỷ không xoá mềm được nữa (`Matter::deleting`) — dựng
+    // một vụ đã huỷ TỪ TRƯỚC luật đó, không qua hook.
+    $this->matter->forceFill(['deleted_at' => now()])->saveQuietly();
 
     $contract = Contract::query()
         ->with(['matter' => fn ($query) => $query->withTrashed()])
@@ -527,7 +531,9 @@ it('refuses to build a payment row once the matter was soft deleted, but still n
     expect(AccountantPaymentRow::fromPayment($payment->fresh())->clientName)->toBe($client->name);
 
     settleChainDebt($this->chain);
-    $this->matter->delete();
+    // Làn fa3, fix round 1 (m9): vụ còn khoản thu chưa huỷ không xoá mềm được nữa (`Matter::deleting`) — dựng
+    // một vụ đã huỷ TỪ TRƯỚC luật đó, không qua hook.
+    $this->matter->forceFill(['deleted_at' => now()])->saveQuietly();
 
     expect(fn () => AccountantPaymentRow::fromPayment($payment->fresh()))->toThrow(ModelNotFoundException::class);
 });
@@ -564,7 +570,9 @@ it('still names a client and a matter type that were soft deleted', function () 
  */
 it('refuses to build a row once the matter itself was soft deleted, unlike a soft deleted client or matter type', function () {
     settleChainDebt($this->chain);
-    $this->matter->delete();
+    // Làn fa3, fix round 1 (m9): vụ còn khoản thu chưa huỷ không xoá mềm được nữa (`Matter::deleting`) — dựng
+    // một vụ đã huỷ TỪ TRƯỚC luật đó, không qua hook.
+    $this->matter->forceFill(['deleted_at' => now()])->saveQuietly();
 
     expect(fn () => AccountantBillingRow::fromInstalment(
         $this->instalment->fresh(),
@@ -676,7 +684,9 @@ it('refuses the money of a soft deleted matter loaded without its deleted_at', f
         ->toBe([true, true, true, true]);
 
     settleChainDebt($this->chain);
-    $this->matter->delete();
+    // Làn fa3, fix round 1 (m9): vụ còn khoản thu chưa huỷ không xoá mềm được nữa (`Matter::deleting`) — dựng
+    // một vụ đã huỷ TỪ TRƯỚC luật đó, không qua hook.
+    $this->matter->forceFill(['deleted_at' => now()])->saveQuietly();
     $chain = billingChainLoadedWith($this->chain, $columns, withTrashed: true);
 
     expect($chain[0]->matter)->not->toBeNull()

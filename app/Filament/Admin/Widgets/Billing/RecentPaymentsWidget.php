@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Policies\Concerns\ChecksBillingAccess;
 use App\Support\Billing\AccountantPaymentRow;
+use App\Support\Billing\CollectedRevenue;
 use App\Support\Billing\Money;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Actions\Action;
@@ -73,6 +74,16 @@ use Illuminate\Support\Facades\Gate;
  * **Số truy vấn không tăng theo số dòng:** `instalment.contract.matter.client` nạp sẵn và ĐẦY ĐỦ
  * (vụ việc mang `confidentiality`/`lead_lawyer_id`/`deleted_at`, nên cổng tiền không nạp lại
  * mỗi dòng khi `->authorize()` hỏi — cùng lý do của bảng công nợ).
+ *
+ * **Khoản thu của hồ sơ đã huỷ vẫn có mặt, kèm nhãn "Hồ sơ đã huỷ"** (làn fa3, 2026-10-16, mục 1): tiền
+ * đã về là sự thật kế toán, và trang Doanh thu đếm nó ({@see CollectedRevenue}) — nên danh sách chi tiết
+ * cũng liệt kê nó, để con số "Đã thu" luôn tra lại được tới từng khoản. Vụ đi qua `withTrashed()` trong
+ * MỌI điều kiện vụ của mục (tập dòng, bộ lọc khách hàng, bộ lọc mã hồ sơ, danh sách khách của bộ lọc) và
+ * được nạp sẵn kèm `withTrashed()`; phạm vi `listableBy()` không đổi, nên vụ hạn chế đã huỷ vẫn chỉ hiện với
+ * quản trị viên (và luật sư phụ trách còn `matter.view`). Không có nút huỷ trên dòng đó: cổng tiền
+ * (`ChecksBillingAccess::canSeeBilling()`) đóng trên vụ đã xoá mềm, nên `->authorize()` ẩn nút — muốn huỷ
+ * khoản thu thì quản trị viên khôi phục hồ sơ trước. Từ làn fa3, `CancelMatter` không huỷ được hồ sơ còn
+ * khoản thu, nên dòng như vậy chỉ đến từ dữ liệu cũ.
  */
 class RecentPaymentsWidget extends TableWidget
 {
@@ -106,7 +117,11 @@ class RecentPaymentsWidget extends TableWidget
             ->columns([
                 TextColumn::make('matter_code')
                     ->label(__('billing.receivables.columns.matter_code'))
-                    ->state(fn (Payment $record): string => static::rowFor($record)->matterCode),
+                    ->state(fn (Payment $record): string => static::rowFor($record)->matterCode)
+                    // Làn fa3: hồ sơ đã huỷ (dữ liệu cũ) — vụ đã nạp sẵn kèm `deleted_at` ở `rowsQuery()`.
+                    ->description(fn (Payment $record): ?string => $record->instalment->contract->matter->trashed()
+                        ? __('billing.receivables.recent_payments.cancelled_matter')
+                        : null),
                 TextColumn::make('client_name')
                     ->label(__('billing.receivables.columns.client'))
                     ->state(fn (Payment $record): string => static::rowFor($record)->clientName),
@@ -136,7 +151,7 @@ class RecentPaymentsWidget extends TableWidget
                         $data['value'] ?? null,
                         fn (Builder $query, $value): Builder => $query->whereHas(
                             'instalment.contract.matter',
-                            fn (Builder $matter) => $matter->where('client_id', $value),
+                            fn (Builder $matter) => $matter->withTrashed()->where('client_id', $value),
                         ),
                     )),
                 Filter::make('matter_code')
@@ -168,9 +183,10 @@ class RecentPaymentsWidget extends TableWidget
         return Payment::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereNull('voided_at')
-            ->whereHas('instalment.contract.matter', fn (Builder $matter) => $matter->listableBy($user))
+            // Làn fa3: kể cả hồ sơ đã huỷ (docblock lớp) — trong điều kiện VÀ trong lần nạp sẵn.
+            ->whereHas('instalment.contract.matter', fn (Builder $matter) => $matter->withTrashed()->listableBy($user))
             ->with([
-                'instalment.contract.matter' => fn ($matter) => $matter->with([
+                'instalment.contract.matter' => fn ($matter) => $matter->withTrashed()->with([
                     'client' => fn ($client) => $client->withTrashed(),
                 ]),
             ])
@@ -194,7 +210,7 @@ class RecentPaymentsWidget extends TableWidget
 
         return $query->whereHas(
             'instalment.contract.matter',
-            fn (Builder $matter) => $matter->where('code', 'like', '%'.addcslashes($code, '%_\\').'%'),
+            fn (Builder $matter) => $matter->withTrashed()->where('code', 'like', '%'.addcslashes($code, '%_\\').'%'),
         );
     }
 
@@ -216,7 +232,7 @@ class RecentPaymentsWidget extends TableWidget
         }
 
         return Client::query()
-            ->whereHas('matters', fn (Builder $matter) => $matter->listableBy($user)
+            ->whereHas('matters', fn (Builder $matter) => $matter->withTrashed()->listableBy($user)
                 // `contracts` (mọi hợp đồng, kể cả bản đã huỷ — làn fb, mục A1), không `contract`
                 // (chỉ bản mới nhất): khoản thu trên một hợp đồng đã huỷ vẫn là khoản thu thật.
                 ->whereHas('contracts.instalments.payments', fn (Builder $payment) => $payment

@@ -13,6 +13,7 @@ use App\Enums\IntakeStatus;
 use App\Enums\PartyRole;
 use App\Enums\Permission;
 use App\Exceptions\ExistingClientConfirmationRequired;
+use App\Jobs\SendIntakeConvertedNotice;
 use App\Models\Client;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
@@ -468,10 +469,19 @@ class ConvertIntakeToMatter
                 ->update(['retention_until' => null, 'merge_chain_matter_id' => $matter->getKey()]);
         }
 
-        Audit::record('intake_converted', $locked, [
+        $converted = Audit::record('intake_converted', $locked, [
             'matter_id' => $matter->getKey(),
             'client_id' => $matter->client_id,
             'client_created' => $clientCreated,
         ], $actor);
+
+        // Gộp integ-fa (rà soát chéo 2026-10-18, mục 15): người đang được giao bản ghi (người tư vấn) — khi không phải
+        // người bấm và không phải luật sư phụ trách của hồ sơ mới (người đó có chuông + thư "được giao hồ sơ" của
+        // `OpenMatter`) — nhận một chuông TIN sau commit; job đọc lại mọi thứ lúc chạy.
+        $handler = $locked->assigned_to === null ? null : (int) $locked->assigned_to;
+
+        if ($converted !== null && $handler !== null && $handler !== (int) $actor->getKey() && $handler !== (int) $matter->lead_lawyer_id) {
+            SendIntakeConvertedNotice::dispatch((int) $locked->getKey(), $handler, (int) $actor->getKey(), (int) $converted->getKey())->afterCommit();
+        }
     }
 }

@@ -160,6 +160,9 @@ return [
         'instalment_triggered' => 'Đợt thanh toán đến hạn theo giai đoạn vụ việc',
         // Lượt rà soát cuối M9, M9: App\Actions\Billing\DeleteDraftContract.
         'contract_draft_deleted' => 'Xoá hợp đồng nháp',
+        // làn fa3 (2026-10-16, mục 2): App\Actions\Billing\RevertContractToDraft.
+        'contract_reverted_to_draft' => 'Đưa hợp đồng về bản nháp',
+        // hết khối làn fa3
         // app/Actions/Portal/*.php
         'client_request_opened' => 'Mở yêu cầu của khách',
         'client_request_assigned' => 'Giao yêu cầu của khách',
@@ -306,6 +309,13 @@ return [
         // hỏng hẳn sau hết lượt thử lại (chỉ id: đối tượng, loại nhắc, người nhận).
         'work_reminder_failed' => 'Gửi thư nhắc việc nội bộ thất bại hẳn',
         // --- Hết khối làn tk ----------------------------------------------------------------
+        // --- làn fa1 (2026-10-16): App\Actions\Task\ReopenTask / RestoreTask ---
+        'task_reopened' => 'Mở lại việc đã hoàn thành',
+        'task_restored' => 'Khôi phục việc đã huỷ',
+        // --- hết khối làn fa1 ---
+        // --- Làn fa2 (kiểm tra luồng nội bộ 2026-10-16): App\Actions\Matter\TransferStaffWork — chủ thể là nhân sự.
+        'staff_work_transferred' => 'Chuyển việc nội bộ và ghế của nhân sự',
+        // --- Hết khối làn fa2 ---
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
@@ -371,6 +381,8 @@ return [
         // Làn tk, Task 2, vòng sửa 1: cùng hằng số, sự kiện task_assigner_changed.
         'task_assigner_changed' => [
             'matter_reassigned' => 'Bàn giao vụ việc: việc luật sư cũ đã giao trên vụ nay do luật sư phụ trách mới theo dõi',
+            // làn fa2: App\Actions\Matter\TransferStaffWork::TRANSFER_REASON.
+            'staff_work_transferred' => 'Chuyển việc của nhân sự: việc người này đã giao nay do người nhận việc (hay người thao tác) theo dõi',
         ],
     ],
 ];

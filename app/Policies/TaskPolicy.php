@@ -29,6 +29,9 @@ class TaskPolicy
 {
     use ChecksMatterAccess;
 
+    /** Người đã hoàn thành một việc tự "Mở lại" được trong ngần này giờ (bấm nhầm) — {@see self::reopen()}. */
+    public const REOPEN_OWN_HOURS = 24;
+
     /** Trang "Công việc" mở cho mọi nhân sự; danh sách tự lọc theo `visibleTo()`. */
     public function viewAny(User|ClientUser $user): bool
     {
@@ -58,10 +61,16 @@ class TaskPolicy
             || $matter->lead_lawyer_id === $user->getKey();
     }
 
-    /** Giao một VIỆC CHUNG (không thuộc vụ nào): chỉ quản lý/quản trị. */
+    /**
+     * Giao một VIỆC CHUNG (không thuộc vụ nào) — làn fa1, phán quyết 3 (kiểm tra luồng nội bộ 2026-10-16; trước đó
+     * chỉ quản lý/quản trị): mọi nhân sự có `matter.view` — luật sư, trợ lý, trưởng phòng, quản trị viên — để
+     * luật sư giao chuyên viên việc ngoài vụ (tra cứu trước buổi tư vấn, cập nhật mẫu hợp đồng) mà người giao vẫn
+     * là chính họ. Kế toán và nhân viên kinh doanh (không `matter.view`) nhận việc chung, không giao. Người nhận:
+     * mọi nhân sự đang hoạt động (`TaskAssignees`). Cũng là cổng của nút "Giao việc" trên trang "Công việc".
+     */
     public function create(User|ClientUser $user): bool
     {
-        return $user instanceof User && Task::isSupervisor($user);
+        return $user instanceof User && $user->can(Permission::MatterView->value);
     }
 
     /**
@@ -107,10 +116,14 @@ class TaskPolicy
     /**
      * "Trả lại" (kèm lý do): người nhận, khi việc chờ nhận hoặc đang làm — kể cả người không còn giữ được
      * việc (đã sang "người theo dõi"…): trả việc về cho người giao là đúng việc họ nên làm.
+     *
+     * Trừ khi người nhận CHÍNH là người giao (gộp integ-fa — việc riêng sau một lần nhận thay, `ReassignTask`): không có
+     * ai để trả về; họ "Giao lại" hay "Huỷ" bằng quyền người giao ({@see self::manages()}).
      */
     public function decline(User|ClientUser $user, Task $task): bool
     {
         return $this->isAssignee($user, $task)
+            && $task->assigned_by !== $user->getKey()
             && in_array($task->status, [TaskStatus::Pending, TaskStatus::Accepted], true);
     }
 
@@ -146,6 +159,61 @@ class TaskPolicy
     public function cancel(User|ClientUser $user, Task $task): bool
     {
         return $this->manages($user, $task) && $task->isOpen();
+    }
+
+    /**
+     * "Mở lại" một việc đã Hoàn thành (làn fa1, phán quyết 2): người quản lý được việc ({@see self::manages()} —
+     * người giao, luật sư phụ trách vụ, quản lý/quản trị; cùng trục với "Giao lại") — đó là "yêu cầu làm lại", bắt
+     * buộc lý do; hoặc chính người đã hoàn thành ({@see self::completedRecentlyBy()}: trong
+     * {@see self::REOPEN_OWN_HOURS} giờ đầu, sửa một lần bấm nhầm).
+     *
+     * KHÔNG hỏi vụ còn mở: trên vụ đã kết thúc nút vẫn hiện nhưng bị khoá kèm câu giải thích, và `ReopenTask` từ
+     * chối bằng chính câu đó (một màn hình mở từ trước khi vụ kết thúc).
+     */
+    public function reopen(User|ClientUser $user, Task $task): bool
+    {
+        if (! $user instanceof User || $task->status !== TaskStatus::Completed) {
+            return false;
+        }
+
+        return $this->manages($user, $task) || $this->completedRecentlyBy($user, $task);
+    }
+
+    /**
+     * `$user` là người đã hoàn thành `$task` — người nhận: việc đã hoàn thành không giao lại được, nên `assignee_id`
+     * là người đã bấm "Hoàn thành" — và còn trong {@see self::REOPEN_OWN_HOURS} giờ đầu, khi họ còn giữ được việc
+     * ({@see self::stillHolds()}). Vế "bấm nhầm" của {@see self::reopen()}: lý do không bắt buộc (`ReopenTask`).
+     */
+    public function completedRecentlyBy(User|ClientUser $user, Task $task): bool
+    {
+        return $user instanceof User
+            && $task->status === TaskStatus::Completed
+            && $this->isAssignee($user, $task)
+            && $task->completed_at !== null
+            && $task->completed_at->greaterThan(now()->subHours(self::REOPEN_OWN_HOURS))
+            && $this->stillHolds($user, $task);
+    }
+
+    /**
+     * "Khôi phục" một việc đã Huỷ (làn fa1, phán quyết 2): chính người đã huỷ ({@see Task::cancelledBy()} — dòng
+     * nhật ký `task_cancelled` gần nhất của việc), luật sư phụ trách hiện tại của vụ, hoặc quản lý/quản trị; người
+     * đó phải còn xem được việc. Người giao mà KHÔNG phải người đã huỷ (luật sư phụ trách hay quản lý huỷ việc của
+     * họ) thì không: họ đã được báo việc bị huỷ, kèm lý do. Như {@see self::reopen()}, không hỏi vụ còn mở.
+     *
+     * Tên `restoreCancelled`, KHÔNG `restore` (làn fa1, vòng sửa 1 — rà soát Task 1, m9): `restore` là khả năng của
+     * Laravel/Filament cho khôi phục XOÁ MỀM (`Task` dùng `SoftDeletes`) — một `RestoreAction`/`TrashedFilter` thêm vào
+     * `TaskResource` sau này sẽ hỏi `restore` và không được mở bằng cổng của "Khôi phục việc đã huỷ". Policy không có
+     * `restore()`, nên cổng đó luôn từ chối (như `delete`/`forceDelete`: không ai xoá một việc).
+     */
+    public function restoreCancelled(User|ClientUser $user, Task $task): bool
+    {
+        if (! $user instanceof User || $task->status !== TaskStatus::Cancelled || ! $this->view($user, $task)) {
+            return false;
+        }
+
+        return Task::isSupervisor($user)
+            || ($task->matter_id !== null && $task->matter?->lead_lawyer_id === $user->getKey())
+            || $task->cancelledBy() === $user->getKey();
     }
 
     /** Không ai xoá một việc: huỷ là đường duy nhất, và để lại dấu vết. */

@@ -264,10 +264,14 @@ class ResolveStaffRecipients
      * @param  array<string, mixed>  $mustAllow
      * @return Collection<int, User>
      */
-    private function fallbackChain(Matter $matter, bool $billing = false, array $mustAllow = []): Collection
+    private function fallbackChain(Matter $matter, bool $billing = false, array $mustAllow = [], ?int $exceptId = null): Collection
     {
+        // Làn fa2, vòng sửa 1 (minor 7): `$exceptId` (chỉ {@see self::forApprovalRequest()}) bị bỏ ở MỌI tầng TRƯỚC khi chọn —
+        // tầng có mỗi người đó thì đi tiếp tầng sau. `null` (mọi nơi gọi khác): không đổi gì.
+        $without = fn (Collection $tier): Collection => $exceptId === null ? $tier : $tier->reject(fn (?User $user): bool => $user?->getKey() === $exceptId);
+
         if ($matter->leadLawyer !== null) {
-            $leadLawyerQualified = $this->qualify(collect([$matter->leadLawyer]), $matter, $billing, $mustAllow);
+            $leadLawyerQualified = $this->qualify($without(collect([$matter->leadLawyer])), $matter, $billing, $mustAllow);
 
             if ($leadLawyerQualified->isNotEmpty()) {
                 return $leadLawyerQualified;
@@ -283,7 +287,7 @@ class ResolveStaffRecipients
         // nào, đúng nghĩa "điều kiện chết". Giữ code đơn giản, không thêm một nhánh không ai đo
         // được là đang làm gì.
         $manager = $this->qualify(
-            User::query()->where('is_active', true)->role(Role::Manager->value)->get(),
+            $without(User::query()->where('is_active', true)->role(Role::Manager->value)->get()),
             $matter,
             $billing,
             $mustAllow,
@@ -294,7 +298,7 @@ class ResolveStaffRecipients
         }
 
         $admin = $this->qualify(
-            User::query()->where('is_active', true)->role(Role::Admin->value)->get(),
+            $without(User::query()->where('is_active', true)->role(Role::Admin->value)->get()),
             $matter,
             $billing,
             $mustAllow,
@@ -475,28 +479,47 @@ class ResolveStaffRecipients
 
     /**
      * Làn tk, Task 2 — người nhận lời báo CẦN NGƯỜI GIAO LÀM GÌ ĐÓ về một việc: việc bị trả lại
-     * (`staff.task.declined`), việc chưa ai nhận quá lâu, việc quá hạn (lịch `RemindPendingWork`). Người giao
+     * (`staff.task.declined`), việc chưa ai nhận quá lâu, việc quá hạn, việc sắp đến hạn mà người nhận không còn
+     * làm được (lịch `RemindPendingWork`). Người giao
      * nếu còn hợp lệ ({@see self::forTask()}); không thì — việc của một vụ — luật sư phụ trách HIỆN TẠI của vụ
      * (qua cùng `forTask()`), khi họ không phải chính người đang giữ việc; còn không nữa thì người quản lý
      * của vụ ({@see self::supervisorsFor()}, gộp làn tk 2026-10-16). Lý do: người giao rời vụ (bàn giao
      * sang người khác), nghỉ việc, hay bị vô hiệu — lời báo cần một người quyết định, và luật sư phụ trách
      * thấy mọi việc của vụ mình (`TaskPolicy::view`) và giao lại được (`TaskPolicy::reassign`).
      *
-     * Khác {@see self::forTask()} có chủ ý: lời báo "đã nhận", "đã hoàn thành" chỉ là tin cho chính người
-     * giao — chúng không qua đây. Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì
-     * rỗng (việc hiện ở danh sách "Công việc" của quản lý, và "Cần giao lại" khi việc đã bị trả lại —
-     * `Task::scopeNeedsReassignment()`).
+     * Tin cho người giao (làn fa1, phán quyết 7; vòng sửa 1 — rà soát Task 1, m4 + m5): từ làn fa1 các lời báo
+     * "đã nhận", "đã hoàn thành", "người nhận tự mở lại" (`TaskAlert::INFO_ONLY_KINDS`) cũng qua đây — để luật sư
+     * phụ trách nhận thay người giao đã đi — với `$decisionNeeded = false`: chúng chỉ là TIN, không cần ai quyết
+     * định gì, nên dừng TRƯỚC bước người quản lý của vụ. Không thì khi luật sư phụ trách chính là người giữ việc,
+     * mọi trưởng phòng (hay quản trị viên với vụ hạn chế) nhận một chuông + thư cho mỗi lần nhận/hoàn thành, với câu
+     * "hồ sơ anh/chị phụ trách" sai với họ. Lời báo cần người quyết định (bị trả lại, chưa được nhận, sắp đến hạn mà
+     * không còn người làm, quá hạn) giữ cả ba bước (`$decisionNeeded = true`, mặc định).
+     *
+     * Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì rỗng (việc hiện ở danh sách "Công
+     * việc" của quản lý, và "Cần giao lại" khi việc đã bị trả lại — `Task::scopeNeedsReassignment()`).
      *
      * Người nhận thay KHÔNG phải người giao (vòng sửa 1 của Task 2, I1): người gửi so người nhận với
      * `assigned_by` và dùng câu chữ "do :assigner giao" ({@see self::assignerName()}), đường dẫn về tab
      * "Công việc" của vụ — không "việc anh/chị giao", không tab "Tôi đã giao". Bàn giao vụ không đi đường này:
      * `MoveTasksOnHandover` đổi người giao sang lead mới, nên lead mới LÀ người giao.
      *
+     * Người giao đang tự giữ việc (gộp integ-fa: họ nhận thay việc mình đã giao — `ReassignTask` `takeOver` — hay việc
+     * được "Giao lại" về chính họ): lời báo cho người giao là lời báo về việc CỦA CHÍNH họ, nên bước người giao bị bỏ
+     * và chuỗi đi tiếp như khi người giao đã đi — luật sư phụ trách (khi không phải người giữ). Gộp integ-fa (rà soát chéo
+     * 2026-10-18, mục 3): việc riêng KHÔNG BAO GIỜ rơi tới người quản lý của vụ, kể cả lời báo cần người quyết định —
+     * người giữ chính là người quyết định việc của mình (họ "Giao lại" hay "Huỷ" bằng quyền người giao), và một việc riêng
+     * của luật sư phụ trách (bàn giao vụ biến việc lead cũ tự giữ, và việc lead cũ đã giao cho lead mới, thành việc riêng
+     * của lead mới — `MoveTasksOnHandover`) không được thành một chuông + thư cho mọi trưởng phòng. Người giữ việc riêng
+     * không làm được việc nữa (nghỉ, mất ghế): việc hiện "Cần giao lại" (`Task::scopeNeedsReassignment()`). Việc chung
+     * thì rỗng.
+     *
+     * @param  bool  $decisionNeeded  `false` cho một lời báo chỉ là tin: không rơi tới người quản lý của vụ (xem trên)
      * @return Collection<int, User>
      */
-    public function forTaskAssigner(Task $task): Collection
+    public function forTaskAssigner(Task $task, bool $decisionNeeded = true): Collection
     {
-        $assigner = $this->forTask($task, [$task->assigner]);
+        $own = $task->assigned_by === $task->assignee_id;
+        $assigner = $own ? collect() : $this->forTask($task, [$task->assigner]);
 
         if ($assigner->isNotEmpty() || $task->matter_id === null) {
             return $assigner;
@@ -515,8 +538,10 @@ class ResolveStaffRecipients
 
         // Gộp làn tk (2026-10-16): không còn người giao, và luật sư phụ trách chính là người đang giữ (trả lại)
         // việc hay không còn hợp lệ — người quản lý của vụ ({@see self::supervisorsFor()}: trưởng phòng; quản trị
-        // viên với vụ hạn chế) nhận lời báo, qua cùng cổng `forTask()`. Không ai quyết định thì việc nằm im.
-        if ($matter === null) {
+        // viên với vụ hạn chế) nhận lời báo, qua cùng cổng `forTask()`. Không ai quyết định thì việc nằm im. Lời báo
+        // chỉ là tin (`$decisionNeeded = false` — làn fa1, vòng sửa 1, m5) thì dừng ở đây; việc riêng cũng vậy (gộp
+        // integ-fa, rà soát chéo mục 3 — docblock).
+        if ($matter === null || ! $decisionNeeded || $own) {
             return collect();
         }
 
@@ -550,5 +575,30 @@ class ResolveStaffRecipients
             ->get()
             ->filter(fn (User $user): bool => Gate::forUser($user)->allows(Permission::SettingsManage->value))
             ->values();
+    }
+
+    /**
+     * Người DUYỆT của một yêu cầu duyệt do `$submitterId` gửi (làn fa2, vòng sửa 1, minor 7 — `SendDocumentReviewNotice`):
+     * {@see self::handle()} với người trình không bao giờ có mặt trong kết quả.
+     *
+     *  - Danh sách ưu tiên (luật sư phụ trách) còn hợp lệ: đó là người duyệt; người trình bị bỏ SAU khi chọn — luật sư
+     *    phụ trách tự trình văn bản của mình thì chính họ duyệt, không ai bị báo.
+     *  - Không ai trong danh sách ưu tiên hợp lệ: chuỗi dự phòng, người trình bị bỏ ở MỌI tầng TRƯỚC khi chọn — tầng chỉ
+     *    có mỗi họ (trưởng phòng duy nhất tự trình) thì đi tiếp tầng sau (quản trị viên duyệt được). Bỏ họ SAU chuỗi
+     *    dự phòng thì chuỗi dừng ở tầng của họ rồi mới bị bỏ — không ai nhận.
+     *
+     * @param  array<int, User|null>  $preferred
+     * @param  array<string, mixed>  $mustAllow
+     * @return Collection<int, User>
+     */
+    public function forApprovalRequest(Matter $matter, array $preferred, array $mustAllow, ?int $submitterId): Collection
+    {
+        $qualified = $this->qualify(collect($preferred), $matter, mustAllow: $mustAllow);
+
+        if ($qualified->isNotEmpty()) {
+            return $qualified->reject(fn (User $user): bool => $user->getKey() === $submitterId)->values();
+        }
+
+        return $this->fallbackChain($matter, mustAllow: $mustAllow, exceptId: $submitterId);
     }
 }

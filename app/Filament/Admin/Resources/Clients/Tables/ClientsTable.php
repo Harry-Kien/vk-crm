@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\Clients\Tables;
 
 use App\Enums\ClientType;
+use App\Support\Search\LetterD;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -23,11 +24,11 @@ class ClientsTable
             ->columns([
                 TextColumn::make('code')
                     ->label(__('clients.fields.code'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('code'))
                     ->sortable(),
                 TextColumn::make('name')
                     ->label(__('clients.fields.name'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('name'))
                     ->sortable(),
                 TextColumn::make('type')
                     ->label(__('clients.fields.type'))

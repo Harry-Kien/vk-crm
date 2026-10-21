@@ -6,7 +6,9 @@ use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
+use App\Actions\Deadline\Concerns\QueuesDeadlineAssignmentNotice;
 use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\TransferStaffWork;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
@@ -64,15 +66,20 @@ class ChangeDeadlineResponsible
 {
     use ChecksAccountActive;
     use ChecksDeadlineHolder;
+    use QueuesDeadlineAssignmentNotice;
     use ReadsWithoutPortalScope;
 
     /**
+     * @param  bool  $notify  làn fa2, vòng sửa 1 (I2): `false` — không báo người giữ mốc mới (chuông + thư
+     *                        `staff.deadline_assigned`) và (gộp integ-fa, mục 16) không báo người giữ cũ; chỉ
+     *                        {@see TransferStaffWork} truyền `false`, vì nó gửi MỘT lời báo tổng hợp cho cả lô
+     *
      * @throws AuthorizationException
      * @throws ValidationException
      */
-    public function handle(Deadline $deadline, User $actor, User $newResponsible): Deadline
+    public function handle(Deadline $deadline, User $actor, User $newResponsible, bool $notify = true): Deadline
     {
-        return DB::transaction(function () use ($deadline, $actor, $newResponsible): Deadline {
+        return DB::transaction(function () use ($deadline, $actor, $newResponsible, $notify): Deadline {
             // Câu ĐẦU TIÊN: khoá vụ việc, đọc lại từ CSDL — không tin `$deadline->matter` do caller
             // đưa vào, có thể là một quan hệ cũ hoặc một đối tượng đã sửa trong bộ nhớ.
             $matter = $this->scopelessly(Matter::query())->lockForUpdate()->find($deadline->matter_id);
@@ -126,12 +133,20 @@ class ChangeDeadlineResponsible
 
             $fresh->blameOn($actor)->update(['responsible_user_id' => $lockedNewResponsible->getKey()]);
 
-            Audit::record('deadline_responsible_changed', $fresh, [
+            $changed = Audit::record('deadline_responsible_changed', $fresh, [
                 'matter_id' => $matter->getKey(),
                 'client_id' => $matter->client_id,
                 'from' => $previous,
                 'to' => $lockedNewResponsible->getKey(),
             ], causer: $actor);
+
+            // Làn fa2, phán quyết 6: người giữ mốc mới (không phải người bấm) được báo NGAY bằng chuông + thư, sau
+            // commit — job đọc lại mốc và người nhận lúc chạy (docblock `SendDeadlineAssignmentNotice`).
+            if ($notify) {
+                $this->queueAssignmentNotice($fresh, $lockedNewResponsible, $actor, $changed, $previous === null ? null : (int) $previous);
+                // Gộp integ-fa (rà soát chéo, mục 16): người giữ cũ biết mốc đã sang tay ai.
+                $this->queueHandedAwayNotice($fresh, $lockedNewResponsible, $actor, $changed, $previous === null ? null : (int) $previous);
+            }
 
             return $fresh;
         });

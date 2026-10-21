@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Một việc giao NỘI BỘ (làn tk, Task 1 — chủ văn phòng, 2026-10-10: "luật sư giao việc chuyên viên";
@@ -189,6 +190,8 @@ class Task extends Model
     /**
      * Việc CÓ HẠN đã hoàn thành trong `$bounds` (hai cận đủ giờ của `PerformancePeriod::bounds()`) — tập của
      * chỉ số "Việc hoàn thành đúng hạn" (làn tk, Task 2). Đúng hạn hay trễ: {@see self::completedOnTime()}.
+     * Một việc được "Mở lại" (`App\Actions\Task\ReopenTask`, làn fa1) về "Đang làm" và mất `completed_at`, nên ra
+     * khỏi tập này cho tới khi hoàn thành lần nữa (khi đó `completed_at` là lần xong mới).
      *
      * @param  array{0: string, 1: string}  $bounds
      */
@@ -211,6 +214,23 @@ class Task extends Model
             && $this->completed_at->copy()->setTimezone((string) config('app.timezone'))->toDateString() <= $this->due_date->toDateString();
     }
 
+    /**
+     * Việc người đang giữ đã nhận KHÔNG SAU ngày hạn (gộp integ-fa, rà soát chéo 2026-10-18, mục 2): ngày giao
+     * (`assigned_at`, theo `APP_TIMEZONE` — cột lưu giờ địa phương) không sau ngày hạn, hay không có mốc giao. Một việc
+     * được giao (lại) cho người này khi hạn đã qua thì người đó chưa bao giờ có cơ hội làm kịp — tỉ lệ "Việc hoàn thành
+     * đúng hạn" (`BuildTaskPerformance`) bỏ nó khỏi cả tử lẫn mẫu, thay vì tính một việc trễ cho người vừa nhận. Từ bản
+     * sửa này các đường chuyển hàng loạt không còn để người mới nhận hạn đã qua (`ReassignmentDueDate`), nhưng "Giao
+     * lại" vẫn cho giữ đúng hạn cũ đã qua (`ValidatesTaskInput::cleanDueDate()`), và dữ liệu cũ có những việc như vậy.
+     */
+    public function scopeAssignedByDueDate(Builder $query): Builder
+    {
+        $assigned = $this->qualifyColumn('assigned_at');
+
+        return $query->where(fn (Builder $inTime): Builder => $inTime
+            ->whereNull($assigned)
+            ->orWhereRaw('DATE('.$assigned.') <= DATE('.$this->qualifyColumn('due_date').')'));
+    }
+
     /** "Chờ tôi nhận": giao cho `$user`, chưa ai bấm "Đã nhận". */
     public function scopeAwaitingAcceptanceBy(Builder $query, User $user): Builder
     {
@@ -229,10 +249,23 @@ class Task extends Model
      * "Tôi đã giao": việc `$user` giao còn mở (kể cả việc bị trả lại chờ giao lại), cộng việc đã HOÀN
      * THÀNH trong {@see self::RECENTLY_COMPLETED_DAYS} ngày qua — lời báo "đã hoàn thành" (chuông, thư)
      * trỏ về đây, và người giao đọc ghi chú kết quả ở đúng chỗ họ theo dõi việc. Việc đã huỷ thì không.
+     * Việc `$user` tự giữ (gộp integ-fa: người giao = người giữ — nhận thay việc mình đã giao, `ReassignTask`
+     * `takeOver`, hay một lần "Giao lại" trả việc về người đã giao nó) không ở đây: nó là việc của chính họ, ở "Chờ tôi
+     * nhận" / "Đang làm".
+     *
+     * Trừ việc "Bị trả lại" (gộp integ-fa, rà soát lại 2026-10-18): người giao = người nhận mà việc đã trả lại — lead mới
+     * từng trả lại việc lead cũ giao, rồi bàn giao vụ biến họ thành người giao (`MoveTasksOnHandover::transferAssigner()`;
+     * `TransferStaffWork` đổi người giao sang người bấm cũng vậy). Không ai còn giữ việc; chỉ người giao giao người khác
+     * hay huỷ nó, nên nó ở đây — và ở ô "Việc tôi giao bị trả lại" của bảng điều khiển, đếm bằng chính scope này. Không có
+     * ngoại lệ này nó không ở danh sách nào của ai: không "Chờ tôi nhận" / "Đang làm" (đã trả lại), không "Cần giao lại"
+     * (người giao còn đó), không lời nhắc nào (việc bị trả lại không nhắc).
      */
     public function scopeAssignedBy(Builder $query, User $user): Builder
     {
         return $query->where($this->qualifyColumn('assigned_by'), $user->getKey())
+            ->where(fn (Builder $notOwn): Builder => $notOwn
+                ->where($this->qualifyColumn('assignee_id'), '!=', $user->getKey())
+                ->orWhere($this->qualifyColumn('status'), TaskStatus::Declined->value))
             ->where(fn (Builder $tracked): Builder => $tracked
                 ->whereIn($this->qualifyColumn('status'), TaskStatus::openValues())
                 ->orWhere(fn (Builder $done): Builder => $done
@@ -250,8 +283,10 @@ class Task extends Model
 
     /**
      * Việc QUÁ HẠN ĐƯỢC TÍNH (làn tk, vòng sửa polish 1 — rà soát Task 2, m8): người nhận còn giữ
-     * ({@see self::scopeHeld()}), đã qua hạn ({@see self::scopeOverdue()}), và là việc chung hay việc của một
-     * vụ còn mở ({@see self::scopeOnLiveMatter()}). MỘT định nghĩa cho mọi con số "quá hạn" (ô "Việc của tôi
+     * ({@see self::scopeHeld()}), đã qua hạn ({@see self::scopeOverdue()}), là việc chung hay việc của một
+     * vụ còn mở ({@see self::scopeOnLiveMatter()}), và — làn fa1, phán quyết 5 — người nhận còn GIỮ ĐƯỢC việc
+     * ({@see self::scopeHeldBySeatedAssignee()}: việc của người đã sang "người theo dõi", đã trả lại hồ sơ hay
+     * không còn mở được hồ sơ hiện "Cần giao lại", không vào số quá hạn của họ). MỘT định nghĩa cho mọi con số "quá hạn" (ô "Việc của tôi
      * đã quá hạn" của bảng điều khiển, cột "Việc quá hạn" của Theo dõi đội ngũ và trang của một người), cho
      * bộ lọc "Chỉ việc quá hạn" của trang Công việc mà ô đó mở ra, và cho lịch nhắc quá hạn
      * (`RemindPendingWork`): việc của một vụ đã kết thúc hay đã huỷ không vào số và không được nhắc — trên vụ
@@ -259,7 +294,62 @@ class Task extends Model
      */
     public function scopeOverdueToHandle(Builder $query): Builder
     {
-        return $query->held()->overdue()->onLiveMatter();
+        return $query->held()->overdue()->onLiveMatter()->heldBySeatedAssignee();
+    }
+
+    /**
+     * Người nhận còn GIỮ ĐƯỢC việc (làn fa1, phán quyết 5 — kiểm tra luồng nội bộ 2026-10-16): việc chung, hay việc
+     * của một vụ mà người nhận ngồi một ghế giữ việc ({@see self::workingSeats()}: không "người theo dõi"), chưa
+     * "Trả lại" ghế đó, và còn mở được vụ — bản SQL của `TaskAssignees::holdsSeat()` (cùng ba vế; phủ định của các
+     * vế `off_team` / `seat_declined` / `off_access` của {@see self::scopeNeedsReassignment()}). Gộp integ-fa (rà soát
+     * chéo 2026-10-18, mục 7): CŨNG hỏi `users.is_active` — phủ định của vế `inactive` — nên tập này là bản SQL của
+     * `RemindPendingWork::assigneeCanStillWork()` / `TaskAssignees::qualifies()`, và một việc không bao giờ vừa là "quá
+     * hạn" của người giữ (ô bảng điều khiển, bộ lọc "Chỉ việc quá hạn", mẫu của tỉ lệ đúng hạn) vừa là "Cần giao lại".
+     * Trước bản sửa, việc quá hạn của người bị tạm khoá nằm ở cả hai. Người đã XOÁ MỀM thì không giữ việc nào (làn fa1, vòng sửa 1 — rà soát
+     * Task 1, m6): `holdsSeat()` đi qua `$matter->team()` — quan hệ tới `User`, mang scope xoá mềm — nên người đã xoá
+     * không ngồi ghế nào; bản SQL hỏi thẳng `users.deleted_at`. Vế này áp cả cho việc chung (người đã xoá không làm
+     * được việc chung — vế `inactive` của {@see self::scopeNeedsReassignment()}).
+     *
+     * MỘT định nghĩa cho số "quá hạn" ({@see self::scopeOverdueToHandle()}), cho cột "Việc đang làm" / "Việc chờ nhận"
+     * của Theo dõi đội ngũ (`BuildTaskWorkload`, vòng sửa 1 — m10), cho lượt chọn VÀ lần hỏi lại lúc gửi của ba lời
+     * nhắc người nhận (`RemindPendingWork`: chờ nhận, sắp đến hạn, quá hạn), và cho phần "việc còn giữ đã quá hạn"
+     * của tỉ lệ đúng hạn (`BuildTaskPerformance`). Một việc không qua vế này hiện "Cần giao lại"; lời nhắc cho NGƯỜI
+     * GIAO (chưa được nhận, sắp đến hạn, quá hạn) không qua vế này — người giao được nhắc thay.
+     */
+    public function scopeHeldBySeatedAssignee(Builder $query): Builder
+    {
+        return $query->whereExists(fn (QueryBuilder $person): QueryBuilder => $person
+            ->selectRaw('1')
+            ->from('users')
+            ->whereColumn('users.id', $this->qualifyColumn('assignee_id'))
+            ->whereNull('users.deleted_at')
+            ->where('users.is_active', true))
+            ->where(fn (Builder $holds): Builder => $holds
+                ->whereNull($this->qualifyColumn('matter_id'))
+                ->orWhere(fn (Builder $onMatter): Builder => $onMatter
+                    ->whereExists(fn (QueryBuilder $seat): QueryBuilder => $seat
+                        ->selectRaw('1')
+                        ->from('matter_user')
+                        ->whereColumn('matter_user.matter_id', $this->qualifyColumn('matter_id'))
+                        ->whereColumn('matter_user.user_id', $this->qualifyColumn('assignee_id'))
+                        ->whereIn('matter_user.role_in_matter', self::workingSeats())
+                        ->where(fn (QueryBuilder $notReturned): QueryBuilder => $notReturned
+                            ->whereNotNull('matter_user.accepted_at')
+                            ->orWhereNull('matter_user.declined_at')))
+                    ->whereNot(fn (Builder $blocked): Builder => $blocked->whereCannotOpenMatter('assignee_id'))));
+    }
+
+    /**
+     * Việc người nhận còn giữ, đã quá hạn, mà HẠN rơi trong `[$from, $to]` (ngày `Y-m-d`) — phần "việc còn mở đã
+     * quá hạn trong kỳ" của tỉ lệ "Việc hoàn thành đúng hạn" (làn fa1, phán quyết 6). Cùng định nghĩa
+     * {@see self::scopeOverdueToHandle()}: việc bị trả lại, đã huỷ, của vụ đã kết thúc, và việc "Cần giao lại" vì
+     * người nhận không còn giữ được, không vào đây.
+     */
+    public function scopeOverdueWithDueDateBetween(Builder $query, string $from, string $to): Builder
+    {
+        return $query->overdueToHandle()
+            ->whereDate($this->qualifyColumn('due_date'), '>=', $from)
+            ->whereDate($this->qualifyColumn('due_date'), '<=', $to);
     }
 
     /**
@@ -484,6 +574,40 @@ class Task extends Model
     public function isOpen(): bool
     {
         return $this->status->isOpen();
+    }
+
+    /**
+     * Id người đã bấm "Huỷ việc" lần gần nhất — người gây ra dòng nhật ký `task_cancelled` mới nhất của việc này
+     * (dòng nhật ký không bao giờ sửa; bảng `tasks` không có cột người huỷ). `null`: chưa từng huỷ, hay dòng không
+     * có người gây ra. Cổng "Khôi phục" (`TaskPolicy::restoreCancelled`, làn fa1) đọc nó — chỉ trên việc đang "Đã huỷ".
+     */
+    public function cancelledBy(): ?int
+    {
+        $causer = Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('event', 'task_cancelled')
+            ->latest('id')
+            ->value('causer_id');
+
+        return $causer === null ? null : (int) $causer;
+    }
+
+    /**
+     * Trạng thái của việc LÚC bị huỷ lần gần nhất — `properties.from` của cùng dòng nhật ký `task_cancelled` mới nhất
+     * mà {@see self::cancelledBy()} đọc (`CancelTask` ghi). `null`: chưa từng huỷ, hay dòng không mang `from`. "Khôi
+     * phục" (`RestoreTask`, làn fa1 vòng sửa 1 — m1) đọc nó: việc huỷ khi đang "Bị trả lại" trở về "Bị trả lại".
+     */
+    public function cancelledFrom(): ?TaskStatus
+    {
+        $row = Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('event', 'task_cancelled')
+            ->latest('id')
+            ->first();
+
+        return TaskStatus::tryFrom((string) $row?->getExtraProperty('from', ''));
     }
 
     public function isOverdue(): bool

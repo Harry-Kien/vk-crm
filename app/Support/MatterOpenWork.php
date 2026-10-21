@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Actions\Matter\CancelMatter;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Permission;
@@ -62,24 +63,13 @@ final class MatterOpenWork
 
         // Làn tk (vòng sửa cuối 1, F1): việc giao nội bộ còn mở (chờ nhận, đang làm, bị trả lại) — sau khi
         // kết thúc, người giao chỉ còn huỷ được chúng (`TaskPolicy::update/reassign`), nên người bấm đóng cần
-        // thấy chúng trước. Chỉ số đếm: người gọi đã mở được vụ, nhưng không cần đọc tiêu đề việc ở đây.
-        $openTasks = Task::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->where('matter_id', $matter->getKey())
-            ->open()
-            ->count();
+        // thấy chúng trước. Và ghế trong đội ngũ chưa ai bấm "Đã nhận hồ sơ": vụ đã kết thúc không còn hiện ở
+        // "Hồ sơ chờ tôi nhận" (`MatterUser::scopeOnOpenMattersListableBy()`), nên lời giao đó thôi chờ.
+        [$openTasks, $pendingSeats] = self::internalWorkCounts($matter);
 
         if ($openTasks > 0) {
             $lines[] = __('lifecycle.open_work.tasks', ['count' => $openTasks]);
         }
-
-        // Và ghế trong đội ngũ chưa ai bấm "Đã nhận hồ sơ": vụ đã kết thúc không còn hiện ở "Hồ sơ chờ tôi
-        // nhận" (`MatterUser::scopeOnOpenMattersListableBy()`), nên lời giao đó thôi chờ.
-        $pendingSeats = MatterUser::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->where('matter_user.matter_id', $matter->getKey())
-            ->awaitingAcceptance()
-            ->count();
 
         if ($pendingSeats > 0) {
             $lines[] = __('lifecycle.open_work.seats_pending', ['count' => $pendingSeats]);
@@ -95,14 +85,34 @@ final class MatterOpenWork
     }
 
     /**
-     * Các dòng cho hộp thoại "Huỷ hồ sơ mở nhầm": mốc chưa xong, số tài liệu, và việc vụ đang được
-     * công bố trên cổng khách.
+     * Các dòng cho hộp thoại "Huỷ hồ sơ mở nhầm": khoản thu đã ghi (chặn việc huỷ), mốc chưa xong, số
+     * tài liệu, việc giao nội bộ còn mở và ghế chưa nhận hồ sơ, và việc vụ đang được công bố trên cổng khách.
+     *
+     * Làn fa3 (2026-10-16, mục 1): khoản thu CHƯA HUỶ trên mọi hợp đồng của vụ đứng đầu, bằng ĐÚNG câu từ
+     * chối của `CancelMatter` (`CancelMatter::paymentsRefusal()` — fix round 1, I1: câu riêng khi khoản thu nằm
+     * trên hợp đồng đã hoàn tất, nơi không huỷ được khoản thu) — người bấm biết trước khi bấm rằng hồ sơ chưa
+     * huỷ được và phải làm gì. Chỉ cho người có `billing.view` (cùng luật dòng dư nợ của `closingLines()`).
+     *
+     * Gộp integ-fa (làn fa3 × làn fa1/fa2): cùng hai số đếm việc nội bộ của `closingLines()`
+     * ({@see self::internalWorkCounts()}), câu riêng của việc huỷ — hồ sơ xoá mềm thì việc trên nó rời mọi danh sách
+     * (`Task::visibleTo()` qua `listableBy()`), thôi nhắc (`Task::isOnLiveMatter()`) và không còn chặn nghỉ việc
+     * (`OpenTaskWork`); khôi phục hồ sơ thì chúng trở lại nguyên trạng thái.
      *
      * @return list<string>
      */
-    public static function cancellingLines(Matter $matter): array
+    public static function cancellingLines(Matter $matter, ?User $viewer = null): array
     {
-        $lines = self::deadlineLines($matter);
+        $lines = [];
+
+        if ($viewer !== null && $viewer->can(Permission::BillingView->value)) {
+            $refusal = CancelMatter::paymentsRefusal($matter);
+
+            if ($refusal !== null) {
+                $lines[] = $refusal;
+            }
+        }
+
+        $lines = [...$lines, ...self::deadlineLines($matter)];
 
         $documents = Document::query()
             ->withoutGlobalScope(ClientPortalScope::class)
@@ -113,11 +123,45 @@ final class MatterOpenWork
             $lines[] = __('lifecycle.open_work.documents', ['count' => $documents]);
         }
 
+        [$openTasks, $pendingSeats] = self::internalWorkCounts($matter);
+
+        if ($openTasks > 0) {
+            $lines[] = __('lifecycle.open_work.tasks_cancelling', ['count' => $openTasks]);
+        }
+
+        if ($pendingSeats > 0) {
+            $lines[] = __('lifecycle.open_work.seats_cancelling', ['count' => $pendingSeats]);
+        }
+
         if ($matter->is_published_to_portal) {
             $lines[] = __('lifecycle.open_work.on_portal');
         }
 
         return $lines;
+    }
+
+    /**
+     * Việc giao nội bộ còn mở (`Task::scopeOpen()` — chờ nhận, đang làm, bị trả lại: cùng tập của làn fa1) và ghế
+     * trong đội ngũ chưa ai bấm "Đã nhận hồ sơ" — một định nghĩa cho hai hộp thoại. Chỉ số đếm: người gọi đã mở được
+     * vụ, nhưng không cần đọc tiêu đề việc ở đây.
+     *
+     * @return array{int, int}
+     */
+    private static function internalWorkCounts(Matter $matter): array
+    {
+        $openTasks = Task::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $matter->getKey())
+            ->open()
+            ->count();
+
+        $pendingSeats = MatterUser::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_user.matter_id', $matter->getKey())
+            ->awaitingAcceptance()
+            ->count();
+
+        return [$openTasks, $pendingSeats];
     }
 
     /** @return list<string> */

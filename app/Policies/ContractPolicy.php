@@ -28,8 +28,10 @@ use App\Policies\Concerns\ReadsPortalParents;
  * **Hai nhóm câu hỏi ghi (làn kt, 2026-10-15, SPEC §5 "Bổ sung 2026-10-15").**
  *  - **Nhập hợp đồng đã ký** — `create` (soạn bản nháp cho vụ), {@see self::updateDraft()} (sửa bản
  *    nháp và lịch thu của nó), `delete` (xoá bản nháp), {@see self::activate()} (kích hoạt với ngày
- *    ký): `contract.manage` **hoặc** `contract.enter`. Kế toán có `contract.enter`, nên nhập được hợp
- *    đồng giấy đã ký của một vụ có sẵn mà không mở nội dung hồ sơ.
+ *    ký), {@see self::revertToDraft()} (đưa hợp đồng kích hoạt nhầm về nháp — làn fa3): `contract.manage`
+ *    **hoặc** `contract.enter`. Kế toán có `contract.enter`, nên nhập được hợp
+ *    đồng giấy đã ký của một vụ có sẵn mà không mở nội dung hồ sơ. Riêng `revertToDraft`: người chỉ có
+ *    `contract.enter` chỉ đưa về được hợp đồng chính mình đã kích hoạt (fix round 2 làn fa3).
  *  - **Quyết định thương mại trên hợp đồng đã ký** — `update`: ký phụ lục (kể cả đổi số tiền hay huỷ
  *    một đợt — {@see ContractAmendmentPolicy} vì thế không có `create`), hoàn tất, huỷ. Chỉ
  *    `contract.manage`. Miễn, dời hạn, thư nhắc khách ở `InstalmentPolicy`, cũng chỉ `contract.manage`.
@@ -105,6 +107,42 @@ class ContractPolicy
     {
         return $this->canSeeBilling($user, $contract->matter)
             && ($user->can(Permission::ContractManage->value) || $user->can(Permission::ContractEnter->value));
+    }
+
+    /**
+     * Làn fa3 (2026-10-16): đưa một hợp đồng kích hoạt nhầm về bản nháp (`RevertContractToDraft`). "Khi
+     * nào được" (chưa có khoản thu chưa huỷ, phụ lục, miễn hay dời hạn, hồ sơ chưa kết thúc) là việc của
+     * Action. Viết rời, không gọi `activate()` (xem docblock lớp).
+     *
+     * **Ai** (fix round 2, I-B — phán quyết controller 2026-10-18, chờ chủ văn phòng xác nhận; SPEC §5):
+     * `contract.manage` đưa về được mọi hợp đồng của vụ mình thấy tiền. Người chỉ có `contract.enter` (kế
+     * toán) chỉ đưa về được hợp đồng **chính mình đã kích hoạt** (`activated_by` = người đó): đưa về rồi sửa
+     * bản nháp là đổi được tổng, thuế suất, lịch thu không qua phụ lục — với `contract.enter` đó chỉ là sửa
+     * lại lần nhập của chính mình, không phải đổi điều khoản một hợp đồng người khác đã ghi nhận. Hợp đồng
+     * không rõ người kích hoạt (`activated_by` rỗng) thì không. Action hỏi lại câu này trên hàng đã khoá.
+     */
+    public function revertToDraft(User|ClientUser $user, Contract $contract): bool
+    {
+        if (! $this->canSeeBilling($user, $contract->matter)) {
+            return false;
+        }
+
+        if ($user->can(Permission::ContractManage->value)) {
+            return true;
+        }
+
+        return $user->can(Permission::ContractEnter->value)
+            && self::activatedBy($contract, $user);
+    }
+
+    /**
+     * Fix round 2 (I-B): `$contract` do chính `$user` kích hoạt — vế "của chính mình" của
+     * {@see self::revertToDraft()}; `RevertContractToDraft` đọc cùng hàm trên hàng đã khoá để nói câu từ chối riêng.
+     */
+    public static function activatedBy(Contract $contract, User $user): bool
+    {
+        return $contract->activated_by !== null
+            && (int) $contract->activated_by === (int) $user->getKey();
     }
 
     /** Phụ lục, hoàn tất, huỷ — chỉ `contract.manage` (xem docblock lớp). */

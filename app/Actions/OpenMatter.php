@@ -13,11 +13,13 @@ use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Exceptions\ConflictCheckBusy;
 use App\Jobs\RecheckClientIdentityConflicts;
+use App\Jobs\SendMatterAssignmentNotice;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Notifications\Staff\MatterAssignmentAlert;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictOverride;
@@ -470,6 +472,17 @@ class OpenMatter
                         }
                     }
 
+                    // Làn fa2, phán quyết 4: người tạo đặt NGƯỜI KHÁC làm luật sư phụ trách thì ghế của họ CHỜ NHẬN
+                    // (`Matter::seatAssignment()`, người giao là người tạo) — `Matter::created()` vừa ghi ghế đó là đã
+                    // nhận. Họ được báo bằng chuông + thư sau commit (cuối transaction này), như khi được bàn giao.
+                    $assignedLead = null;
+                    $lead = User::query()->find($matter->lead_lawyer_id);
+
+                    if ($lead !== null && Matter::seatAwaitsAcceptance($lead, MatterRole::Lead, $actor)) {
+                        $matter->team()->updateExistingPivot($lead->getKey(), Matter::seatAssignment($lead, MatterRole::Lead, $actor));
+                        $assignedLead = $lead;
+                    }
+
                     // Ruling (fix round 3) — đua tranh hash cũ: khoá lại VÀ ĐỌC LẠI hồ sơ Client
                     // ngay TRƯỚC KHI lưu, không tin ảnh chụp đã dựng ở bước 3; fix round 4 (NB-1):
                     // định danh đã đổi thì xếp một lần rà lại (xem docblock
@@ -498,7 +511,7 @@ class OpenMatter
                         app(ApplyChecklistTemplate::class)->handle($lockedMatter, $template);
                     }
 
-                    Audit::record('matter_opened', $matter, [
+                    $opened = Audit::record('matter_opened', $matter, [
                         'conflict_level' => $result->level->value,
                         'conflict_overridden' => $isOverridden,
                         'override_reason' => $isOverridden ? $overrideReason : null,
@@ -526,6 +539,19 @@ class OpenMatter
                             ->values()
                             ->all(),
                     ], $actor);
+
+                    // Làn fa2, phán quyết 4 — chuông + thư "được giao hồ sơ" cho luật sư phụ trách do người khác đặt;
+                    // job đọc lại ghế (còn chờ nhận) và người nhận (`ResolveStaffRecipients::qualifies()`) lúc chạy.
+                    if ($assignedLead !== null && $opened !== null) {
+                        SendMatterAssignmentNotice::dispatch(
+                            $matter->getKey(),
+                            $assignedLead->getKey(),
+                            MatterAssignmentAlert::ASSIGNED,
+                            $assignedLead->getKey(),
+                            (int) $opened->getKey(),
+                            withMail: true,
+                        )->afterCommit();
+                    }
 
                     // Xem "Về công bố portal ngay lúc mở vụ việc" ở docblock lớp.
                     if ($matter->is_published_to_portal) {

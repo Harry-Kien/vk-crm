@@ -8,6 +8,7 @@ use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\EnterSignedContract;
 use App\Actions\Billing\RecordPayment;
+use App\Actions\Billing\RevertContractToDraft;
 use App\Actions\Billing\TriggerInstalmentsForStage;
 use App\Actions\Billing\UnwaiveInstalment;
 use App\Actions\Billing\UpdateDraftContract;
@@ -275,6 +276,19 @@ it('locks matters first, then contracts, when deleting a draft', function () {
     $order = lockOrderOf(fn () => app(DeleteDraftContract::class)->handle($this->lead, $draft));
 
     expect($order)->toBe(['matters', 'contracts']);
+});
+
+/**
+ * Làn fa3 (2026-10-16, mục 2): "Đưa về bản nháp" kiểm điều kiện trên hàng đã khoá — mọi đợt, tổng khoản thu
+ * chưa huỷ của chúng (đúng chỗ của `payments`), rồi bản scan phụ lục SAU chuỗi.
+ */
+it('locks matters first, then contracts, instalments, the payments it sums, then the amendment scan, when reverting to draft', function () {
+    Instalment::factory()->for($this->contract)->create(['amount' => 10_000_000]);
+
+    $order = lockOrderOf(fn () => app(RevertContractToDraft::class)->handle($this->lead, $this->contract, str_repeat('a', 20)));
+
+    expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments', 'contract_amendments'])
+        ->and($this->contract->fresh()->status)->toBe(ContractStatus::Draft);
 });
 
 it('locks matters first, then the code sequence, when drafting a contract', function () {

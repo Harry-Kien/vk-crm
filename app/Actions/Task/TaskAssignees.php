@@ -2,10 +2,15 @@
 
 namespace App\Actions\Task;
 
+use App\Actions\Performance\BuildTeamWorkload;
+use App\Enums\MatterRole;
+use App\Enums\Permission;
+use App\Enums\Role;
 use App\Enums\TaskStatus;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -58,18 +63,86 @@ class TaskAssignees
     }
 
     /**
-     * `id => tên` cho ô chọn người nhận — {@see self::eligible()}. Khi GIAO LẠI `$replacing`, người đang
+     * `id => nhãn` cho ô chọn người nhận — {@see self::eligible()}. Khi GIAO LẠI `$replacing`, người đang
      * giữ việc chỉ còn trong danh sách nếu họ đã trả lại (cùng luật {@see ReassignTask}).
+     *
+     * Nhãn (làn fa1, phán quyết 3): tên, kèm số việc người đó đang giữ (chờ nhận, đang làm — `Task::held()` mà người
+     * đó còn giữ được, `Task::scopeHeldBySeatedAssignee()`: cùng định nghĩa "đang giữ" của số quá hạn và của Theo dõi
+     * đội ngũ — vòng sửa 2, F1; việc "Cần giao lại" vì người đó không vào) và số việc quá hạn
+     * (`Task::overdueToHandle()`), để người giao cân khối lượng — CHỈ đếm việc `$actor` xem được
+     * (`Task::visibleTo($actor)`): việc của một vụ hạn chế người giao không mở được không bao giờ lộ qua con số. Vì
+     * vậy câu chữ nói đúng phạm vi đó ("… việc anh/chị thấy được", "không có việc nào anh/chị thấy được" — vòng sửa 1,
+     * I2), không như một sự thật tuyệt đối về đồng nghiệp; ô chọn thêm câu gợi ý `tasks.assign.workload_scope`
+     * (`ProvidesTaskActions::assigneeHelp()`).
      *
      * @return array<int, string>
      */
     public function options(?Matter $matter, User $actor, ?Task $replacing = null): array
     {
-        return $this->eligible($matter, $actor)
+        $people = $this->eligible($matter, $actor)
             ->reject(fn (User $user): bool => $replacing !== null
                 && $user->getKey() === $replacing->assignee_id
-                && $replacing->status !== TaskStatus::Declined)
-            ->mapWithKeys(fn (User $user): array => [$user->getKey() => $user->name])
+                && $replacing->status !== TaskStatus::Declined);
+
+        if ($people->isEmpty()) {
+            return [];
+        }
+
+        $ids = $people->modelKeys();
+        $held = BuildTeamWorkload::countPer(Task::query()->visibleTo($actor)->held()->heldBySeatedAssignee()->whereIn('tasks.assignee_id', $ids), 'tasks.assignee_id');
+        $overdue = BuildTeamWorkload::countPer(Task::query()->visibleTo($actor)->overdueToHandle()->whereIn('tasks.assignee_id', $ids), 'tasks.assignee_id');
+
+        return $people
+            ->mapWithKeys(fn (User $user): array => [$user->getKey() => $user->name.self::LABEL_SEPARATOR.(($held[$user->getKey()] ?? 0) === 0
+                ? __('tasks.assign.workload_none')
+                : __('tasks.assign.workload', ['held' => $held[$user->getKey()], 'overdue' => $overdue[$user->getKey()] ?? 0]))])
+            ->all();
+    }
+
+    /** Giữa tên và câu khối lượng việc trong nhãn của {@see self::options()}. */
+    public const LABEL_SEPARATOR = ' — ';
+
+    /**
+     * Tìm trong nhãn của {@see self::options()} (gộp integ-fa, rà soát chéo 2026-10-18, mục 19): cùng phép so không
+     * dấu của `LetterD::filterOptions()`, nhưng CHỈ trên phần tên — gõ "dang" hay "viec" không được ra mọi người chỉ vì
+     * câu "đang giữ … việc" đứng sau tên. Ba ô chọn người nhận việc (trang Công việc, tab Công việc của vụ, "Giao lại").
+     *
+     * @param  array<int|string, string>  $options
+     * @return array<int|string, string>
+     */
+    public static function searchOptions(array $options, ?string $search): array
+    {
+        return LetterD::filterOptions($options, $search, nameBefore: self::LABEL_SEPARATOR);
+    }
+
+    /**
+     * Các vụ `$actor` giao việc được (làn fa1, phán quyết 3 — ô "Vụ việc" của nút "Giao việc" trên trang "Công
+     * việc"): vụ đang mở mà `TaskPolicy::assignOnMatter` cho phép (luật sư phụ trách/cộng sự của vụ, quản lý, quản
+     * trị; không trợ lý), theo mã. Truy vấn lọc trước đúng các vế của cổng đó (vụ mở, xem được, có `matter.update`,
+     * ghế luật sư phụ trách/cộng sự với người không phải quản lý/quản trị); rồi mọi vụ còn lại hỏi cổng — một luật.
+     * Nhãn: mã — tiêu đề vụ (người giao xem được vụ). `AssignTask` hỏi lại dưới khoá.
+     *
+     * @return array<int, string>
+     */
+    public function assignableMatters(User $actor): array
+    {
+        if (! $actor->can(Permission::MatterUpdate->value)
+            || (! Task::isSupervisor($actor) && $actor->hasRole(Role::Assistant->value))) {
+            return [];
+        }
+
+        return Matter::query()
+            ->open()
+            ->listableBy($actor)
+            ->when(! Task::isSupervisor($actor), fn (Builder $mine): Builder => $mine->where(fn (Builder $seat): Builder => $seat
+                ->where('matters.lead_lawyer_id', $actor->getKey())
+                ->orWhereHas('team', fn (Builder $team): Builder => $team
+                    ->whereKey($actor->getKey())
+                    ->whereIn('matter_user.role_in_matter', [MatterRole::Lead->value, MatterRole::Associate->value]))))
+            ->orderBy('matters.code')
+            ->get()
+            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('assignOnMatter', [Task::class, $matter]))
+            ->mapWithKeys(fn (Matter $matter): array => [$matter->getKey() => $matter->code.' — '.$matter->title])
             ->all();
     }
 

@@ -11,6 +11,7 @@ use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
 use App\Actions\Billing\RemindClientOfOverdueInstalment;
 use App\Actions\Billing\RescheduleInstalment;
+use App\Actions\Billing\RevertContractToDraft;
 use App\Actions\Billing\UnwaiveInstalment;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Actions\Billing\VoidPayment;
@@ -297,6 +298,7 @@ class BillingRelationManager extends RelationManager
                 $this->updateDraftContractAction(),
                 $this->deleteDraftContractAction(),
                 $this->activateContractAction(),
+                $this->revertContractToDraftAction(),
                 $this->amendContractAction(),
                 $this->completeContractAction(),
                 $this->cancelContractAction(),
@@ -636,7 +638,9 @@ class BillingRelationManager extends RelationManager
             ->requiresConfirmation()
             ->modalHeading(__('billing.tab.actions.delete_draft_heading'))
             ->modalDescription(__('billing.tab.actions.delete_draft_description'))
-            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Draft)
+            // Fix round 1 (m6, làn fa3): không hiện trên bản nháp mang lịch sử khoản thu đã huỷ — xoá chắc chắn bị
+            // `Contract::assertDestroyable()` từ chối; bản nháp đó sửa rồi kích hoạt lại.
+            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Draft && ! $matter->contract->hasPayments())
             ->authorize(fn (): bool => $matter->contract !== null && Gate::allows('delete', $matter->contract))
             ->successNotificationTitle(__('billing.tab.actions.delete_draft_success'))
             ->action(fn (Action $action) => $this->runAction(
@@ -685,6 +689,49 @@ class BillingRelationManager extends RelationManager
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
                 fn () => app(ActivateContract::class)->handle(Auth::user(), $matter->contract, $data['signed_at'] ?? ''),
+            ));
+    }
+
+    /**
+     * Làn fa3 (2026-10-16, mục 2): "Đưa về bản nháp" — sửa một lần kích hoạt nhầm (ngày ký, thuế suất,
+     * giá trị, lịch thu) qua {@see RevertContractToDraft}, thay cho "huỷ hợp đồng rồi nhập lại".
+     *
+     * `->visible()` đọc TRẠNG THÁI (đang hiệu lực), cùng cách nút "Xoá bản nháp": nút này trên một bản nháp
+     * hay hợp đồng đã đóng là một lời mời sai. Cái giá đã biết (chú thích ở `activateContractAction()`):
+     * hợp đồng đổi trạng thái ở tab khác giữa lúc vẽ và lúc bấm thì nút tự ẩn lúc bấm và không đổi gì —
+     * hỏng về phía an toàn. `->authorize()` hỏi `ContractPolicy::revertToDraft` (cùng người với
+     * `activate`); mọi "khi nào được" là của Action (khoản thu chưa huỷ, phụ lục, miễn/dời hạn).
+     */
+    private function revertContractToDraftAction(): Action
+    {
+        $matter = $this->getOwnerRecord();
+
+        return Action::make('revertContractToDraft')
+            ->label(__('billing_corrections.revert.label'))
+            ->icon(Heroicon::OutlinedArrowUturnLeft)
+            ->color('warning')
+            ->modalHeading(__('billing_corrections.revert.heading'))
+            ->modalDescription(fn (): string => __('billing_corrections.revert.description', ['code' => $matter->contract?->code ?? '—']))
+            // Fix round 2 (mB): không mời trên hồ sơ đã kết thúc (Action từ chối — `ContractNotRevertible::matterClosed()`).
+            // Fix round 2 (I-B): `->authorize()` ẩn nút với người chỉ có `contract.enter` trên hợp đồng người khác kích hoạt.
+            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Active && ! $matter->isClosed())
+            ->authorize(fn (): bool => $matter->contract !== null && Gate::allows('revertToDraft', $matter->contract))
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('billing.tab.fields.reason'))
+                    ->helperText(__('billing_corrections.revert.reason_help'))
+                    ->required(),
+            ])
+            ->successNotificationTitle(__('billing_corrections.revert.success'))
+            ->action(fn (Action $action, array $data) => $this->runAction(
+                $action,
+                function () use ($matter, $data): void {
+                    app(RevertContractToDraft::class)->handle(Auth::user(), $matter->contract, $data['reason'] ?? '');
+
+                    // Bản hiện hành vừa đổi trạng thái — không giữ bản "đang hiệu lực" đã nạp cho phần còn lại
+                    // của lần vẽ này (các nút nháp phải hiện lại ngay).
+                    $matter->unsetRelation('contract');
+                },
             ));
     }
 

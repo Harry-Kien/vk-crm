@@ -7,12 +7,17 @@ use App\Actions\Task\CancelTask;
 use App\Actions\Task\CompleteTask;
 use App\Actions\Task\DeclineTask;
 use App\Actions\Task\ReassignTask;
+use App\Actions\Task\ReopenTask;
+use App\Actions\Task\RestoreTask;
 use App\Actions\Task\TaskAssignees;
 use App\Actions\Task\UpdateTask;
 use App\Enums\TaskPriority;
+use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Search\LetterD;
+use App\Support\Tasks\ReassignmentDueDate;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
@@ -39,7 +44,14 @@ use Illuminate\Support\Facades\Gate;
  *
  * "Đã nhận" là MỘT cú bấm, không hộp xác nhận. "Trả lại" và "Huỷ việc" bắt buộc lý do. "Hoàn thành" mở
  * một khung với ghi chú tuỳ chọn (khung đó cũng là bước xác nhận). Ba nút của người nhận đứng ngoài;
- * ba nút của người quản lý (sửa, giao lại, huỷ) gom vào một nhóm để dòng không chật.
+ * các nút của người quản lý (sửa, giao lại, huỷ — và từ làn fa1 "Mở lại" việc đã hoàn thành, "Khôi phục" việc
+ * đã huỷ) gom vào một nhóm để dòng không chật.
+ *
+ * # "Mở lại" và "Khôi phục" trên vụ đã kết thúc (làn fa1)
+ *
+ * Nút vẫn hiện cho người có quyền, nhưng KHÔNG mở hộp thoại (`modalHidden`): bấm là `ReopenTask`/`RestoreTask`
+ * chạy ngay và trả về câu từ chối rõ ràng ("hồ sơ đã kết thúc…") — không bắt người dùng gõ lý do rồi mới nghe
+ * từ chối. Một hộp thoại mở TRƯỚC khi vụ kết thúc thì nhận cùng câu đó khi bấm lưu.
  */
 trait ProvidesTaskActions
 {
@@ -55,8 +67,89 @@ trait ProvidesTaskActions
                 $this->editTaskAction(),
                 $this->reassignTaskAction(),
                 $this->cancelTaskAction(),
+                $this->reopenTaskAction(),
+                $this->restoreTaskAction(),
             ]),
         ];
+    }
+
+    /**
+     * "Mở lại" một việc đã hoàn thành — `TaskPolicy::reopen` (người giao, luật sư phụ trách, quản lý; chính người
+     * đã hoàn thành trong 24 giờ đầu). Lý do bắt buộc trừ khi người bấm là người đã hoàn thành (bấm nhầm).
+     */
+    protected function reopenTaskAction(): Action
+    {
+        $own = fn (Task $record): bool => $record->assignee_id === $this->taskActor()->getKey();
+
+        return Action::make('reopen')
+            ->label(__('tasks.reopen.action'))
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->color('warning')
+            ->authorize(fn (Task $record): bool => Gate::allows('reopen', $record))
+            ->modalHidden(fn (Task $record): bool => self::onClosedMatter($record))
+            ->modalHeading(fn (Task $record): string => __($own($record) ? 'tasks.reopen.heading_own' : 'tasks.reopen.heading'))
+            ->modalDescription(fn (Task $record): string => __($own($record) ? 'tasks.reopen.description_own' : 'tasks.reopen.description'))
+            ->modalSubmitActionLabel(__('tasks.reopen.submit'))
+            ->schema(fn (Task $record): array => self::onClosedMatter($record) ? [] : [
+                Textarea::make('reason')
+                    ->label(__('tasks.fields.reason'))
+                    ->helperText(__($own($record) ? 'tasks.reopen.reason_help_own' : 'tasks.reopen.reason_help'))
+                    ->required(fn (): bool => ! $own($record))
+                    ->maxLength(Task::REASON_MAX_LENGTH)
+                    ->rows(3),
+            ])
+            // Làn fa1, vòng sửa 1 (m2): người giữ không còn giữ được việc thì không ai được báo — câu xong nói "Cần giao lại".
+            ->successNotificationTitle(fn (Task $record): string => __(Task::query()->whereKey($record->getKey())->needsReassignment()->exists()
+                ? 'tasks.reopen.success_needs_reassignment'
+                : 'tasks.reopen.success'))
+            ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(ReopenTask::class)->handle($record, $this->taskActor(), $data['reason'] ?? null),
+            ));
+    }
+
+    /**
+     * "Khôi phục" một việc đã huỷ — `TaskPolicy::restoreCancelled` (chính người đã huỷ, luật sư phụ trách, quản lý).
+     * Lý do bắt buộc. Câu báo xong nói rõ khi việc về "Bị trả lại" (huỷ lúc đang bị trả lại — làn fa1, vòng sửa 1, m1),
+     * khi người nhận cũ không còn nhận được việc (việc hiện "Cần giao lại"), hay khi người bấm là chính người nhận cũ
+     * (việc về "Đang làm" cho họ — vòng sửa 2, c4).
+     */
+    protected function restoreTaskAction(): Action
+    {
+        return Action::make('restore')
+            ->label(__('tasks.restore.action'))
+            ->icon(Heroicon::OutlinedArrowUturnUp)
+            ->color('warning')
+            ->authorize(fn (Task $record): bool => Gate::allows('restoreCancelled', $record))
+            ->modalHidden(fn (Task $record): bool => self::onClosedMatter($record))
+            ->modalHeading(__('tasks.restore.heading'))
+            ->modalDescription(__('tasks.restore.description'))
+            ->modalSubmitActionLabel(__('tasks.restore.submit'))
+            ->schema(fn (Task $record): array => self::onClosedMatter($record) ? [] : [
+                Textarea::make('reason')
+                    ->label(__('tasks.fields.reason'))
+                    ->helperText(__('tasks.restore.reason_help'))
+                    ->required()
+                    ->maxLength(Task::REASON_MAX_LENGTH)
+                    ->rows(3),
+            ])
+            ->successNotificationTitle(fn (Task $record): string => __(match (true) {
+                Task::query()->find($record->getKey())?->status === TaskStatus::Declined => 'tasks.restore.success_declined',
+                Task::query()->whereKey($record->getKey())->needsReassignment()->exists() => 'tasks.restore.success_needs_reassignment',
+                // Làn fa1, vòng sửa 2 (c4): người bấm là người nhận cũ — việc về "Đang làm" cho chính họ, không ai được báo.
+                Task::query()->find($record->getKey())?->assignee_id === $this->taskActor()->getKey() => 'tasks.restore.success_own',
+                default => 'tasks.restore.success',
+            }))
+            ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(RestoreTask::class)->handle($record, $this->taskActor(), (string) ($data['reason'] ?? '')),
+            ));
+    }
+
+    /** Việc của một vụ đã kết thúc — xem docblock lớp, mục "Mở lại và Khôi phục trên vụ đã kết thúc". */
+    private static function onClosedMatter(Task $record): bool
+    {
+        return $record->matter_id !== null && $record->matter?->isOpen() !== true;
     }
 
     protected function acceptTaskAction(): Action
@@ -163,7 +256,10 @@ trait ProvidesTaskActions
                 ...$this->taskDetailFields(),
                 Hidden::make('mounted_updated_at'),
             ])
-            ->successNotificationTitle(__('tasks.actions.edit_success'))
+            // Làn fa1, vòng sửa 2 (c2): người giữ không còn giữ được việc thì không ai được báo — câu xong nói "Cần giao lại".
+            ->successNotificationTitle(fn (Task $record): string => __(Task::query()->whereKey($record->getKey())->held()->needsReassignment()->exists()
+                ? 'tasks.actions.edit_success_needs_reassignment'
+                : 'tasks.actions.edit_success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(UpdateTask::class)->handle(
@@ -181,6 +277,9 @@ trait ProvidesTaskActions
     /**
      * "Giao lại" — ô chọn bày đúng {@see TaskAssignees::options()} (đội ngũ giữ việc của vụ, hay mọi nhân
      * sự đang làm với việc chung; người đang giữ chỉ còn khi họ đã trả lại). `ReassignTask` hỏi lại dưới khoá.
+     *
+     * Làn fa1 (phán quyết 7): ô "Hạn" điền sẵn {@see self::suggestedDueDate()} — hạn cũ nếu còn ở hôm nay hay tương
+     * lai, một hạn gợi ý nếu đã qua; người giao đổi được (một ngày đã qua chỉ khi đó đúng là hạn cũ).
      */
     protected function reassignTaskAction(): Action
     {
@@ -191,13 +290,26 @@ trait ProvidesTaskActions
             ->authorize(fn (Task $record): bool => Gate::allows('reassign', $record))
             ->modalHeading(__('tasks.actions.reassign_heading'))
             ->modalSubmitActionLabel(__('tasks.actions.reassign_submit'))
+            ->fillForm(fn (Task $record): array => ['due_date' => self::suggestedDueDate($record)])
             ->schema(fn (Task $record): array => [
                 Select::make('assignee_id')
                     ->label(__('tasks.fields.assignee'))
+                    ->helperText(self::assigneeHelp($record->matter_id === null ? 'tasks.fields.assignee_help_general' : 'tasks.fields.assignee_help_matter'))
                     ->options(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record))
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "doan" ra "Đoàn" trong ĐÚNG danh sách trên (`ReassignTask` hỏi lại).
+                    // Gộp integ-fa (rà soát chéo, mục 19): chỉ so phần TÊN của nhãn, không phần "đang giữ … việc".
+                    ->getSearchResultsUsing(fn (?string $search): array => TaskAssignees::searchOptions(app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record), $search))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
+                DatePicker::make('due_date')
+                    ->label(__('tasks.fields.due_date'))
+                    ->helperText(fn (): string => $record->due_date !== null && $record->due_date->toDateString() < today()->toDateString()
+                        ? __('tasks.reassign.due_past_help', ['date' => $record->due_date->format('d/m/Y')])
+                        : __('tasks.fields.due_date_help'))
+                    ->native(false)
+                    ->displayFormat('d/m/Y'),
             ])
             ->successNotificationTitle(__('tasks.actions.reassign_success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
@@ -206,8 +318,31 @@ trait ProvidesTaskActions
                     $record,
                     $this->taskActor(),
                     User::query()->withTrashed()->findOrFail($data['assignee_id'] ?? null),
+                    $data['due_date'] ?? null,
+                    setDueDate: true,
                 ),
             ));
+    }
+
+    /**
+     * Câu gợi ý của một ô chọn người nhận (`$key` — ai nhận được) cộng câu phạm vi của số việc bên mỗi tên
+     * (`tasks.assign.workload_scope` — làn fa1, vòng sửa 1, I2): nhãn của {@see TaskAssignees::options()} chỉ đếm việc
+     * người giao xem được, nên người giao phải đọc được giới hạn đó ngay trên màn hình. Chung cho "Giao việc" (trang
+     * Công việc, tab "Công việc" của vụ) và "Giao lại".
+     */
+    protected static function assigneeHelp(string $key): string
+    {
+        return __($key).' '.__('tasks.assign.workload_scope');
+    }
+
+    /**
+     * Hạn điền sẵn khi "Giao lại" (làn fa1) — {@see ReassignmentDueDate::suggest()}: không hạn thì không hạn; hạn còn ở
+     * hôm nay hay tương lai thì giữ; hạn đã qua thì gợi ý hôm nay cộng đúng số ngày người giữ cũ có. Gộp integ-fa: cùng
+     * luật là hạn mới của mọi đường chuyển hàng loạt.
+     */
+    private static function suggestedDueDate(Task $record): ?string
+    {
+        return ReassignmentDueDate::suggest($record);
     }
 
     protected function cancelTaskAction(): Action

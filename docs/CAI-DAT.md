@@ -927,9 +927,11 @@ làm gì với máy chủ:
   cron mới**. Nó nhắc việc và hồ sơ chờ nhận quá lâu, việc sắp đến hạn và việc quá hạn (`docs/QUY-TRINH.md`,
   mục "Giao – nhận – xử lý nội bộ"); chạy lại là vô hại (không ai nhận hai lần cùng một lời nhắc).
 - Các mẫu thư mới cho NHÂN SỰ, họ `staff.task.*` (không thư nào gửi khách): báo được giao / đã nhận / bị trả
-  lại / đã hoàn thành một việc (`staff.task.assigned`, `.accepted`, `.declined`, `.completed`), năm lời nhắc
-  của lịch trên (`staff.task.reminder.*`) và ba thư về hồ sơ (`staff.task.matter.declined`,
-  `staff.task.matter.reminder.*`). Chúng đi qua hàng đợi thư sẵn có, hiện trong trang "Thư đã gửi" và không gửi lại
+  lại / đã hoàn thành một việc (`staff.task.assigned`, `.accepted`, `.declined`, `.completed`), sáu lời nhắc
+  của lịch trên (`staff.task.reminder.*` — năm từ bản này, lời thứ sáu `staff.task.reminder.due_soon_assigner` từ bản
+  kiểm tra luồng nội bộ 2026-10-16/18, xem mục cùng tên ở "Nâng cấp lên bản mới") và ba thư về hồ sơ (`staff.task.matter.declined`,
+  `staff.task.matter.reminder.*`; bản kiểm tra luồng nội bộ của làn fa2 thêm `staff.task.matter.assigned` — xem
+  mục của bản đó bên dưới). Chúng đi qua hàng đợi thư sẵn có, hiện trong trang "Thư đã gửi" và không gửi lại
   tay được. Thông báo đẩy có thêm một chủ đề, `staff.task.assigned` (một câu chung, không tên việc), chỉ khi
   máy chủ đã có khoá thông báo đẩy (M12).
 - Không quyền mới (`db:seed --force` không có gì mới cho bản này), không biến `.env` mới, không đổi cấu hình
@@ -1483,7 +1485,7 @@ sudo -u www-data php artisan up
   không chạy thì trang Theo dõi đội ngũ không hiện với ai; bản M14 không thêm quyền nào (trang "Kho
   tài liệu" dùng quyền `settings.manage` sẵn có); bản "Kế toán nhập hợp đồng" (làn kt) thêm quyền
   `contract.enter` cho vai kế toán — không chạy thì kế toán không thấy trang Hợp đồng và không nhập được
-  hợp đồng cho hồ sơ (không migration nào, không tác vụ lịch mới); ba làn lên cùng lần với nó — trang Tài liệu, Kết nối AI, Cài đặt — không thêm quyền nào (bảng một chỗ ở mục "Bản cập nhật gộp bốn làn" dưới). Từng bản làm gì trên máy chủ đã có dữ liệu:
+  hợp đồng cho hồ sơ (không migration nào, không tác vụ lịch mới); ba làn lên cùng lần với nó — trang Tài liệu, Kết nối AI, Cài đặt — không thêm quyền nào (bảng một chỗ ở mục "Bản cập nhật gộp bốn làn" dưới); bản kiểm tra luồng nội bộ 2026-10-16/18 (làn fa1, fa2, fa3) không thêm quyền, migration hay tác vụ lịch nào (bảng một chỗ ở mục cùng tên dưới). Từng bản làm gì trên máy chủ đã có dữ liệu:
   Bước 5, các đoạn "Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13, "Nhân viên kinh doanh",
   "Nhắc lịch thanh toán cho khách"). Bản nào
   phải làm thêm việc tay TRƯỚC hay SAU chuỗi lệnh này có hướng dẫn riêng — hôm nay là M11
@@ -1619,6 +1621,103 @@ Cài đặt (làn st):
 2. Nút **Gửi thư thử** (Cài đặt › Thư điện tử) xếp thư vào hàng đợi thư thường: lượt gửi hàng đợi mỗi
    phút của dòng cron (Bước 8) đưa nó đi — cron chưa chạy thì thư nằm chờ. Kết quả hiện trên trang và
    ở "Thư đã gửi".
+
+### Bản cập nhật kiểm tra luồng nội bộ 2026-10-16/18 (làn fa1, fa2, fa3)
+
+Ba làn sửa của đợt kiểm tra luồng nội bộ 2026-10-16 — fa1 (công việc: giao, nhận, làm, xong), fa2 (đội ngũ, bàn
+giao, nghỉ việc, mốc hạn, trình duyệt văn bản), fa3 (tiền và tìm kiếm) — lên máy chủ cùng một lần, cùng các sửa của
+lần gộp (integ-fa, 2026-10-18). Mọi việc trên máy chủ của cả ba, ở một chỗ:
+
+| Làn | Migration mới | Seeder / quyền mới | Tác vụ lịch mới | Biến `.env` mới | Mẫu thư mới cho NHÂN SỰ |
+|---|---|---|---|---|---|
+| fa1 — công việc | không | không | không (`tasks.remind` sẵn có nhắc thêm một loại) | không | `staff.task.updated`, `staff.task.reopened`, `staff.task.restored`, `staff.task.reminder.due_soon_assigner` |
+| fa2 — đội ngũ, bàn giao, nghỉ việc, mốc hạn, trình duyệt | không | không | không | không | `staff.task.matter.assigned`, `staff.deadline_assigned`, `staff.document_review.submitted`, `staff.work_transferred` |
+| fa3 — tiền và tìm kiếm | không | không (ability mới `ContractPolicy::revertToDraft` dựng trên quyền SẴN CÓ `contract.manage` / `contract.enter`) | không | không | không |
+| gộp integ-fa | không | không | không | không | không (chỉ thêm chuông trong hệ thống) |
+
+Vậy chuỗi lệnh nâng cấp ở trên, nguyên vẹn, là đủ; dòng cron giữ nguyên; không cần chạy lại seeder vì bản này
+(`db:seed --force` vẫn an toàn để chạy). **Tám mẫu thư mới** cho nhân sự (bốn của fa1, bốn của fa2 — bảng trên),
+không thư nào gửi khách. Chúng đi qua hàng đợi thư sẵn có (lượt gửi hàng đợi mỗi phút của dòng cron, Bước 8), hiện ở
+"Thư đã gửi", không gửi lại tay được, không đẩy lên điện thoại. Cụ thể:
+
+- `staff.task.updated` — người giao sửa một việc người khác đang giữ (thư nêu điều đã đổi);
+- `staff.task.reopened` — một việc đã hoàn thành được "Mở lại" cho người đã làm nó;
+- `staff.task.restored` — một việc đã huỷ được "Khôi phục" cho người nhận;
+- `staff.task.reminder.due_soon_assigner` — lời nhắc thứ SÁU của lịch `tasks.remind`: việc sắp đến hạn mà người
+  nhận không còn làm được (đã nghỉ, mất ghế, không còn mở được hồ sơ) — báo người giao;
+- `staff.task.matter.assigned` — mở vụ (hay chuyển tiếp nhận thành vụ) với luật sư phụ trách là người khác người bấm;
+- `staff.deadline_assigned` — người khác giao một mốc thời hạn cho nhân sự;
+- `staff.document_review.submitted` — một văn bản nội bộ được trình duyệt;
+- `staff.work_transferred` — thư tổng hợp cho người nhận một lần "Chuyển việc nội bộ và ghế" (một thư cho cả lô).
+
+Lần gộp integ-fa chỉ thêm CHUÔNG (không thư): báo người giữ / người giao việc khi hồ sơ bị huỷ, báo người giữ mốc
+cũ khi mốc chuyển cho người khác, báo người tư vấn khi bản ghi tiếp nhận của họ thành hồ sơ do người khác chuyển.
+
+**Sau khi lên bản — điều người dùng sẽ thấy khác** (chi tiết ở `docs/QUY-TRINH.md`, mục "Đính chính 2026-10-16 —
+kiểm tra luồng nội bộ"):
+
+1. **Giao việc:** trợ lý và luật sư giao được việc chung (không thuộc hồ sơ) trên trang Công việc, không chỉ việc
+   của hồ sơ; người giao sửa, mở lại, khôi phục việc được, người giữ việc được báo.
+2. **Số "quá hạn" đổi:** ô "Việc của tôi đã quá hạn", cột quá hạn của Theo dõi đội ngũ và bộ lọc "Chỉ việc quá hạn"
+   không còn đếm việc của người không còn giữ được ghế (đã sang "người theo dõi", trả lại hồ sơ, không mở được hồ sơ)
+   hay đã bị tạm khoá / vô hiệu — các việc đó hiện ở "Cần giao lại", không ở cả hai nơi.
+3. **Số "Hiệu suất theo kỳ" của kỳ ĐÃ QUA có thể đổi** so với ảnh chụp cũ: tỉ lệ "Việc hoàn thành đúng hạn" nay tính
+   cả việc còn giữ đã quá hạn (là việc trễ), bỏ việc người đó nhận khi hạn đã qua, và đọc trạng thái hiện tại (một
+   việc quá hạn được hoàn thành, huỷ hay giao lại sau đó ra khỏi mẫu của kỳ cũ). Huỷ rồi khôi phục một việc đã quá hạn
+   giữ ngày giao cũ, nên việc đó vẫn tính là trễ.
+4. **Kế toán "Đưa về bản nháp"** chỉ được với hợp đồng chính kế toán đó đã kích hoạt (người có `contract.manage` thì
+   mọi hợp đồng đủ điều kiện) — phán quyết chờ chủ văn phòng xác nhận.
+5. **Nhận thay:** trên hộp gỡ thành viên và phần "Việc nội bộ và ghế" của Bàn giao hàng loạt, người bấm chọn chính
+   mình ("Tôi nhận") thì việc sang thẳng "Đang làm" của họ, không bước "Đã nhận"; bàn giao một vụ cho chính mình cũng
+   vậy. Việc mà người giao chính là người giữ (việc riêng) không ở "Tôi đã giao" và không báo "quá hạn" cho người giao
+   — trừ khi người giữ không còn làm được việc: khi đó luật sư phụ trách của hồ sơ nhận lời báo "quá hạn". Việc người
+   giao đã tự trả lại trước một lần bàn giao (nay họ là người giao) nằm ở "Tôi đã giao", lọc "Bị trả lại".
+6. **Nghỉ việc:** một nhân sự còn giữ việc nội bộ (hay đã giao việc còn mở, hay còn hồ sơ chờ nhận) bị chặn vô hiệu
+   hoá / xoá / đổi sang Kế toán hay Nhân viên kinh doanh cho tới khi chuyển xong — phần "Việc nội bộ và ghế" của màn
+   hình "Bàn giao hàng loạt" (hộp xác nhận nêu các con số, bắt nhập lý do). Hồ sơ người đó PHỤ TRÁCH đi qua phần "Bàn
+   giao" ở trên: một lần bàn giao (không giữ làm cộng sự) chuyển việc họ giữ, đổi người giao của việc họ đã giao — việc
+   luật sư mới đang giữ thành việc riêng của luật sư mới — nên sau đó vô hiệu hoá được.
+7. **Hạn của việc chuyển hàng loạt:** việc đã quá hạn được chuyển (bàn giao vụ, chuyển việc nội bộ, gỡ thành viên
+   kèm người nhận thay) mang hạn mới — hôm nay cộng số ngày người cũ đã có, đúng luật ô "Hạn" của "Giao lại".
+8. **Trang Tài liệu** có bộ lọc "Chờ tôi duyệt" (văn bản đang chờ duyệt mà người xem duyệt được), và bảng điều khiển
+   của người duyệt có thêm ô "Văn bản chờ tôi duyệt".
+9. **Chuyển tiếp nhận thành hồ sơ** điền sẵn luật sư phụ trách là người tư vấn của bản ghi (khi họ đủ quyền phụ
+   trách hồ sơ), không còn luôn là người bấm.
+
+#### Làn fa3: tiền và tìm kiếm
+
+"Đưa về bản nháp" dùng ability mới `ContractPolicy::revertToDraft` dựng trên quyền SẴN CÓ (`contract.manage`
+hoặc `contract.enter`), nên không cần chạy lại seeder vì bản này. Tìm không dấu chữ "đ" ("Dang" ra "Đặng")
+đổi chữ ngay lúc tìm, ở cả hai vế: **không có cột chuẩn hoá đã lưu nào phải tính lại** — cột
+`name_normalized` của các bên đã đổi "đ" → "d" từ M1, không lệnh một lần nào cần chạy.
+
+**Không có migration tính lại cột chuẩn hoá — cố ý, khác với phán quyết ban đầu (mục 3: "tính lại các cột chuẩn
+hoá đã lưu").** Đã kiểm trước khi bỏ: mọi cột chuẩn hoá tên (`matter_parties.name_normalized`,
+`intake_parties.name_normalized`, `intake_requests.contact_name_normalized` và `organization_name_normalized`) chỉ
+được ghi bởi hook `saving` của model qua `Normalizer::name()`, hàm đã đổi "đ"/"ð" → "d" (qua `Str::ascii`) từ lần
+commit đầu (M1); đường ghi thẳng duy nhất đặt NULL (ẩn danh hoá tiếp nhận); không seeder, lệnh hay migration nào
+ghi các cột đó. Một lần tính lại sẽ không đổi giá trị nào, nên không có gì phải chạy trên máy chủ.
+
+Sau khi lên bản:
+
+1. Hồ sơ đã có khoản thu (chưa huỷ) không còn huỷ được bằng "Huỷ hồ sơ mở nhầm": kế toán huỷ khoản thu
+   (ghi lý do) và ghi lại vào đúng hồ sơ trước. Hồ sơ đã huỷ TỪ TRƯỚC bản này mà còn khoản thu: tiền đó nay
+   hiện lại ở "Đã thu" (cả lát "đã thu" của biểu đồ vành khuyên — gộp integ-fa) và biểu đồ theo đợt/giai đoạn của trang Doanh thu, cột doanh thu của trang Hiệu suất (kỳ đã qua có thể đổi số so
+   với ảnh chụp cũ) và ở "Khoản thu gần đây" với nhãn "Hồ sơ đã huỷ".
+2. Ô trang chủ của kế toán đổi thành "Hồ sơ cần nhập hợp đồng": đếm hồ sơ đang mở chưa có hợp đồng hoặc
+   hợp đồng đã huỷ (hồ sơ đã kết thúc không còn được đếm) — số có thể khác số cũ.
+3. Ô tìm của các danh sách Khách hàng, Vụ việc, Tiếp nhận, Nhân sự, Tài khoản cổng khách, tab Các bên, và các ô
+   chọn Khách hàng / Luật sư phụ trách của form mở vụ, bộ lọc luật sư của trang Doanh thu và "Người thực hiện" của
+   Nhật ký hoạt động: gõ không dấu chữ "đ" nay ra ("Dang" ra "Đặng"). Cũng vậy ở trang Công việc và tab Công việc
+   của vụ (tiêu đề việc, mã hồ sơ; bộ lọc vụ việc / người được giao / người giao), các ô chọn của "Giao việc",
+   "Giao lại", "Thêm thành viên" và bốn ô chọn của Bàn giao hàng loạt. Danh sách tuỳ chọn và phạm vi xem không đổi
+   (hồ sơ hạn chế vẫn không hiện với người không xem được).
+4. Hồ sơ có khoản thu trên hợp đồng **đã hoàn tất** không huỷ được bằng "Huỷ hồ sơ mở nhầm" (khoản thu đó không
+   huỷ được); câu từ chối nói đóng hồ sơ thay vì huỷ. "Đưa về bản nháp" không làm được trên hồ sơ đã kết thúc.
+5. Hộp thoại "Huỷ hồ sơ mở nhầm" nói thêm số việc giao nội bộ còn mở và số người chưa bấm "Đã nhận hồ sơ" (như hộp
+   thoại kết thúc vụ): hồ sơ huỷ thì các việc đó biến khỏi trang Công việc và thôi nhắc; khôi phục hồ sơ thì chúng trở
+   lại như cũ. Gộp integ-fa: sau khi huỷ, mỗi người đang giữ hay đã giao một việc như vậy nhận một chuông nói điều đó.
+   Không có gì phải chạy trên máy chủ.
 
 ### Nâng cấp hỏng: quay lại bản trước
 

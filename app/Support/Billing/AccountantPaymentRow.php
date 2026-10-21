@@ -38,9 +38,11 @@ final readonly class AccountantPaymentRow implements Arrayable
     /**
      * Đường DUY NHẤT từ model sang dòng này. Cha đã nạp thì không truy vấn. Cùng hai quy tắc của
      * {@see AccountantBillingRow::fromInstalment()}: khách hàng xoá mềm vẫn đọc được tên (kế toán
-     * vẫn phải lập phiếu thu); vụ việc thì KHÔNG đi qua `withTrashed()` — một vụ đã xoá mềm ra
-     * ngoài ở đây (`firstOrFail()`), đúng ranh giới {@see ChecksBillingAccess::canSeeBilling()} đã
-     * đóng.
+     * vẫn phải lập phiếu thu); vụ việc thì lớp này KHÔNG tự đi qua `withTrashed()` — chưa nạp sẵn thì
+     * một vụ đã xoá mềm ra ngoài ở đây (`firstOrFail()`), đúng ranh giới
+     * {@see ChecksBillingAccess::canSeeBilling()} đã đóng. Làn fa3 (2026-10-16): người gọi CỐ Ý liệt kê
+     * khoản thu của hồ sơ đã huỷ (mục "Khoản thu gần đây", tiền đã về vẫn là tiền đã về) nạp sẵn vụ kèm
+     * `withTrashed()` — khi đó dòng đọc đúng vụ đã nạp, như mọi quan hệ đã nạp khác.
      */
     public static function fromPayment(Payment $payment): self
     {

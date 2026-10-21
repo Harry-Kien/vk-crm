@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 use App\Actions\Matter\AddTeamMember;
 use App\Actions\Matter\RemoveTeamMember;
 use App\Actions\Matter\SeatsNeedingReassignment;
+use App\Actions\Task\TaskAssignees;
 use App\Enums\Confidentiality;
 use App\Enums\MatterAssignmentStatus;
 use App\Enums\MatterRole;
@@ -12,10 +13,14 @@ use App\Filament\Admin\Concerns\ProvidesSeatActions;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Matter;
 use App\Models\MatterUser;
+use App\Models\Task;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
+use App\Support\Search\LetterD;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
@@ -24,6 +29,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 
 /**
  * Tab "Đội ngũ" (SPEC §4.7, §5, §7.2; M6.5 Task 3, R6) — màn hình DUY NHẤT trong hệ thống ghi
@@ -214,6 +220,9 @@ class TeamRelationManager extends RelationManager
                     ->label(__('team.tab.fields.member'))
                     ->options(fn (Get $get): array => $this->memberOptions($get('role_in_matter')))
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "dang" ra "Đặng" trong ĐÚNG danh sách trên (`AddTeamMember` hỏi lại).
+                    ->getSearchResultsUsing(fn (?string $search, Get $get): array => LetterD::filterOptions($this->memberOptions($get('role_in_matter')), $search))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
             ])
@@ -237,7 +246,11 @@ class TeamRelationManager extends RelationManager
             ->color('danger')
             ->requiresConfirmation()
             ->modalHeading(__('team.tab.actions.remove_heading'))
-            ->modalDescription(__('team.tab.actions.remove_description'))
+            // Làn fa2, phán quyết 1: ghế còn chờ nhận thì nói rõ gỡ là rút lời giao; việc người đó đang giữ hiện trong
+            // form bên dưới, kèm ô chọn người nhận thay (RemoveTeamMember từ chối gỡ khi chưa chọn).
+            ->modalDescription(fn (User $record): string => __('team.tab.actions.remove_description')
+                .($record->pivot?->assignmentStatus() === MatterAssignmentStatus::Pending ? ' '.__('internal_flow.team_removal.pending_seat') : ''))
+            ->schema(fn (User $record): array => $this->removalTaskFields($matter, $record))
             ->authorize(fn (): bool => Gate::allows('manageTeam', $matter))
             // Vai `lead` chỉ đổi qua bàn giao vụ việc (M7, R6) — nút "Gỡ" không có việc gì trên
             // chính dòng đó. `RemoveTeamMember` CŨNG từ chối gỡ một lead — LUÔN LUÔN, không chỉ
@@ -246,9 +259,93 @@ class TeamRelationManager extends RelationManager
             // thừa.
             ->visible(fn (User $record): bool => $record->pivot->role_in_matter !== MatterRole::Lead)
             ->successNotificationTitle(__('team.tab.actions.remove_success'))
-            ->action(fn (Action $action, User $record) => $this->runAction(
-                $action,
-                fn () => app(RemoveTeamMember::class)->handle($matter, Auth::user(), $record),
-            ));
+            ->action(function (Action $action, User $record, array $data) use ($matter): void {
+                $choice = $data['task_recipient_id'] ?? null;
+                $leave = $choice === RemoveTeamMember::LEAVE_FOR_REASSIGNMENT;
+                $recipient = $leave || blank($choice) ? null : User::query()->withTrashed()->find((int) $choice);
+
+                $this->runAction(
+                    $action,
+                    fn () => app(RemoveTeamMember::class)->handle($matter, Auth::user(), $record, $recipient, $leave),
+                );
+            });
+    }
+
+    /**
+     * Làn fa2, phán quyết 1 — việc nội bộ `$member` đang giữ (chờ nhận, đang làm) trên `$matter`, và ô chọn người nhận
+     * thay: người giữ việc hợp lệ của vụ (`TaskAssignees::eligible()` — ghế giữ việc chưa trả lại, đang hoạt động, mở
+     * được vụ), kể cả người bấm khi chính họ ngồi một ghế như vậy (vòng sửa 1, minor 2) — gộp integ-fa: với nhãn
+     * `internal_flow.team_removal.take_over` ("Tôi nhận … — sang Đang làm"; `RemoveTeamMember` nhận thay qua
+     * `ReassignTask` `takeOver`) —, trừ chính người bị gỡ, cộng lựa chọn "Để Cần giao lại". Mặc định luật sư phụ trách
+     * khi họ có trong danh sách, kể cả khi chính họ bấm. Danh sách việc: một dòng mỗi việc (`<br>` giữa các dòng, mọi
+     * giá trị qua `e()`). Không giữ việc nào thì không có ô nào — gỡ như trước. `private`: xem docblock lớp về phương
+     * thức công khai của component Livewire.
+     *
+     * @return array<int, Text|Select>
+     */
+    private function removalTaskFields(Matter $matter, User $member): array
+    {
+        $held = Task::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $matter->getKey())
+            ->where('assignee_id', $member->getKey())
+            ->held()
+            ->orderBy('id')
+            ->get();
+
+        if ($held->isEmpty()) {
+            return [];
+        }
+
+        $lines = $held->map(fn (Task $task): string => e(__('internal_flow.team_removal.task_line', [
+            'title' => $task->title,
+            'status' => $task->status->label(),
+            'due' => $task->due_date === null ? '' : __('internal_flow.team_removal.task_due', ['date' => $task->due_date->format('d/m/Y')]),
+        ])));
+        $heading = Text::make(new HtmlString(e(__('internal_flow.team_removal.tasks_heading', ['count' => $held->count()])).'<br>'.$lines->implode('<br>')));
+
+        // Gộp integ-fa (rà soát chéo, mục 9): hồ sơ đã kết thúc — "Giao lại" không chạy được ở đó (`TaskPolicy::reassign`
+        // đòi hồ sơ đang mở), nên chỉ còn "Để Cần giao lại". `RemoveTeamMember` hỏi lại.
+        if (! $matter->isOpen()) {
+            return [
+                $heading,
+                Select::make('task_recipient_id')
+                    ->label(__('internal_flow.team_removal.recipient'))
+                    ->helperText(__('internal_flow.team_removal.closed_leave_only'))
+                    ->options([RemoveTeamMember::LEAVE_FOR_REASSIGNMENT => __('internal_flow.team_removal.leave')])
+                    ->default(RemoveTeamMember::LEAVE_FOR_REASSIGNMENT)
+                    ->required()
+                    ->native(false),
+            ];
+        }
+
+        $actor = Auth::user();
+        $assignees = app(TaskAssignees::class);
+        $candidates = $assignees->eligible($matter, $actor);
+
+        // Vòng sửa 1 (minor 2), gộp integ-fa: người bấm ngồi một ghế giữ việc (luật sư phụ trách gỡ trợ lý của mình) cũng
+        // có trong danh sách — chọn mình là nhận thay (việc sang "Đang làm" của họ).
+        if ($actor instanceof User && $actor->is_active && $assignees->holdsSeat($actor, $matter)) {
+            $candidates->push($actor);
+        }
+
+        $options = $candidates
+            ->reject(fn (User $user): bool => $user->is($member))
+            ->sortBy('name')
+            ->mapWithKeys(fn (User $user): array => [$user->getKey() => $user->is($actor)
+                ? __('internal_flow.team_removal.take_over', ['name' => $user->name])
+                : $user->name])
+            ->all();
+
+        return [
+            $heading,
+            Select::make('task_recipient_id')
+                ->label(__('internal_flow.team_removal.recipient'))
+                ->helperText(__('internal_flow.team_removal.recipient_hint'))
+                ->options($options + [RemoveTeamMember::LEAVE_FOR_REASSIGNMENT => __('internal_flow.team_removal.leave')])
+                ->default(array_key_exists($matter->lead_lawyer_id, $options) ? $matter->lead_lawyer_id : null)
+                ->required()
+                ->native(false),
+        ];
     }
 }

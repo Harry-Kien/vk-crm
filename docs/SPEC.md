@@ -625,6 +625,18 @@ văn phòng (§10 mục 8). Mỗi media nằm trọn ở MỘT đĩa tại mỗi
 - "Xoá" trên kho là cho vào thùng rác của Shared Drive; CRM không bao giờ xoá vĩnh viễn, không bao giờ
   ghi đè một tệp đã có.
 
+**Đính chính 2026-10-16 (làn fa2, kiểm tra luồng nội bộ — phán quyết 7).** Vòng trình duyệt văn bản nhóm B có lời
+báo ở mỗi bước, gửi sau commit (`App\Jobs\SendDocumentReviewNotice`): **"Trình duyệt"** → người duyệt nhận chuông
+và thư `staff.document_review.submitted` — luật sư phụ trách nếu còn hợp lệ, không thì chuỗi dự phòng của
+`ResolveStaffRecipients::handle()` (trưởng phòng xem được vụ → quản trị viên), mọi tầng đều phải duyệt được chính
+văn bản (`DocumentPolicy::publish`); luật sư phụ trách tự trình thì không ai bị báo. Vòng sửa 1 (2026-10-18,
+`ResolveStaffRecipients::forApprovalRequest()`): trong chuỗi dự phòng người trình bị bỏ ở mọi tầng TRƯỚC khi chọn —
+trưởng phòng duy nhất tự trình (luật sư phụ trách không duyệt được) thì quản trị viên duyệt được vẫn được báo.
+**"Đánh dấu đã ký, đã nộp"** → người đã
+trình lần gần nhất nhận chuông. **"Trả về bản nháp"** bắt buộc **lý do** (tối đa 1.000 ký tự, ghi vào dòng
+`document_returned_to_draft`), và người đã trình nhận chuông kèm lý do. Người nhận chỉ là người còn mở được hồ
+sơ; lời báo đã cũ (văn bản đã chuyển trạng thái khác) thì không gửi.
+
 ### 4.12 `document_downloads` — nhật ký tải về
 
 `document_id`, `downloader_type`, `downloader_id`, `ip` string(45),
@@ -827,6 +839,37 @@ Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu c
   đã kết thúc, chưa tiêu huỷ, tới một ngày sau hôm nay và sau hạn hiện có, tối đa 365 ngày kể từ hôm
   nay, lý do bắt buộc, ghi `client_access_extended`. Lần đồng bộ lại khi vụ vẫn đóng giữ ngày muộn
   hơn giữa ngày tính lại và ngày đã gia hạn; mở lại vụ vẫn đưa cột về NULL.
+- *Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ, mục tiền).* `CancelMatter` còn từ chối hồ sơ
+  **đã có khoản thu chưa huỷ** trên bất kỳ hợp đồng nào của nó (đang hiệu lực, đã hoàn tất hay đã huỷ —
+  `BillingSummary::collectedForMatter()`), trước câu "còn dư nợ": tiền đã về là sự thật kế toán, và trước
+  luật này hồ sơ huỷ được trong khi vẫn mang tiền đã thu — khoản đó rời khỏi Doanh thu, P7 và "Khoản thu
+  gần đây", và không ai huỷ được nó (cổng tiền đóng trên vụ đã xoá mềm). Một đường duy nhất, có nhật ký ở
+  mỗi bước: kế toán huỷ các khoản thu (ghi lý do) và ghi lại vào đúng hồ sơ, rồi mới huỷ hồ sơ; không có
+  chức năng "chuyển khoản thu sang hồ sơ khác". Câu từ chối nói số khoản, tổng tiền và cách làm; hộp thoại
+  "Huỷ hồ sơ mở nhầm" hiện đúng câu đó trước khi bấm (người có `billing.view`). Câu "còn dư nợ" nay chỉ
+  đường huỷ hợp đồng (bỏ "thu nốt, miễn"). Hồ sơ đã huỷ TRƯỚC luật này mà còn khoản thu: `CollectedRevenue`
+  (ô "Đã thu", biểu đồ theo tháng, P7), biểu đồ theo đợt/giai đoạn, bộ lọc luật sư của trang Doanh thu
+  (nhánh "được ghi doanh thu") và "Khoản thu gần đây" đọc vụ kèm `withTrashed()` — tiền vẫn được
+  tính, dòng chi tiết có nhãn "Hồ sơ đã huỷ", không nút huỷ khoản thu (khôi phục hồ sơ trước); phạm vi
+  `listableBy()` không đổi, nên vụ hạn chế đã huỷ vẫn không lộ.
+  *Bổ sung fix round 1 (làn fa3, 2026-10-18).* (a) Khoản thu chưa huỷ nằm trên hợp đồng **đã hoàn tất** không huỷ
+  được (`ContractStatus::allowsPaymentVoid()`, chốt chặn của `VoidPayment`), và hợp đồng đã hoàn tất không huỷ hay
+  đưa về nháp được — nên với hồ sơ đó câu "kế toán huỷ khoản thu" là một ngõ cụt. `CancelMatter` nói câu riêng
+  (`actions.cancel_matter.payments_on_completed`, `BillingSummary::collectedOnCompletedForMatter()`): hồ sơ không có
+  đường huỷ như hồ sơ mở nhầm; đóng hồ sơ (giai đoạn kết thúc) thay vì huỷ, rồi mở hồ sơ mới cho đúng khách hàng
+  hoặc loại vụ việc; tiền đã thu ở lại hồ sơ này. *Fix round 2 (I-A):* đóng thôi chưa đủ — hồ sơ đã công bố vẫn hiện
+  trên cổng của khách đang gắn với nó, kèm hợp đồng đã hoàn tất và khoản thu (`Contract::scopeShownToClient`), và một
+  giai đoạn kết thúc có công bố gửi thư cho khách đó. Câu nói thêm: trước hết bấm "Tắt công bố portal" ở đầu trang vụ
+  việc, rồi "Chuyển giai đoạn" sang giai đoạn kết thúc mà không bật "Công bố cho khách ngay". Câu này đứng trước câu kia; hộp thoại hiện đúng câu đó
+  (`CancelMatter::paymentsRefusal()`, một chuỗi). (b) Câu "đã có khoản thu" nói luôn bước sau: huỷ hợp đồng nếu còn
+  hiệu lực, rồi mới huỷ hồ sơ. (c) Hook `Matter::deleting` chặn thêm xoá mềm vụ còn khoản thu chưa huỷ
+  (`MatterHasRecordedPayments`, sau câu dư nợ) — phòng thủ chiều sâu cho mọi đường xoá mềm sau này.
+  *Gộp integ-fa (2026-10-18, làn fa3 × làn fa1/fa2).* Hộp thoại "Huỷ hồ sơ mở nhầm" liệt kê thêm số việc giao nội bộ
+  còn mở (chờ nhận, đang làm, bị trả lại) và số người trong đội ngũ chưa bấm "Đã nhận hồ sơ" — cùng hai số đếm của
+  hộp thoại kết thúc vụ (`MatterOpenWork::internalWorkCounts()`), câu riêng của việc huỷ: hồ sơ xoá mềm thì việc trên
+  nó rời mọi danh sách (`Task::visibleTo()` qua `listableBy()`), thôi nhắc (`Task::isOnLiveMatter()`) và không còn
+  chặn nghỉ việc (`OpenTaskWork`); khôi phục hồ sơ thì chúng trở lại nguyên trạng thái. Việc huỷ hồ sơ không tự huỷ
+  việc nào. Chỉ số đếm, không tiêu đề.
 - *Đính chính 2026-10-15 (làn fi A3).* "Khôi phục: lý do bắt buộc" ở trên chưa đủ. Trong lúc hồ sơ nằm
   ở "đã huỷ", luật sư phụ trách có thể đã nghỉ việc, bị khoá truy cập hay đổi sang chức danh không phụ
   trách vụ được (luật chặn nghỉ việc không thấy hồ sơ đã huỷ). Khi người phụ trách không còn xử lý được
@@ -992,13 +1035,19 @@ quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồ
 >
 > | Quyền | admin | manager | lawyer | assistant | accountant | sales |
 > |---|---|---|---|---|---|---|
-> | `contract.enter` (nhập hợp đồng đã ký cho vụ có sẵn: soạn bản nháp, sửa và xoá bản nháp, kích hoạt với ngày ký) | ✓ | — | — | — | ✓ | — |
+> | `contract.enter` (nhập hợp đồng đã ký cho vụ có sẵn: soạn bản nháp, sửa và xoá bản nháp, kích hoạt với ngày ký, đưa về bản nháp hợp đồng chính mình đã kích hoạt) | ✓ | — | — | — | ✓ | — |
 >
-> **Gồm gì, không gồm gì.** `ContractPolicy::create` (soạn bản nháp), `updateDraft` (sửa bản nháp và lịch thu của nó), `delete` (xoá bản nháp — chỉ được khi còn nháp, chưa có khoản thu, như mọi người), `activate` (kích hoạt với ngày ký) đòi "thấy tiền của vụ" (định nghĩa trên) **và** (`contract.manage` **hoặc** `contract.enter`). Mọi quyết định thương mại trên hợp đồng đã ký — ký phụ lục (kể cả đổi số tiền hay huỷ một đợt), hoàn tất, huỷ hợp đồng (`ContractPolicy::update`), miễn một đợt, dời hạn, gửi thư nhắc khách (`InstalmentPolicy`) — **vẫn chỉ `contract.manage`**: kế toán nhập đúng tờ giấy đã ký, không tự đổi điều khoản. Trước bổ sung này `update` còn là cổng của sửa nháp và kích hoạt; hai việc đó nay có ability riêng. Bảng M9 ở trên đọc là: `contract.manage` = soạn, kích hoạt, ký phụ lục, huỷ; **soạn và kích hoạt** thì người có `contract.enter` cũng làm được.
+> **Gồm gì, không gồm gì.** `ContractPolicy::create` (soạn bản nháp), `updateDraft` (sửa bản nháp và lịch thu của nó), `delete` (xoá bản nháp — chỉ được khi còn nháp, chưa có khoản thu, như mọi người), `activate` (kích hoạt với ngày ký) đòi "thấy tiền của vụ" (định nghĩa trên) **và** (`contract.manage` **hoặc** `contract.enter`). Mọi quyết định thương mại trên hợp đồng đã ký — ký phụ lục (kể cả đổi số tiền hay huỷ một đợt), hoàn tất, huỷ hợp đồng (`ContractPolicy::update`), miễn một đợt, dời hạn, gửi thư nhắc khách (`InstalmentPolicy`) — **vẫn chỉ `contract.manage`**: kế toán nhập đúng tờ giấy đã ký và chỉ sửa lại lần nhập của chính mình (đưa về bản nháp hợp đồng chính mình đã kích hoạt, sửa, kích hoạt lại — đính chính fix round 2 làn fa3 dưới), không đổi điều khoản của hợp đồng người khác đã ghi nhận. Trước bổ sung này `update` còn là cổng của sửa nháp và kích hoạt; hai việc đó nay có ability riêng. Bảng M9 ở trên đọc là: `contract.manage` = soạn, kích hoạt, ký phụ lục, huỷ; **soạn và kích hoạt** thì người có `contract.enter` cũng làm được.
 >
-> **Ranh giới của kế toán không đổi.** Kế toán vẫn không có `matter.view`: trang vụ việc vẫn 404. Màn hình nhập là trang **"Hợp đồng"** (§7, cạnh "Công nợ"): danh sách vụ theo đúng tầm nhìn tiền (`Matter::listableBy` — vụ `restricted` không có, vụ đã huỷ không có), mỗi dòng mã hồ sơ, loại vụ việc, tên khách hàng, **luật sư phụ trách**, số và trạng thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** tiêu đề, ghi chú, tài liệu, bên đối lập (DTO readonly `AccountantContractRow`). Tên luật sư phụ trách là điểm nới rộng có chủ đích: người kế toán hỏi lại khi tờ giấy không rõ, và người nhận chuông dưới đây; tên nhân sự không phải nội dung hồ sơ. Form nhập là **đúng** form của tab tiền (một bản dùng chung), cộng công tắc "Khách đã ký — kích hoạt luôn" (mặc định tắt): bật thì soạn và kích hoạt trong **một** transaction — lệch tổng hay ngày ký ở tương lai thì không lưu gì. Trang mở cho ai có `billing.view` và (`contract.enter` hoặc `contract.manage`); trang chủ của người có `contract.enter` có ô "Hồ sơ chưa có hợp đồng" / "Hợp đồng còn nháp", trang Công nợ có nút "Nhập hợp đồng cho hồ sơ".
+> **Ranh giới của kế toán không đổi.** Kế toán vẫn không có `matter.view`: trang vụ việc vẫn 404. Màn hình nhập là trang **"Hợp đồng"** (§7, cạnh "Công nợ"): danh sách vụ theo đúng tầm nhìn tiền (`Matter::listableBy` — vụ `restricted` không có, vụ đã huỷ không có), mỗi dòng mã hồ sơ, loại vụ việc, tên khách hàng, **luật sư phụ trách**, số và trạng thái hợp đồng, tổng giá trị, đã thu, còn phải thu — **không** tiêu đề, ghi chú, tài liệu, bên đối lập (DTO readonly `AccountantContractRow`). Tên luật sư phụ trách là điểm nới rộng có chủ đích: người kế toán hỏi lại khi tờ giấy không rõ, và người nhận chuông dưới đây; tên nhân sự không phải nội dung hồ sơ. Form nhập là **đúng** form của tab tiền (một bản dùng chung), cộng công tắc "Khách đã ký — kích hoạt luôn" (mặc định tắt): bật thì soạn và kích hoạt trong **một** transaction — lệch tổng hay ngày ký ở tương lai thì không lưu gì. Trang mở cho ai có `billing.view` và (`contract.enter` hoặc `contract.manage`); trang chủ của người có `contract.enter` có ô "Hồ sơ cần nhập hợp đồng" (đính chính 2026-10-16, §7.1) / "Hợp đồng còn nháp", trang Công nợ có nút "Nhập hợp đồng cho hồ sơ".
 >
 > **Báo luật sư phụ trách.** Ai không phải luật sư phụ trách (kế toán, trưởng phòng, quản trị viên) nhập, kích hoạt hay nhập-và-kích-hoạt hợp đồng của vụ thì luật sư phụ trách nhận **một dòng chuông** ("Kế toán X đã nhập hợp đồng HD-… cho hồ sơ VK-… (tổng …, n đợt) — anh/chị kiểm tra lại."), gửi sau commit. Người nhận (đính chính 2026-10-16, gộp integ-4): luật sư phụ trách khi họ còn hoạt động, còn thấy tiền của vụ và không phải chính người nhập; không thì **mọi** người quản lý của vụ (`ResolveStaffRecipients::supervisorsFor()`: trưởng phòng; quản trị viên với vụ hạn chế) trừ người nhập; luật sư phụ trách tự nhập hợp đồng của vụ mình (việc hằng ngày) thì không ai nhận chuông; không bao giờ chính người nhập. Không thư: không thư nội bộ nào của vòng đời hợp đồng tồn tại. Nhật ký hoạt động ghi người nhập (`contract_drafted`, `contract_activated`). Máy chủ đã có dữ liệu nhận quyền mới qua `php artisan db:seed --force` (`RolesAndPermissionsSeeder`).
+>
+> **Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ, phán quyết controller).**
+> - **Đưa về bản nháp** (`RevertContractToDraft`, ability `ContractPolicy::revertToDraft` — `contract.manage` **hoặc** `contract.enter` trên vụ thấy được tiền, người chỉ có `contract.enter` thì chỉ hợp đồng chính mình đã kích hoạt (fix round 2, dưới); không quyền mới, không chạy lại seeder). Sửa một lần kích hoạt nhầm (ngày ký, thuế suất, giá trị, lịch thu) thay cho "huỷ rồi nhập lại": hợp đồng `active` về `draft`, `signed_at`/`activated_by` về rỗng, đợt `on_signing`/`stage` mất hạn và dấu kích hoạt (đợt `due_date` giữ ngày); lý do bắt buộc (≥ 20 ký tự), nhật ký `contract_reverted_to_draft` (lý do, ngày ký và người kích hoạt cũ); cổng khách thôi hiện hợp đồng (khách chỉ thấy `active`/`completed`). **Chỉ khi** — kiểm trên hàng đã khoá `matters` → `contracts` → `instalments` → `payments`, rồi `contract_amendments` — không còn khoản thu **chưa huỷ** nào, chưa có phụ lục, không đợt nào đang không `pending` hay từng được miễn / bỏ miễn / dời hạn (nhật ký của chính các đợt). Khoản thu **đã huỷ** không chặn: nó ở lại trên đợt của nó; "Sửa bản nháp" (`UpdateDraftContract`) giữ đợt mang lịch sử đó và ghi đè tại chỗ bằng dòng cùng vị trí, lịch thu mới ngắn hơn vị trí của nó thì từ chối. Có ở tab "Hợp đồng và thanh toán" và trên dòng của trang "Hợp đồng".
+> - **Báo luật sư phụ trách** (cùng người nhận, cùng chuông, không bao giờ chính người làm, luật sư phụ trách tự làm vụ mình thì không ai) mở rộng thêm ba việc: đưa về bản nháp, **sửa bản nháp** và **xoá bản nháp** (kế toán sửa/xoá bản nháp của luật sư). Chuông không chép lý do.
+> - *Bổ sung fix round 1 (2026-10-18).* "Đưa về bản nháp" từ chối thêm khi **hồ sơ đã kết thúc** (`ContractNotRevertible::matterClosed()`, đọc trên hàng `matters` đã khoá): hợp đồng của hồ sơ đã đóng giữ nguyên như đã ký — sửa bằng phụ lục hoặc huỷ hợp đồng. Hộp thoại nói thêm: thư nhắc và thư báo đã gửi cho khách theo hợp đồng này không thu hồi được. Nút **Xoá bản nháp** không hiện trên bản nháp mang lịch sử khoản thu đã huỷ (`Contract::hasPayments()`, ở cả tab tiền lẫn trang "Hợp đồng") — xoá chắc chắn bị `Contract::assertDestroyable()` từ chối; bản nháp đó sửa rồi kích hoạt lại. Chuông "sửa bản nháp" chỉ gửi khi **điều khoản tiền đổi** (giá trị, thuế suất, số đợt, và mỗi đợt: số tiền, mốc kích hoạt, giai đoạn, số ngày sau mốc, ngày đến hạn cố định — `UpdateDraftContract::moneyTerms()`); lưu lại y nguyên, đổi tên đợt hay ghi chú thì không chuông (nhật ký vẫn ghi).
+> - *Bổ sung fix round 2 (2026-10-18) — phán quyết controller 2026-10-18, chờ chủ văn phòng xác nhận.* **Ai đưa về bản nháp được.** Đưa về rồi sửa bản nháp đổi được tổng, thuế suất và lịch thu của một hợp đồng đã ký mà không có phụ lục nào, nên: `contract.manage` (luật sư, trưởng phòng, quản trị viên) đưa về được mọi hợp đồng đủ điều kiện trên vụ mình thấy tiền; người có `contract.enter` mà **không** có `contract.manage` (kế toán) chỉ hợp đồng chính mình đã kích hoạt (`contracts.activated_by` = người đó; hợp đồng không rõ người kích hoạt thì không). `ContractPolicy::revertToDraft` trả lời câu này (nút ẩn ở tab "Hợp đồng và thanh toán" lẫn trang "Hợp đồng"); `RevertContractToDraft` hỏi lại trên hàng `contracts` đã khoá — sau "thấy tiền của vụ", trạng thái và hồ sơ chưa kết thúc — và từ chối bằng câu nói ai đã kích hoạt, nhờ luật sư phụ trách hoặc trưởng phòng (`ContractNotRevertible::notOwnActivation()`). Kế toán kích hoạt, người khác đưa về rồi kích hoạt lại: hợp đồng thành của người kích hoạt sau. Nút "Đưa về bản nháp" cũng không hiện trên hồ sơ đã kết thúc (Action vẫn từ chối hộp thoại đã mở trước khi hồ sơ đóng). Chủ văn phòng có thể đổi phán quyết này (ví dụ: một khoảng thời gian sau kích hoạt thay cho "chính mình").
 
 **Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
 **chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
@@ -1276,6 +1325,18 @@ ghi thẳng không qua `TransitionMatterStage`). Nó chỉ đọc dòng `stage_l
 bao giờ kích hoạt đợt của nó — `docs/QUY-TRINH.md`, "Nhập hợp đồng đang chạy". Không gửi thư,
 không xếp hàng đợi; lỗi của một cặp (vụ, giai đoạn) được báo và không chặn các cặp khác.
 
+**Đính chính 2026-10-16 (làn fa2 — phán quyết 6).** Mỗi lần người KHÁC giao một mốc cho ai đó — thêm mốc với người
+phụ trách khác người thêm (kể cả mặc định là luật sư phụ trách), sửa mốc đổi người phụ trách, nút "Đổi người phụ
+trách" — người giữ mốc mới nhận NGAY chuông và thư `staff.deadline_assigned` kèm tên mốc, mã hồ sơ, hạn và số ngày
+còn lại tính lúc gửi (`App\Jobs\SendDeadlineAssignmentNotice`, sau commit; người nhận phải còn hoạt động và mở
+được hồ sơ, mốc còn chưa xong, vụ còn mở, người giữ mốc vẫn là họ). `reminders_sent` thuộc về mốc, không thuộc
+người: bậc đã gửi cho người giữ cũ không gửi lại — lời báo này mang đúng điều bậc gần nhất nói, một lần; các bậc
+sau tới người mới như thường. Tự giao cho mình thì không báo. Bàn giao vụ không đi đường này: thư tổng hợp bàn
+giao đã liệt kê các mốc chuyển sang lead mới; "Chuyển việc nội bộ và ghế" (Bàn giao hàng loạt) cũng không — chuông
+và thư tổng hợp `staff.work_transferred` liệt kê TỪNG mốc với cùng các điều đó, mốc trong bậc nhắc cuối có dấu "GẤP"
+(vòng sửa 1, 2026-10-18; gộp integ-fa). Thư của một mốc vừa THÊM không nói tới lời
+nhắc đã gửi (chưa có lời nào); chỉ thư của một mốc đổi người giữ nói.
+
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
 Chạy 08:00 các ngày thứ Hai, Tư, Sáu. Với mỗi matter đang mở, đã công bố
@@ -1447,6 +1508,75 @@ doanh vẫn là người phụ trách lead được — câu "bị chặn như s
 chỉ đường "Chuyển cho luật sư" / ô "Người phụ trách" trên từng lead. "Khoá truy cập ngay" (không chặn ai) nêu và
 ghi nhật ký cả số lead đang mở lúc khoá, cùng đường chuyển chúng — sau khi khoá, công tắc "Đang hoạt động"
 không còn gì để chặn.
+
+**Đính chính 2026-10-16 (làn fa2, kiểm tra luồng nội bộ — phán quyết 1–5).**
+
+- **Gỡ thành viên khỏi đội ngũ** (`RemoveTeamMember`): người còn giữ việc nội bộ "Chờ nhận"/"Đang làm" trên vụ
+  thì hộp thoại liệt kê các việc đó (và nói khi ghế của họ còn chờ nhận), và bắt chọn người nhận thay hợp lệ
+  (mặc định luật sư phụ trách nếu hợp lệ) hoặc "Để Cần giao lại"; không chọn thì không gỡ. Người nhận thay đi qua
+  "Giao lại" (`ReassignTask`) từng việc, trong cùng transaction sau khoá dòng vụ. Sau commit
+  (`SendTeamDepartureNotices`): người bị gỡ nhận MỘT chuông tổng hợp "đã rời đội ngũ hồ sơ … — n việc đã chuyển /
+  chờ giao lại" (vụ hạn chế họ không mở được: không mã), người giao các việc đó (hay người nhận thay họ,
+  `forTaskAssigner()`) nhận một chuông — gộp 2026-10-18: không thêm chuông từng việc nào cho hai người đó
+  (`ReassignTask` với `notifyFormerHolder: false, notifyAssigner: false`). Mốc hạn và yêu cầu của khách vẫn chặn gỡ
+  như trước. Vòng sửa 1 (2026-10-18), gộp integ-fa: người bấm ngồi một ghế giữ việc (luật sư phụ trách gỡ trợ lý
+  của mình) cũng có trong ô người nhận thay, nhãn "Tôi nhận (… — sang Đang làm)", và luật sư phụ trách vẫn là mặc
+  định kể cả khi chính họ bấm; chọn mình là NHẬN THAY (`ReassignTask` `takeOver`): việc sang thẳng "Đang làm"
+  (`accepted_at` = lúc nhận), dòng `task_reassigned` ghi `taken_over: true`, không chuông/thư cho chính họ, nhưng
+  vẫn phải giữ được việc (`TaskAssignees::qualifies()`). "Giao việc" / "Giao lại" trên trang Công việc vẫn cấm tự
+  giao. Danh sách việc trong hộp thoại: mỗi việc một dòng.
+- **Việc nội bộ trong luật nghỉ việc** (`App\Support\OpenTaskWork`): việc đang giữ, việc đã giao còn mở, hồ sơ chờ
+  nhận — chỉ việc chung và việc trên hồ sơ đang mở (đúng tập chuyển được; việc sót trên hồ sơ đã kết thúc / đã huỷ
+  không chặn) — chặn vô hiệu hoá, xoá, đổi sang Kế toán hay Nhân viên kinh doanh như mọi việc dở khác; "Khoá
+  truy cập ngay" nêu và ghi nhật ký ba con số đó. Màn hình hàng loạt có thêm phần **"Việc nội bộ và ghế"**
+  (`TransferStaffWork`, cùng cổng `bulkReassign` của màn hình — hỏi lại trong chính Action) cho người KHÔNG phải luật sư phụ trách: trên từng hồ sơ đang mở (mỗi hồ sơ một
+  transaction, khoá dòng vụ trước), người nhận vào đội ngũ thay ghế (chờ nhận), việc đang giữ qua "Giao lại", việc
+  đã giao đổi người giao (sang người nhận; việc chính người nhận giữ, hay người nhận không mở được, thì sang người
+  bấm — dòng `task_assigner_changed`, `reason = staff_work_transferred`; gộp integ-fa: không việc nào bị bỏ qua im
+  lặng — người bấm chính là người giữ thì việc thành việc riêng của họ, người bấm chính là người cũ thì việc ở lại
+  và dòng kết quả đỏ), mốc hạn và yêu cầu của khách chuyển theo, người cũ
+  rời đội ngũ; việc chung người cũ đang giữ hay đã giao cũng chuyển theo cùng luật.
+  Hồ sơ người đó phụ trách thì chỉ đường phần "Bàn giao". Liên kết tới màn hình này đi kèm câu chặn cả khi người đó
+  chỉ còn việc nội bộ.
+- **Vòng sửa 1 của phần "Việc nội bộ và ghế" (2026-10-18).** (a) Hồ sơ người bấm không `manageTeam` được (vụ hạn
+  chế với trưởng phòng) không có dòng kết quả, id, mã hay tiêu đề nào — chỉ MỘT dòng "còn n hồ sơ cần quản trị viên
+  chuyển". (b) Ghế: chỉ ghế GIỮ VIỆC chưa trả lại của người cũ được chuyển (ghế "người theo dõi" / đã trả lại chỉ
+  gỡ); người nhận được ghế giữ việc khi người cũ còn ghế giữ việc HAY còn giữ việc trên hồ sơ (kể cả việc "Cần giao
+  lại" sau một lần gỡ) — ghế "người theo dõi" hay đã trả lại của người nhận thành ghế giữ việc chờ nhận; người cũ
+  chỉ còn mốc / yêu cầu của khách thì người nhận chưa ở đội ngũ vào đội ngũ. (c) Người nhận có thể là chính người
+  bấm (trưởng phòng tự nhận ghế, mốc, yêu cầu; gộp integ-fa: cả việc nội bộ — nhận thay, `takeOver`, sang "Đang
+  làm"); việc "Giao lại" từ chối (người nhận không giữ được việc) ở lại "Cần giao lại", dòng kết quả nói rõ, phần
+  còn lại vẫn chuyển. (d) Nút mở hộp xác nhận nêu ai → ai và các con số, bắt
+  lý do (tối đa 5000 ký tự), ghi vào dòng `staff_work_transferred` — dòng này chỉ ghi khi có thay đổi, kèm số hồ sơ
+  lỗi / ngoài quyền và số việc không chuyển được. (e) **Một lời báo cho cả lô**: chuông "được giao ghế", chuông + thư
+  "được giao mốc", chuông "đã rời đội ngũ" của từng hồ sơ không gửi; sau lô người nhận nhận MỘT chuông + MỘT thư
+  `staff.work_transferred` (bao nhiêu hồ sơ — mã hồ sơ chỉ khi vụ không hạn chế hay họ mở được, còn lại chỉ đếm —,
+  việc nội bộ, việc đã giao, mốc, yêu cầu, ghế mới), người cũ MỘT chuông (`SendStaffWorkTransferNotices`). Người bấm
+  tự nhận thì không tự báo mình. Gộp integ-fa (2026-10-18): "Giao lại" của lô chạy với `notifyFormerHolder: false,
+  notifyNewHolder: false, notifyAssigner: false` — không chuông/thư nào của từng việc. (f) **Gộp integ-fa — rà soát
+  cuối làn fa2.** Chuông và thư của người nhận liệt kê TỪNG mốc đã sang tay họ (tên mốc, hồ sơ, hạn và số ngày còn
+  lại — `DeadlineAssignedAlert::dueLine()`, mức độ), theo hạn; mốc còn `min(CheckDeadlines::TIERS)` ngày trở xuống,
+  hôm nay hay đã quá hạn mở đầu bằng dấu "GẤP" (lời nhắc bậc cuối có thể đã gửi cho người cũ — `reminders_sent`
+  thuộc về mốc); hồ sơ hạn chế người nhận không mở được lúc gửi: "Một mốc hạn — một hồ sơ" (không tên mốc, không
+  mã), hạn và mức độ vẫn hiện. Người giao của các việc đã chuyển (hay người nhận thay họ, `forTaskAssigner()`), trừ
+  người bấm, người cũ và người nhận, nhận MỘT chuông `StaffWorkTransferAlert::ASSIGNER` mỗi người cho cả lô (payload
+  mang id việc và mốc đã chuyển). Số "việc đã giao" của thư chỉ đếm việc đổi người giao sang người nhận; việc sang
+  người bấm có câu riêng trên dòng kết quả, và dòng nhật ký ghi `tasks_followed_by_actor`, `assigners_not_moved`. Mã
+  và tiêu đề hồ sơ chỉ vào dòng kết quả SAU khi người bấm qua `manageTeam` dưới khoá; lỗi trước đó cho một dòng đỏ
+  không mã; lời từ chối quyền của một Action con sau đó là dòng đỏ "quyền đã đổi giữa chừng" của chính hồ sơ (không
+  phải "cần quản trị viên chuyển"). Đổi người giao của việc chung hỏng thì dòng việc chung đỏ, nhật ký và lời báo vẫn
+  ghi. Lời từ chối của chính Action (lý do, người nhận) hiện dưới ô lý do hay bằng thông báo.
+- **Công tắc "Giữ luật sư cũ làm cộng sự"** của màn hình hàng loạt TẮT sẵn khi mở từ màn hình cho nghỉ việc
+  (`?from=`), bật sẵn khi mở thường; câu gợi ý (cả nút "Bàn giao" một vụ) nói rõ giữ làm cộng sự thì việc nội bộ
+  người đó đang giữ KHÔNG chuyển.
+- **Mở vụ / chuyển lead thành vụ** với luật sư phụ trách KHÁC người tạo (`OpenMatter`): ghế của họ CHỜ NHẬN
+  (`Matter::seatAssignment()`), và họ nhận chuông "được giao hồ sơ" cùng thư `staff.task.matter.assigned`. Người tạo
+  tự làm phụ trách thì ghế đã nhận như trước.
+- **Đổi luật sư phụ trách** (bước 1 ở trên, một vụ hay hàng loạt): sau commit (`SendLeadChangeNotices`), người phụ
+  trách cũ còn hoạt động (không phải người bấm) nhận chuông "hồ sơ … đã được giao cho X" kèm mã (họ vừa phụ trách
+  nó; rời đội ngũ thì câu nói thêm việc nội bộ của họ cũng đã chuyển, nút "Mở" không trỏ tới hồ sơ) — chỉ vụ hạn chế
+  họ không còn mở được là không mã, chỉ được đếm; thành viên còn lại của đội ngũ còn mở được hồ sơ nhận chuông "đổi luật sư phụ trách". Bàn giao
+  hàng loạt: một chuông mỗi người cho cả lô.
 
 ### 6.12 Kết thúc và bàn giao hồ sơ cho khách — `GenerateHandoverPackage`
 
@@ -1640,6 +1770,20 @@ hosting.
   `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
   `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
 
+**Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ: gõ không dấu chữ "đ").** Câu "`đ` khác `d`" ở trên
+không còn đúng cho người dùng: mọi cột so theo collation của trang Tìm kiếm (mã, tiêu đề, tên khách, số thụ
+lý, tiêu đề tài liệu), của trang **Tài liệu** (tên tài liệu, tên khách, ô chọn vụ theo mã/tiêu đề) và ô tìm
+của trang **Hợp đồng** của kế toán (mã hồ sơ, tên khách) đổi
+`đ`/`Đ` → `d`/`D` ở **cả hai vế** trước khi so (`App\Support\Search\LetterD`: `REPLACE(REPLACE(cột, 'đ', 'd'),
+'Đ', 'D') LIKE ?` với chuỗi tìm đã đổi cùng cách, ký tự `%`/`_` người gõ được thoát). Trên MariaDB vì thế gõ
+không dấu ra đủ: **"Dang" ra "Đặng"**, "dat dai" ra "đất đai", "QD" ra "QĐ" (`test:mariadb` của `SearchPageTest`,
+`DocumentLibraryPageTest` và `ContractEntryPageTest` chứng minh). Tên các bên vẫn so trên `name_normalized`: `Normalizer::name()` đổi
+`đ` → `d` qua `Str::ascii` từ M1 (không đổi từ đó), nên **không có cột chuẩn hoá đã lưu nào phải tính lại** —
+không migration, không lệnh một lần. Bước đổi chữ làm câu tìm bỏ index của các cột đó; câu tìm vốn đã duyệt
+bảng (sáu nguồn trong một `OR`, ở trên). Tầm nhìn không đổi: `listableBy()` áp như trước.
+
+**Bổ sung fix round 1 (làn fa3, 2026-10-18) — nơi tìm không phân biệt `đ`/`d`.** (1) Chữ `ð`/`Ð` (U+00F0/U+00D0, chữ eth mà một số bộ gõ và bộ chuyển mã cũ gõ thay `Đ`) cũng như `d`: `LetterD` đổi bốn ký tự (`đ`, `Đ`, `ð`, `Ð`) ở cả hai vế, `Normalizer::name()` vốn đã gộp chúng. (2) Ngoài trang Tìm kiếm, trang Tài liệu và ô tìm của trang Hợp đồng, ô tìm của **các danh sách chính** cũng vậy (`LetterD::searchable()`, cùng phép `REPLACE … LIKE ?` có thoát `%`/`_`): **Khách hàng** (mã, tên), **Vụ việc** (mã, khách hàng, loại vụ việc, tiêu đề — chỉ người có `matter.view` —, luật sư phụ trách), **Tiếp nhận** (mã, tên người liên hệ), **Nhân sự** (tên, số thẻ luật sư), **Tài khoản cổng khách** (khách hàng, tên), tab **Các bên** (tên). Điều kiện chỉ thu hẹp truy vấn của danh sách: `listableBy()` và chính sách của resource không đổi (vụ hạn chế vẫn không ra). Trên MariaDB "Dang" ra "Đặng"; trên SQLite chữ chỉ mang dấu `đ` ra (như trên). (3) Ô chọn tìm trên máy chủ trong **đúng** danh sách tuỳ chọn cũ (`LetterD::searchOptions()`, so qua `Normalizer::name()` — bỏ mọi dấu trên mọi CSDL, mọi từ người gõ phải có mặt): ô **Khách hàng** và **Luật sư phụ trách** của form mở vụ, ô **Luật sư phụ trách** (bộ lọc) của trang Doanh thu, ô **Người thực hiện** của Nhật ký hoạt động; `->options()` giữ nguyên nên luật `in:` của Filament và lớp kiểm tra thứ hai ở `CreateMatter` không đổi. **Gộp integ-fa (2026-10-18) — áp nốt ở các tệp làn fa1/fa2 giữ:** ô tìm của trang **Công việc** và tab **Công việc** của vụ (`TaskColumns`: tiêu đề, mã hồ sơ — `LetterD::searchable()`, `visibleTo()` không đổi, việc của vụ hạn chế ngoài tầm vẫn không ra); bộ lọc **vụ việc / người được giao / người giao** của `ListTasks`; ô **Vụ việc** và **Giao cho** của "Giao việc" (trang Công việc và tab của vụ), ô người nhận của **"Giao lại"**, ô người của **"Thêm thành viên"** (tab Đội ngũ) và bốn ô chọn của **Bàn giao hàng loạt** (người đang phụ trách, người phụ trách mới, người cần chuyển việc, người nhận). Ô có danh sách phụ thuộc ô khác hay bản ghi của hộp thoại dùng `LetterD::filterOptions()` (cùng phép so của `searchOptions()`) trên đúng hàm của `->options()`; mọi ô đợi `SELECT_SEARCH_DEBOUNCE_MS`. Ô tìm của "Thư đã gửi" (người nhận là địa chỉ thư/số điện thoại, mẫu là khoá) và bộ lọc mã hồ sơ không cần. (4) Phán quyết mục 3 ban đầu đòi "tính lại các cột chuẩn hoá đã lưu": **không có migration đó — cố ý**, vì đã kiểm rằng mọi cột `*_name_normalized` chỉ được ghi qua `Normalizer::name()` (đã đổi `đ` → `d` từ M1) nên một lần tính lại không đổi giá trị nào (CAI-DAT, mục "Bản cập nhật kiểm tra luồng nội bộ 2026-10-16/18", phần làn fa3).
+
 **Đính chính 2026-10-15 (làn tl, yêu cầu của chủ văn phòng: "Kho tài liệu … phải dễ dàng để có thể sử
 dụng được hiệu quả nhất").** Thêm trang **"Tài liệu"** (`App\Filament\Admin\Pages\DocumentLibrary`,
 `/admin/documents`; gộp integ-4 2026-10-16: menu trái nhóm "Khách hàng & vụ việc", ngay sau "Vụ việc"): danh sách mọi tài liệu người xem được thấy, xuyên các vụ, mới nhất trước; tìm theo tên
@@ -1657,7 +1801,7 @@ công bố, rút, chuyển nhóm, xoá vẫn chỉ ở tab Tài liệu của v�
   (5 phút, ký cho người bấm, ghi `document_downloads` — §10.4); không đường tắt nào tới tệp.
 - **Bổ sung 2026-10-16 (vòng sửa polish 1).** Ô tìm tên khách tìm đúng tập khách mà cột "Khách hàng"
   hiện, kể cả khách đã xoá mềm, và so như trang Tìm kiếm ở trên: theo collation của `clients.name` (bảng
-  `clients` không có cột chuẩn hoá; `đ` khác `d` trên MariaDB). Bộ lọc "Vụ việc" mở sẵn 200 vụ mới nhất
+  `clients` không có cột chuẩn hoá; từ làn fa3, `đ` như `d` — đính chính 2026-10-16 ở trên). Bộ lọc "Vụ việc" mở sẵn 200 vụ mới nhất
   và tìm trên máy chủ theo mã hồ sơ hoặc tiêu đề trong cùng tập `listableBy()`, nên mọi vụ người xem thấy
   đều chọn được.
 - Trang "Tìm kiếm" ở trên **không đổi**: nó đã tìm *vụ việc* theo tiêu đề tài liệu cùng luật quyền; trang
@@ -1936,6 +2080,16 @@ vụ không thu phí, vẫn được đếm); "Hợp đồng còn nháp" là v�
 để nhập lại phần còn phải thu (QUY-TRINH, "Kế toán nhập hợp đồng"). Hai ô chỉ đếm: không mã hồ sơ, không
 tên khách; mỗi ô là một liên kết tới trang "Hợp đồng" lọc sẵn đúng trạng thái đó.
 
+**Đính chính 2026-10-16 (làn fa3 — kiểm tra luồng nội bộ: ô "Hồ sơ chưa có hợp đồng" không khớp "Cần
+nhập").** Ô đầu đổi thành **"Hồ sơ cần nhập hợp đồng"** và đếm ĐÚNG luật của bộ lọc mặc định của trang
+"Hợp đồng" — một hàm, `ContractEntry::whereNeedsContract()`: hồ sơ **đang mở** (`closed_at` rỗng) chưa từng
+có hợp đồng nào **hoặc** có hợp đồng hiện hành đã huỷ — đúng những dòng có nút "Nhập hợp đồng". Hai điểm
+trên kia vì thế không còn đúng: vụ đã đóng mà chưa từng có hợp đồng **không** còn được đếm (không còn là việc
+phải nhập), và vụ có hợp đồng hiện hành đã huỷ **được** đếm (kế toán nhập lại phần còn phải thu). Dưới số có
+một dòng nói luật đó; liên kết mở trang lọc sẵn "Cần nhập hợp đồng" (`ContractEntry::STATUS_TO_ENTER`). Bộ lọc
+mặc định của trang là "Cần nhập hợp đồng" + "Nháp"; trạng thái "Chưa có hợp đồng" (chưa từng có hợp đồng nào,
+kể cả vụ đã đóng) vẫn chọn được. Ô "Hợp đồng còn nháp" không đổi.
+
 ### 7.2 Resource `Matter`
 
 Bảng danh sách: mã hồ sơ, khách hàng, loại, tiêu đề, giai đoạn (badge màu),
@@ -2186,6 +2340,10 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 | `client.request_answered` | Văn phòng trả lời một yêu cầu của khách |
 | `staff.instalment_overdue` | Job nhắc đợt thanh toán quá hạn — thêm 2026-09-24 (M9), người nhận theo §6.8 đính chính M9 |
 | `staff.intake_unanswered` | Job nhắc một lần liên hệ chưa ai gọi lại quá ngưỡng phản hồi — thêm 2026-09-24 (M10), người nhận và nội dung theo đính chính M10 dưới đây |
+| `staff.deadline_assigned` | Người khác giao một mốc thời hạn cho nhân sự — thêm 2026-10-16 (làn fa2), theo đính chính §6.8 |
+| `staff.document_review.submitted` | Một văn bản nhóm B được trình duyệt — thêm 2026-10-16 (làn fa2), theo đính chính §4.11 |
+| `staff.task.matter.assigned` | Mở vụ với luật sư phụ trách khác người tạo — thêm 2026-10-16 (làn fa2), theo đính chính §6.11 |
+| `staff.work_transferred` | Thư tổng hợp cho người nhận một lần "Chuyển việc nội bộ và ghế" (Bàn giao hàng loạt) — thêm 2026-10-18 (làn fa2, vòng sửa 1), theo đính chính §6.11 |
 
 **Đính chính 2026-09-24 (M9).** Mẫu `staff.instalment_overdue` là thư **nội bộ**;
 nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (§5 bổ sung M9): mã
@@ -2316,6 +2474,153 @@ giao trong đội ngũ vụ, kèm lý do — cho người giao, luật sư phụ
 nhận đã có chuông cùng lúc; việc mới được giao — thứ cần biết ngay — đã đẩy qua `staff.task.assigned`.
 Người nhận mọi thư qua `ResolveStaffRecipients` (`forTask()`, `forTaskAssigner()`, `qualifies()`,
 `handle()`), nên vụ `restricted` chỉ tới luật sư phụ trách và quản trị viên.
+
+**Đính chính 2026-10-16 (làn fa1 — kiểm tra luồng nội bộ: công việc).** Chủ văn phòng (2026-10-16) yêu cầu luồng
+giao – nhận – làm – xong "đúng với thực tế trong doanh nghiệp nhất"; các luật sau thay luật cũ của làn tk:
+
+1. **Ai giao việc chung.** `TaskPolicy::create` = mọi nhân sự có `matter.view` (luật sư, trợ lý, trưởng phòng, quản
+   trị viên), không còn chỉ trưởng phòng/quản trị viên; kế toán, nhân viên kinh doanh nhận việc chung, không giao.
+   Nút "Giao việc" đầu trang Công việc có ô "Vụ việc" tuỳ chọn (trống = việc chung; chọn = một vụ mà
+   `TaskPolicy::assignOnMatter` cho phép, người nhận là đội ngũ giữ việc của vụ). Ô người nhận ghi số việc đang giữ
+   (`Task::held()`) và quá hạn (`Task::overdueToHandle()`) của mỗi người, chỉ đếm trong `Task::visibleTo(người giao)`.
+   Việc chung gắn khách tiềm năng: ngoài phạm vi (không liên kết tới bản ghi tiếp nhận).
+2. **Chống bấm trùng.** Theo mã một lần của hộp thoại (`submission_key` trong dòng nhật ký `task_assigned`, so
+   trong một ngày, cùng người giao), không theo tiêu đề: hai lần giao thật cùng tiêu đề là hai việc.
+3. **Sửa việc báo người giữ.** `UpdateTask` trên việc chờ nhận/đang làm, người sửa không phải người giữ: chuông + thư
+   mới `staff.task.updated` nêu điều đã đổi (hạn cũ → mới, ưu tiên cũ → mới, tiêu đề cũ; mô tả chỉ "đã sửa").
+   Dòng `task_updated` có thêm `old`/`new` cho hạn, ưu tiên, tiêu đề.
+4. **Mở lại, khôi phục.** `ReopenTask` (Hoàn thành → Đang làm, cùng người giữ, `completed_at`/`completion_note` xoá
+   trên dòng, giữ trong dòng `task_reopened`): người giao, luật sư phụ trách, quản lý/quản trị — bắt buộc lý do; chính
+   người đã hoàn thành trong 24 giờ đầu — lý do tuỳ chọn. Người khác mở lại: người giữ nhận chuông + thư mới
+   `staff.task.reopened` kèm lý do; người giữ tự mở lại: người giao (qua `forTaskAssigner`) nhận một chuông.
+   `RestoreTask` (Đã huỷ → Chờ nhận cho người nhận cũ, dòng `task_restored`): chính người đã huỷ (dòng
+   `task_cancelled` gần nhất), luật sư phụ trách, quản lý/quản trị — bắt buộc lý do; người nhận cũ còn
+   `TaskAssignees::qualifies` thì nhận chuông + thư mới `staff.task.restored`, không thì việc hiện "Cần giao lại".
+   Vụ đã kết thúc: cả hai từ chối bằng câu rõ ràng.
+5. **Nhắc và số quá hạn chỉ tính người còn giữ được việc** (`Task::scopeHeldBySeatedAssignee()` = bản SQL của
+   `TaskAssignees::holdsSeat()`): ba lời nhắc người nhận (`reminder.awaiting`, `.due_soon`, `.overdue`) và mọi số
+   "quá hạn" (`Task::overdueToHandle()`, bộ lọc "Chỉ việc quá hạn") bỏ người đã sang "người theo dõi", đã trả lại
+   ghế, hay không còn mở được hồ sơ; hai lời báo người giao vẫn đi, kèm câu "cần giao lại".
+6. **Tỉ lệ "Việc hoàn thành đúng hạn"** (Hiệu suất theo kỳ) = việc có hạn xong đúng hạn trong kỳ ÷ (việc có hạn
+   hoàn thành trong kỳ + việc người nhận còn giữ đã quá hạn mà hạn rơi trong kỳ —
+   `Task::scopeOverdueWithDueDateBetween()`). Việc huỷ, trả lại, của vụ đã kết thúc, "Cần giao lại" vì người nhận
+   không vào mẫu; số của kỳ đã qua có thể đổi khi việc quá hạn được xong, huỷ hay giao lại sau đó. Số liệu mốc hạn
+   và hồ sơ (P1–P10) không đổi.
+7. **Nhỏ.** "Giao lại" đặt được hạn mới (`task_reassigned` ghi `due_date_from`/`due_date_to`); luật sư phụ trách
+   hay quản lý giao lại / huỷ việc NGƯỜI KHÁC giao thì người giao gốc nhận một chuông; "đã nhận", "đã hoàn thành"
+   đi qua `forTaskAssigner()` (người nhận thay khi người giao đã đi), như "bị trả lại".
+
+Ba mẫu thư mới `staff.task.updated`, `staff.task.reopened`, `staff.task.restored` cùng họ `staff.task.*` (không gửi
+lại được) và KHÔNG đẩy (`PushTopicTest`): chuông và thư cùng lúc là đủ. Không migration mới, không tác vụ lịch mới,
+không quyền mới.
+
+**Đính chính 2026-10-18 (làn fa1, vòng sửa 1 — rà soát Task 1).** Bổ sung cho các luật 2026-10-16 ở trên:
+
+1. **Người giao được nhắc thay đúng lúc** (luật 5). Người nhận không còn làm được việc
+   (`RemindPendingWork::assigneeCanStillWork()` sai: không còn giữ được việc, hay tài khoản đã bị vô hiệu / xoá):
+   lượt "sắp đến hạn" gửi người giao (qua `forTaskAssigner()`) lời báo mới `reminder.due_soon_assigner` (thư nhắc
+   việc thứ sáu của `tasks.remind`, mẫu `staff.task.reminder.due_soon_assigner`, KHÔNG đẩy, khoá `due-soon@<hạn>`,
+   kèm câu "cần giao lại"), thay vì lời nhắc người nhận không tới ai; lời báo người giao `reminder.unaccepted` đi ngay ở mốc 24 giờ làm
+   việc (cùng khoá `awaiting@…`, mốc 48 giờ không gửi lần hai). Cả hai hỏi lại lúc gửi.
+2. **Tin cho người giao không rơi tới mọi trưởng phòng.** "Đã nhận", "đã hoàn thành", "người nhận tự mở lại"
+   (`TaskAlert::INFO_ONLY_KINDS`) đi `forTaskAssigner(decisionNeeded: false)`: người giao, hay luật sư phụ trách nhận
+   thay, không bao giờ bước `supervisorsFor()`; "bị trả lại" và các lời nhắc người giao giữ cả ba bước.
+3. **Khôi phục, mở lại.** Việc huỷ khi đang "Bị trả lại" khôi phục về "Bị trả lại" (`Task::cancelledFrom()`), không
+   báo người đã trả lại. "Mở lại" do người giao/lead/quản lý hỏi `TaskAssignees::qualifies()` người giữ như
+   `RestoreTask`: không còn hợp lệ thì không báo ai, việc hiện "Cần giao lại", dòng `task_reopened` ghi
+   `needs_reassignment`. Người khác khôi phục việc của một người giao: người giao gốc nhận chuông mới
+   `TaskAlert::RESTORED_BY_OTHER` kèm lý do (qua `forTask()`). Cổng "Khôi phục" tên `TaskPolicy::restoreCancelled`
+   (không trùng khả năng `restore` của xoá mềm — policy không có `restore`, nên cổng đó luôn từ chối).
+4. **Một định nghĩa "đang giữ".** `Task::scopeHeldBySeatedAssignee()` bỏ người đã xoá mềm (như `holdsSeat()`), và
+   ba cột việc của Theo dõi đội ngũ (đang làm, chờ nhận, quá hạn) cùng dùng nó; việc "Cần giao lại" chỉ ở dòng "Việc
+   cần giao lại".
+5. **Màn hình.** Nhãn số việc bên tên người nhận nói phạm vi ("… việc anh/chị thấy được"), kèm câu gợi ý dưới ô; dòng
+   đầu trang Công việc chỉ nói "hồ sơ chờ nhận ở mục Việc của tôi" với người có mục đó (`SeatInbox::onMyWork()`).
+6. **Cho người gọi hàng loạt** (làn fa2): `ReassignTask::handle(notifyFormerHolder: false)` bỏ đúng chuông
+   `REASSIGNED_AWAY` cho người vừa mất việc (người gọi gửi một chuông tổng hợp); mọi lời báo khác không đổi. Gộp
+   integ-fa (2026-10-18), cùng luật "một cờ bỏ đúng một lời báo": `notifyNewHolder: false` (chuông + thư "được giao"
+   của người mới — `TransferStaffWork`), `notifyAssigner: false` (`REASSIGNED_BY_OTHER` của người giao gốc — cả hai
+   người gọi hàng loạt đã báo người giao một chuông cho cả lần đó). `takeOver: true` (chỉ `RemoveTeamMember` và
+   `TransferStaffWork`): người mới là người bấm thì nhận thay — bỏ luật tự giao, vẫn hỏi `qualifies()`, việc sang
+   "Đang làm" (`accepted_at` = `assigned_at` = lúc nhận), dòng `task_reassigned` có `taken_over: true`, không tự báo.
+   Người giao giữ nguyên kể cả khi người nhận chính là người giao: việc RIÊNG (người giao = người giữ) không ở "Tôi
+   đã giao" (`Task::scopeAssignedBy()`), không "Trả lại" được (`TaskPolicy::decline`), và `forTaskAssigner()` bỏ bước
+   người giao — lời báo cho người giao tới luật sư phụ trách / người quản lý của vụ như khi người giao đã đi.
+7. **Vòng sửa 2 (rà soát cuối của làn).** Số "đang giữ" bên tên người nhận (luật 1 của 2026-10-16) là
+   `Task::held()->heldBySeatedAssignee()` — cùng định nghĩa của số quá hạn và Theo dõi đội ngũ (mục 4 ở trên).
+   "Sửa" (`UpdateTask`) hỏi `TaskAssignees::qualifies()` người giữ dưới khoá như "Mở lại": không còn hợp lệ thì không
+   chuông, không thư, câu xong nói "Cần giao lại". "Khôi phục" mà người bấm là chính người nhận cũ (còn hợp lệ): việc về
+   "Đang làm" (`accepted_at` = lúc khôi phục), không tự báo; người giao gốc vẫn nhận `RESTORED_BY_OTHER`. Trên vụ
+   `restricted`: người giao không còn mở được vụ không nhận lời báo nào về việc (mọi lời báo qua `forTask()` /
+   `forTaskAssigner()`); người vừa mất việc khi việc được giao lại chỉ nhận chuông chung `REASSIGNED_AWAY` (không
+   tên việc, không mã vụ). `RemindPendingWork::assigneeCanStillWork()` là bản SQL của `qualifies()` — đổi cùng nhau.
+
+Không migration, tác vụ lịch hay quyền mới.
+
+**Đính chính 2026-10-18 (gộp integ-fa — rà soát chéo các làn fa1, fa2, fa3).** Sửa và bổ sung cho các luật ở trên và ở
+§6.11 (bàn giao, gỡ thành viên, chuyển việc nội bộ):
+
+1. **Bàn giao vụ để lại việc riêng cho lead mới** (`MoveTasksOnHandover`). Lead cũ rời đội ngũ: việc lead cũ tự giữ
+   (người giao = người giữ) chuyển sang lead mới VÀ đổi người giao sang lead mới; việc lead cũ đã giao mà chính lead mới
+   đang giữ cũng đổi người giao — cả hai thành việc RIÊNG của lead mới (`task_assigner_changed` có `own_task: true`,
+   không vào danh sách "theo dõi" của thư tổng hợp). Một lần bàn giao xanh trọn vì vậy để `OpenTaskWork` của lead cũ
+   rỗng (trừ việc chính lead mới đã giao cho lead cũ — vẫn ở lại "Cần giao lại", như trước), nên cho nghỉ việc được.
+   Người bấm bàn giao cho chính mình: việc chuyển sang thẳng "Đang làm" (`taken_over: true`) — cùng luật nhận thay.
+2. **Hạn đã qua không đi theo việc chuyển hàng loạt.** `MoveTasksOnHandover`, `TransferStaffWork` và `RemoveTeamMember`
+   (kèm người nhận thay) đặt hạn mới bằng `ReassignmentDueDate::suggest()` — đúng luật hạn điền sẵn của "Giao lại":
+   hạn còn ở hôm nay hay tương lai giữ nguyên; hạn đã qua thành hôm nay cộng số ngày người cũ đã có (ít nhất một);
+   dòng `task_reassigned` ghi `due_date_from`/`due_date_to`. Tỉ lệ "Việc hoàn thành đúng hạn" bỏ khỏi CẢ tử lẫn mẫu
+   việc người đang giữ nhận SAU ngày hạn (`Task::scopeAssignedByDueDate()` — ngày của `assigned_at` sau `due_date`):
+   người đó chưa từng có cơ hội làm kịp.
+3. **Việc riêng không bao giờ lên mọi trưởng phòng.** `forTaskAssigner()` với việc riêng: bước người giao bỏ, luật sư
+   phụ trách nhận thay khi họ không phải người giữ, và KHÔNG BAO GIỜ bước `supervisorsFor()` — kể cả lời báo cần người
+   quyết định. `RemindPendingWork` không xếp `reminder.overdue_assigner` cho việc riêng (người giữ đã có
+   `reminder.overdue`), và lần hỏi lại lúc gửi bỏ nó nếu việc đã thành việc riêng.
+4. **Chuông "đã chuyển" cho người giao là tin.** `SendStaffWorkTransferNotices` (`ASSIGNER`) và `SendTeamDepartureNotices`
+   (`TASKS_HANDLED`, việc đã chuyển) gọi `forTaskAssigner(decisionNeeded: false)`; việc để "Cần giao lại" giữ cả chuỗi.
+5. **Người bị tạm khoá / vô hiệu.** `Task::scopeHeldBySeatedAssignee()` hỏi thêm `users.is_active`: việc người giữ bị
+   khoá chỉ là "Cần giao lại" (vế `inactive`), không đồng thời vào số "quá hạn", bộ lọc "Chỉ việc quá hạn" hay mẫu của
+   tỉ lệ đúng hạn. Tập này là bản SQL của `RemindPendingWork::assigneeCanStillWork()`.
+6. **Bàn giao hàng loạt, phần "Việc nội bộ và ghế".** Câu tóm tắt và hộp xác nhận không đếm hồ sơ người đó đang phụ
+   trách (`TransferStaffWork` bỏ qua chúng — dòng `is_lead`), nên con số bằng điều sẽ chuyển.
+7. **Gỡ thành viên trên hồ sơ đã kết thúc.** "Giao lại" chỉ chạy trên hồ sơ đang mở: hộp thoại chỉ cho "Để Cần giao
+   lại"; `RemoveTeamMember` từ chối người nhận thay trên hồ sơ đã kết thúc bằng câu `closed_leave_only` dưới ô chọn.
+8. **Huỷ hồ sơ mở nhầm báo người làm dở.** Sau commit, `SendMatterCancelledTaskNotices`: một chuông
+   `MatterCancelledTasksAlert` cho mỗi người đang giữ (chờ nhận, đang làm) hay đã giao một việc còn mở của hồ sơ, trừ
+   người bấm; mã hồ sơ chỉ với người mở được hồ sơ trước khi huỷ (`Matter::isListableBy()`). Khôi phục trước khi job
+   chạy thì không báo.
+9. **Đổi người phụ trách mốc báo người cũ.** `ChangeDeadlineResponsible` (khi `notify`) và `UpdateDeadline` xếp
+   `SendDeadlineHandedAwayNotice`: người giữ cũ (không phải người bấm) nhận chuông tin `DeadlineHandedAwayAlert` — tên
+   mốc, mã, người nhận chỉ khi họ còn mở được hồ sơ. Không thư.
+10. **Chuyển tiếp nhận thành hồ sơ.** Luật sư phụ trách điền sẵn là người được giao bản ghi (người tư vấn) khi họ có
+    trong ô chọn (đang hoạt động, có `matter.transitionStage`); không thì người bấm. Luật sư phụ trách khác người bấm
+    nhận lời báo "được giao hồ sơ" của `OpenMatter` như trước; người tư vấn không phải người bấm và không phải luật sư
+    phụ trách nhận chuông tin `IntakeConvertedAlert` (mã hồ sơ và luật sư phụ trách chỉ khi họ mở được hồ sơ).
+11. **Lô bàn giao nhiều người phụ trách cũ.** Chuông `LEAD_CHANGED` gộp nhiều hồ sơ có người cũ khác nhau ghi mỗi mã
+    kèm người cũ của nó (`lead_change.code_from`), không một tên "từ" chung.
+12. **"Đã thu" của vành khuyên Doanh thu** tính cả khoản thu trên hồ sơ đã huỷ (`withTrashed()` + `listableBy()`, như
+    ô "Đã thu" — `CollectedRevenue`).
+13. **"Chờ tôi duyệt".** Trang Tài liệu có bộ lọc "Chờ tôi duyệt": văn bản nhóm B đang "Chờ duyệt" mà người xem qua
+    `DocumentPolicy::publish` (cổng của "Đánh dấu đã ký, đã nộp" và "Trả về bản nháp") —
+    `DocumentLibrary::awaitingApprovalIds()`; ô "Văn bản chờ tôi duyệt" của "Việc cần xử lý của tôi" (người có
+    `document.publish`) đếm cùng tập và mở trang đã lọc sẵn.
+14. **Tìm người nhận việc** (ba ô "Giao cho"/"Giao lại") chỉ so phần TÊN của nhãn (`TaskAssignees::searchOptions()`),
+    không câu "đang giữ … việc".
+15. **Job xếp trước bản cập nhật.** `SendMatterAssignmentNotice::$withMail` là thuộc tính thường có mặc định, không
+    `readonly` khai trong hàm dựng: payload cũ (không có khoá đó) chạy được.
+16. **Rà soát lại (2026-10-18).** (a) Việc lead cũ giao mà lead mới đã TRẢ LẠI trước khi bàn giao: `transferAssigner()`
+    đổi người giao sang lead mới nhưng không coi là việc riêng (không `own_task`, vào danh sách "theo dõi" của thư tổng
+    hợp); `Task::scopeAssignedBy()` giữ việc "Bị trả lại" kể cả khi người giao = người nhận, nên nó ở "Tôi đã giao" của
+    lead mới, và ô "Việc tôi giao bị trả lại" đếm bằng chính scope đó (số bằng số dòng đường dẫn mở ra). (b)
+    `RemindPendingWork`: việc riêng bỏ `reminder.overdue_assigner` chỉ khi người giữ CÒN làm được việc
+    (`ownTaskNeedsNoAssignerReminder()` = `isOwnTask()` và `assigneeCanStillWork()`, ở lượt chọn và lúc gửi); không còn
+    làm được thì người nhận thay của `forTaskAssigner()` (luật sư phụ trách, không bao giờ người quản lý) được báo — như
+    `reminder.due_soon_assigner`. (c) `RestoreTask` giữ `assigned_at` cũ khi hạn đã qua (một mốc mới sau hạn đưa việc
+    trễ ra khỏi tỉ lệ đúng hạn qua `scopeAssignedByDueDate()`); hạn còn ở phía trước hay không hạn thì `assigned_at` =
+    lúc khôi phục như trước. `ReopenTask` không chạm `assigned_at`. (d) Bộ lọc "Chờ tôi duyệt" tính
+    `awaitingApprovalIds()` một lần mỗi request của trang (bộ nhớ `private`, không phải trạng thái Livewire).
+
+Không migration, tác vụ lịch hay quyền mới; không mẫu thư mới (chỉ chuông).
 
 ---
 

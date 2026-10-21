@@ -162,13 +162,17 @@ it('shows the matters still to enter by default — no contract or a draft — a
         ->assertCanNotSeeTableRecords([$this->empty, $this->drafted]);
 });
 
-it('treats a matter whose current contract was cancelled as cancelled, not as without contract', function () {
+// Làn fa3 (2026-10-16, mục 4): vụ đang mở có hợp đồng hiện hành đã huỷ là việc "Cần nhập" — có trong bộ
+// lọc mặc định (trước làn fa3 nó chỉ hiện khi lọc "Đã huỷ"); bộ lọc "Chưa có hợp đồng" (nghĩa hẹp) vẫn không có nó.
+it('treats a matter whose current contract was cancelled as still to enter, not as without contract', function () {
     $redo = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
     Contract::factory()->for($redo)->create(['status' => ContractStatus::Cancelled, 'total_amount' => 5_000_000]);
 
     $this->actingAs($this->accountant, 'web');
 
     contractPage()
+        ->assertCanSeeTableRecords([$redo])
+        ->filterTable('contract_status', [ContractEntry::STATUS_NONE])
         ->assertCanNotSeeTableRecords([$redo])
         ->filterTable('contract_status', [ContractStatus::Cancelled->value])
         ->assertCanSeeTableRecords([$redo])
@@ -728,7 +732,8 @@ it('puts a shortcut to the contracts page at the top of the receivables page for
     $this->livewire(Receivables::class)->assertActionHidden('openContractEntry');
 });
 
-it('counts the matters without a contract and the drafts on the accountant home page, linking to the filtered page', function () {
+// Làn fa3 (2026-10-16, mục 4): ô đầu đếm luật "Cần nhập" của trang (ContractsToEnterRuleTest), liên kết tới bộ lọc đó.
+it('counts the matters still to enter and the drafts on the accountant home page, linking to the filtered page', function () {
     $this->actingAs($this->accountant, 'web');
 
     $this->get(route('filament.admin.pages.dashboard'))->assertOk()->assertSeeLivewire(ContractsToEnterWidget::class);
@@ -738,11 +743,11 @@ it('counts the matters without a contract and the drafts on the accountant home 
     // Kế toán: vụ trống (empty) — không vụ hạn chế, không vụ đã huỷ; một bản nháp.
     expect($stats->map(fn ($stat) => $stat->getValue())->all())->toBe(['1', '1'])
         ->and($stats->map(fn ($stat) => $stat->getUrl())->all())->toBe([
-            ContractEntry::getUrl(['filters' => ['contract_status' => ['values' => [ContractEntry::STATUS_NONE]]]]),
+            ContractEntry::getUrl(['filters' => ['contract_status' => ['values' => [ContractEntry::STATUS_TO_ENTER]]]]),
             ContractEntry::getUrl(['filters' => ['contract_status' => ['values' => [ContractStatus::Draft->value]]]]),
         ]);
 
-    Livewire::withQueryParams(['filters' => ['contract_status' => ['values' => [ContractEntry::STATUS_NONE]]]])
+    Livewire::withQueryParams(['filters' => ['contract_status' => ['values' => [ContractEntry::STATUS_TO_ENTER]]]])
         ->test(ContractEntry::class)
         ->assertCanSeeTableRecords([$this->empty])
         ->assertCanNotSeeTableRecords([$this->drafted, $this->signed]);
@@ -1025,4 +1030,40 @@ it('titles the lead lawyer bell after what happened and links it to the money ta
     Livewire::test(DatabaseNotifications::class)
         ->assertSee(__('contract_entry.notifications.open_tab'))
         ->assertSee(__('contract_entry.notifications.titles.activated', ['matter' => $this->drafted->code]));
+});
+
+// ---------------------------------------------------------------------------------------------
+// Làn fa3 (2026-10-16, mục 3): ô tìm của trang "Hợp đồng" coi "đ" như "d" — cùng `LetterD` với trang
+// Tìm kiếm và trang Tài liệu. Kế toán gõ không dấu tên khách trên tờ giấy ("Dang") ra khách "Đặng" trên
+// MariaDB; chữ chỉ mang dấu "đ" ra trên mọi CSDL; "%"/"_" người gõ không thành ký tự đại diện.
+// ---------------------------------------------------------------------------------------------
+
+it('làn fa3: tìm tên khách không phân biệt "đ" với "d", và không coi "%" là ký tự đại diện', function () {
+    $mariadb = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
+    // Một từ mỗi tên: ô tìm của Filament tách từ (mọi từ phải khớp), nên tên nhiều từ làm phép thử yếu.
+    $this->empty->client->forceFill(['name' => 'Ông Đặngfakhach'])->save();
+    $this->drafted->client->forceFill(['name' => 'Bà Đinhfadinh'])->save();
+
+    $this->actingAs($this->accountant, 'web');
+
+    // "Đặng" mang dấu khác ngoài "đ": MariaDB (collation bỏ dấu) ra, SQLite (so theo byte) không.
+    $dang = contractPage()->searchTable('Dangfakhach');
+    $mariadb
+        ? $dang->assertCanSeeTableRecords([$this->empty])->assertCountTableRecords(1)
+        : $dang->assertCountTableRecords(0);
+
+    // Chữ chỉ mang dấu "đ": mọi CSDL, cả chữ thường lẫn chữ hoa.
+    contractPage()
+        ->searchTable('dinhfadinh')
+        ->assertCanSeeTableRecords([$this->drafted])
+        ->assertCountTableRecords(1);
+
+    contractPage()
+        ->searchTable('ĐINHFADINH')
+        ->assertCanSeeTableRecords([$this->drafted])
+        ->assertCountTableRecords(1);
+
+    contractPage()
+        ->searchTable('%')
+        ->assertCountTableRecords(0);
 });

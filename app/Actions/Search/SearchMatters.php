@@ -11,6 +11,7 @@ use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
 use App\Support\Normalizer;
+use App\Support\Search\LetterD;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -88,10 +89,11 @@ use Illuminate\Support\Facades\Gate;
  *
  * - Tên các bên so trên `name_normalized` (`Normalizer::name()`: chữ thường, bỏ dấu, `đ` → `d`) với
  *   chuỗi tìm chuẩn hoá cùng hàm đó: có dấu hay không, hoa hay thường, đều ra — trên mọi CSDL.
- * - Mã, tiêu đề, tên khách, số thụ lý, tiêu đề tài liệu so bằng collation của cột. MariaDB
- *   `utf8mb4_unicode_ci`: bỏ qua dấu và hoa/thường ("thue nha" ra "thuê nhà"), NHƯNG "đ" là một chữ
- *   khác "d" ("duong" không ra "Đường"). SQLite (bộ test thường): so theo byte, chỉ gộp hoa/thường
- *   của chữ ASCII.
+ * - Mã, tiêu đề, tên khách, số thụ lý, tiêu đề tài liệu so bằng collation của cột, SAU KHI cả hai vế
+ *   đổi "đ"/"Đ" → "d"/"D" ({@see LetterD}, làn fa3 2026-10-16). MariaDB `utf8mb4_unicode_ci` bỏ qua dấu
+ *   và hoa/thường ("thue nha" ra "thuê nhà") nhưng coi "đ" là chữ khác "d" — bước đổi đó làm "Dang" ra
+ *   "Đặng", "duong" ra "Đường". SQLite (bộ test thường): so theo byte, chỉ gộp hoa/thường của chữ ASCII —
+ *   chữ chỉ mang dấu "đ" ("Đinh", "QĐ") ra, chữ mang dấu khác chỉ ra khi gõ đúng dấu.
  */
 final class SearchMatters
 {
@@ -242,7 +244,8 @@ final class SearchMatters
             return null;
         }
 
-        $escaped = self::escapeLike($needle);
+        // Làn fa3: "đ"/"Đ" → "d"/"D" ở vế chuỗi tìm; vế cột đổi cùng cách ở `like()`/`selectMatterLevelHits()`.
+        $escaped = self::escapeLike(LetterD::fold($needle));
         $partyNeedle = Normalizer::name($needle);
 
         return [[
@@ -298,7 +301,7 @@ final class SearchMatters
             if (isset($columns[$source->value])) {
                 [$column, $pattern] = $columns[$source->value];
                 $query->selectRaw(
-                    "CASE WHEN {$column} LIKE ? ESCAPE '".self::ESCAPE."' THEN 1 ELSE 0 END AS ".self::hitAlias($source),
+                    'CASE WHEN '.LetterD::column($column)." LIKE ? ESCAPE '".self::ESCAPE."' THEN 1 ELSE 0 END AS ".self::hitAlias($source),
                     [$pattern],
                 );
             }
@@ -394,10 +397,14 @@ final class SearchMatters
         };
     }
 
-    /** `$column` luôn là một hằng của lớp này (hoặc `qualifyColumn()` của nó) — không bao giờ chữ người gõ. */
+    /**
+     * `$column` luôn là một hằng của lớp này (hoặc `qualifyColumn()` của nó) — không bao giờ chữ người gõ.
+     * Cột đi qua {@see LetterD::column()} (làn fa3): "đ"/"Đ" của dữ liệu thành "d"/"D", khớp chuỗi tìm đã
+     * đổi cùng cách ở `prepare()`. Với `name_normalized` (đã không còn "đ") bước đổi không làm gì.
+     */
     private function like(Builder $query, string $column, string $pattern, string $boolean = 'and'): Builder
     {
-        return $query->whereRaw("{$column} LIKE ? ESCAPE '".self::ESCAPE."'", [$pattern], $boolean);
+        return $query->whereRaw(LetterD::column($column)." LIKE ? ESCAPE '".self::ESCAPE."'", [$pattern], $boolean);
     }
 
     private function flagged(Matter $matter, SearchSource $source): bool

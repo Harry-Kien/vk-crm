@@ -3,6 +3,7 @@
 namespace App\Actions\Matter;
 
 use App\Enums\Confidentiality;
+use App\Jobs\SendLeadChangeNotices;
 use App\Jobs\SendReassignmentDigest;
 use App\Models\Matter;
 use App\Models\User;
@@ -135,6 +136,8 @@ class ReassignMatters
         // Làn tk, vòng sửa polish 1: `matter_id => id dòng matter_reassigned` của các vụ mà ghế lead mới chờ
         // nhận — MỘT chuông cho cả lô, trong thư tổng hợp (docblock lớp, mục "Một lời báo cho cả lô").
         $seatEvents = [];
+        // Làn fa2, phán quyết 5: `matter_id => id dòng matter_reassigned` — MỘT `SendLeadChangeNotices` cho cả lô.
+        $leadChanges = [];
 
         try {
             foreach ($matterIds as $matterId) {
@@ -180,6 +183,10 @@ class ReassignMatters
 
                     if ($result->seatEventId !== null) {
                         $seatEvents[$matter->getKey()] = $result->seatEventId;
+                    }
+
+                    if ($result->leadChangeEventId !== null) {
+                        $leadChanges[$matter->getKey()] = $result->leadChangeEventId;
                     }
 
                     $results[] = new BulkReassignMatterResult(
@@ -236,6 +243,10 @@ class ReassignMatters
             if ($digestMatters !== []) {
                 // Phán quyết controller (3): chuông "được bàn giao" của cả lô đi cùng thư này (docblock lớp).
                 SendReassignmentDigest::dispatch($newLead->getKey(), $digestMatters, $seatEvents)->afterCommit();
+            }
+
+            if ($leadChanges !== []) {
+                SendLeadChangeNotices::dispatch($leadChanges, $actor->getKey())->afterCommit();
             }
         }
 

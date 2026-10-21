@@ -12,7 +12,9 @@ use App\Filament\Admin\Resources\Tasks\Tables\TaskColumns;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Search\LetterD;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Support\Icons\Heroicon;
@@ -21,6 +23,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 
 /**
  * Tab "Công việc" của một vụ (làn tk, Task 1) — giao việc cho người trong đội ngũ và theo dõi nó ngay
@@ -107,15 +110,21 @@ class TasksRelationManager extends RelationManager
             ->authorize(fn (): bool => Gate::allows('assignOnMatter', [Task::class, $this->matter()]))
             ->modalHeading(__('tasks.actions.assign_heading'))
             ->modalSubmitActionLabel(__('tasks.actions.assign_submit'))
+            // Làn fa1 (phán quyết 4): mã một lần của hộp thoại — chống bấm trùng của `AssignTask`, không theo tiêu đề.
+            ->fillForm(fn (): array => ['submission_key' => (string) Str::uuid(), 'priority' => TaskPriority::Normal->value])
             ->schema(fn (): array => [
                 Select::make('assignee_id')
                     ->label(__('tasks.fields.assignee'))
-                    ->helperText(__('tasks.fields.assignee_help_matter'))
+                    ->helperText(self::assigneeHelp('tasks.fields.assignee_help_matter'))
                     ->options(fn (): array => app(TaskAssignees::class)->options($this->matter(), $this->taskActor()))
                     ->searchable()
+                    // Gộp integ-fa (làn fa3): "dinh" ra "Đinh" trong ĐÚNG danh sách trên (`AssignTask` hỏi lại).
+                    ->getSearchResultsUsing(fn (?string $search): array => TaskAssignees::searchOptions(app(TaskAssignees::class)->options($this->matter(), $this->taskActor()), $search))
+                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
                     ->required()
                     ->native(false),
                 ...$this->taskDetailFields(),
+                Hidden::make('submission_key'),
             ])
             ->successNotificationTitle(__('tasks.actions.assign_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
@@ -128,6 +137,7 @@ class TasksRelationManager extends RelationManager
                     description: $data['description'] ?? null,
                     dueDate: $data['due_date'] ?? null,
                     priority: TaskPriority::tryFrom((string) ($data['priority'] ?? '')) ?? TaskPriority::Normal,
+                    submissionKey: isset($data['submission_key']) ? (string) $data['submission_key'] : null,
                 ),
             ));
     }

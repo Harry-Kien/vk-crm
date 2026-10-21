@@ -75,9 +75,12 @@ use Illuminate\Validation\ValidationException;
 class AddTeamMember
 {
     /**
+     * @param  bool  $notify  làn fa2, vòng sửa 1 (I2): `false` — không xếp chuông "được giao ghế"; chỉ
+     *                        {@see TransferStaffWork} truyền `false`, vì nó gửi MỘT lời báo tổng hợp cho cả lô
+     *
      * @throws ValidationException
      */
-    public function handle(Matter $matter, User $actor, User $member, MatterRole $role): void
+    public function handle(Matter $matter, User $actor, User $member, MatterRole $role, bool $notify = true): void
     {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
@@ -112,7 +115,7 @@ class AddTeamMember
         // request đó: request thứ hai phải ĐỢI request thứ nhất commit (giải phóng khoá) rồi mới
         // được đọc `exists()`, và lúc đó `exists()` đã là `true` — ra đúng
         // `ValidationException` tiếng Việt `already_member`, không phải lỗi DB thô.
-        DB::transaction(function () use ($matter, $actor, $member, $role): void {
+        DB::transaction(function () use ($matter, $actor, $member, $role, $notify): void {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             if ($locked->team()->whereKey($member->getKey())->exists()) {
@@ -159,7 +162,7 @@ class AddTeamMember
 
             // Làn tk, Task 2: người vừa được giao ghế chờ nhận nhận một chuông (sau commit; job lọc lại
             // "còn hoạt động, còn xem được vụ" khi chạy). Ghế không cần xác nhận thì không báo.
-            if (Matter::seatAwaitsAcceptance($member, $role, $actor) && $activity !== null) {
+            if ($notify && Matter::seatAwaitsAcceptance($member, $role, $actor) && $activity !== null) {
                 SendMatterAssignmentNotice::dispatch($locked->getKey(), $member->getKey(), MatterAssignmentAlert::ASSIGNED, $member->getKey(), $activity->getKey())->afterCommit();
             }
         });

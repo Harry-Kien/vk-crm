@@ -118,7 +118,9 @@ it('records the "Hợp đồng cần nhập" home tile in SPEC §7.1 with who se
 
     foreach ([
         '**"'.__('contract_entry.widget.heading').'"**',
-        '"'.__('contract_entry.widget.without_contract').'"',
+        '"'.__('contract_entry.widget.to_enter').'"',
+        // Làn fa3 (2026-10-16): ô đầu đếm luật "Cần nhập" của trang — một hàm.
+        '`ContractEntry::whereNeedsContract()`',
         '"'.__('contract_entry.widget.drafts').'"',
         '`contract.enter`',
         'kế toán và quản trị viên',
@@ -156,4 +158,28 @@ it('tells both upgrade runbooks to rerun the seeder for contract.enter', functio
 
     expect($guide)->toContain('bản "Kế toán nhập hợp đồng" (làn kt) thêm quyền `contract.enter` cho vai kế toán')
         ->and($readme)->toContain('thêm **quyền nhập hợp đồng** `contract.enter` cho vai kế toán');
+});
+
+/*
+ * Làn fa3, fix round 2 (I-B, mD, I-A): SPEC §5 ghi phán quyết "đưa về bản nháp chỉ hợp đồng mình kích hoạt"
+ * cho người có `contract.enter` mà không có `contract.manage`, và ranh giới "không tự đổi điều khoản" nói đúng
+ * điều đó; QUY-TRINH nói cùng luật, đường "kích hoạt rồi huỷ" cho bản nháp còn lịch sử khoản thu đã huỷ, và
+ * bước tắt công bố portal khi đóng hồ sơ thay vì huỷ.
+ */
+it('fix round 2: SPEC §5 records the controller ruling on putting a contract back to draft, and the boundary says it', function () {
+    $addition = preg_replace('/\s+/u', ' ', ktSpecAddition());
+
+    expect($addition)->toContain('phán quyết controller 2026-10-18, chờ chủ văn phòng xác nhận')
+        ->toContain('`activated_by`')
+        ->toContain('chỉ hợp đồng chính mình đã kích hoạt')
+        ->toContain('kế toán nhập đúng tờ giấy đã ký và chỉ sửa lại lần nhập của chính mình');
+});
+
+it('fix round 2: QUY-TRINH says who may put back to draft, how to undo a draft that cannot be deleted, and to unpublish before closing instead of cancelling', function () {
+    $guide = preg_replace('/\s+/u', ' ', ktDoc('docs/QUY-TRINH.md'));
+
+    expect($guide)->toContain('kế toán chỉ đưa về được hợp đồng chính mình đã kích hoạt')
+        ->toContain('**Kích hoạt (đã ký)** rồi **Huỷ hợp đồng**')
+        ->toContain('"'.__('matters.actions.unpublish_from_portal').'"')
+        ->toContain('"'.__('matters.transition_form.publish').'"');
 });

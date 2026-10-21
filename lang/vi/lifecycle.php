@@ -14,6 +14,9 @@ return [
         // Làn tk (vòng sửa cuối 1, F1): App\Support\MatterOpenWork::closingLines().
         'tasks' => ':count việc giao nội bộ còn mở (chờ nhận, đang làm hay bị trả lại) — sau khi kết thúc, người giao không sửa hay giao lại được nữa, chỉ còn huỷ',
         'seats_pending' => ':count người trong đội ngũ chưa bấm "Đã nhận hồ sơ" — sau khi kết thúc, hồ sơ không còn chờ họ nhận',
+        // Gộp integ-fa (fa3 × fa1/fa2): App\Support\MatterOpenWork::cancellingLines() — cùng hai số đếm, câu của việc huỷ.
+        'tasks_cancelling' => ':count việc giao nội bộ còn mở (chờ nhận, đang làm hay bị trả lại) — hồ sơ huỷ thì các việc này biến khỏi trang Công việc của mọi người, thôi nhắc và không ai giao lại được; khôi phục hồ sơ thì chúng trở lại như cũ',
+        'seats_cancelling' => ':count người trong đội ngũ chưa bấm "Đã nhận hồ sơ" — hồ sơ huỷ thì lời giao này thôi chờ',
         'balance' => 'Còn phải thu :amount trên hợp đồng đang hiệu lực',
         'documents' => ':count tài liệu trong hồ sơ',
         'on_portal' => 'Vụ đang được công bố trên cổng khách hàng: khách sẽ không còn thấy vụ này',

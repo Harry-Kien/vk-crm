@@ -74,12 +74,13 @@ class EditMatter extends EditRecord
                 ->visible(fn (): bool => Gate::allows('cancelMatter', $this->record)
                     && ! $this->record->isClosed())
                 ->schema(fn (): array => [
-                    // Làn fm A4: việc còn dở trên vụ, hệ quả của việc huỷ, và đường khôi phục.
+                    // Làn fm A4: việc còn dở trên vụ, hệ quả của việc huỷ, và đường khôi phục. Làn fa3: khoản
+                    // thu đã ghi (chặn việc huỷ) đứng đầu, cho người xem có `billing.view`.
                     Text::make(__('lifecycle.cancel.consequences'))->weight(FontWeight::SemiBold),
                     UnorderedList::make(array_map(
                         fn (string $line): Text => Text::make($line),
-                        MatterOpenWork::cancellingLines($this->record),
-                    ))->visible(MatterOpenWork::cancellingLines($this->record) !== []),
+                        MatterOpenWork::cancellingLines($this->record, Auth::user()),
+                    ))->visible(MatterOpenWork::cancellingLines($this->record, Auth::user()) !== []),
                     Textarea::make('reason')
                         ->label(__('matters.cancel_form.reason'))
                         ->helperText(__('matters.cancel_form.reason_help'))

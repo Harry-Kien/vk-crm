@@ -7,6 +7,7 @@ use App\Enums\TaskStatus;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\RelationManagers\TasksRelationManager;
 use App\Models\Task;
+use App\Support\Search\LetterD;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -56,12 +57,13 @@ final class TaskColumns
                 ->label(__('tasks.columns.title'))
                 ->weight('semibold')
                 ->wrap()
-                ->searchable(),
+                // Gộp integ-fa (làn fa3): "đ" như "d" — chỉ thu hẹp truy vấn của bảng, `visibleTo()` không đổi.
+                ->searchable(query: LetterD::searchable('title')),
             $withMatter ? TextColumn::make('matter.code')
                 ->label(__('tasks.columns.matter'))
                 ->placeholder(__('tasks.columns.general'))
                 ->url(fn (Task $record): ?string => $record->matter_id === null ? null : self::matterTabUrl($record->matter_id))
-                ->searchable() : null,
+                ->searchable(query: LetterD::searchable('matter.code')) : null,
             TextColumn::make('assignee.name')
                 ->label(__('tasks.columns.assignee'))
                 ->description(fn (Task $record): ?string => in_array($record->reassignmentReason(), self::ASSIGNEE_REASONS, true)

@@ -14,6 +14,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Mcp\AdminUrls;
+use App\Support\Search\LetterD;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
@@ -130,6 +131,61 @@ class DocumentLibrary extends Page implements HasTable
         return static::canAccess();
     }
 
+    /** Tên bộ lọc "Chờ tôi duyệt" (gộp integ-fa, rà soát chéo, mục 17) — ô số trên bảng điều khiển trỏ tới nó. */
+    public const AWAITING_MY_APPROVAL = 'awaiting_my_approval';
+
+    /**
+     * Bộ nhớ của {@see self::awaitingApprovalIdsThisRequest()} — id người xem => id văn bản; không phải trạng thái Livewire.
+     *
+     * @var array<int, list<int>>|null
+     */
+    private ?array $awaitingApprovalIdsByViewer = null;
+
+    /**
+     * Id các văn bản "chờ tôi duyệt" của `$viewer` (gộp integ-fa, rà soát chéo 2026-10-18, mục 17): văn bản nhóm B
+     * (`DocumentGroup::Issued`) đang "Chờ duyệt" (`DocumentStatus::PendingApproval`), trong tập trang này cho người đó
+     * thấy (`ListVisibleDocuments`), mà người đó QUA ĐÚNG CỔNG của nút duyệt — `DocumentPolicy::publish`, cổng của
+     * `MarkDocumentSignedFiled` ("Đánh dấu đã ký, đã nộp") và của "Trả về bản nháp". Cổng hỏi từng văn bản (MỘT luật,
+     * không viết lại bằng SQL); tập văn bản đang chờ duyệt nhỏ. Bộ lọc của trang và ô số "Văn bản chờ tôi duyệt" của bảng
+     * điều khiển (`MyWorkQueueWidget`) cùng đọc hàm này — bộ lọc qua {@see self::awaitingApprovalIdsThisRequest()} (một
+     * lần mỗi request), ô số một lần mỗi lần dựng (`MyWorkQueueWidget::getStats()` giữ số của nó).
+     *
+     * @return list<int>
+     */
+    public static function awaitingApprovalIds(User $viewer): array
+    {
+        if (! static::canBeOpenedBy($viewer)) {
+            return [];
+        }
+
+        $gate = Gate::forUser($viewer);
+
+        return app(ListVisibleDocuments::class)->query($viewer)
+            ->where('documents.group', DocumentGroup::Issued->value)
+            ->where('documents.status', DocumentStatus::PendingApproval->value)
+            ->with('matter')
+            ->get()
+            ->filter(fn (Document $document): bool => $gate->allows('publish', $document))
+            ->map(fn (Document $document): int => (int) $document->getKey())
+            ->values()
+            ->all();
+    }
+
+    /**
+     * {@see self::awaitingApprovalIds()} MỘT lần cho mỗi request của trang (gộp integ-fa, rà soát lại 2026-10-18):
+     * Filament áp bộ lọc nhiều lần trong một request (truy vấn dòng, truy vấn đếm), và mỗi lần hỏi cổng `publish` từng
+     * văn bản. Thuộc tính `private` không đi qua trạng thái Livewire, nên mỗi request (lần dựng, mỗi lần cập nhật) tính
+     * lại từ đầu — không bao giờ cũ hơn request đang chạy.
+     *
+     * @return list<int>
+     */
+    private function awaitingApprovalIdsThisRequest(User $viewer): array
+    {
+        $this->awaitingApprovalIdsByViewer ??= [];
+
+        return $this->awaitingApprovalIdsByViewer[$viewer->getKey()] ??= static::awaitingApprovalIds($viewer);
+    }
+
     /** Xem docblock lớp, mục "Cổng" — 404 ở mount VÀ ở mọi request cập nhật Livewire. */
     public function boot(): void
     {
@@ -149,7 +205,8 @@ class DocumentLibrary extends Page implements HasTable
                     ->label(__('document_library.columns.title'))
                     ->weight('bold')
                     ->wrap()
-                    ->searchable(),
+                    // Làn fa3: "đ" như "d" (`LetterD`), cùng cách trang Tìm kiếm.
+                    ->searchable(query: fn (Builder $query, string $search): Builder => LetterD::whereContains($query, $query->qualifyColumn('title'), $search)),
                 // Nhãn "Chỉ nội bộ" của nhóm D (SPEC §7.2) — cùng chuỗi tab Tài liệu dùng.
                 TextColumn::make('internal_marker')
                     ->label('')
@@ -252,6 +309,15 @@ class DocumentLibrary extends Page implements HasTable
                         filled($data['from'] ?? null) ? Indicator::make(__('document_library.filters.indicator_from', ['date' => CarbonImmutable::parse($data['from'])->format('d/m/Y')]))->removeField('from') : null,
                         filled($data['until'] ?? null) ? Indicator::make(__('document_library.filters.indicator_until', ['date' => CarbonImmutable::parse($data['until'])->format('d/m/Y')]))->removeField('until') : null,
                     ]))),
+                // Gộp integ-fa (rà soát chéo, mục 17): văn bản nhóm B đang chờ duyệt mà CHÍNH người xem duyệt được — xem
+                // {@see self::awaitingApprovalIds()}. Chỉ hiện với người có `document.publish`.
+                Filter::make(self::AWAITING_MY_APPROVAL)
+                    ->label(__('document_library.filters.awaiting_my_approval'))
+                    ->toggle()
+                    ->visible(fn (): bool => Auth::user() instanceof User && Gate::allows(Permission::DocumentPublish->value))
+                    ->query(fn (Builder $query): Builder => Auth::user() instanceof User
+                        ? $query->whereKey($this->awaitingApprovalIdsThisRequest(Auth::user()))
+                        : $query->whereRaw('1 = 0')),
             ])
             ->recordActions([
                 $this->downloadAction(),
@@ -314,16 +380,14 @@ class DocumentLibrary extends Page implements HasTable
      * {@see self::rowsQuery()}). Tìm quan hệ mặc định của Filament đi qua `whereHas('matter.client')`,
      * mang `SoftDeletingScope` của `Client`: cột hiện "Khách A" mà gõ "Khách A" ra 0 dòng. Quyền không
      * đổi: điều kiện này chỉ thu hẹp truy vấn gốc đã cắt theo người xem ({@see ListVisibleDocuments}).
-     * So bằng `LIKE '%x%'` theo collation của `clients.name`, đúng cách tìm mặc định của Filament và
-     * đúng trang Tìm kiếm (SPEC §6.13: chỉ tên các bên so trên `name_normalized`).
+     * So bằng `LIKE '%x%'` theo collation của `clients.name` sau khi hai vế đổi "đ"/"Đ" → "d"/"D"
+     * ({@see LetterD}, làn fa3 2026-10-16) — đúng trang Tìm kiếm (SPEC §6.13): "Dang" ra "Đặng" trên MariaDB.
      */
     private static function applyClientNameSearch(Builder $query, string $search): Builder
     {
         return $query->whereHas('matter', fn (Builder $matter): Builder => $matter->whereHas(
             'client',
-            fn (Builder $client): Builder => $client
-                ->withTrashed()
-                ->where($client->qualifyColumn('name'), 'like', '%'.$search.'%'),
+            fn (Builder $client): Builder => LetterD::whereContains($client->withTrashed(), $client->qualifyColumn('name'), $search),
         ));
     }
 
@@ -348,9 +412,13 @@ class DocumentLibrary extends Page implements HasTable
 
         return Matter::query()
             ->listableBy($viewer)
-            ->when($search !== '', fn (Builder $matters): Builder => $matters->where(fn (Builder $any): Builder => $any
-                ->where($any->qualifyColumn('code'), 'like', '%'.$search.'%')
-                ->orWhere($any->qualifyColumn('title'), 'like', '%'.$search.'%')))
+            // Làn fa3: "đ" như "d" ở cả mã và tiêu đề (`LetterD`).
+            ->when($search !== '', fn (Builder $matters): Builder => $matters->where(fn (Builder $any): Builder => LetterD::whereContains(
+                LetterD::whereContains($any, $any->qualifyColumn('code'), $search),
+                $any->qualifyColumn('title'),
+                $search,
+                'or',
+            )))
             ->orderByDesc('id')
             ->limit(self::MATTER_OPTIONS_LIMIT)
             ->pluck('code', 'id')

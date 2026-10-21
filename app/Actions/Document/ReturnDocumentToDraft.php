@@ -6,11 +6,14 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentLifecycleNotAllowed;
+use App\Jobs\SendDocumentReviewNotice;
 use App\Models\Document;
 use App\Models\User;
+use App\Notifications\Staff\DocumentReviewAlert;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 /**
  * "Trả về bản nháp" — ruling vòng sửa 1 (Task 16): đi NGƯỢC một bước của vòng đời văn bản nhóm B
@@ -27,14 +30,30 @@ use Illuminate\Support\Facades\Gate;
  *
  * Hình dạng và thứ tự cổng chép từ `SubmitDocumentForApproval`/`MarkDocumentSignedFiled` — đọc
  * lại dưới khoá, `scopelessly()`, cổng cấu trúc (nhóm B) trước `Gate`, cổng trạng thái sau `Gate`.
+ *
+ * **Lý do bắt buộc (làn fa2, phán quyết 7).** Người trình cần biết phải sửa gì: `$reason` (đã cắt khoảng trắng,
+ * tối đa {@see self::REASON_MAX_LENGTH} ký tự) không được rỗng — từ chối TRƯỚC khi mở transaction — và được ghi vào
+ * dòng `document_returned_to_draft`. Người đã trình được báo bằng chuông kèm lý do, sau commit
+ * (`SendDocumentReviewNotice`, loại `DocumentReviewAlert::RETURNED`).
  */
 class ReturnDocumentToDraft
 {
     use ReadsWithoutPortalScope;
 
-    public function handle(Document $document, User $actor): Document
+    /** Trần chủ động của lý do trả về (nằm trong `properties` JSON của nhật ký) — ô trên màn hình dùng cùng số. */
+    public const REASON_MAX_LENGTH = 1000;
+
+    public function handle(Document $document, User $actor, string $reason): Document
     {
-        return DB::transaction(function () use ($document, $actor): Document {
+        $reason = trim($reason);
+
+        if ($reason === '' || mb_strlen($reason) > self::REASON_MAX_LENGTH) {
+            throw ValidationException::withMessages([
+                'reason' => [__('internal_flow.document_review.validation.reason_required', ['max' => self::REASON_MAX_LENGTH])],
+            ]);
+        }
+
+        return DB::transaction(function () use ($document, $actor, $reason): Document {
             $fresh = $this->scopelessly(Document::query())
                 ->withTrashed()
                 ->lockForUpdate()
@@ -66,11 +85,16 @@ class ReturnDocumentToDraft
 
             $fresh->update(['status' => DocumentStatus::InternalDraft]);
 
-            Audit::record('document_returned_to_draft', $fresh, [
+            $returned = Audit::record('document_returned_to_draft', $fresh, [
                 'matter_id' => $fresh->matter_id,
                 'from_status' => DocumentStatus::PendingApproval->value,
                 'to_status' => DocumentStatus::InternalDraft->value,
+                'reason' => $reason,
             ], $actor);
+
+            if ($returned !== null) {
+                SendDocumentReviewNotice::dispatch($fresh->getKey(), DocumentReviewAlert::RETURNED, (int) $returned->getKey())->afterCommit();
+            }
 
             return $fresh;
         });

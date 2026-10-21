@@ -15,6 +15,7 @@ use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Billing\RevenueFilters;
 use App\Support\Scopes\ClientPortalScope;
+use App\Support\Search\LetterD;
 use BackedEnum;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -135,6 +136,34 @@ class RevenueDashboard extends Dashboard
         return static::canAccess();
     }
 
+    /**
+     * Tuỳ chọn của ô "Luật sư" (luật đầy đủ ở chú thích của ô trong {@see self::filtersForm()}): luật sư phụ
+     * trách ít nhất một vụ người xem liệt kê được, hoặc được ghi doanh thu trên một khoản thu chưa huỷ của
+     * một vụ người xem liệt kê được (kể cả vụ đã huỷ). Fix round 1 (m3, làn fa3): tách thành hàm để ô chọn
+     * tìm trên máy chủ ({@see LetterD::searchOptions()}) trên ĐÚNG danh sách này.
+     *
+     * @return array<int, string>
+     */
+    public static function lawyerOptions(): array
+    {
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            return [];
+        }
+
+        return User::query()
+            ->where(fn ($q) => $q
+                ->whereHas('leadMatters', fn ($matters) => $matters->listableBy($user))
+                ->orWhereHas('attributedPayments', fn ($payments) => $payments
+                    ->withoutGlobalScope(ClientPortalScope::class)
+                    ->whereNull('voided_at')
+                    ->whereHas('instalment.contract.matter', fn ($matters) => $matters->withTrashed()->listableBy($user))))
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
+    }
+
     public function filtersForm(Schema $schema): Schema
     {
         // Làn rv: một hàng bốn ô từ `lg` (hai ô từ `sm`, một ô trên điện thoại). Ghi đủ mọi mốc: `columns()`
@@ -165,26 +194,17 @@ class RevenueDashboard extends Dashboard
                 // Trước đó người cũ của một vụ đã bàn giao không chọn được, nên doanh thu họ đã mang
                 // về không lọc ra được. Cùng cổng `listableBy`, nên vụ `restricted` vẫn không đưa một
                 // cái tên nào tới người không thấy vụ đó.
-                ->options(function (): array {
-                    $user = Auth::user();
-
-                    if (! $user instanceof User) {
-                        return [];
-                    }
-
-                    return User::query()
-                        ->where(fn ($q) => $q
-                            ->whereHas('leadMatters', fn ($matters) => $matters->listableBy($user))
-                            ->orWhereHas('attributedPayments', fn ($payments) => $payments
-                                ->withoutGlobalScope(ClientPortalScope::class)
-                                ->whereNull('voided_at')
-                                ->whereHas('instalment.contract.matter', fn ($matters) => $matters->listableBy($user))))
-                        ->orderBy('name')
-                        ->pluck('name', 'id')
-                        ->all();
-                })
+                //
+                // Làn fa3 (2026-10-16, mục 1): nhánh khoản thu đọc cả vụ đã huỷ (`withTrashed()`), cùng tập
+                // khoản thu với `CollectedRevenue` — tiền đã về trên một hồ sơ huỷ từ trước luật của
+                // `CancelMatter` vẫn đếm ở "Đã thu", nên luật sư được ghi số tiền đó vẫn lọc ra được.
+                // `listableBy()` giữ nguyên: vụ hạn chế đã huỷ không đưa tên nào tới người không thấy nó.
+                ->options(fn (): array => static::lawyerOptions())
                 ->native(false)
-                ->searchable(),
+                ->searchable()
+                // Fix round 1 (m3, làn fa3): tìm trên máy chủ trong ĐÚNG danh sách trên ("dinh" ra "Đinh").
+                ->getSearchResultsUsing(LetterD::searchOptions(fn (): array => static::lawyerOptions()))
+                ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS),
             Select::make('practice_area_id')
                 ->label(__('widgets.revenue_dashboard.filters.practice_area'))
                 ->options(fn () => MatterType::query()

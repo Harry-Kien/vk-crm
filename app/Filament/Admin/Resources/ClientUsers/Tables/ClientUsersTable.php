@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\ClientUsers\Tables;
 
 use App\Filament\Admin\Support\VisibleClientOptions;
+use App\Support\Search\LetterD;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -23,11 +24,11 @@ class ClientUsersTable
             ->columns([
                 TextColumn::make('client.name')
                     ->label(__('client_users.fields.client'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('client.name'))
                     ->sortable(),
                 TextColumn::make('name')
                     ->label(__('client_users.fields.name'))
-                    ->searchable()
+                    ->searchable(query: LetterD::searchable('name'))
                     ->sortable(),
                 TextColumn::make('email')
                     ->label(__('client_users.fields.email'))

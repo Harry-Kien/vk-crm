@@ -35,6 +35,15 @@ class ContractStatusConflict extends DomainException
     }
 
     /**
+     * Làn fa3 (2026-10-16): `RevertContractToDraft` chỉ đưa về nháp một hợp đồng `active`. Câu RIÊNG với
+     * {@see self::notActive()} (câu đó nói "hoàn tất hoặc huỷ").
+     */
+    public static function notActiveForRevert(Contract $contract): self
+    {
+        return new self(__('billing_corrections.revert.not_active', self::describe($contract)));
+    }
+
+    /**
      * `VoidPayment` trên hợp đồng `completed` (lượt rà soát cuối M9, C1): huỷ khoản thu ở đó mở lại
      * một khoản nợ mà mọi màn hình công nợ (chỉ đọc hợp đồng `active`) không thấy và
      * `RecordPayment` không thu được. Câu do controller chốt, không mang mã hợp đồng.

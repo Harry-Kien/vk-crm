@@ -22,7 +22,9 @@ use Spatie\Activitylog\Models\Activity;
  * Lời báo của MỘT lần giao / nhận / trả lại một ghế trong đội ngũ vụ (làn tk, Task 2) cho MỘT người:
  * chuông ({@see MatterAssignmentAlert}), cộng thư ({@see MatterAssignmentNotice}) với loại "trả lại".
  * `AddTeamMember`, `ReassignMatter`, `AcceptMatterAssignment`, `DeclineMatterAssignment` xếp job này
- * `->afterCommit()` (M6.5 R2).
+ * `->afterCommit()` (M6.5 R2). Làn fa2, phán quyết 4: `OpenMatter` cũng xếp nó (loại "được giao", `withMail`)
+ * khi người tạo vụ đặt một đồng nghiệp làm luật sư phụ trách — chuông kèm thư `staff.task.matter.assigned`
+ * ({@see MatterAssignmentNotice::KIND_ASSIGNED}), cùng chống trùng theo khoá của lần đó.
  *
  * # Đọc lại mọi thứ khi chạy
  *
@@ -44,13 +46,24 @@ class SendMatterAssignmentNotice implements ShouldQueue
 
     public int $tries = 5;
 
+    /**
+     * Làn fa2, phán quyết 4: kèm thư "được giao hồ sơ" (chỉ `OpenMatter`). Gộp integ-fa (rà soát chéo 2026-10-18, mục 5):
+     * KHÔNG phải thuộc tính `readonly` khai trong hàm dựng — job xếp trước bản cập nhật (payload không có khoá này) được
+     * unserialize bằng giá trị mặc định ở đây; một thuộc tính `readonly` không có giá trị mặc định, nên nó sẽ ở trạng
+     * thái chưa khởi tạo và `handle()` ném lỗi "must not be accessed before initialization".
+     */
+    public bool $withMail = false;
+
     public function __construct(
         public readonly int $matterId,
         public readonly int $memberId,
         public readonly string $kind,
         public readonly int $recipientId,
         public readonly int $eventId,
-    ) {}
+        bool $withMail = false,
+    ) {
+        $this->withMail = $withMail;
+    }
 
     /** @return list<int> */
     public function backoff(): array
@@ -92,6 +105,24 @@ class SendMatterAssignmentNotice implements ShouldQueue
                 $seat->decline_reason,
                 $key,
             ));
+        }
+
+        if ($this->withMail && $this->kind === MatterAssignmentAlert::ASSIGNED) {
+            if (! self::alreadyMailed($matter, $recipient, MatterAssignmentNotice::KIND_ASSIGNED, $key)) {
+                Mail::to($recipient->email)->send(new MatterAssignmentNotice(
+                    $matter,
+                    MatterAssignmentNotice::KIND_ASSIGNED,
+                    $recipient,
+                    (string) $member->name,
+                    $role,
+                    null,
+                    '',
+                    $key,
+                    assignerName: ActivityPeople::name($event->causer) ?? '',
+                ));
+            }
+
+            return;
         }
 
         if ($this->kind !== MatterAssignmentAlert::DECLINED || self::alreadyMailed($matter, $recipient, MatterAssignmentNotice::KIND_DECLINED, $key)) {

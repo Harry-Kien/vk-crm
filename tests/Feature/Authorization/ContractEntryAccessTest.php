@@ -93,7 +93,8 @@ it('grants contract.enter to the accountant and, through every permission, to th
     expect($this->accountant->can(Permission::ContractEnter->value))->toBeTrue()
         ->and($this->accountant->can(Permission::ContractManage->value))->toBeFalse()
         ->and($this->accountant->can(Permission::MatterView->value))->toBeFalse()
-        ->and(Permission::ContractEnter->label())->toBe('Nhập hợp đồng đã ký (giá trị, các đợt thu) cho vụ việc có sẵn');
+        // Làn fa3, fix round 2 (I-B): nhãn nói luôn việc "đưa về bản nháp" — chỉ hợp đồng chính mình đã kích hoạt.
+        ->and(Permission::ContractEnter->label())->toBe('Nhập hợp đồng đã ký (giá trị, các đợt thu) cho vụ việc có sẵn; đưa về bản nháp hợp đồng chính mình đã kích hoạt');
 });
 
 it('answers the four contract-entry questions for each of the six roles on an ordinary matter', function () {
