@@ -44,8 +44,7 @@ use Illuminate\Support\Facades\Auth;
  */
 class MatterCountsWidget extends StatsOverviewWidget
 {
-    // Widget đứng đầu hiện tại là StaleMattersWidget ở -4 (phải thấp hơn -3 của AccountWidget do
-    // Filament đăng ký sẵn). Hàng ô số đứng trên nữa: -5. DashboardWidgetOrderTest và test của
+    // Widget đứng đầu hiện tại là StaleMattersWidget ở -4. Hàng ô số đứng trên nữa: -5. DashboardWidgetOrderTest và test của
     // chính widget này giữ thứ tự tương đối đó.
     protected static ?int $sort = -5;
 

@@ -71,9 +71,7 @@ class UpcomingDeadlinesWidget extends TableWidget
 {
     // SPEC §7.1 mục 2: giữa mục 1 (`StaleMattersWidget`, -4) và mục 3
     // (`PendingChecklistReviewsWidget`, -2) — đúng con số brief giao, dù nó trùng với
-    // `Filament\Widgets\AccountWidget` (-3, đăng ký sẵn ở `AdminPanelProvider`): AccountWidget
-    // không nằm trong danh sách bảy widget đánh số của SPEC §7.1, nên `DashboardWidgetOrderTest`
-    // (so thứ tự TƯƠNG ĐỐI giữa bảy widget đó) không đo cặp này.
+    // (Ô AccountWidget của Filament từng cùng số -3; nó không còn trên trang chủ từ 2026-10-21.)
     protected static ?int $sort = -3;
 
     /**

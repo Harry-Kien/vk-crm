@@ -38,7 +38,7 @@ use Illuminate\Support\Facades\Auth;
  */
 class PendingChecklistReviewsWidget extends TableWidget
 {
-    // Thứ tự SPEC §7.1: sau "Hồ sơ quá hạn cập nhật" (-4) và AccountWidget (-3, của Filament).
+    // Thứ tự SPEC §7.1: sau "Hồ sơ quá hạn cập nhật" (-4) và "Mốc hạn sắp tới" (-3).
     protected static ?int $sort = -2;
 
     /**

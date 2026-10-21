@@ -23,7 +23,6 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\View\PanelsRenderHook;
-use Filament\Widgets\AccountWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -112,10 +111,9 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 Dashboard::class,
             ])
+            // Không đăng ký `Filament\Widgets\AccountWidget` (ô "Xin chào … Đăng xuất"): chủ văn phòng (2026-10-21)
+            // thấy nó lẫn giữa các bảng trang chủ như một lỗi; tên và nút Đăng xuất đã ở menu tài khoản góc phải.
             ->discoverWidgets(in: app_path('Filament/Admin/Widgets'), for: 'App\Filament\Admin\Widgets')
-            ->widgets([
-                AccountWidget::class,
-            ])
             /*
              * Thông báo trong hệ thống, CHỈ trên panel nội bộ. Không bao giờ bật cho cổng khách:
              * khay thông báo của Filament là một bề mặt của nhân sự, và một khách hàng không bao
