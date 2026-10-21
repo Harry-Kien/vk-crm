@@ -646,6 +646,10 @@ return [
     'lifecycle' => [
         // Mục 5: người nhận tự mở lại (bấm nhầm) không đổi hạn của mình.
         'reopen_due_own' => 'Anh/chị tự mở lại việc của mình nên không đổi được hạn — nhờ người giao việc nếu cần hạn mới.',
+        // Mục 1: hồ sơ đã chọn không còn nhận việc mới — một câu cho mọi nguyên nhân (SPEC §10.10). Không dấu hai chấm
+        // (Livewire đọc dấu hai chấm của câu lỗi như tham số luật khi so trong test).
+        'matter_unavailable' => 'Không giao được việc trên hồ sơ này — hồ sơ đã kết thúc hay đã huỷ, hoặc anh/chị không còn được giao việc trên hồ sơ. Chưa có việc nào được tạo — chọn hồ sơ khác, hoặc giao như một việc chung nếu việc không thuộc hồ sơ nào.',
+        'matter_unavailable_label' => '(hồ sơ đã chọn không còn nhận việc mới)',
     ],
 
     // Lời nhắc người giao (chưa được nhận, quá hạn) về một việc "Cần giao lại" vì người nhận. :who đã escape ở chuông.

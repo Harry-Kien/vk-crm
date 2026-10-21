@@ -8,6 +8,10 @@ use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
+use App\Actions\Matter\DeclineMatterAssignment;
+use App\Actions\Task\TaskAssignees;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\TasksRelationManager;
 use App\Filament\Admin\Resources\Tasks\Pages\ListTasks;
 use App\Models\Matter;
 use App\Models\Task;
@@ -332,4 +336,118 @@ it('keeps the due date when the holder reopens their own task by mistake', funct
     expect(fn () => app(ReopenTask::class)->handle($other, $this->assistant, null, '2026-10-30', setDueDate: true))
         ->toThrow(ValidationException::class);
     expect($other->fresh()->status)->toBe(TaskStatus::Completed);
+});
+
+// =============================================================================================
+// MỤC 1 — "Giao việc" ở trang Công việc: vụ đã chọn không bao giờ rơi về việc chung
+// =============================================================================================
+
+/**
+ * Hộp thoại mở với vụ KT-VD-01 đã chọn (vụ DUY NHẤT luật sư giao việc được); giữa lúc mở và lúc lưu vụ kết thúc, bị
+ * huỷ, hay đổi luật sư phụ trách. Lưu: từ chối dưới ô "Vụ việc", không tạo việc nào — trước bản sửa ô "Vụ việc" ẩn đi
+ * lúc gửi (danh sách vụ đã rỗng) và việc thành VIỆC CHUNG, mọi trưởng phòng thấy tiêu đề. Phép thử ngược: trả ô "Vụ
+ * việc" về `visible(danh sách không rỗng)` → đỏ; bỏ lời từ chối `matter_id` của `AssignTask` → đỏ (lỗi chung, không ở ô).
+ */
+it('refuses, under the matter field, a task whose matter can no longer take tasks — never a silent general task', function (string $change) {
+    $this->actingAs($this->lead, 'web');
+
+    $page = $this->livewire(ListTasks::class)
+        ->mountAction('create')
+        ->setActionData(['matter_id' => $this->matter->id])
+        ->setActionData(['assignee_id' => $this->assistant->id, 'title' => 'Soạn đơn khởi kiện bổ sung']);
+
+    match ($change) {
+        'closed' => $this->matter->forceFill(['closed_at' => now()])->save(),
+        'cancelled' => $this->matter->delete(),
+        'handed over' => $this->matter->forceFill(['lead_lawyer_id' => $this->associate->id])->save()
+            && $this->matter->team()->updateExistingPivot($this->lead->id, ['role_in_matter' => MatterRole::Observer->value]),
+    };
+
+    $page->callMountedAction()
+        ->assertHasActionErrors(['matter_id' => __('tasks.lifecycle.matter_unavailable')]);
+
+    expect(Task::query()->withTrashed()->where('title', 'Soạn đơn khởi kiện bổ sung')->exists())->toBeFalse()
+        ->and(Activity::query()->where('event', 'task_assigned')->exists())->toBeFalse();
+})->with(['closed', 'cancelled', 'handed over']);
+
+/** Còn vụ khác trong danh sách: cùng câu (trước bản sửa: câu "giá trị không hợp lệ" chung của ô chọn). */
+it('gives the same plain sentence when other matters remain in the list, and for an id typed by hand', function () {
+    $second = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id, 'code' => 'KT-VD-02']);
+    $second->addTeamMember($this->assistant, MatterRole::Assistant);
+
+    $this->actingAs($this->lead, 'web');
+
+    $page = $this->livewire(ListTasks::class)
+        ->mountAction('create')
+        ->setActionData(['matter_id' => $this->matter->id])
+        ->setActionData(['assignee_id' => $this->assistant->id, 'title' => 'Việc trên hồ sơ vừa kết thúc']);
+
+    $this->matter->forceFill(['closed_at' => now()])->save();
+
+    $page->callMountedAction()->assertHasActionErrors(['matter_id' => __('tasks.lifecycle.matter_unavailable')]);
+
+    $this->livewire(ListTasks::class)
+        ->callAction('create', data: ['matter_id' => 999999, 'assignee_id' => $this->assistant->id, 'title' => 'Việc dò mã'])
+        ->assertHasActionErrors(['matter_id' => __('tasks.lifecycle.matter_unavailable')]);
+
+    expect(Task::query()->count())->toBe(0);
+
+    // Đường bình thường không đổi: vụ còn giao được, và để trống là việc chung.
+    $this->livewire(ListTasks::class)
+        ->callAction('create', data: ['matter_id' => $second->id, 'assignee_id' => $this->assistant->id, 'title' => 'Việc trên hồ sơ thứ hai'])
+        ->assertHasNoActionErrors();
+    $this->livewire(ListTasks::class)
+        ->callAction('create', data: ['assignee_id' => $this->assistant->id, 'title' => 'Việc chung'])
+        ->assertHasNoActionErrors();
+
+    expect(Task::query()->where('title', 'Việc trên hồ sơ thứ hai')->sole()->matter_id)->toBe($second->id)
+        ->and(Task::query()->where('title', 'Việc chung')->sole()->matter_id)->toBeNull();
+});
+
+// =============================================================================================
+// MỤC 6 — người đã "Trả lại hồ sơ" không giao việc trên hồ sơ đó
+// =============================================================================================
+
+/**
+ * Luật sư cộng sự được thêm vào đội ngũ rồi bấm "Trả lại" ghế: không còn nút "Giao việc" ở tab Công việc của hồ sơ, hồ
+ * sơ không còn ở ô "Vụ việc" của trang Công việc, `AssignTask` từ chối. Phép thử ngược: bỏ vế "ghế đã trả lại" ở
+ * `TaskPolicy::assignOnMatter` → đỏ.
+ */
+it('takes away assigning on a matter from a lawyer who returned their seat on it', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id, 'code' => 'KT-VD-03']);
+    $matter->addTeamMember($this->associate, MatterRole::Associate, $this->lead);
+    $matter->addTeamMember($this->assistant, MatterRole::Assistant);
+
+    expect(Gate::forUser($this->associate)->allows('assignOnMatter', [Task::class, $matter]))->toBeTrue();
+
+    app(DeclineMatterAssignment::class)->handle($matter, $this->associate, 'Xung đột lợi ích');
+
+    expect(Gate::forUser($this->associate)->allows('assignOnMatter', [Task::class, $matter->fresh()]))->toBeFalse()
+        ->and(app(TaskAssignees::class)->assignableMatters($this->associate))->not->toHaveKey($matter->id)
+        ->and(app(TaskAssignees::class)->assignableMatters($this->associate))->toHaveKey($this->matter->id);
+
+    $this->actingAs($this->associate, 'web');
+
+    $this->livewire(TasksRelationManager::class, ['ownerRecord' => $matter->fresh(), 'pageClass' => ViewMatter::class])
+        ->assertTableActionHidden('assign');
+
+    $this->livewire(ListTasks::class)
+        ->callAction('create', data: ['matter_id' => $matter->id, 'assignee_id' => $this->assistant->id, 'title' => 'Việc trên hồ sơ đã trả lại'])
+        ->assertHasActionErrors(['matter_id']);
+
+    expect(Task::query()->where('title', 'Việc trên hồ sơ đã trả lại')->exists())->toBeFalse();
+});
+
+/** Luật sư phụ trách mới trả lại hồ sơ vừa được bàn giao: cùng luật. Ghế còn chờ nhận thì vẫn giao được. */
+it('treats a returned lead seat the same way, but not a seat still awaiting acceptance', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->associate->id, 'code' => 'KT-VD-04']);
+    $matter->team()->updateExistingPivot($this->associate->id, ['assigned_by' => $this->manager->id, 'accepted_at' => null, 'declined_at' => null]);
+
+    expect(Gate::forUser($this->associate)->allows('assignOnMatter', [Task::class, $matter->fresh()]))->toBeTrue();
+
+    app(DeclineMatterAssignment::class)->handle($matter, $this->associate, 'Đang quá tải');
+
+    expect(Gate::forUser($this->associate)->allows('assignOnMatter', [Task::class, $matter->fresh()]))->toBeFalse()
+        ->and(app(TaskAssignees::class)->assignableMatters($this->associate))->not->toHaveKey($matter->id)
+        ->and(Gate::forUser($this->manager)->allows('assignOnMatter', [Task::class, $matter->fresh()]))->toBeTrue();
 });

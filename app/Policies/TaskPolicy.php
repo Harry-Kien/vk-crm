@@ -9,6 +9,7 @@ use App\Enums\Role;
 use App\Enums\TaskStatus;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
@@ -77,7 +78,8 @@ class TaskPolicy
      * Giao việc TRÊN MỘT VỤ: vụ chưa huỷ, đang mở; người giao xem được vụ và có `matter.update`; và là
      * quản lý/quản trị, hoặc ngồi ghế luật sư phụ trách/luật sư cộng sự của chính vụ đó mà không mang vai
      * trợ lý (cùng lý lẽ `MatterPolicy::manageTeam()`: một luật sư bị đổi chức danh sang trợ lý không
-     * giữ quyền của ghế cũ). Gọi qua `Gate::allows('assignOnMatter', [Task::class, $matter])`.
+     * giữ quyền của ghế cũ) và chưa "Trả lại" ghế đó (sửa sau kiểm toán 2026-10-21, mục 6). Gọi qua
+     * `Gate::allows('assignOnMatter', [Task::class, $matter])`.
      */
     public function assignOnMatter(User|ClientUser $user, Matter $matter): bool
     {
@@ -94,6 +96,13 @@ class TaskPolicy
         }
 
         if ($user->hasRole(Role::Assistant->value)) {
+            return false;
+        }
+
+        // Sửa sau kiểm toán 2026-10-21 (mục 6): người đã "Trả lại" ghế của mình trong vụ (`MatterUser::scopeReturned()`,
+        // kể cả ghế luật sư phụ trách vừa được bàn giao) không giao việc trên vụ đó nữa — cùng luật "không nhận việc
+        // mới" của `TaskAssignees`.
+        if (MatterUser::query()->where('matter_id', $matter->getKey())->where('user_id', $user->getKey())->returned()->exists()) {
             return false;
         }
 
