@@ -9744,6 +9744,78 @@ nào, bật "Khách đã ký — kích hoạt luôn", bấm "Lưu và kích ho�
   đó với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh. `pint --test` sạch. Chưa chạy MariaDB (không
   đụng truy vấn hay migration).
 
+### Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn nhắc việc và con số
+
+Nhánh `fix-tasks-b`, song song với làn vòng đời việc (nhánh khác — `TaskPolicy`, giao việc ở `ListTasks`, `ReassignTask`,
+`ReopenTask`, `CancelTask`, `RemoveTeamMember`, `DeclineMatterAssignment`, `UpdateTask` không bị sửa ở đây). Tám phát
+hiện đã tái hiện; mỗi mục TDD (đỏ trước, bằng chứng đỏ lưu ngoài repo), phép thử ngược cho mọi điều kiện mới, giờ Việt
+Nam qua `travelTo()`. Không migration, tác vụ lịch, quyền hay mẫu thư mới; không `.env` mới. SPEC: "Đính chính
+2026-10-21 (kiểm toán luồng Công việc — làn nhắc việc và con số)" (§9, sau đính chính integ-fa). QUY-TRINH: mục giao việc.
+
+- **Q1 — khôi phục việc quá hạn, đồng hồ chờ nhận tính từ lần giao cũ.** *Nguyên nhân:* `RestoreTask` giữ `assigned_at`
+  gốc khi hạn đã qua (CỐ Ý, tỉ lệ đúng hạn), mà lịch nhắc (lượt chọn, lần hỏi lại, khoá `awaiting@…`) và câu "đã chờ"
+  đọc `assigned_at` — 30 phút sau khôi phục: "chưa nhận sau 57 giờ". *Sửa:* `Task::awaitingSince()` = max(`assigned_at`,
+  lần `task_restored` gần nhất; cột phụ `last_restored_at` qua `scopeWithLastRestoredAt()`) — một định nghĩa cho
+  `RemindPendingWork`, `SendWorkReminder::detailFor()` và dòng "Chờ nhận từ …" của `TaskColumns`; tỉ lệ đúng hạn giữ
+  `assigned_at`. *Test:* `ReminderTimingAuditTest` (4 ca). *Thử ngược:* `awaitingSince()` trả `assigned_at`; lượt chọn,
+  lần hỏi lại, câu "đã chờ", cột bảng đọc `assigned_at` — đều đỏ.
+- **Q2 — "sắp đến hạn" theo ngày lịch.** *Nguyên nhân:* cửa sổ `today()`…`today()->addDay()`: hạn Thứ Hai chỉ được nhắc
+  sáng Thứ Hai, hạn Chủ nhật không bao giờ. *Sửa:* `BusinessHours::nextWorkingDay()`, `RemindPendingWork::dueSoonUntil()`
+  — từ hôm nay tới hết ngày làm việc kế tiếp (gồm ngày nghỉ xen giữa); khoá `due-soon@<hạn>` giữ một lần. *Test:* 4 ca.
+  *Thử ngược:* cửa sổ `addDay()`, cửa sổ rộng `addDays(4)`, `nextWorkingDay()` bỏ lịch làm việc — đỏ.
+- **Q3 — lời nhắc việc không gộp theo người.** *Nguyên nhân:* `RemindPendingWork::queue()` xếp mỗi (việc, người) một
+  `SendWorkReminder` — 8 việc chuyển = 8 thư + 8 chuông; trái phán quyết làn tk. *Sửa:* gom theo (loại, người nhận) mỗi
+  lượt; nhiều việc → `SendTaskReminderDigest` (khuôn `SendSeatReminderDigest`: hỏi lại từng việc lúc gửi, còn một việc thì
+  lời nhắc một việc, `failed()` ghi từng việc); `TaskReminderAlert`/`TaskReminder` nhận `$batch` (tiêu đề, mã, hạn, đã
+  chờ/quá hạn, người giữ, "do … giao", "cần giao lại"; cùng mẫu thư, `payload.tier` mang khoá từng việc,
+  `SendWorkReminder::alreadyMailed()` tìm trong đó). Nhịp không đổi. *Test:* `ReminderDigestAuditTest` (7 ca); ba test cũ
+  ghim "mỗi việc một thư" khi cùng người có nhiều việc trong một lượt sửa/tách ca. *Thử ngược:* không gộp, sổ thư không
+  tìm khoá việc, bỏ `taskReminderHolds()`/`stillAddressedTo()` lúc gửi, không escape, `failed()` một việc — đỏ; bỏ
+  `forTask()` lúc gửi là đột biến tương đương (`stillAddressedTo()` đòi cùng điều kiện; giữ cho khớp `SendWorkReminder`).
+- **Q4 — khoá truy cập người giữ việc, người giao không được báo.** *Nguyên nhân:* `SuspendStaffAccess` không báo ai; lời
+  nhắc chỉ đi khi chờ nhận lâu / sắp hạn / quá hạn; ô trang chủ không có số này. *Sửa:* sau commit
+  `SendSuspendedHolderNotices` — một chuông `HolderSuspendedAlert` mỗi người của `forTaskAssigner(decisionNeeded: true)`
+  (trừ người bấm, người bị khoá), khuôn đường "Gỡ thành viên", nút mở đúng các việc; ô "Việc tôi giao cần giao lại" của
+  `MyWorkQueueWidget` (`assignedBy()->held()->needsReassignment()`, tab "Tôi đã giao" lọc sẵn — số = số dòng). *Test:*
+  `HolderNumbersAuditTest` (3 ca). *Thử ngược:* không xếp job, mỗi việc một chuông, không lọc người bấm, đường dẫn luôn
+  tab "Tất cả", ô đếm cả việc bị trả lại, đường dẫn thiếu bộ lọc "Cần giao lại" — đỏ.
+- **Q5 — báo thừa ngay sau thao tác.** *Nguyên nhân:* lịch không biết lần giao / sửa hạn / mở lại / khôi phục vừa xảy ra.
+  *Sửa:* `Task::rescheduledToday()` (nhật ký: `task_assigned`, `task_reassigned`, `task_reopened`, `task_restored`,
+  `task_updated` có đổi hạn — trong ngày, múi giờ văn phòng) chặn `due_soon*`/`overdue*` ở lượt chọn và lúc gửi;
+  `RemindPendingWork::assignerActedToday()` (`Task::handledTodayBy()`) — không `overdue_assigner` cho người đã thao tác
+  trên việc hôm đó. *Test:* 9 ca. *Thử ngược:* bỏ từng vế ở lượt chọn và lúc gửi, tính mọi lần "Sửa" là đặt lại lịch, bỏ
+  ranh giới ngày — đỏ.
+- **N1 — lời báo cho người giao tới trưởng phòng viết "hồ sơ anh/chị phụ trách"; "bị trả lại" chỉ tới trưởng phòng đầu
+  tiên.** *Sửa:* `App\Support\Tasks\StandIn` (vai người nhận thay: luật sư phụ trách / người quản lý hồ sơ / việc chung)
+  cho bốn lớp chuông/thư — trưởng phòng đọc "… hồ sơ :code của đội ngũ anh/chị quản lý" (`tasks.managed.*`);
+  `SendTaskNotice` gửi MỌI người của `forTaskAssigner()` (luật đã có của lời nhắc người giao: người quyết định là cả nhóm
+  quản lý, không thứ tự). *Test:* `AssignerStandInAuditTest` (3 ca); hai test cũ ghim câu cũ sửa theo. *Thử ngược:*
+  `->first()`, vai luôn "luật sư phụ trách", thư/chuông/lời nhắc không dùng bộ chữ mới — đỏ.
+- **N2 — cùng người, hai con số.** *Sửa:* `Task::scopeAwaitingAcceptanceBy()`/`scopeInProgressFor()` thêm
+  `heldBySeatedAssignee()` — tab, huy hiệu menu, ô trang chủ, khối "Chờ tôi nhận" cùng tập với Theo dõi đội ngũ. Việc "cần
+  giao lại vì chính tôi" ở tab "Tất cả" (vẫn "Trả lại" được). **Không** thêm ô riêng: phán quyết làn fa1 ("người không còn
+  giữ được việc không có gì phải xử lý — ô trang chủ ẩn", `Fa1RemindersAndRatioTest`). *Test:* 3 ca; hai test cũ đọc hàng
+  đó ở tab "Tất cả". *Thử ngược:* bỏ vế ở mỗi scope — đỏ.
+- **A7 — việc chung có người giao bị khoá: lời báo cần quyết định rơi vào khoảng không.** *Sửa:* `forTaskAssigner()` với
+  việc chung, người giao không hợp lệ, `decisionNeeded` → trưởng phòng đang hoạt động (không còn ai: quản trị viên); tin vẫn
+  rỗng; việc chung riêng của người còn làm được vẫn rỗng. SPEC đính chính mục 1. *Test:* 5 ca. *Thử ngược:* rỗng như cũ, bỏ
+  vế `decisionNeeded`, bỏ vế việc riêng, bỏ dự phòng quản trị viên, đường dẫn — đỏ.
+
+**Không sửa (phán quyết cố ý, giữ nguyên):** việc "Bị trả lại" không được nhắc; việc không hạn không được nhắc (trừ chờ
+nhận); lời nhắc việc không có thông báo đẩy (họ `staff.task.*`, M12); nhịp nhắc quá hạn mỗi ngày làm việc (không tự
+đổi — câu hỏi dưới).
+
+**Câu hỏi cho chủ văn phòng:** (1) nhịp nhắc quá hạn: giữ mỗi ngày làm việc (nay một thư gộp mỗi người mỗi ngày), hay
+thưa dần (ngày đầu, rồi 3 ngày/lần như nhắc đợt thanh toán quá hạn 7 ngày/lần)? (2) việc "Bị trả lại" có cần nhắc người
+giao nếu nằm lâu (vd. 48 giờ) không? (3) việc không hạn đang làm có cần lời nhắc "đã làm quá N ngày" không? (4) lời nhắc
+việc (quá hạn, chờ nhận) có cần thông báo đẩy câu chung không? (5) người đã rời ghế còn giữ việc: có cần ô riêng "Việc tôi
+không còn giữ được" trên trang chủ (đảo phán quyết làn fa1) không?
+
+**Kiểm chứng:** test giao việc (`tests/Feature/Tasks`) 435 passed; cả bộ `pest --parallel --processes=2`: 10.588 test,
+10.539 passed, 42 skipped, 7 đỏ — cả 7 là test trần tải tệp (PHP dòng lệnh của container `upload_max_filesize=2M`), chạy
+lại năm tệp đó với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh. `pint --test` sạch. Chưa chạy
+MariaDB (không migration; truy vấn mới: truy vấn con `activity_log` theo `subject`/`event`, `LIKE 'task_%'`).
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
