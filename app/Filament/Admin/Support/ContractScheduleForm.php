@@ -78,7 +78,7 @@ final class ContractScheduleForm
                 ->numeric()
                 ->live(onBlur: true),
             Repeater::make('instalments')
-                ->label(__('billing.tab.columns.name'))
+                ->label(__('billing.tab.fields.instalments'))
                 ->addActionLabel(__('billing.tab.actions.add_instalment'))
                 ->defaultItems(1)
                 ->columns(2)
@@ -204,6 +204,10 @@ final class ContractScheduleForm
                 $row['percent_basis'] ?? null,
                 $amount,
             ));
+        }
+
+        if ($rows === []) {
+            $lines[] = e(__('billing.tab.preview.no_instalments', ['total' => Money::format($total)]));
         }
 
         if ($rows !== [] && $complete) {

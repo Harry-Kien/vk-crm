@@ -9716,6 +9716,34 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 - **Chưa kiểm:** thao tác bằng mắt trên trình duyệt thật (biểu đồ vẽ lại ngay khi chọn) — chờ chủ văn phòng
   bấm thử trên bản xem thử.
 
+### "Lưu và kích hoạt" hợp đồng không có đợt nào báo lỗi khó hiểu (2026-10-21)
+
+Chủ văn phòng gửi ảnh: trang "Hợp đồng", hộp thoại "Nhập hợp đồng đã ký" — tổng 100.000.000, thuế 4%, KHÔNG có đợt
+nào, bật "Khách đã ký — kích hoạt luôn", bấm "Lưu và kích hoạt" sáu lần: sáu thông báo nổi "Chưa kích hoạt được hợp
+đồng HD-2026-0026: tổng các đợt là 0 đ… Sửa lịch thu…", không ký được.
+
+- **Nguyên nhân:** luật đúng (kích hoạt đòi tổng các đợt bằng giá trị, đúng từng đồng — M9), nhưng màn hình nói sai
+  chỗ và sai điều: câu là câu của nút "Kích hoạt" trên một bản nháp CÓ SẴN, kèm một mã `HD-…` mà lần nhập-và-kích-hoạt
+  đã rollback (không hợp đồng nào được lưu); lỗi đi thành thông báo nổi chứ không gắn vào lịch thu; khối lịch thu mượn
+  nhãn cột "Tên đợt", nên khi chưa có đợt nào hộp thoại chỉ còn chữ "Tên đợt" trơ trọi cạnh nút "Thêm đợt"; khung
+  xem trước im lặng về lịch thu trống.
+- **Sửa:** `EnterSignedContract` đổi `ContractTotalMismatch` của lõi kích hoạt thành lỗi gắn vào ô `instalments`
+  (cùng hình dạng lỗi ngày ký `signed_at`), câu riêng: lịch thu trống → `billing.errors.schedule_empty_on_entry`
+  ("Chưa có đợt thanh toán nào. Bấm "Thêm đợt"… Khách trả một lần thì thêm một đợt bằng toàn bộ giá trị."); lệch →
+  `schedule_mismatch_on_entry` (ba con số, không mã). Luật vẫn một chỗ (`ActivateContract`); `ContractTotalMismatch`
+  mang thêm hai con số. Khối lịch thu có nhãn `billing.tab.fields.instalments` "Lịch thu (các đợt thanh toán)" (form
+  dùng chung với tab tiền của vụ); khung xem trước nói `billing.tab.preview.no_instalments` khi chưa có đợt. QUY-TRINH
+  bước 3 của "Kế toán nhập hợp đồng" nói phải có ít nhất một đợt.
+- **Test:** `EnterSignedContractTest` (dataset lệch tổng nay là `ValidationException`; hai ca mới: lịch thu trống, lịch
+  thu lệch — khoá lỗi `instalments`, câu không chứa `HD-`); `ContractEntryPageTest` (đúng ca trong ảnh: lỗi dưới lịch
+  thu, không thông báo "thất bại", hộp thoại ở lại, không lưu gì; ca lệch tổng; nhãn khối và câu xem trước). ĐỎ trước
+  khi sửa: 6 test (câu cũ nhắc `HD-2026-0001`). Hai phép thử ngược đều đỏ: bỏ nhánh "lịch thu trống" (2 test), bỏ câu
+  xem trước (1 test).
+- **Kiểm chứng:** cả bộ `pest --parallel --processes=4` trên container cloud: 10.540 test, 10.491 passed, 42 skipped,
+  7 đỏ — cả 7 là test trần tải tệp, đỏ vì PHP dòng lệnh của container đặt `upload_max_filesize=2M`; chạy lại năm tệp
+  đó với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh. `pint --test` sạch. Chưa chạy MariaDB (không
+  đụng truy vấn hay migration).
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm

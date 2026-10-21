@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Actions\Billing\EnterSignedContract;
 use App\Models\Contract;
 use App\Support\Billing\Money;
 use DomainException;
@@ -21,9 +22,22 @@ use DomainException;
  */
 class ContractTotalMismatch extends DomainException
 {
+    /**
+     * Hai con số của lần vi phạm (sửa 2026-10-21): {@see EnterSignedContract} đổi
+     * lần từ chối ở tầng 1 thành lỗi gắn vào ô lịch thu, với câu của chính nó (không mã `HD-…` — mã đó
+     * đã rollback) — nên cần số, không chỉ câu đã dịch.
+     */
+    public int $contractTotal = 0;
+
+    public int $scheduleTotal = 0;
+
     public static function onActivation(Contract $contract, int $scheduleTotal): self
     {
-        return new self(__('billing.errors.total_mismatch_on_activation', self::numbers($contract->code, $contract->total_amount, $scheduleTotal)));
+        $exception = new self(__('billing.errors.total_mismatch_on_activation', self::numbers($contract->code, $contract->total_amount, $scheduleTotal)));
+        $exception->contractTotal = $contract->total_amount;
+        $exception->scheduleTotal = $scheduleTotal;
+
+        return $exception;
     }
 
     public static function onAmendment(Contract $contract, int $newTotal, int $scheduleTotal): self

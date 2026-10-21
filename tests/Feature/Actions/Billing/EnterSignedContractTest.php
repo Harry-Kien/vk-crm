@@ -3,10 +3,10 @@
 use App\Actions\Billing\EnterSignedContract;
 use App\Enums\ContractStatus;
 use App\Enums\Role;
-use App\Exceptions\ContractTotalMismatch;
 use App\Models\Contract;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -55,7 +55,7 @@ it('leaves no draft behind and burns no contract number when the activation step
         ->and(Activity::query()->where('event', 'contract_drafted')->exists())->toBeFalse()
         ->and($this->lead->notifications()->count())->toBe(0);
 })->with([
-    'tổng các đợt lệch giá trị' => [10_000_000, fn () => today()->toDateString(), ContractTotalMismatch::class],
+    'tổng các đợt lệch giá trị' => [10_000_000, fn () => today()->toDateString(), ValidationException::class],
     'ngày ký ở tương lai' => [12_000_000, fn () => today()->addDay()->toDateString(), ValidationException::class],
 ]);
 
@@ -84,4 +84,38 @@ it('keeps one open contract per matter', function () {
         ->toThrow(ValidationException::class);
 
     expect(Contract::query()->where('matter_id', $this->matter->id)->count())->toBe(1);
+});
+
+/**
+ * Sửa 2026-10-21 (chủ văn phòng báo: bấm "Lưu và kích hoạt" sáu lần, sáu thông báo nổi "Chưa kích hoạt
+ * được hợp đồng HD-2026-0026…" mà không biết sửa ở đâu). Lệch tổng ở đường "nhập và kích hoạt luôn" là
+ * lỗi NHẬP LIỆU của lịch thu, không phải trạng thái của một hợp đồng có sẵn: mọi thứ đã rollback, mã
+ * `HD-…` không được giữ — nên câu không được nhắc một mã không tồn tại, và lỗi gắn vào ô `instalments`
+ * (màn hình in nó ngay dưới lịch thu, hộp thoại ở lại). Lịch thu trống có câu riêng nói phải thêm đợt.
+ */
+it('answers an empty schedule with a field error on instalments that says to add an instalment, naming no contract code', function () {
+    try {
+        app(EnterSignedContract::class)->handle($this->accountant, $this->matter, ['total_amount' => 100_000_000, 'vat_rate_percent' => 4], [], today());
+        $this->fail('Lịch thu trống phải bị từ chối.');
+    } catch (ValidationException $exception) {
+        expect(array_keys($exception->errors()))->toBe(['instalments'])
+            ->and($exception->errors()['instalments'][0])->toBe(__('billing.errors.schedule_empty_on_entry', ['total' => Money::format(100_000_000)]))
+            ->and($exception->errors()['instalments'][0])->not->toContain('HD-');
+    }
+
+    expect(Contract::query()->where('matter_id', $this->matter->id)->exists())->toBeFalse();
+});
+
+it('answers a schedule that does not add up with a field error on instalments carrying the three numbers, naming no contract code', function () {
+    try {
+        app(EnterSignedContract::class)->handle($this->accountant, $this->matter, ['total_amount' => 12_000_000], signedSchedule(10_000_000), today());
+        $this->fail('Lịch thu lệch phải bị từ chối.');
+    } catch (ValidationException $exception) {
+        expect(array_keys($exception->errors()))->toBe(['instalments'])
+            ->and($exception->errors()['instalments'][0])->toBe(__('billing.errors.schedule_mismatch_on_entry', [
+                'schedule' => Money::format(10_000_000),
+                'total' => Money::format(12_000_000),
+                'difference' => Money::format(2_000_000),
+            ]));
+    }
 });

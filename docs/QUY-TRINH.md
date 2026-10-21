@@ -267,7 +267,9 @@ chưa kịp nhập), kế toán nhập số tiền của hồ sơ — không c�
    huỷ — chỉ nhập **phần còn phải thu**, không ghi lại khoản đã thu ("Tiền đã thu trên hợp đồng đã huỷ" ngay trên).
 3. Khách **đã ký** và tổng các đợt khớp giá trị: bật **Khách đã ký — kích hoạt luôn**, chọn ngày ký
    (không ở tương lai), rồi bấm **Lưu và kích hoạt** — hợp đồng đang hiệu lực ngay, đợt "khi ký" có hạn.
-   Lệch tổng một đồng thì không lưu gì, hộp thoại giữ nguyên để sửa. Chưa chắc: để công tắc tắt — nút
+   Lệch tổng một đồng thì không lưu gì, hộp thoại giữ nguyên để sửa; câu báo lỗi nằm ngay dưới
+   **Lịch thu (các đợt thanh toán)**. Phải có ít nhất một đợt: khách trả một lần thì bấm **Thêm đợt** và
+   nhập một đợt bằng toàn bộ giá trị (ví dụ "Trọn gói khi ký", đến hạn khi ký). Chưa chắc: để công tắc tắt — nút
    đổi thành **Lưu nháp**, bấm **Lưu nháp**, rồi **Sửa bản nháp** / **Kích hoạt (đã ký)** / **Xoá bản
    nháp** trên cùng dòng khi đã rõ.
 4. Luật sư phụ trách nhận một dòng chuông "Kế toán … đã nhập hợp đồng … — anh/chị kiểm tra lại." (luật sư

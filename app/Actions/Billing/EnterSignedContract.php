@@ -4,10 +4,14 @@ namespace App\Actions\Billing;
 
 use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Exceptions\ContractTotalMismatch;
+use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Contract;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\Billing\Money;
 use DateTimeInterface;
+use Illuminate\Validation\ValidationException;
 
 /**
  * "Khách đã ký — kích hoạt luôn" (làn kt, 2026-10-15): nhập MỘT hợp đồng giấy đã ký trong một lần —
@@ -31,6 +35,17 @@ use DateTimeInterface;
  * lai — rollback cả bản nháp của bước 2: không có hợp đồng nháp "mồ côi", mã `HD-…` không bị tiêu (dãy
  * số rollback cùng), modal của màn hình ở lại với dữ liệu đã nhập để sửa.
  *
+ * **Lệch tổng là lỗi nhập liệu của lịch thu, gắn vào ô `instalments`** (sửa 2026-10-21, chủ văn phòng
+ * báo: tổng 100.000.000, chưa thêm đợt nào, bấm "Lưu và kích hoạt" sáu lần — sáu thông báo nổi "Chưa
+ * kích hoạt được hợp đồng HD-2026-0026…" mà không biết sửa ở đâu, và mã đó chưa bao giờ được lưu).
+ * Lõi kích hoạt ném {@see ContractTotalMismatch} với câu của TẦNG 1 (nói về một hợp đồng có sẵn, kèm
+ * mã) — đúng cho nút "Kích hoạt" trên một bản nháp. Ở đây không có bản nháp nào sau rollback, nên Action
+ * đổi nó thành `ValidationException` trên `instalments` — cùng hình dạng với lỗi ngày ký ở tương lai
+ * (`signed_at`) và lỗi từng dòng (`instalments.N.*`) của lõi soạn — với câu riêng: lịch thu trống nói
+ * "thêm đợt", lịch thu lệch nói ba con số. Luật vẫn là MỘT (kiểm tra của `ActivateContract`); chỉ câu
+ * và chỗ hiện đổi. Màn hình ({@see ReportsActionFailures}) in lỗi ngay dưới
+ * lịch thu, hộp thoại ở lại.
+ *
  * **Sau commit:** một dòng chuông `entered` cho luật sư phụ trách khi người nhập không phải họ
  * ({@see NotifyLeadLawyerOfContractEntry}) — một dòng, không phải hai (`drafted` rồi `activated`).
  * Nhật ký hoạt động có cả hai dòng `contract_drafted` và `contract_activated` của hai lõi, mang người
@@ -53,15 +68,25 @@ class EnterSignedContract
      */
     public function handle(User $actor, Matter $matter, array $attributes, array $instalments, DateTimeInterface|string $signedAt): Contract
     {
-        $contract = $this->moneyTransaction(function () use ($actor, $matter, $attributes, $instalments, $signedAt): Contract {
-            $lockedMatter = $this->scopelessly(Matter::query())->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
+        try {
+            $contract = $this->moneyTransaction(function () use ($actor, $matter, $attributes, $instalments, $signedAt): Contract {
+                $lockedMatter = $this->scopelessly(Matter::query())->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
-            $draft = $this->drafter->draftLocked($actor, $lockedMatter, $attributes, $instalments);
+                $draft = $this->drafter->draftLocked($actor, $lockedMatter, $attributes, $instalments);
 
-            $locked = $this->scopelessly(Contract::query())->whereKey($draft->getKey())->lockForUpdate()->firstOrFail();
+                $locked = $this->scopelessly(Contract::query())->whereKey($draft->getKey())->lockForUpdate()->firstOrFail();
 
-            return $this->activator->activateLocked($actor, $lockedMatter, $locked, $signedAt);
-        });
+                return $this->activator->activateLocked($actor, $lockedMatter, $locked, $signedAt);
+            });
+        } catch (ContractTotalMismatch $mismatch) {
+            throw ValidationException::withMessages(['instalments' => $instalments === []
+                ? __('billing.errors.schedule_empty_on_entry', ['total' => Money::format($mismatch->contractTotal)])
+                : __('billing.errors.schedule_mismatch_on_entry', [
+                    'schedule' => Money::format($mismatch->scheduleTotal),
+                    'total' => Money::format($mismatch->contractTotal),
+                    'difference' => Money::format(abs($mismatch->contractTotal - $mismatch->scheduleTotal)),
+                ])]);
+        }
 
         $this->notifier->handle($actor, $contract, NotifyLeadLawyerOfContractEntry::ENTERED);
 
