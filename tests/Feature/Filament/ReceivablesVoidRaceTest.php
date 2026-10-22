@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Billing\RecordPayment;
+use App\Enums\PaymentMethod;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\Receivables;
 use App\Filament\Admin\Widgets\Billing\RecentPaymentsWidget;
@@ -68,4 +70,19 @@ it('tells the accountant in the recent payments section that the payment was alr
 
     Notification::assertNotified(__('actions.failed_title'));
     expect($this->payment->fresh()->void_reason)->toBe('Ghi trùng với khoản đã ghi ở tab hồ sơ.');
+});
+
+it('tells the accountant that the instalment was settled by someone else while the record-payment dialog was open', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $page = test()->livewire(Receivables::class)
+        ->mountAction(TestAction::make('recordPayment')->table($this->instalment))
+        ->setActionData(['amount' => '7.000.000', 'paid_on' => today()->toDateString(), 'method' => 'bank_transfer']);
+
+    app(RecordPayment::class)->handle($this->colleague, $this->instalment, 7_000_000, today()->toDateString(), PaymentMethod::BankTransfer, 'GD-1', null, null);
+
+    $page->callMountedAction();
+
+    Notification::assertNotified(__('actions.failed_title'));
+    expect($this->instalment->payments()->whereNull('voided_at')->sum('amount'))->toBe(10_000_000);
 });

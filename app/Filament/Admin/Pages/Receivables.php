@@ -21,6 +21,7 @@ use App\Policies\Concerns\ChecksBillingAccess;
 use App\Support\Billing\AccountantBillingRow;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
+use App\Support\Scopes\ClientPortalScope;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
@@ -38,6 +39,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
@@ -118,7 +120,9 @@ use UnitEnum;
  */
 class Receivables extends Page implements HasTable
 {
-    use InteractsWithTable;
+    use InteractsWithTable {
+        resolveTableRecord as private resolveListedTableRecord;
+    }
     use ReportsActionFailures;
 
     /**
@@ -318,6 +322,39 @@ class Receivables extends Page implements HasTable
                 $this->recordPaymentAction(),
                 $this->voidPaymentAction(),
             ]);
+    }
+
+    /**
+     * Tìm lại dòng của một hộp thoại ĐANG MỞ ngoài tập dòng (rà soát toàn hệ thống 2026-10-22, làn billing).
+     * Tập dòng chỉ có đợt còn `pending` của hợp đồng đang hiệu lực ({@see self::rowsQuery()}); một kế toán
+     * khác ghi đủ tiền (đợt thành `paid`), miễn hay huỷ hợp đồng trong lúc hộp thoại "Ghi khoản thu"/"Huỷ
+     * khoản thu" đang mở thì dòng rời tập đó, Filament không tìm lại được và bỏ ngang lần bấm mà không một
+     * lời — người bấm tưởng đã ghi. Có hộp thoại đang mở thì tìm lại trong CÙNG phạm vi `listableBy()` (không
+     * rộng hơn ai thấy tiền của vụ nào), để Action nói câu của nó (`InstalmentNotPayable`…).
+     */
+    protected function resolveTableRecord(?string $key): Model|array|null
+    {
+        $record = $this->resolveListedTableRecord($key);
+
+        if ($record !== null || $key === null || $this->mountedActions === []) {
+            return $record;
+        }
+
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            return null;
+        }
+
+        return Instalment::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereHas('contract.matter', fn (Builder $matter) => $matter->listableBy($user))
+            ->with([
+                'contract.matter.matterType',
+                'contract.matter.client',
+                'payments' => fn ($query) => $query->whereNull('voided_at')->orderByDesc('paid_on')->orderByDesc('id'),
+            ])
+            ->find($key);
     }
 
     /**
