@@ -133,6 +133,8 @@ trait ReportsActionFailures
         $unbound = [];
 
         foreach ($errors as $field => $messages) {
+            $field = $this->stateKeyOf($action, (string) $field);
+
             if (in_array($field, $fields, true)) {
                 $bound[$this->actionErrorKey($field)] = $messages;
 
@@ -153,6 +155,39 @@ trait ReportsActionFailures
         }
 
         throw ValidationException::withMessages($bound);
+    }
+
+    /**
+     * Khoá VỊ TRÍ của Action (`instalments.1.amount` — dòng thứ hai, vì Action nhận danh sách đã
+     * `array_values()`) thành khoá THẬT của dữ liệu hộp thoại. Trình duyệt giữ các dòng của một
+     * `Repeater` bằng UUID (`instalments.3f2a….amount`), nên khoá vị trí không khớp ô nào và câu lỗi
+     * trôi thành một thông báo chung không nói dòng nào sai (rà soát toàn hệ thống 2026-10-22, làn
+     * billing). Chỉ đổi một đoạn số KHÔNG có mặt trong dữ liệu mà mảng đó có phần tử ở vị trí ấy —
+     * mảng khoá số (test điền mảng số, `Repeater::fake()`) giữ nguyên khoá. Thứ tự khoá là thứ tự dòng
+     * trên màn hình (Repeater sắp lại chính mảng khi kéo thả), cùng thứ tự `array_values()` của nơi gọi.
+     */
+    private function stateKeyOf(Action $action, string $field): string
+    {
+        $segments = explode('.', $field);
+        $node = $action->getRawData();
+
+        foreach ($segments as $index => $segment) {
+            if (! is_array($node)) {
+                break;
+            }
+
+            if (! array_key_exists($segment, $node) && ctype_digit($segment)) {
+                $keys = array_keys($node);
+
+                if (array_key_exists((int) $segment, $keys)) {
+                    $segments[$index] = $segment = (string) $keys[(int) $segment];
+                }
+            }
+
+            $node = $node[$segment] ?? null;
+        }
+
+        return implode('.', $segments);
     }
 
     private function failWithNotification(Action $action, string $message): void
