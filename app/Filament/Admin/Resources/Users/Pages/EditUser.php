@@ -3,8 +3,10 @@
 namespace App\Filament\Admin\Resources\Users\Pages;
 
 use App\Actions\Mcp\RevokeAiConnections;
+use App\Actions\Push\ForgetPushDevice;
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
+use App\Actions\User\EndStaffSessions;
 use App\Actions\User\RecordStaffPermissionChange;
 use App\Actions\User\ResetStaffTwoFactor;
 use App\Actions\User\SuspendStaffAccess;
@@ -460,6 +462,13 @@ class EditUser extends EditRecord
 
                 if ($revocation !== null) {
                     app(RevokeAiConnections::class)->handle($updated, $revocation, $actor);
+                }
+
+                // Rà soát 2026-10-22 (làn security): tắt "Đang hoạt động" cắt phiên đang mở và gỡ máy nhận
+                // thông báo đẩy NGAY, như "Khoá truy cập ngay" — không chỉ đăng xuất ở request kế tiếp khi
+                // tài khoản còn tắt (bật lại trước request đó từng trả lại nguyên phiên cũ). Xem EndStaffSessions.
+                if ($wasActive && ! $newIsActive) {
+                    app(EndStaffSessions::class)->handle($updated, $actor, ForgetPushDevice::REASON_STAFF_DEACTIVATED);
                 }
 
                 return $updated;

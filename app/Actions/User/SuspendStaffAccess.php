@@ -18,7 +18,6 @@ use App\Support\OpenWork;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -99,11 +98,10 @@ final class SuspendStaffAccess
             // Làn fa2, phán quyết 2: việc nội bộ còn dở cũng vào nhật ký, như mọi loại việc dở khác.
             $openTasks = OpenTaskWork::forUser($locked);
 
-            $locked->forceFill([
-                'is_active' => false,
-                'session_epoch' => (int) $locked->session_epoch + 1,
-                'remember_token' => Str::random(60),
-            ])->save();
+            $locked->forceFill(['is_active' => false])->save();
+
+            // Bước 2, 3 và lần gỡ máy sau commit: một định nghĩa với tắt "Đang hoạt động" và xoá nhân sự.
+            app(EndStaffSessions::class)->handle($locked, $actor, ForgetPushDevice::REASON_STAFF_SUSPENDED);
 
             $event = Audit::record('staff_access_suspended', $locked, [
                 'reason' => $reason,
@@ -118,9 +116,6 @@ final class SuspendStaffAccess
             ], $actor);
 
             app(RevokeAiConnections::class)->handle($locked, AiRevocationReason::Deactivated, $actor);
-
-            DB::afterCommit(fn () => app(ForgetPushDevice::class)
-                ->all($locked, $actor, ForgetPushDevice::REASON_STAFF_SUSPENDED));
 
             // Kiểm toán 2026-10-21 (Q4): người giao các việc người này đang giữ được báo — xem docblock lớp.
             if ($openTasks->held->isNotEmpty()) {

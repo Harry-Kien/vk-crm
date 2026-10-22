@@ -31,7 +31,9 @@ use Throwable;
  *    tắt được), và ba lối VĂN PHÒNG gỡ thay (việc sau gộp M12, làn fu4) — mỗi lối mang một lý do:
  *    {@see self::REASON_EMAIL_CHANGED} (`UpdatePortalAccount`, đổi email cổng),
  *    {@see self::REASON_TWO_FACTOR_RESET} (`ResetStaffTwoFactor`, "Đặt lại 2FA"),
- *    {@see self::REASON_OFFICE} (nút "Gỡ mọi máy nhận thông báo" trên trang tài khoản cổng).
+ *    {@see self::REASON_OFFICE} (nút "Gỡ mọi máy nhận thông báo" trên trang tài khoản cổng);
+ *    và ba lối nhân sự mất quyền vào qua `EndStaffSessions`: {@see self::REASON_STAFF_SUSPENDED},
+ *    {@see self::REASON_STAFF_DEACTIVATED}, {@see self::REASON_STAFF_DELETED}.
  *
  * Mỗi dòng gỡ ghi một audit `push_device_removed` mang ĐÚNG `device_label` — không bao giờ endpoint
  * (R8). Người tự gỡ máy của mình: chủ dòng là cả chủ thể lẫn người gây ra, `properties` chỉ có
@@ -54,6 +56,12 @@ class ForgetPushDevice
 
     /** "Khoá truy cập ngay" (`SuspendStaffAccess`, làn fb mục A5): nhân sự nghỉ đột xuất hay bị nghi lộ dữ liệu. */
     public const REASON_STAFF_SUSPENDED = 'staff_suspended';
+
+    /** Tắt "Đang hoạt động" trên trang sửa nhân sự (đường nghỉ việc thường) — rà soát 2026-10-22, làn security. */
+    public const REASON_STAFF_DEACTIVATED = 'staff_deactivated';
+
+    /** Xoá nhân sự (`DeleteStaffMember`) — "Khôi phục" sau đó không đưa máy cũ trở lại (rà soát 2026-10-22). */
+    public const REASON_STAFF_DELETED = 'staff_deleted';
 
     /**
      * R9 — `$owner` vừa đăng xuất khỏi `$guard` trên trình duyệt mang phiên `$session`: gỡ máy của
