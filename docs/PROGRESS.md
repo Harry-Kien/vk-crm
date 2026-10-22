@@ -10044,6 +10044,8 @@ với Công việc. Test ở `tests/Feature/Review/` (đỏ trước khi sửa, 
 2. Vụ đã kết thúc còn mốc đã công bố chưa xong: cổng khách vẫn hiện ở "Mốc thời hạn sắp tới", rồi "Đã quá hạn" màu đỏ, trong
    suốt thời gian tra cứu. Ẩn mốc của vụ đã kết thúc trên cổng, tự gỡ công bố khi đóng vụ, hay chỉ cảnh báo trong hộp thoại
    kết thúc?
+   → **Đã giải quyết khi gộp:** làn portal (lỗi 2) cho cổng không hiện mốc nào của vụ đã kết thúc (`MatterProgress::deadlines()`
+   trả rỗng) — đúng phương án "ẩn trên cổng"; công bố vẫn giữ nguyên trong hồ sơ nội bộ.
 3. Ngày "xảy ra" của một lần chuyển giai đoạn có thể sớm hơn ngày vào giai đoạn trước (gõ nhầm năm): `stage_entered_at` lùi
    về quá khứ, dòng thời gian xếp lộn và sổ tiến độ không sửa được. Chặn "không sớm hơn ngày vào giai đoạn hiện tại" thì lại
    chặn việc nhập lùi lịch sử của vụ đưa vào giữa chừng — cần chọn.
@@ -10078,6 +10080,12 @@ dòng (`awaitsConflictResolution()` gọi hai lần cho màu và nhãn cột Xun
 sai; (3) ô tìm SĐT ở danh sách Khách hàng so chuỗi thô (`0912 345 678` không ra khi gõ `0912345678`); (4)
 `AddMatterParty` chỉ hỏi `MatterPartyPolicy::create` (quyền chung), không hỏi quyền trên vụ — màn hình đã chặn bằng
 `MatterPolicy::update`, test hiện có ghi rõ là cố ý.
+
+**Đã sửa sau khi gộp (trên nhánh chính):** (2) cột "Kết quả kiểm tra" tính "chờ trưởng phòng" MỘT lần cho cả trang qua
+`scopeAwaitingConflictResolution` (cùng định nghĩa) — test `tests/Feature/Review/IntakeListQueryCountTest.php` (5 dòng
+và 20 dòng tốn gần như cùng số truy vấn; trước: thêm 2 truy vấn mỗi dòng). (3) ô tìm của danh sách Khách hàng so số
+điện thoại sau khi bỏ dấu cách/chấm/gạch/ngoặc/"+" và tiền tố 0/84 (`ClientsTable::searchPhone`), vẫn tìm chuỗi thô như
+cũ — test `tests/Feature/Review/ClientPhoneSearchTest.php`, xanh cả SQLite lẫn MariaDB.
 
 **Cần chủ văn phòng quyết định:** (a) tầng tên có coi các cách viết tắt là một không — "Cty"/"Công ty", "TNHH"/"trách
 nhiệm hữu hạn", "CP"/"Cổ phần", "&"/"và", danh xưng "Ông/Bà/Anh/Chị" đứng đầu tên (hôm nay không — khớp thừa chỉ thêm
