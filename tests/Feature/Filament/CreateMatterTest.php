@@ -300,6 +300,54 @@ it('lets the lawyer look up the exact phone of a client the assistant just creat
 });
 
 /**
+ * Rà soát toàn hệ thống 2026-10-22 (làn intake): cùng tình huống với test trên, nhưng luật sư KHÔNG
+ * dùng ô tra mà gõ thẳng số đó vào khối "Tạo khách mới" — lời hứa của docblock
+ * `MatterForm::newClientFields()`. Trước bản sửa: hai hồ sơ khách cho cùng một người.
+ */
+it('reuses the client the assistant just created when the lawyer types its phone into the new-client block', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+
+    $this->actingAs($assistant, 'web');
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách do trợ lý tạo',
+            'phone' => '0912345678',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $client = Client::query()->where('name', 'Khách do trợ lý tạo')->firstOrFail();
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType(1);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc gõ lại số của khách trợ lý tạo',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Khách do trợ lý tạo',
+                'phone' => '091 234 5678',
+            ],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Vụ việc gõ lại số của khách trợ lý tạo')->first();
+
+    expect($matter)->not->toBeNull()
+        ->and($matter->client_id)->toBe($client->id)
+        ->and(Client::count())->toBe(1);
+});
+
+/**
  * M6.5 Task 6 (R4a) — số gần đúng (sai một chữ số cuối) không được gợi ý gì, không lộ tên: kết
  * quả phải giống HỆT một số hoàn toàn không tồn tại — không có ô nào trên form nói ra tên khách.
  */
