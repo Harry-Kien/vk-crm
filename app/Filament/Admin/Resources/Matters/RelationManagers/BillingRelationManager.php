@@ -249,6 +249,29 @@ class BillingRelationManager extends RelationManager
             ->orderBy('sequence');
     }
 
+    /**
+     * Tìm lại dòng của một hộp thoại ĐANG MỞ khi nó đã rời bảng (rà soát toàn hệ thống 2026-10-22, làn
+     * harden — cùng khuôn `Receivables::resolveTableRecord()` của làn billing). Bảng chỉ có đợt của hợp đồng
+     * HIỆN HÀNH ({@see self::getRelationship()}); người khác huỷ hợp đồng rồi soạn bản mới trong lúc hộp
+     * thoại "Ghi khoản thu"/"Huỷ khoản thu"/"Miễn"… trên một dòng đang mở thì dòng đó không còn trong bảng,
+     * Filament không tìm lại được và bấm "Gửi" không làm gì — người bấm tưởng đã ghi. Có hộp thoại đang mở
+     * thì tìm lại trong MỌI hợp đồng của CHÍNH vụ này, cùng phạm vi tầm nhìn của bảng (`contract.matter`), để
+     * Action nói câu của nó (`InstalmentNotPayable`…) hay làm việc vẫn hợp lệ (huỷ một khoản thu ghi nhầm).
+     */
+    protected function resolveTableRecord(?string $key): Model|array|null
+    {
+        $record = parent::resolveTableRecord($key);
+
+        if ($record !== null || $key === null || $this->mountedActions === []) {
+            return $record;
+        }
+
+        return static::scopeToVisibleMatters(Instalment::query(), 'contract.matter')
+            ->whereHas('contract', fn (Builder $contract): Builder => $contract->where('matter_id', $this->getOwnerRecord()->getKey()))
+            ->with(['contract', 'payments' => fn ($payments) => $payments->with('attributedLawyer')])
+            ->find($key);
+    }
+
     public function table(Table $table): Table
     {
         return $table

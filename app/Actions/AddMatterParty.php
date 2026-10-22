@@ -36,11 +36,13 @@ use Illuminate\Support\Facades\Gate;
  * `MatterParty` nào được lưu — không còn tình huống "bên đã lưu, không có dòng kiểm tra".
  *
  *  1. Quyền: `MatterPartyPolicy::create` (Action tự kiểm tra, không tin caller — cùng quy ước
- *     `OpenMatter`/`TransitionMatterStage`). Đây là lớp phòng thủ THỨ HAI: `MatterPartyPolicy::
- *     create()` không nhận `Matter` (áp dụng theo `matter.update` nói chung, không theo từng vụ
- *     việc cụ thể — hạn chế đã biết, xem báo cáo Task 6), nên lớp phòng thủ chính vẫn là
- *     `PartiesRelationManager` tự `authorize()` CreateAction của nó theo `matter.update` trên
- *     ĐÚNG `$matter` đang mở.
+ *     `OpenMatter`/`TransitionMatterStage`). `MatterPartyPolicy::create()` không nhận `Matter` (áp
+ *     dụng theo `matter.update` nói chung — hạn chế đã biết, xem báo cáo Task 6), nên Action hỏi
+ *     THÊM `MatterPolicy::update` trên ĐÚNG `$matter` (rà soát 2026-10-22, làn harden): trước đó chỉ
+ *     màn hình (`PartiesRelationManager` tự `authorize()` CreateAction theo cùng câu hỏi) chặn một
+ *     luật sư thêm bên vào vụ của người khác — kể cả vụ `restricted` họ không mở được. Mọi đường hợp
+ *     lệ đã đòi đúng quyền này ở màn hình, nên lớp thứ hai không chặn ai hợp lệ; `UpdateMatterParty`/
+ *     `RemoveMatterParty` vốn đã hỏi quyền trên bản ghi.
  *  2. Giai đoạn kiểm tra (transaction riêng, luôn commit): dựng bên mới từ `$partyData` qua
  *     `identify()`, CHƯA lưu, rồi chạy `RunConflictCheck::handle(collect([$party]), $matter)` —
  *     `$matter` đã tồn tại nên Action tự nạp các bên đã có của vụ việc để xét lại cùng lúc (xem
@@ -96,6 +98,8 @@ class AddMatterParty
      *                                            khớp CHÍNH XÁC `$result->level` của lần kiểm tra
      *                                            NÀY (cùng lý do dùng enum thay vì bool đơn thuần
      *                                            ở `OpenMatter`).
+     * @param  string|null  $shownFingerprint  Bảng đã hiện cho người dùng — cùng hợp đồng tham số cùng tên
+     *                                         của `OpenMatter::handle()` (rà soát 2026-10-22, làn harden).
      */
     public function handle(
         Matter $matter,
@@ -103,9 +107,12 @@ class AddMatterParty
         array $partyData,
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
+        ?string $shownFingerprint = null,
     ): AddMatterPartyResult {
         // Bước 1.
         Gate::forUser($actor)->authorize('create', MatterParty::class);
+        // Rà soát 2026-10-22, làn harden: quyền trên CHÍNH vụ việc — xem docblock lớp bước 1.
+        Gate::forUser($actor)->authorize('update', $matter);
 
         $overrideReason = $overrideReason !== null ? trim($overrideReason) : null;
 
@@ -115,7 +122,7 @@ class AddMatterParty
         // lỗi 500 trần — xem docblock lớp.
         try {
             return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
-                $matter, $actor, $partyData, $overrideReason, $acknowledged,
+                $matter, $actor, $partyData, $overrideReason, $acknowledged, $shownFingerprint,
             ): AddMatterPartyResult {
                 // Bước 2.
                 /** @var array{0: ConflictCheckResult, 1: MatterParty} $checked */
@@ -148,9 +155,21 @@ class AddMatterParty
                         throw ConflictBlocked::make($result);
                     }
 
+                    // Rà soát 2026-10-22, làn harden: lý do ghi đè viết cho bảng ĐÃ hiện; có khớp mới thì
+                    // không phủ được nó — xem `OpenMatter::handle()` tham số `$shownFingerprint`.
+                    if ($result->differsFromShown($shownFingerprint)) {
+                        throw ConflictBlocked::changed($result);
+                    }
+
                     $isOverridden = true;
-                } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
-                    throw ConflictAcknowledgementRequired::make($result);
+                } elseif ($result->requiresAcknowledgement()) {
+                    if ($result->differsFromShown($shownFingerprint)) {
+                        throw ConflictAcknowledgementRequired::changed($result);
+                    }
+
+                    if ($acknowledged !== $result->level) {
+                        throw ConflictAcknowledgementRequired::make($result);
+                    }
                 }
 
                 // Bước 4.

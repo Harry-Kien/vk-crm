@@ -10202,6 +10202,136 @@ lịch; người nhận theo vai đều lọc `is_active` (qua `ResolveStaffReci
 - Nút "Mở" của "Hồ sơ quá hạn cập nhật" và "Khách chưa xem cập nhật" nên vào tab nào: "Tiến độ" (đăng cập nhật mới) hay
   "Liên lạc" (ghi cuộc gọi cho khách)? Hiện vẫn mở tab Tổng quan.
 
+### Rà soát toàn hệ thống 2026-10-22 — làn harden
+
+Ba việc chuyển từ làn intake và làn billing (nhánh `review-harden`). Mỗi lỗi: test đỏ trước, sửa, phép thử ngược
+(gỡ bản sửa thì test đỏ lại).
+
+- **(Cao) Xác nhận/ghi đè xung đột chỉ so MỨC, không so bảng đã hiện.** Một khớp mới cùng mức xuất hiện giữa lúc
+  màn hình hiện bảng kết quả và lúc bấm lưu (người khác vừa thêm một bên trùng tên ở vụ khác) được ghi vào
+  `confirmed_pairs` như "đã xem xét" — dù chưa ai thấy nó; với Đỏ, lý do ghi đè viết cho bảng cũ phủ luôn khớp Đỏ
+  mới. Sửa: `ConflictCheckResult::displayFingerprint()`/`displayFingerprintOf()` (mức + khớp mới theo đúng các
+  trường hiển thị + bên thiếu định danh, không kể thứ tự); `OpenMatter`, `AddMatterParty`, `UpdateMatterParty`,
+  `ConvertIntakeToMatter`, `AcknowledgeIntakeConflict` nhận thêm `?string $shownFingerprint` — khác bảng lúc lưu
+  thì từ chối bằng `ConflictAcknowledgementRequired::changed()` / `ConflictBlocked::changed()` ("Có kết quả kiểm
+  tra xung đột lợi ích mới từ lúc bảng được hiện — xem lại bảng vừa cập nhật rồi xác nhận lại"), màn hình hiện
+  bảng mới, gỡ dấu tích / lý do ghi đè cũ. Năm màn hình gửi dấu vân tay: mở vụ, tab Các bên (thêm, sửa), chuyển
+  tiếp nhận thành vụ, nút "Xác nhận đã xem" của tiếp nhận (dấu lấy lúc vẽ khối kiểm tra; bị từ chối thì đóng hộp
+  thoại và vẽ lại cả trang với bảng mới). `null` (seeder, test cũ, lời gọi không qua màn hình — hôm nay không có
+  job/MCP nào gọi các Action này) giữ hợp đồng cũ chỉ so mức. Test: `tests/Feature/Review/ConflictShownResultTest.php`
+  (7 ca, đỏ trước ở cả năm màn hình).
+- **(Trung bình) `AddMatterParty` không hỏi quyền trên chính vụ việc.** Chỉ `MatterPartyPolicy::create` (có
+  `matter.update` nói chung) — một luật sư thêm được bên vào vụ của người khác, kể cả vụ `restricted`, nếu gọi
+  thẳng Action. Ghi chú "cố ý" cũ chỉ nói policy không nhận `Matter` (hạn chế đã biết) và màn hình đã chặn; không
+  có đường hợp lệ nào cần bỏ qua (mở vụ và chuyển tiếp nhận đi qua `OpenMatter`, không qua Action này; MCP không
+  gọi nó). Action nay hỏi thêm `MatterPolicy::update` trên `$matter`. Test:
+  `tests/Feature/Review/AddMatterPartyMatterAuthorizationTest.php` (vụ thường, vụ hạn chế; luật sư phụ trách và
+  trưởng phòng vẫn thêm được).
+- **(Trung bình) Tab "Hợp đồng và thanh toán": hợp đồng hiện hành bị thay (huỷ rồi soạn bản mới) trong lúc hộp
+  thoại trên một dòng đợt thu đang mở — bấm "Gửi" không có gì xảy ra.** Đúng suy luận của làn billing: dòng rời
+  bảng (bảng chỉ có đợt của bản mới nhất), Filament không tìm lại được bản ghi. Sửa cùng khuôn
+  `Receivables::resolveTableRecord()`: `BillingRelationManager::resolveTableRecord()` — có hộp thoại đang mở thì
+  tìm lại trong mọi hợp đồng của CHÍNH vụ này, cùng phạm vi tầm nhìn; "Ghi khoản thu" nói câu của `RecordPayment`
+  (hợp đồng không còn hiệu lực), "Huỷ khoản thu" vẫn huỷ được (hợp lệ trên hợp đồng đã huỷ). Test:
+  `tests/Feature/Review/BillingTabContractReplacedRaceTest.php` (2 đỏ trước; ca thứ ba canh không tìm ra đợt của
+  vụ khác).
+
+- **(Cao) Ghi đè Đỏ ở tiếp nhận (`ResolveIntakeRedConflict`) không so bảng đã hiện** — chạy lại kiểm tra rồi ghi
+  đè mọi khớp đang có, kể cả một khớp Đỏ mới xuất hiện sau khi trang hiện bảng (lý do viết cho bảng cũ thành quyết
+  định về khớp chưa ai xem). Nay nhận `?string $shownFingerprint` như năm Action trên: khác thì
+  `ConflictBlocked::changed()` (câu "…viết lại lý do ghi đè nếu vẫn ghi đè"); nút "Xử lý Đỏ" gửi dấu lấy lúc vẽ
+  khối kiểm tra, bị từ chối thì nạp lại bản ghi và đóng hộp thoại để cả trang vẽ bảng mới. Đỏ dính mà bảng không
+  đổi vẫn ghi đè được, hộp thoại giữ câu riêng "Đỏ dính". Test: `ConflictShownResultTest` (3 ca thêm: màn hình,
+  Action, Đỏ dính).
+  *Sửa sau khi gộp:* hai test cũ của `IntakeConflictStateScreensTest` (trưởng phòng gỡ "lần gọi bị giữ" từ trang
+  của chính nó) đỏ — bảng đã lưu của lần gọi bị giữ tính TRƯỚC khi lần gọi kia của cùng người khoá, còn lần chạy
+  lại lúc xử lý mang sang bên đối lập và mã `TN-…` của lần gọi kia (nội dung của khoá mà trang đã báo "Đỏ ngoài
+  lần kiểm tra gần nhất"), nên dấu luôn khác. Nay một định nghĩa dấu cho trang tiếp nhận và hai Action
+  (`App\Support\Intake\ShownConflictFingerprint`): bản ghi thường giữ nguyên dấu cũ; bản đang bị giữ thì so các
+  dòng của chính bản ghi (trừ dòng chỉ về lần gọi đang khoá), bên thiếu định danh của nó và dấu các khoá đang giữ
+  — khớp mới trên bên của chính bản ghi hay một khoá mới vẫn bị từ chối. Test thêm 2 ca "held call".
+
+*Sau rà soát Sourcery trên PR #3:* (1) dấu vân tay bảng đã hiện thêm cột `matter_type_name` (bảng có hiện loại vụ việc);
+(2) `AcknowledgeIntakeConflict` so bảng đã hiện TRƯỚC câu "không cần xác nhận" — bảng Vàng đã hiện mà lần chạy lại ra Xanh
+nay đi đường "kết quả đã đổi" (trang nạp lại, vẽ bảng mới) thay vì giữ bảng cũ kèm lỗi khó hiểu; (3) góp ý "bị từ chối mà
+vẫn báo thành công" không tái hiện — `Action::cancel()` ném `Cancel`, `runAction` không bắt, nên `afterIntakeAction()` không
+chạy; test nay khẳng định không có thông báo thành công. Test: `ConflictShownResultTest` (+2 ca, 15 ca).
+
+### Rà soát toàn hệ thống 2026-10-22 — làn perf2
+
+Phạm vi: hai trang của trưởng phòng/quản trị còn vượt ngân sách sau làn ops — "Theo dõi đội ngũ" và "Hiệu suất theo
+kỳ" (lần mở lạnh một quý). Không nới trần, không đổi dữ liệu đo, không thêm bộ nhớ tạm ngoài request. Bằng chứng là số
+đo trước/sau trên đúng dữ liệu R11 của `tests/Benchmark/TeamPerformanceBenchmarkTest.php` (3.000 vụ, mọi ghế chờ nhận),
+**giờ đóng băng 2026-10-22 10:00 để hai lần chạy cùng dữ liệu**, trung vị 5–7 lần, máy dùng chung với các làn khác (số
+dao động 10–20 %), cộng các test ghim kết quả không đổi. Kết quả của 12 báo cáo (quý trước, tháng trước, tháng này ×
+admin / trưởng phòng / luật sư / trợ lý) và danh sách ghế kẹt (trưởng phòng, admin) **giống hệt** trước và sau, trên
+cả SQLite lẫn MariaDB (so md5 từng dòng).
+
+**Đã sửa:**
+- **Cao — "Theo dõi đội ngũ" 8–14 giây.** Dòng "Hồ sơ cần phân công lại" (`SeatsNeedingReassignment`) hỏi
+  `qualifies()` (Gate `view` của người ngồi ghế, khoảng bốn lần hỏi quyền Spatie, gần 1,4 ms) cho TỪNG ghế chờ nhận —
+  5.850 ghế. Nay mỗi NGƯỜI ngồi ghế một truy vấn: ghế trên vụ thuộc `ResolveStaffRecipients::surelyQualifyingMatters()`
+  (tài khoản còn hoạt động, chưa xoá + `MatterPolicy::staffViewableQuery()` — chính câu EXISTS của `MatterPolicy::view()`,
+  tách thành `staffVisible()` dùng chung) chắc chắn không kẹt; mọi ghế còn lại (thường chỉ ghế kẹt thật) vẫn đi qua
+  `stuck()` như cũ. Lối tắt chỉ dùng theo chiều "chắc chắn nhận được" (Gate chỉ nới thêm, không bớt).
+  Test: `StuckSeatsBatchParityTest` (từng cặp người × vụ — đã nghỉ, đã xoá kể cả xoá mà `is_active` còn bật, mất vai
+  trò, chỉ `matter.viewAny`, quyền trực tiếp, luật sư phụ trách đã đổi sang kế toán; vụ thường/hạn chế/xoá mềm/kết thúc
+  — tập lối tắt bằng đúng tập `qualifies()`; danh sách ghế kẹt bằng lọc từng ghế); `StuckSeatsQueryBudgetTest` vẫn xanh
+  (số truy vấn theo số người, không theo số ghế). Phép thử ngược: bỏ điều kiện `matter.view`, `is_active` hay "chưa xoá"
+  của lối tắt → đỏ.
+- **Cao (chỉ SQLite) — cột N10 "Hoàn thiện danh mục" 5 giây.** `ChecklistProgress::totalsByLead()` hỏi EXISTS trên
+  `documents` theo đầu mục; MariaDB có index của khoá ngoại, SQLite không tự tạo → quét 20.000 tài liệu cho mỗi đầu mục
+  (`BuildTeamWorkload` 4.781 → 117 ms). Migration `2026_10_22_300001` thêm index `documents.matter_checklist_item_id`
+  CHỈ khi cột chưa có index (`Schema::hasIndex`) — MariaDB không có index trùng. Test: `DocumentsChecklistItemIndexTest`
+  (đúng một index trên mọi cơ sở dữ liệu; đỏ khi bỏ migration).
+- **Trung bình — `BusinessHours::minutesBetween()`** (giờ làm việc M10 dùng chung: ngưỡng phản hồi, đồng hồ nhận việc,
+  P3) dựng 4–5 Carbon mỗi ngày. Khi múi giờ văn phòng không đổi độ lệch trong khoảng cần tính (Asia/Ho_Chi_Minh từ
+  1975), tính bằng số nguyên trên dấu thời gian, cùng từng bước của cách cũ (ngày bắt đầu, trần 3.660 ngày, bỏ phần lẻ
+  dưới giây); khoảng có đổi giờ mùa hè hay múi giờ dạng `+07:00` đi đường Carbon cũ. 853 luồng đã trả lời của quý:
+  132–142 → 3,2–3,4 ms, cùng tổng phút. Test: `BusinessHoursFastPathParityTest` — bản sao nguyên văn hàm cũ làm chuẩn;
+  14.000 cặp ngẫu nhiên (7 múi giờ gồm Berlin, New York, Lord Howe đổi giờ nửa tiếng, Kathmandu +05:45, `+07:00`; 5
+  lịch; mốc đưa vào ở múi khác, Carbon/CarbonImmutable, micro giây; khoảng đảo, dưới một phút, tới hai tháng), 19 biên
+  (đúng giờ mở/đóng, một micro giây hai bên, qua nửa đêm, Thứ Sáu → Thứ Hai, Thứ Bảy → Chủ nhật, Tết, ngày nhuận, trước
+  1970, lần đổi múi giờ 1975 của Sài Gòn), 6 khoảng qua đổi giờ mùa hè, trần mười năm; gọi thẳng nhánh số nguyên. Ngày
+  lễ không mô hình hoá (M10) nên không có biên ngày lễ. Phép thử ngược (sai thứ trong tuần, bỏ phần lẻ đầu khúc, bỏ trần
+  ngày, nhận khoảng có đổi giờ, thu hẹp khoảng dò đổi giờ) → đỏ.
+- **Thấp — "Hiệu suất theo kỳ" nạp thừa.** P1 nạp vụ của mọi mốc (3.000 model `Matter`) chỉ để hỏi
+  `closedOnOrBefore()`; nay chỉ nạp vụ đã kết thúc (`Matter::closed()`, khoảng 900) — vụ còn mở và vụ không nạp cho cùng
+  đáp án. P3 đọc `answeredBy()` một lần mỗi luồng. Test: `PerformanceReportHydrationTest` (không dựng `Matter` nào cho
+  mốc của vụ còn mở, P1 không đổi; đỏ với cách nạp cũ); `PerformanceFormulasTest` bắt phép thử ngược `open()`.
+
+**Số đo** (ms; trước → sau; "Theo dõi đội ngũ" ngân sách 300 ms, trần benchmark 3.000 ms; "Hiệu suất theo kỳ" 500 ms):
+
+| Phép đo | SQLite | MariaDB |
+|---|---|---|
+| `SeatsNeedingReassignment` — trưởng phòng (0 ghế kẹt) / admin (300) | 7.795 → 204 / 8.812 → 664 | 7.736 → 335 / 8.069 → 698 |
+| Trang "Theo dõi đội ngũ" (Livewire) — trưởng phòng / admin | 12.732 → 530 / 13.908 → 835 | 8.020 → 745 / 8.854 → 1.253 |
+| `BuildTeamWorkload`, trưởng phòng | 4.781 → 117 | 283 → 291 |
+| `BuildPerformanceReport` quý — admin / trưởng phòng / luật sư | 1.637 → 1.375 / 1.497 → 1.357 / 249 → 240 | 1.889 → 1.527 / 1.723 → 1.478 / 338 → 291 |
+| Request "Xem số liệu" quý, lạnh — admin / trưởng phòng | 2.407 → 1.958 / 2.274 → 2.088 | 2.404 → 2.313 / 2.331 → 2.245 |
+| `minutesBetween` trên 853 luồng | 132 → 3,2 | 142 → 3,4 |
+
+`tests/Benchmark/TeamPerformanceBenchmarkTest.php` (không sửa, giờ thật) nay **xanh trên cả hai** (trước đỏ: trang
+"Theo dõi đội ngũ" 4.943 ms SQLite / 8.098 ms MariaDB > trần 3.000 ms): trang 426 ms SQLite / 694 ms MariaDB; "Hiệu suất
+theo kỳ" quý, request đổi kỳ lạnh — admin 1.653 / 2.022 ms, trưởng phòng 1.659 / 1.863 ms, luật sư 366 / 488 ms; ấm
+496–628 ms. Dòng "BusinessHours (mọi luồng đã trả lời)" của benchmark (84–105 ms) đo cả `answeredBy()` và hai lần đọc
+cast ngày của mỗi luồng, không riêng `minutesBetween()`.
+
+**Chưa đạt, và vì sao:**
+- "Theo dõi đội ngũ" vẫn trên 300 ms (0,5–1,3 giây). Phần còn lại: khoảng 30 truy vấn lối tắt (một mỗi người ngồi ghế)
+  và đọc id của 5.850 ghế chờ, `BuildTeamWorkload` 120–290 ms, `BuildTaskWorkload`, vẽ bảng. Với admin, 300 ghế kẹt thật
+  vẫn qua Gate từng ghế (đúng định nghĩa, khoảng 1 ms một ghế). Dữ liệu đo là ca xấu nhất (mọi ghế chờ nhận).
+- "Hiệu suất theo kỳ" quý lạnh vẫn 1,4–1,5 giây (báo cáo) / khoảng 2 giây (request) — mục 8 của "Cần chủ văn phòng quyết
+  định" (M13) vẫn mở. SQL cả báo cáo chỉ khoảng 110–150 ms; phần lớn là PHP của Eloquent: Laravel 13.31 dựng mỗi model
+  khoảng 25 µs (`Model::initializeModelAttributes()` tạo `ReflectionClass` cho TỪNG bản ghi — 4.650 mốc + 1.760 yêu cầu +
+  vụ của chúng) và mỗi lần đọc thuộc tính qua cast 3–6 µs; `RequestHolderAt` (lịch sử người giữ, 6.000 dòng nhật ký) và
+  `DeadlineHolderAtDue`/`outcomeAt` mỗi khúc 100–250 ms. Xuống 500 ms cần bỏ model ở các vòng lặp này (đọc dòng thô) —
+  tức viết lại `outcomeAt()`/người giữ trên mảng, một định nghĩa thứ hai mà `NoSecondDefinitionTest` cấm; hoặc chuyển
+  phân loại sang SQL (đổi R11). Việc của chủ văn phòng/controller, không làm ở làn này. Theo dõi bản Laravel sửa chi phí
+  dựng model theo từng bản ghi.
+- Request đổi kỳ còn khoảng 500–700 ms ngoài báo cáo (vẽ bảng Filament 30 dòng × 20 cột, ghi bộ nhớ tạm, P8, việc
+  nội bộ) — chưa phân rã.
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm

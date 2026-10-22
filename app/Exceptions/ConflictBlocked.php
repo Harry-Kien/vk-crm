@@ -17,8 +17,18 @@ class ConflictBlocked extends DomainException
     public function __construct(
         string $message,
         public readonly ConflictCheckResult $result,
+        public readonly bool $resultChanged = false,
     ) {
         parent::__construct($message);
+    }
+
+    /**
+     * Người được ghi đè đã gửi lý do cho một bảng Đỏ, nhưng lần kiểm tra lúc lưu cho ra bảng KHÁC (có
+     * khớp mới) — lý do đó không viết cho bảng này (rà soát 2026-10-22, làn harden).
+     */
+    public static function changed(ConflictCheckResult $result): self
+    {
+        return new self(__('exceptions.conflict_result_changed_override'), $result, true);
     }
 
     public static function make(ConflictCheckResult $result): self

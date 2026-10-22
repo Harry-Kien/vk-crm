@@ -118,6 +118,44 @@ final class ConflictCheckResult implements Arrayable
         return $this->incompleteParties->isNotEmpty();
     }
 
+    /**
+     * Dấu vân tay của BẢNG mà người dùng nhìn thấy để quyết định (rà soát toàn hệ thống 2026-10-22, làn
+     * harden): mức, các khớp MỚI (đúng các trường hiển thị của `ConflictMatch::toArray()`, không kể thứ
+     * tự) và tên các bên thiếu định danh. Khớp đã xác nhận ở lần trước không vào: chúng không đòi quyết
+     * định nào. Màn hình tính nó từ chính mảng đã hiện (`displayFingerprintOf()`), Action tính lại trên
+     * lần kiểm tra NÀY — khác nhau nghĩa là có thứ người dùng chưa thấy (xem `differsFromShown()`).
+     */
+    public function displayFingerprint(): string
+    {
+        return self::displayFingerprintOf($this->toArray());
+    }
+
+    /** @param  array<string, mixed>  $result  Hình dạng `toArray()` (kể cả bản đã lưu trên bản ghi tiếp nhận). */
+    public static function displayFingerprintOf(array $result): string
+    {
+        $fields = ['matter_code', 'matter_type_name', 'party_role', 'party_name', 'level', 'tier', 'our_party_role', 'our_party_name', 'contacted_on'];
+
+        $rows = array_map(
+            fn (array $match): string => json_encode(array_map(fn (string $field) => $match[$field] ?? null, $fields), JSON_THROW_ON_ERROR),
+            array_values(array_filter($result['matches'] ?? [], 'is_array')),
+        );
+        sort($rows);
+
+        $incomplete = array_map('strval', $result['incomplete_parties'] ?? []);
+        sort($incomplete);
+
+        return hash('sha256', json_encode([$result['level'] ?? null, $rows, $incomplete], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Lần kiểm tra NÀY cho ra bảng khác bảng mà caller đã hiện (`$shownFingerprint`). `null` = caller
+     * không nói đã hiện bảng nào (seeder, lệnh, test cũ): giữ hợp đồng cũ chỉ so mức.
+     */
+    public function differsFromShown(?string $shownFingerprint): bool
+    {
+        return $shownFingerprint !== null && ! hash_equals($this->displayFingerprint(), $shownFingerprint);
+    }
+
     public function toArray(): array
     {
         return [
