@@ -149,6 +149,11 @@
             @forelse ($this->checklistItems() as $item)
                 @if ($loop->first)
                     <p style="margin-bottom:0.75rem;font-weight:600;">{{ __('portal_progress.checklist.progress', $this->checklistProgress()) }}</p>
+
+                    {{-- Vụ đã kết thúc: cổng không nhận giấy tờ nữa — MatterProgress::acceptsSubmissions(). --}}
+                    @unless ($this->acceptsSubmissions())
+                        <p data-portal-notice="matter-closed" style="margin-bottom:0.75rem;">{{ __('checklist.submit.matter_closed', ['hotline' => $hotline]) }}</p>
+                    @endunless
                 @endif
 
                 <article style="padding:0.75rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
@@ -160,7 +165,7 @@
                         \App\Enums\ChecklistItemStatus::Missing => 'var(--warning-600)',
                         default => 'color-mix(in srgb, var(--gray-500) 95%, transparent)',
                     } }};font-weight:600;">
-                        {{ __('portal_progress.checklist.status.'.$item['status']->value) }}
+                        {{ $item['status_label'] }}
                     </p>
 
                     <p style="margin-top:0.25rem;font-size:0.9375rem;{{ $muted }}">
