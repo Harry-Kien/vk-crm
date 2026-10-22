@@ -69,7 +69,7 @@ class RequestAnswered extends BrandedMailable
             with: [
                 'name' => $this->recipient->name,
                 'matterCode' => $this->reply->request?->matter?->code,
-                'portalUrl' => PortalUrl::base(),
+                'portalUrl' => PortalUrl::matterRequests($this->reply->request?->matter_id),
                 'office' => $office->legalName(),
                 'hotline' => $office->hotline(),
             ],

@@ -404,9 +404,29 @@ class MatterProgress extends Page
      */
     public function outstandingItems(): Collection
     {
+        // Rà soát 2026-10-22 (làn portal): vụ đã kết thúc không nhận giấy tờ qua cổng
+        // (`MatterClosedForSubmission`), nên không có giấy tờ nào "còn chờ ở khách" để giục.
+        if (! $this->acceptsSubmissions()) {
+            return collect();
+        }
+
         return $this->checklistItems()
             ->filter(fn (array $item): bool => $this->isWaitingOnTheClient($item['status']))
             ->values();
+    }
+
+    /**
+     * Cổng còn nhận giấy tờ cho hồ sơ này không — rà soát toàn hệ thống 2026-10-22, làn portal.
+     *
+     * Từ M7 Task 3 `SubmitClientDocument` từ chối mọi lần nộp vào vụ ĐÃ KẾT THÚC
+     * (`MatterClosedForSubmission`), và danh mục của vụ đó chỉ đọc phía văn phòng. Trang này phải
+     * nói cùng một câu: không khối "Việc anh/chị cần làm" vì giấy tờ, không nút "Gửi giấy tờ này",
+     * không nhãn "Chúng tôi đang chờ anh/chị gửi" — mà một câu mời gọi văn phòng nếu cần gửi thêm.
+     * Một nút hiện ra mà luôn thất bại (khách chụp xong mới biết) là một ngõ cụt.
+     */
+    public function acceptsSubmissions(): bool
+    {
+        return ! $this->matter()->isClosed();
     }
 
     /**
@@ -704,6 +724,11 @@ class MatterProgress extends Page
                 'id' => $item->getKey(),
                 'name' => $item->name,
                 'status' => $item->status,
+                // Vụ đã kết thúc: "đang chờ anh/chị gửi" / "cần anh/chị gửi lại" thành câu trung
+                // tính về điều văn phòng chưa nhận — xem {@see self::acceptsSubmissions()}.
+                'status_label' => ! $this->acceptsSubmissions() && $this->isWaitingOnTheClient($item->status)
+                    ? __('portal_progress.checklist.status_closed.'.$item->status->value)
+                    : __('portal_progress.checklist.status.'.$item->status->value),
                 'is_required' => (bool) $item->is_required,
                 // Thanh tiến độ có đếm dòng này không — {@see ChecklistProgress::countedInTotal()}.
                 // Khối 2 tách hai nhóm bằng ĐÚNG câu hỏi này, nên hai câu trên một màn hình không
@@ -717,7 +742,7 @@ class MatterProgress extends Page
                 // nộp thì nhận cả những trạng thái khác (nó là đường sửa sai duy nhất của khách);
                 // lối vào ở đây hẹp hơn một cách có chủ đích. URL do `SubmitDocument` sở hữu, nên
                 // gọi bằng LỚP chứ không ghép tay.
-                'submit_url' => $this->isWaitingOnTheClient($item->status)
+                'submit_url' => $this->acceptsSubmissions() && $this->isWaitingOnTheClient($item->status)
                     ? SubmitDocument::urlForItem($item)
                     : null,
             ])
@@ -965,6 +990,13 @@ class MatterProgress extends Page
      */
     public function deadlines(): Collection
     {
+        // Rà soát 2026-10-22 (làn portal): vụ đã kết thúc không còn mốc nào khách phải nhớ — kết thúc
+        // vụ khi còn mốc mở là được phép (làn fm A1) và `CheckDeadlines` thôi nhắc chúng, nên vẽ ra
+        // ở đây chỉ còn là một dòng đỏ "Đã quá hạn" trên hồ sơ đã xong (cùng lý lẽ fm B3).
+        if ($this->matter()->isClosed()) {
+            return $this->resolvedDeadlines ??= collect();
+        }
+
         $viewer = $this->viewer();
 
         return $this->resolvedDeadlines ??= $this->matter()->deadlines()->get()

@@ -497,7 +497,9 @@ it('never makes the email promise of the thank-you sentence on a closed matter t
         ->call('chooseItem', $this->item->getKey())
         ->set('data.file', submitPagePdf())
         ->call('submit')
-        ->assertHasErrors('data.file');
+        // Rà soát 2026-10-22 (làn portal): vụ đã đóng từ TRƯỚC khi khách chọn — trang từ chối ngay
+        // ở bước chọn đầu mục (`SubmitDocument::acceptsSubmissions()`), không đợi tới bước Gửi.
+        ->assertHasErrors('item');
 
     expect(submitRegion($component->html()))
         ->not->toContain(e(__('portal_submit.done.body', ['name' => $this->item->name])))

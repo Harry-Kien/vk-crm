@@ -74,7 +74,7 @@ class StageUpdate extends BrandedMailable
                 // — thư này dựng SAU một request Livewire ở /admin (kể cả từ hàng đợi, Task 11),
                 // nên `url()` lấy nhầm host quản trị khi ADMIN_DOMAIN/PORTAL_DOMAIN tách riêng.
                 // Xem docblock `App\Support\PortalUrl`.
-                'portalUrl' => PortalUrl::base(),
+                'portalUrl' => PortalUrl::matter($this->stageLog->matter_id),
                 'office' => $office->legalName(),
                 'hotline' => $office->hotline(),
             ],

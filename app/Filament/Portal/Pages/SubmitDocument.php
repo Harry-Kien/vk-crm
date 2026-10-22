@@ -4,6 +4,7 @@ namespace App\Filament\Portal\Pages;
 
 use App\Actions\Document\SubmitClientDocument;
 use App\Enums\ChecklistItemStatus;
+use App\Exceptions\MatterClosedForSubmission;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
@@ -307,7 +308,9 @@ class SubmitDocument extends Page
 
         $chosen = $item ?? request()->query('item');
 
-        if (filled($chosen)) {
+        // Vụ đã kết thúc: trang chỉ nói câu "không nhận thêm" — không mở bước chụp ảnh từ một
+        // đường dẫn sâu (xem {@see self::acceptsSubmissions()}).
+        if (filled($chosen) && $this->acceptsSubmissions()) {
             $this->chooseItem($chosen);
         }
 
@@ -332,6 +335,18 @@ class SubmitDocument extends Page
     public function matter(): Matter
     {
         return $this->resolvedMatter ??= $this->resolveMatter();
+    }
+
+    /**
+     * Rà soát toàn hệ thống 2026-10-22 (làn portal): vụ ĐÃ KẾT THÚC không nhận giấy tờ qua cổng
+     * (`SubmitClientDocument` ném {@see MatterClosedForSubmission}). Trước bản sửa, trang vẫn cho
+     * chọn đầu mục, chụp ảnh và tải tệp lên, rồi mới báo câu đó ở bước Gửi — khách làm hết việc mới
+     * biết không gửi được. Nay trang nói câu ấy NGAY, thay cho bốn bước. `submit()` vẫn đi qua
+     * Action (lần kiểm dưới khoá giữ nguyên cho vụ đóng giữa chừng).
+     */
+    public function acceptsSubmissions(): bool
+    {
+        return ! $this->matter()->isClosed();
     }
 
     /** Lối quay lại hồ sơ — một màn hình nộp tệp không có đường về là một ngõ cụt. */
@@ -439,6 +454,12 @@ class SubmitDocument extends Page
      */
     public function chooseItem(int|string $key): void
     {
+        if (! $this->acceptsSubmissions()) {
+            throw ValidationException::withMessages([
+                'item' => MatterClosedForSubmission::make()->getMessage(),
+            ]);
+        }
+
         // Bản ghi vừa giải thay luôn bản ghi đã nhớ, KHÔNG chỉ đặt lại `$this->item`. Livewire
         // mang tới 50 lời gọi trong MỘT request (`livewire.payload.max_calls`), nên hai lần
         // `chooseItem()` rồi một lần `submit()` nằm chung một request là một hình dạng có thật —

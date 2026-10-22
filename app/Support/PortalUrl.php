@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Filament\Portal\Pages\MatterProgress;
+use App\Filament\Portal\Pages\MyRequests;
 use Filament\Facades\Filament;
 
 /**
@@ -49,6 +51,32 @@ final class PortalUrl
      * trỏ vào tên miền QUẢN TRỊ nếu `APP_URL` được đặt là tên miền đó. Dùng CHUNG gốc với
      * `base()` (tên miền cổng khi tách riêng, không phải tên miền đang phục vụ request nào).
      */
+    /**
+     * Trang tiến độ của MỘT hồ sơ trên cổng (`MatterProgress`), tuỳ chọn kèm khối (`#tai-lieu`,
+     * `#ho-so-giay-to`) — rà soát 2026-10-22 (làn portal): thư về một hồ sơ cụ thể mở đúng hồ sơ đó,
+     * như thông báo đẩy cùng sự kiện (`PushTopic::url()`), thay vì trang danh sách — khách có nhiều
+     * hồ sơ không phải tự đi tìm. Chỉ lấy ĐƯỜNG DẪN của route (không host), rồi ghép gốc dựng từ cấu
+     * hình như {@see self::base()}. `null` (bản ghi mồ côi) thì về gốc cổng. Trang đích tự hỏi quyền
+     * như mọi request (SPEC §10.10); chưa đăng nhập thì đăng nhập xong quay về đúng trang này.
+     */
+    public static function matter(int|string|null $matterId, string $fragment = ''): string
+    {
+        if ($matterId === null) {
+            return self::base();
+        }
+
+        return self::asset(MatterProgress::getUrl(['record' => $matterId], isAbsolute: false, panel: 'portal'))
+            .($fragment === '' ? '' : '#'.$fragment);
+    }
+
+    /** Trang "Yêu cầu" của MỘT hồ sơ (`MyRequests`) — cùng lý do {@see self::matter()}. */
+    public static function matterRequests(int|string|null $matterId): string
+    {
+        return $matterId === null
+            ? self::base()
+            : self::asset(MyRequests::getUrl(['record' => $matterId], isAbsolute: false, panel: 'portal'));
+    }
+
     public static function asset(string $path): string
     {
         return self::root().'/'.ltrim($path, '/');

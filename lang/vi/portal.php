@@ -58,6 +58,10 @@ return [
          * tài khoản (xem docblock UnlockPortalLogin — luật NAT-an toàn). Câu cũ hứa "gọi là vào
          * ngay", một lời hứa không phải lúc nào cũng giữ được; câu mới không hứa vậy nữa.
          */
+        // Rà soát 2026-10-22 (làn portal) — `Login::failureMessage()`. Không dấu hai chấm: xem lưu ý
+        // về `assertHasErrors` của Livewire.
+        'failed' => 'Email hoặc mật khẩu chưa đúng. Anh/chị kiểm tra lại giúp; nếu quên mật khẩu, xin gọi văn phòng theo số :phone để được cấp mật khẩu mới.',
+
         'throttled' => 'Anh/chị đã thử quá nhiều lần. Xin đợi :minutes phút rồi thử lại, hoặc gọi văn phòng theo số :phone để được hỗ trợ mở khoá tài khoản sớm hơn — nếu vẫn đang dùng chung mạng với lần gõ sai, có thể phải đợi hết :minutes phút dù tài khoản đã được mở khoá.',
     ],
 

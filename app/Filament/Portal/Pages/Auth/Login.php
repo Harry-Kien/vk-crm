@@ -309,7 +309,22 @@ class Login extends BaseLogin
             $this->auditFailedLogin($this->clientUserUndertakingMultiFactorAuthentication());
         }
 
-        parent::throwFailureValidationException();
+        // Rà soát 2026-10-22 (làn portal): câu chung của Filament ("Thông tin đăng nhập không chính
+        // xác.") không nói khách phải làm gì, mà cổng không có đường tự đặt lại mật khẩu — xem
+        // {@see self::failureMessage()}. Cùng khoá `data.email`, cùng một câu cho mọi lần hỏng.
+        throw ValidationException::withMessages([
+            'data.email' => self::failureMessage(),
+        ]);
+    }
+
+    /**
+     * Câu báo khi email hoặc mật khẩu chưa đúng: nói việc phải làm khi quên mật khẩu (gọi văn phòng
+     * để được cấp mật khẩu mới — `EditClientUser` "Cấp lại mật khẩu"). MỘT câu cho email không có
+     * tài khoản, mật khẩu sai, hay tài khoản không vào được cổng: không mở đường dò tài khoản.
+     */
+    public static function failureMessage(): string
+    {
+        return __('portal.login.failed', ['phone' => OfficeProfile::current()->hotline()]);
     }
 
     /**

@@ -88,7 +88,7 @@ class DocumentPublished extends BrandedMailable
         $common = [
             'name' => $this->recipient->name,
             'matterCode' => $this->document->matter?->code,
-            'portalUrl' => PortalUrl::base(),
+            'portalUrl' => PortalUrl::matter($this->document->matter_id, 'tai-lieu'),
             'office' => $office->legalName(),
             'hotline' => $office->hotline(),
         ];
