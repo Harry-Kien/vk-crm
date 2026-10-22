@@ -3,6 +3,7 @@
 namespace App\Actions\User;
 
 use App\Actions\Mcp\RevokeAiConnections;
+use App\Actions\Push\ForgetPushDevice;
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Enums\AiRevocationReason;
 use App\Enums\Role;
@@ -139,6 +140,10 @@ class DeleteStaffMember
 
                 // M11 R8 (Task 6): xem docblock lớp, mục cuối.
                 app(RevokeAiConnections::class)->handle($lockedTarget, AiRevocationReason::Deleted, $lockedActor);
+
+                // Rà soát 2026-10-22 (làn security): "Khôi phục" sau đó không trả lại phiên cũ hay máy nhận
+                // thông báo đẩy cũ — xem EndStaffSessions.
+                app(EndStaffSessions::class)->handle($lockedTarget, $lockedActor, ForgetPushDevice::REASON_STAFF_DELETED);
             });
         });
     }
