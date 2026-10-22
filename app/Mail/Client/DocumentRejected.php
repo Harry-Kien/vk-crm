@@ -93,7 +93,7 @@ class DocumentRejected extends BrandedMailable
                 'matterCode' => $this->checklistItem->matter?->code,
                 'itemName' => $this->checklistItem->name,
                 'reason' => $this->checklistItem->rejection_reason,
-                'portalUrl' => PortalUrl::base(),
+                'portalUrl' => PortalUrl::matter($this->checklistItem->matter_id, 'ho-so-giay-to'),
                 'office' => $office->legalName(),
                 'hotline' => $office->hotline(),
             ],

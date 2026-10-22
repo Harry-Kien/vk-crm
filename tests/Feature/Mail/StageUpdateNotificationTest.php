@@ -697,8 +697,10 @@ it('builds the portal link from PORTAL_DOMAIN, not the host of the current (admi
     // Scheme lấy theo APP_URL của môi trường test (không hardcode https): xem PortalUrl::scheme().
     $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?? 'https';
 
-    expect($html)->toContain('href="'.$scheme.'://khachhang.luatvukhang.test/portal"')
-        ->and($html)->not->toContain('href="'.$scheme.'://quantri.luatvukhang.test/portal"');
+    // Rà soát 2026-10-22 (làn portal): liên kết mở thẳng hồ sơ (`PortalUrl::matter()`), vẫn trên
+    // PORTAL_DOMAIN — `ClientMailDeepLinkTest`.
+    expect($html)->toContain('href="'.$scheme.'://khachhang.luatvukhang.test/portal/ho-so/'.$stageLog->matter_id.'"')
+        ->and($html)->not->toContain('quantri.luatvukhang.test/portal');
 });
 
 /** Cặp dương: một tên miền (không tách ADMIN_DOMAIN/PORTAL_DOMAIN) thì liên kết vẫn dựng đúng. */
