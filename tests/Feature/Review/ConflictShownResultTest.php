@@ -442,3 +442,81 @@ it('refuses the red override at the Action when the caller says which table it s
 
     expect($intake->fresh()->conflict_overridden_by)->toBeNull();
 });
+
+/**
+ * Lần gọi B của "Bà Gọi Lại" kiểm tra Xanh; về sau lần gọi A của cùng người ra Đỏ và GIỮ B. Bảng đã lưu của
+ * B tính trước khi A khoá (trang nói Đỏ nằm ngoài lần kiểm tra gần nhất); lần chạy lại lúc xử lý mang sang
+ * bên đối lập của A — nội dung của khoá, không phải khớp mới (`ShownConflictFingerprint`).
+ *
+ * @return array{a: IntakeRequest, b: IntakeRequest}
+ */
+function csrHeldCall(): array
+{
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    csrFirmClientWithPhone('0912000666', 'Khách Hiện Hữu Thật');
+
+    $call = fn (array $parties): IntakeRequest => tap(app(RecordIntake::class)->handle($assistant, [
+        'contact_name' => 'Bà Gọi Lại',
+        'contact_phone' => '0832 270 898',
+        'contact_role' => PartyRole::Plaintiff,
+        'source' => IntakeSource::Phone,
+    ], $parties)->intake, fn (IntakeRequest $intake) => app(RecordPrivacyNotice::class)->handle($assistant, $intake, true))->fresh();
+
+    $b = $call([['name' => 'Ông Chồng Cũ', 'role' => PartyRole::Defendant, 'phone' => '0977 000 444']]);
+    $a = $call([['name' => 'Bị Đơn Là Khách', 'role' => PartyRole::Defendant, 'phone' => '0912000666']]);
+
+    expect($b->fresh()->isHeldByRepeatCallLock())->toBeTrue()
+        ->and($b->fresh()->conflict_level)->toBe(ConflictLevel::Green);
+
+    return ['a' => $a, 'b' => $b->fresh()];
+}
+
+it('lets a manager release a held call whose own table did not change, but refuses once a new match lands on its own party', function () {
+    ['b' => $b] = csrHeldCall();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $this->actingAs($manager, 'web');
+
+    $page = $this->livewire(EditIntakeRequest::class, ['record' => $b->getRouteKey()]);
+
+    // Sau khi trang hiện bảng: bên đối lập của CHÍNH B trùng SĐT một khách hiện hữu — Đỏ mới trên bản này.
+    $fresh = csrFirmClientWithPhone('0977000444', 'Ông Chồng Cũ Là Khách');
+
+    $page->callAction(csrResolveRed(), data: ['override_reason' => 'Đã xác minh lần gọi kia, không liên quan.']);
+
+    Notification::assertNotified(
+        Notification::make()->title(__('actions.failed_title'))->body(__('exceptions.conflict_result_changed_override'))->danger()->persistent(),
+    );
+    expect($b->fresh()->hasConflictOverride())->toBeFalse();
+
+    $page->assertSee($fresh->code)
+        ->callAction(csrResolveRed(), data: ['override_reason' => 'Đã xem cả khớp mới của bên đối lập.'])
+        ->assertHasNoErrors();
+
+    expect($b->fresh()->hasConflictOverride())->toBeTrue();
+});
+
+it('refuses to release a held call when another call of the same caller starts holding it after the page was shown', function () {
+    ['b' => $b] = csrHeldCall();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $this->actingAs($manager, 'web');
+
+    $page = $this->livewire(EditIntakeRequest::class, ['record' => $b->getRouteKey()]);
+
+    // Một lần gọi THỨ BA của cùng người, nêu một khách hiện hữu khác: một khoá mới trên B.
+    csrFirmClientWithPhone('0912000777', 'Khách Hiện Hữu Khác');
+    app(RecordIntake::class)->handle(User::factory()->withRole(Role::Assistant)->create(), [
+        'contact_name' => 'Bà Gọi Lại',
+        'contact_phone' => '0832 270 898',
+        'contact_role' => PartyRole::Plaintiff,
+        'source' => IntakeSource::Phone,
+    ], [['name' => 'Bên Khác Là Khách', 'role' => PartyRole::Defendant, 'phone' => '0912000777']]);
+
+    $page->callAction(csrResolveRed(), data: ['override_reason' => 'Đã xác minh lần gọi kia, không liên quan.']);
+
+    expect($b->fresh()->hasConflictOverride())->toBeFalse();
+    Notification::assertNotified(
+        Notification::make()->title(__('actions.failed_title'))->body(__('exceptions.conflict_result_changed_override'))->danger()->persistent(),
+    );
+});

@@ -10243,6 +10243,13 @@ Ba việc chuyển từ làn intake và làn billing (nhánh `review-harden`). M
   khối kiểm tra, bị từ chối thì nạp lại bản ghi và đóng hộp thoại để cả trang vẽ bảng mới. Đỏ dính mà bảng không
   đổi vẫn ghi đè được, hộp thoại giữ câu riêng "Đỏ dính". Test: `ConflictShownResultTest` (3 ca thêm: màn hình,
   Action, Đỏ dính).
+  *Sửa sau khi gộp:* hai test cũ của `IntakeConflictStateScreensTest` (trưởng phòng gỡ "lần gọi bị giữ" từ trang
+  của chính nó) đỏ — bảng đã lưu của lần gọi bị giữ tính TRƯỚC khi lần gọi kia của cùng người khoá, còn lần chạy
+  lại lúc xử lý mang sang bên đối lập và mã `TN-…` của lần gọi kia (nội dung của khoá mà trang đã báo "Đỏ ngoài
+  lần kiểm tra gần nhất"), nên dấu luôn khác. Nay một định nghĩa dấu cho trang tiếp nhận và hai Action
+  (`App\Support\Intake\ShownConflictFingerprint`): bản ghi thường giữ nguyên dấu cũ; bản đang bị giữ thì so các
+  dòng của chính bản ghi (trừ dòng chỉ về lần gọi đang khoá), bên thiếu định danh của nó và dấu các khoá đang giữ
+  — khớp mới trên bên của chính bản ghi hay một khoá mới vẫn bị từ chối. Test thêm 2 ca "held call".
 
 ### Rà soát toàn hệ thống 2026-10-22 — làn perf2
 
