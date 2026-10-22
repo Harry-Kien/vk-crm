@@ -190,10 +190,16 @@ final class BuildPerformanceReport
     {
         // Vụ của mỗi mốc chỉ cần ba cột: `outcomeAt()` hỏi `closedOnOrBefore()` (`closed_at`, đã huỷ chưa). Một
         // quý của trưởng phòng là hàng nghìn mốc; nạp cả dòng vụ là thời gian thừa (số đo Task 8, R11).
+        //
+        // Và chỉ vụ đã kết thúc (`Matter::closed()`; rà soát 2026-10-22, làn perf2): `outcomeAt()` chỉ đọc vụ qua
+        // `closedOnOrBefore()`, đúng khi vụ `isClosed()` — vụ còn mở và vụ không nạp (`null`) đều ra "lỡ" như
+        // nhau — nên để quan hệ `matter` rỗng cho mốc của vụ còn mở cho cùng đáp án mà khỏi dựng hàng nghìn model
+        // `Matter` (mỗi model Laravel 13 dựng khoảng 25 µs; dữ liệu đo M13: 3.000 → khoảng 900 vụ). Quan hệ nạp
+        // có điều kiện này chỉ sống trong hàm này; `matter_id` vẫn là cột của mốc.
         $deadlines = Deadline::query()
             ->dueBetween($period->bounds())
             ->whereHas('matter', $visible)
-            ->with('matter:id,closed_at,deleted_at')
+            ->with(['matter' => fn ($matter) => $matter->select('id', 'closed_at', 'deleted_at')->closed()])
             ->get();
 
         $holders = DeadlineHolderAtDue::resolve($deadlines);
@@ -244,9 +250,12 @@ final class BuildPerformanceReport
             ->with('matter:id,lead_lawyer_id')
             ->get();
 
+        // `answeredBy()` một lần cho mỗi luồng: mỗi lần đọc `answered_at` qua cast dựng một Carbon (làn perf2).
+        $answered = $requests->mapWithKeys(fn (ClientRequest $request): array => [$request->getKey() => $request->answeredBy($cutoff)]);
+
         $holders = RequestHolderAt::resolve(
             $requests,
-            fn (ClientRequest $request): CarbonInterface => $request->answeredBy($cutoff) ? $request->answered_at : $cutoff,
+            fn (ClientRequest $request): CarbonInterface => $answered[$request->getKey()] ? $request->answered_at : $cutoff,
         );
 
         foreach ($requests as $request) {
@@ -261,7 +270,7 @@ final class BuildPerformanceReport
 
             $this->add($holder, 'received', 1, $matterId);
 
-            if ($request->answeredBy($cutoff)) {
+            if ($answered[$request->getKey()]) {
                 $this->add($holder, 'answered', 1);
 
                 // R17 — GIỜ LÀM VIỆC, qua ĐÚNG định nghĩa của M10 (`App\Support\BusinessHours`, cấu hình
