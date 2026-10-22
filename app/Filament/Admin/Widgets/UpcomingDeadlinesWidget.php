@@ -5,10 +5,10 @@ namespace App\Filament\Admin\Widgets;
 use App\Actions\Deadline\DeleteDeadline;
 use App\Enums\DeadlineSeverity;
 use App\Enums\Permission;
-use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Models\Deadline;
 use App\Models\User;
+use App\Support\MatterTab;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -136,11 +136,9 @@ class UpcomingDeadlinesWidget extends TableWidget
             ->recordActions([
                 Action::make('open')
                     ->label(__('widgets.upcoming_deadlines.open'))
-                    ->url(fn (Deadline $record): string => MatterResource::getUrl(
-                        'view',
-                        ['record' => $record->matter_id],
-                        panel: 'admin',
-                    )),
+                    // Tab "Mốc thời hạn" — cùng chỗ thư, chuông và thông báo đẩy nhắc hạn của mốc này mở
+                    // (`PushTopic::StaffDeadlineReminder`; rà soát làn ops 2026-10-22, `DashboardRowLinksTest`).
+                    ->url(fn (Deadline $record): string => MatterTab::url((int) $record->matter_id, DeadlinesRelationManager::class)),
             ])
             ->paginated([5, 10, 25]);
     }

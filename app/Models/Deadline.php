@@ -167,37 +167,44 @@ class Deadline extends Model
      */
     public function outcomeAt(CarbonInterface $cutoff): ?DeadlineOutcome
     {
-        // Mỗi cột ngày đọc MỘT lần: cast ngày của Eloquent dựng một Carbon mới ở mỗi lần đọc, và trang
-        // "Hiệu suất theo kỳ" gọi hàm này cho mọi mốc của kỳ (hàng nghìn mốc một quý — số đo Task 8, R11).
-        $dueEnd = $this->dueEnd();
-        $createdAt = $this->created_at;
+        // So bằng DẤU THỜI GIAN (giây), không bằng Carbon: trang "Hiệu suất theo kỳ" gọi hàm này cho mọi mốc
+        // của kỳ (hàng nghìn mốc một quý), và mỗi lần đọc cast ngày của Eloquent dựng một Carbon mới — bốn
+        // Carbon cùng các phép so của chúng là phần lớn thời gian của báo cáo (rà soát làn ops 2026-10-22, số
+        // đo ở PROGRESS). Cùng đáp án: mọi cột ở đây lưu tới GIÂY, nên so phần nguyên giây của `$cutoff` (có
+        // thể mang micro giây của `now()`) cho cùng kết quả với so Carbon — `OutcomeAtParityTest` ghim.
+        $dueEnd = $this->dueEndTimestamp();
+        $createdAt = $this->storedTimestamp('created_at');
+        $cutoffAt = $cutoff->getTimestamp();
 
-        if ($createdAt !== null && $createdAt->gt($dueEnd)) {
+        if ($createdAt !== null && $createdAt > $dueEnd) {
             return null;
         }
 
         if ($this->is_completed) {
-            $completedAt = $this->completed_at;
+            $completedAt = $this->storedTimestamp('completed_at');
 
             if ($completedAt === null) {
                 return null;
             }
 
-            if ($completedAt->lte($dueEnd)) {
+            if ($completedAt <= $dueEnd) {
                 return DeadlineOutcome::OnTime;
             }
 
-            if ($completedAt->lte($cutoff)) {
+            if ($completedAt <= $cutoffAt) {
                 return DeadlineOutcome::Late;
             }
         }
 
-        if ($dueEnd->gt($cutoff)) {
+        if ($dueEnd > $cutoffAt) {
             return null;
         }
 
-        // `$dueEnd` là 23:59:59 của `due_date`; `closedOnOrBefore()` tự lấy hết ngày của nó — cùng ngày.
-        if ($this->matter?->closedOnOrBefore($dueEnd) === true) {
+        // `$dueEnd` là 23:59:59 của `due_date`; `closedOnOrBefore()` tự lấy hết ngày của nó — cùng ngày. Vụ chưa
+        // có `closed_at` thì không thể "đã kết thúc" (`Matter::isClosed()`): khỏi dựng Carbon cho mỗi mốc lỡ.
+        $matter = $this->matter;
+
+        if ($matter !== null && ($matter->getAttributes()['closed_at'] ?? null) !== null && $matter->closedOnOrBefore($this->dueEnd())) {
             return null;
         }
 
@@ -213,6 +220,37 @@ class Deadline extends Model
     public function dueEnd(): CarbonInterface
     {
         return $this->due_date->copy()->setTime(23, 59, 59);
+    }
+
+    /**
+     * {@see self::dueEnd()} dưới dạng dấu thời gian Unix, không dựng Carbon nào — cho hai vòng lặp hàng nghìn
+     * mốc của trang "Hiệu suất theo kỳ" ({@see self::outcomeAt()}, `DeadlineHolderAtDue`). Đọc phần NGÀY của giá
+     * trị lưu (`Y-m-d` hay `Y-m-d H:i:s`, cast `date` bỏ phần giờ) rồi 23:59:59 theo múi giờ mặc định của PHP —
+     * Laravel đặt nó bằng `APP_TIMEZONE`, cùng múi giờ cast dùng. `OutcomeAtParityTest` ghim bằng nhau với
+     * `dueEnd()->getTimestamp()`.
+     */
+    public function dueEndTimestamp(): int
+    {
+        $stored = $this->getAttributes()['due_date'] ?? null;
+        $timestamp = is_string($stored) && preg_match('/^\d{4}-\d{2}-\d{2}/', $stored) === 1
+            ? strtotime(substr($stored, 0, 10).' 23:59:59')
+            : false;
+
+        return $timestamp !== false ? $timestamp : $this->dueEnd()->getTimestamp();
+    }
+
+    /** Dấu thời gian Unix của một cột ngày-giờ đã lưu (chuỗi `Y-m-d H:i:s`), không qua cast; rỗng là `null`. */
+    private function storedTimestamp(string $column): ?int
+    {
+        $stored = $this->getAttributes()[$column] ?? null;
+
+        if ($stored === null) {
+            return null;
+        }
+
+        $timestamp = is_string($stored) ? strtotime($stored) : false;
+
+        return $timestamp !== false ? $timestamp : $this->asDateTime($stored)->getTimestamp();
     }
 
     /** 23:59:59 của ngày (hôm nay + `$days`), dạng chuỗi ngày-giờ cho một cận trên cột `date`. */

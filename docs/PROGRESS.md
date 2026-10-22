@@ -10142,6 +10142,47 @@ mức bảo mật, `updateConfidentiality`), đó là một ability riêng. (b) 
 thường → hạn chế → thường: khi vụ trở lại "thường", AI truy cập lại ngay không cần xác nhận lại sự đồng ý của khách —
 có muốn hạ cờ về "Không cho AI truy cập" mỗi khi vụ chuyển sang hạn chế không?
 
+### Rà soát toàn hệ thống 2026-10-22 — làn ops
+
+Phạm vi: trang chủ theo vai, thông báo/thư/đẩy, lịch chạy định kỳ, trang M13, cài đặt, sao lưu, dữ liệu mẫu, chuỗi
+tiếng Việt, menu. Đo lại M13 trên MariaDB với `tests/Benchmark/TeamPerformanceBenchmarkTest.php` (dữ liệu R11, máy dùng
+chung nên số dao động 20–40 %).
+
+**Đã sửa (TDD, đỏ trước):**
+- **Cao — "Theo dõi đội ngũ" mất 17–20 giây** trên dữ liệu đo (5.935 truy vấn, ngân sách 300 ms): dòng "Hồ sơ cần phân
+  công lại" (`SeatsNeedingReassignment`) hỏi `Gate::view()` cho TỪNG ghế chờ nhận, mỗi lần một EXISTS. Nạp sẵn
+  `matter.team` để policy trả lời trong bộ nhớ: 86 truy vấn, 6–9 giây trên dữ liệu đo (mọi ghế ở đó đều "chờ nhận" vì
+  benchmark chèn thẳng, không qua lần điền `accepted_at` của migration; văn phòng thật có ít ghế chờ hơn nhiều). Phần còn
+  lại là chi phí PHP của mỗi lần hỏi quyền Spatie (khoảng 0,2 ms một lần `can()`), không phải truy vấn.
+  `StuckSeatsQueryBudgetTest` (số truy vấn không tăng theo số ghế; đỏ trước 17 ≠ 7; kết quả giữ nguyên, kể cả vụ hạn chế).
+- **Trung bình — "Hiệu suất theo kỳ" mở lạnh khoảng 2 giây**: `Deadline::outcomeAt()` dựng 4–5 Carbon cho mỗi mốc
+  (khoảng 80 µs/mốc). Nay so bằng dấu thời gian (`dueEndTimestamp()`, cột lưu tới giây), chỉ dựng Carbon khi vụ đã có
+  `closed_at`; `DeadlineHolderAtDue` dùng cùng dấu thời gian; `ClientRequest::answeredBy()` đọc cột một lần. `outcomeAt`
+  cho 4.650 mốc 400 → 40 ms; `BuildPerformanceReport` một quý: trưởng phòng 1.726 → 1.348 ms, admin 2.138 → 1.397 ms
+  (trung vị 7 lần). `OutcomeAtParityTest`: 784 ca (ngày ghi × ngày xong × ngày kết thúc vụ × mốc cắt, cả mốc cắt mang
+  micro giây) bằng đúng bản so Carbon của M13; ba phép thử ngược đều đỏ; chạy SQLite và MariaDB.
+- **Thấp — nút "Mở" của ba danh sách trang chủ** ("Mốc thời hạn 7 ngày tới", "Tài liệu chờ duyệt", "Hồ sơ thiếu giấy
+  tờ") mở tab Tổng quan, trong khi thư/chuông/đẩy của cùng việc mở đúng tab. Nay mở tab "Mốc thời hạn" / "Danh mục hồ sơ"
+  (`MatterTab::url`). `DashboardRowLinksTest` (đỏ trước 3/3).
+
+**Đã kiểm, không thấy lỗi:** đi hết 36 trang admin và mọi widget với sáu tài khoản mẫu (admin, quản lý, luật sư, trợ lý,
+kế toán, kinh doanh) trên `DatabaseSeeder` — không trang 5xx, không khoá lang thô hiện ra (chỉ `mcp.enabled` /
+`mcp.write_enabled` là tên cấu hình cố ý in ra trên trang Kết nối AI); mỗi widget trang chủ 1–9 truy vấn, không N+1.
+`migrate:fresh --seed` (môi trường local) rồi `db:seed` lần hai đều chạy sạch. Mọi Action `app/Actions/Schedule` đều có
+lịch; người nhận theo vai đều lọc `is_active` (qua `ResolveStaffRecipients::qualify()` hoặc truy vấn).
+
+**Còn lại, không sửa ở làn này:**
+- `BusinessHours::minutesBetween()` (định nghĩa giờ làm việc M10 dùng chung) chiếm khoảng 200 ms của báo cáo quý; nạp mốc
+  và yêu cầu khoảng 400 ms. Lần mở lạnh một quý vẫn khoảng 1,3–1,4 giây trên máy đo — vẫn vượt 500 ms (mục 8 dưới "Cần chủ
+  văn phòng quyết định" của M13 vẫn mở).
+- `tests/Benchmark/TeamPerformanceBenchmarkTest.php` chèn mọi ghế `matter_user` với `accepted_at` rỗng (ghế "chờ nhận"),
+  nên trần 3.000 ms của nó cho "Theo dõi đội ngũ" vẫn đỏ (6–9 giây). Đây là ca xấu nhất có chủ đích để lại; muốn dữ liệu
+  sát thực tế thì điền `accepted_at` như migration `2026_10_14_100002`.
+
+**Cần chủ văn phòng quyết định:**
+- Nút "Mở" của "Hồ sơ quá hạn cập nhật" và "Khách chưa xem cập nhật" nên vào tab nào: "Tiến độ" (đăng cập nhật mới) hay
+  "Liên lạc" (ghi cuộc gọi cho khách)? Hiện vẫn mở tab Tổng quan.
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
