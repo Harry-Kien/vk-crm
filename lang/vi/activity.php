@@ -369,6 +369,9 @@ return [
         // máy nhận thông báo đẩy thay chủ máy.
         'push_device_removed' => [
             'email_changed' => 'Đổi email tài khoản cổng: gỡ mọi máy của người giữ địa chỉ cũ',
+            // Rà soát 2026-10-22 (làn portal): ForgetPushDevice::REASON_PORTAL_DEACTIVATED / REASON_PORTAL_DELETED.
+            'portal_deactivated' => 'Tắt tài khoản cổng của khách: gỡ mọi máy của tài khoản đó',
+            'portal_deleted' => 'Xoá tài khoản cổng của khách: gỡ mọi máy của tài khoản đó',
             'two_factor_reset' => 'Đặt lại 2FA: gỡ mọi máy của nhân sự',
             'office' => 'Văn phòng gỡ theo yêu cầu của khách (mất hoặc đổi máy)',
             // Làn fb, mục A5: ForgetPushDevice::REASON_STAFF_SUSPENDED.

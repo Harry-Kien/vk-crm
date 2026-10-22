@@ -70,6 +70,9 @@ return [
      * thúc, là một việc nội bộ, hoặc là một chuyện cần nói riêng — đó là một cuộc điện thoại của
      * văn phòng, không phải một dòng chữ trên màn hình đăng nhập.
      */
+    // Rà soát 2026-10-22 (làn portal): `EnsurePortalAccountIsActive::endStaleSession()`.
+    'session_ended' => 'Phiên đăng nhập trên máy này đã kết thúc. Anh/chị đăng nhập lại giúp.',
+
     'inactive' => 'Tài khoản này hiện chưa đăng nhập được. Anh/chị gọi giúp văn phòng theo số :phone để chúng tôi hỗ trợ ngay.',
 
     'change_password' => [
