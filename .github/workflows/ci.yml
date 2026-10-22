@@ -39,6 +39,9 @@ jobs:
         with:
           php-version: '8.3'
           extensions: pdo_mysql, mbstring, intl, bcmath, zip, gd, sqlite3, pdo_sqlite
+          # Trần tải tệp như máy chủ thật (CAI-DAT: upload_max_filesize ≥ UPLOAD_MAX_MB). Mặc định 2M của
+          # PHP dòng lệnh làm trang Cài đặt kẹp "dung lượng tối đa" ở 2 MB — 7 test trần tải tệp đỏ.
+          ini-values: upload_max_filesize=64M, post_max_size=64M
           coverage: none
 
       - name: Cài phụ thuộc
@@ -83,6 +86,9 @@ jobs:
         with:
           php-version: '8.3'
           extensions: pdo_mysql, mbstring, intl, bcmath, zip, gd
+          # Trần tải tệp như máy chủ thật (CAI-DAT: upload_max_filesize ≥ UPLOAD_MAX_MB). Mặc định 2M của
+          # PHP dòng lệnh làm trang Cài đặt kẹp "dung lượng tối đa" ở 2 MB — 7 test trần tải tệp đỏ.
+          ini-values: upload_max_filesize=64M, post_max_size=64M
           coverage: none
 
       - name: Cài phụ thuộc
