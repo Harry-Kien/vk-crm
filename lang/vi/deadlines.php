@@ -189,5 +189,6 @@ return [
     'overdue_notification' => [
         'title' => 'Mốc thời hạn đã quá hạn',
         'body' => 'Mốc ":name" (hồ sơ :code) đã quá hạn. Cần xử lý ngay.',
+        'open' => 'Mở mốc thời hạn của hồ sơ',
     ],
 ];

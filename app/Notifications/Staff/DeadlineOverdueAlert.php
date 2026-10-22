@@ -4,7 +4,10 @@ namespace App\Notifications\Staff;
 
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Actions\Schedule\CheckDeadlines;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Models\Deadline;
+use App\Support\MatterTab;
+use Filament\Actions\Action;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -53,11 +56,20 @@ class DeadlineOverdueAlert extends Notification
     /** @return array<string, mixed> */
     public function toDatabase(object $notifiable): array
     {
+        // Rà soát toàn hệ thống 2026-10-22 (làn matter): tên mốc là chữ người dùng gõ — `e()`, vì chuông vẽ
+        // nội dung qua `sanitizeHtml()` và một tên dạng thẻ (`<kháng cáo>`) bị cắt cụt; và một nút mở thẳng
+        // tab "Mốc thời hạn" của hồ sơ, như chuông "được giao mốc" (`DeadlineAssignedAlert`).
         return [
-            'actions' => [],
+            'actions' => [
+                Action::make('open')
+                    ->label(__('deadlines.overdue_notification.open'))
+                    ->url(MatterTab::url((int) $this->deadline->matter_id, DeadlinesRelationManager::class))
+                    ->markAsRead()
+                    ->toArray(),
+            ],
             'body' => __('deadlines.overdue_notification.body', [
-                'name' => $this->deadline->name,
-                'code' => $this->deadline->matter?->code ?? '',
+                'name' => e($this->deadline->name),
+                'code' => e((string) ($this->deadline->matter?->code ?? '')),
             ]),
             'color' => 'danger',
             'duration' => 'persistent',
