@@ -28,6 +28,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
@@ -457,20 +458,18 @@ class Receivables extends Page implements HasTable
             ->icon(Heroicon::OutlinedNoSymbol)
             ->color('danger')
             ->modalHeading(__('billing.receivables.actions.void_payment_heading'))
-            ->visible(fn (Instalment $record): bool => $record->payments->isNotEmpty())
+            // Rà soát toàn hệ thống 2026-10-22 (làn billing): `->visible()` được hỏi lại NGAY TRƯỚC khi chạy
+            // (`callMountedAction()` bỏ ngang, không một lời, khi nút thành ẩn). Một kế toán khác huỷ khoản duy
+            // nhất của đợt trong lúc hộp thoại đang mở thì "còn khoản chưa huỷ" rớt xuống `false` — nên hộp
+            // thoại ĐÃ MỞ giữ nút, và `VoidPayment` nói câu "đã được huỷ từ trước" (cùng cách tab của hồ sơ,
+            // `BillingRelationManager::voidPaymentAction()`).
+            ->visible(fn (Action $action, Instalment $record): bool => isset($this->mountedActions[$action->getNestingIndex() ?? -1])
+                || $record->payments->isNotEmpty())
             ->authorize(fn (Instalment $record): bool => Gate::allows('void', (new Payment)->setRelation('instalment', $record)))
             ->schema([
                 Select::make('payment_id')
                     ->label(__('billing.receivables.fields.payment_to_void'))
-                    ->options(fn (Instalment $record): array => $record->payments
-                        ->mapWithKeys(fn (Payment $payment): array => [
-                            $payment->id => sprintf(
-                                '%s — %s (%s)',
-                                $payment->paid_on->format('d/m/Y'),
-                                Money::format($payment->amount),
-                                $payment->method->label(),
-                            ),
-                        ])->all())
+                    ->options(fn (Instalment $record, Get $get): array => static::voidPaymentOptions($record, $get('payment_id')))
                     ->required(),
                 Textarea::make('reason')
                     ->label(__('billing.tab.fields.reason'))
@@ -481,7 +480,9 @@ class Receivables extends Page implements HasTable
             ->action(fn (Action $action, Instalment $record, array $data) => $this->runAction(
                 $action,
                 function () use ($data, $record): Payment {
-                    $payment = Payment::query()->whereNull('voided_at')->find($data['payment_id'] ?? null);
+                    // Không lọc "chưa huỷ" ở đây: khoản vừa bị người khác huỷ phải tới `VoidPayment` để nhận
+                    // đúng câu `PaymentAlreadyVoided`, không phải câu chung "không còn để huỷ".
+                    $payment = Payment::query()->find($data['payment_id'] ?? null);
 
                     // **Không tin `payment_id` từ Livewire (fix vòng 1, minor).** Ô `Select` chỉ
                     // liệt kê khoản thu của ĐÚNG đợt đang mở modal, nhưng đó là một ràng buộc GIAO
@@ -509,5 +510,38 @@ class Receivables extends Page implements HasTable
                     return app(VoidPayment::class)->handle(Auth::user(), $payment, $data['reason'] ?? '');
                 },
             ));
+    }
+
+    /**
+     * Ô chọn của "Huỷ khoản thu": các khoản CHƯA huỷ của đợt (đã nạp sẵn ở {@see self::rowsQuery()}), mới
+     * nhất trước, cộng khoản ĐANG được chọn của chính đợt này dù nó vừa bị huỷ — luật "trong danh sách" của
+     * `Select` tính lại lúc bấm "Gửi", và một khoản vừa bị người khác huỷ mà rơi khỏi danh sách thì lần bấm
+     * dừng ở câu chung "giá trị đã chọn không hợp lệ" thay vì tới `VoidPayment` (rà soát toàn hệ thống
+     * 2026-10-22, làn billing; cùng luật `BillingRelationManager::voidPaymentOptions()`). Khoản của đợt KHÁC
+     * không bao giờ được thêm vào.
+     *
+     * @return array<int, string>
+     */
+    private static function voidPaymentOptions(Instalment $instalment, mixed $selectedId): array
+    {
+        $payments = $instalment->payments;
+
+        if (filled($selectedId) && ! $payments->contains('id', (int) $selectedId)) {
+            $selected = Payment::query()->where('instalment_id', $instalment->getKey())->find((int) $selectedId);
+
+            if ($selected !== null) {
+                $payments = $payments->concat([$selected]);
+            }
+        }
+
+        return $payments
+            ->mapWithKeys(fn (Payment $payment): array => [
+                $payment->id => sprintf(
+                    '%s — %s (%s)',
+                    $payment->paid_on->format('d/m/Y'),
+                    Money::format($payment->amount),
+                    $payment->method->label(),
+                ),
+            ])->all();
     }
 }
