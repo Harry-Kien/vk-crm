@@ -3,6 +3,8 @@
 use App\Actions\AddMatterParty;
 use App\Actions\Intake\RecordIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
+use App\Actions\Intake\RerunIntakeConflictCheck;
+use App\Actions\Intake\ResolveIntakeRedConflict;
 use App\Actions\Intake\UpdateIntakeSummary;
 use App\Actions\OpenMatter;
 use App\Enums\ConflictLevel;
@@ -10,16 +12,19 @@ use App\Enums\IntakeSource;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
+use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\ConvertIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\EditIntakeRequest;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Models\Client;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\ConflictCheckResult;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
@@ -332,4 +337,108 @@ it('refuses an acknowledgement at the Action when the caller says which table it
         ->toThrow(ConflictAcknowledgementRequired::class, __('exceptions.conflict_result_changed'));
 
     expect($matter->parties()->where('name', 'Võ Thị Hành')->exists())->toBeFalse();
+});
+
+/** Khách hiện hữu mang SĐT `$phone` ở một vụ khác — bên đối lập trùng SĐT ra Đỏ. */
+function csrFirmClientWithPhone(string $phone, string $name): Matter
+{
+    $client = Client::factory()->create(['phone' => $phone, 'id_number' => null, 'name' => $name]);
+    $matter = Matter::factory()->create();
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    return $matter;
+}
+
+/** Tiếp nhận Đỏ: bên đối lập mang SĐT của một khách hiện hữu. */
+function csrRedIntake(User $actor): IntakeRequest
+{
+    $intake = app(RecordIntake::class)->handle($actor, [
+        'contact_name' => 'Người Gọi Đỏ',
+        'contact_phone' => '0832270777',
+        'contact_role' => PartyRole::Plaintiff,
+        'source' => IntakeSource::Phone,
+    ], [['name' => 'Bị Đơn Là Khách', 'role' => PartyRole::Defendant, 'phone' => '0912000555']])->intake;
+    app(RecordPrivacyNotice::class)->handle($actor, $intake, true);
+
+    return $intake->fresh();
+}
+
+function csrResolveRed(): TestAction
+{
+    return TestAction::make('resolveRed')->schemaComponent('checkActions');
+}
+
+it('refuses the intake red override when a new red match appeared after the page showed the table', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $first = csrFirmClientWithPhone('0912000555', 'Khách Cũ Một');
+    $intake = csrRedIntake($assistant);
+
+    expect($intake->conflict_level)->toBe(ConflictLevel::Red);
+
+    $this->actingAs($manager, 'web');
+
+    $page = $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])->assertSee($first->code);
+
+    // Trong lúc trưởng phòng đọc bảng, một khách hiện hữu KHÁC cùng SĐT được ghi ở một vụ khác: Đỏ mới.
+    $second = csrFirmClientWithPhone('0912000555', 'Khách Cũ Hai');
+
+    $page->callAction(csrResolveRed(), data: ['override_reason' => 'Đã gọi Khách Cũ Một, không cùng việc.']);
+
+    Notification::assertNotified(
+        Notification::make()->title(__('actions.failed_title'))->body(__('exceptions.conflict_result_changed_override'))->danger()->persistent(),
+    );
+
+    expect($intake->fresh()->conflict_overridden_by)->toBeNull()
+        ->and($intake->fresh()->hasUnresolvedRed())->toBeTrue()
+        ->and(Activity::query()->where('event', 'intake_conflict_overridden')->exists())->toBeFalse();
+
+    // Trang hiện lại bảng MỚI ngay trong lượt bị từ chối; ghi đè lại trên bảng mới thì được.
+    $page->assertSee($second->code)
+        ->callAction(csrResolveRed(), data: ['override_reason' => 'Đã gọi cả hai khách cũ, không cùng việc.'])
+        ->assertHasNoErrors();
+
+    expect($intake->fresh()->conflict_overridden_by)->toBe($manager->id)
+        ->and($intake->fresh()->hasUnresolvedRed())->toBeFalse();
+});
+
+it('still lets a manager override a sticky red whose table did not change, with the sticky-red wording', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    csrFirmClientWithPhone('0912000555', 'Khách Cũ Một');
+    $intake = csrRedIntake($assistant);
+
+    // Gỡ bên đối lập rồi chạy lại: lần chạy ra Xanh nhưng Đỏ vẫn dính.
+    $intake->parties()->delete();
+    app(RerunIntakeConflictCheck::class)->handle($assistant, $intake->fresh());
+
+    expect($intake->fresh()->conflict_level)->toBe(ConflictLevel::Green)
+        ->and($intake->fresh()->hasUnresolvedRed())->toBeTrue();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->mountAction(csrResolveRed())
+        ->assertMountedActionModalSee(__('intake.gate.red_was_shown'))
+        ->setActionData(['override_reason' => 'Bên đối lập nhập nhầm, đã gỡ.'])
+        ->callMountedAction()
+        ->assertHasNoErrors();
+
+    expect($intake->fresh()->conflict_overridden_by)->toBe($manager->id)
+        ->and($intake->fresh()->hasUnresolvedRed())->toBeFalse();
+});
+
+it('refuses the red override at the Action when the caller says which table it showed and the table changed', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    csrFirmClientWithPhone('0912000555', 'Khách Cũ Một');
+    $intake = csrRedIntake($assistant);
+    $shown = ConflictCheckResult::displayFingerprintOf($intake->conflict_result);
+
+    csrFirmClientWithPhone('0912000555', 'Khách Cũ Hai');
+
+    expect(fn () => app(ResolveIntakeRedConflict::class)->handle($manager, $intake, 'Lý do cho bảng cũ.', $shown))
+        ->toThrow(ConflictBlocked::class, __('exceptions.conflict_result_changed_override'));
+
+    expect($intake->fresh()->conflict_overridden_by)->toBeNull();
 });

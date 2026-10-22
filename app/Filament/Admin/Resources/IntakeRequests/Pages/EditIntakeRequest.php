@@ -471,9 +471,22 @@ class EditIntakeRequest extends EditRecord
                     ->rows(4),
             ])
             ->action(function (Action $action, array $data): void {
-                $this->runAction($action, fn () => app(ResolveIntakeRedConflict::class)->handle(
-                    $this->actor(), $this->intake(), (string) ($data['override_reason'] ?? ''),
-                ));
+                $intake = $this->intake();
+
+                $this->runAction($action, function () use ($action, $intake, $data): void {
+                    try {
+                        app(ResolveIntakeRedConflict::class)->handle(
+                            $this->actor(), $intake, (string) ($data['override_reason'] ?? ''), $this->shownConflictFingerprint,
+                        );
+                    } catch (ConflictBlocked $exception) {
+                        // Rà soát 2026-10-22, làn harden — cùng cách nút "Xác nhận đã xem": bảng đã đổi từ lúc
+                        // hiện, nạp lại và đóng hộp thoại để cả trang vẽ lại bảng mới; lý do viết cho bảng cũ
+                        // rơi theo hộp thoại.
+                        $intake->refresh();
+                        $this->sendFailureNotification($exception->getMessage());
+                        $action->cancel();
+                    }
+                });
 
                 $this->afterIntakeAction(__('intake.actions.red_resolved'));
             });

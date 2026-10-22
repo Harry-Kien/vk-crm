@@ -10236,9 +10236,13 @@ Ba việc chuyển từ làn intake và làn billing (nhánh `review-harden`). M
   `tests/Feature/Review/BillingTabContractReplacedRaceTest.php` (2 đỏ trước; ca thứ ba canh không tìm ra đợt của
   vụ khác).
 
-**Còn lại, không sửa ở làn này:** `ResolveIntakeRedConflict` (trưởng phòng ghi đè Đỏ ở tiếp nhận) không so cả mức
-lẫn bảng đã hiện — chạy lại kiểm tra rồi ghi đè mọi khớp Đỏ đang có, kể cả khớp mới xuất hiện sau khi trang hiện
-bảng. Cùng cách sửa (dấu vân tay từ khối kiểm tra) áp được; để làn sau vì hộp thoại đó có câu riêng cho "Đỏ dính".
+- **(Cao) Ghi đè Đỏ ở tiếp nhận (`ResolveIntakeRedConflict`) không so bảng đã hiện** — chạy lại kiểm tra rồi ghi
+  đè mọi khớp đang có, kể cả một khớp Đỏ mới xuất hiện sau khi trang hiện bảng (lý do viết cho bảng cũ thành quyết
+  định về khớp chưa ai xem). Nay nhận `?string $shownFingerprint` như năm Action trên: khác thì
+  `ConflictBlocked::changed()` (câu "…viết lại lý do ghi đè nếu vẫn ghi đè"); nút "Xử lý Đỏ" gửi dấu lấy lúc vẽ
+  khối kiểm tra, bị từ chối thì nạp lại bản ghi và đóng hộp thoại để cả trang vẽ bảng mới. Đỏ dính mà bảng không
+  đổi vẫn ghi đè được, hộp thoại giữ câu riêng "Đỏ dính". Test: `ConflictShownResultTest` (3 ca thêm: màn hình,
+  Action, Đỏ dính).
 
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
