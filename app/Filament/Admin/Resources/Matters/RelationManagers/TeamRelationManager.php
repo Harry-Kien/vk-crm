@@ -15,6 +15,7 @@ use App\Models\Matter;
 use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\ActivityPeople;
 use App\Support\Scopes\ClientPortalScope;
 use App\Support\Search\LetterD;
 use Filament\Actions\Action;
@@ -26,6 +27,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -84,8 +86,11 @@ class TeamRelationManager extends RelationManager
             ->recordTitleAttribute('name')
             ->emptyStateHeading(__('team.tab.empty_state'))
             ->columns([
+                // Rà soát 2026-10-22 (làn matter): thành viên đã nghỉ việc (xoá mềm) vẫn có mặt, kèm nhãn —
+                // xem `modifyQueryUsing()` dưới.
                 TextColumn::make('name')
-                    ->label(__('team.tab.columns.name')),
+                    ->label(__('team.tab.columns.name'))
+                    ->formatStateUsing(fn (User $record): string => (string) ActivityPeople::name($record)),
                 TextColumn::make('pivot.role_in_matter')
                     ->label(__('team.tab.columns.role'))
                     ->badge()
@@ -121,7 +126,11 @@ class TeamRelationManager extends RelationManager
                 $this->acceptSeatAction(fn (User $record): MatterUser => $record->pivot, fn (): Matter => $matter),
                 $this->declineSeatAction(fn (User $record): MatterUser => $record->pivot, fn (): Matter => $matter),
                 $this->removeMemberAction($matter),
-            ]);
+            ])
+            // Rà soát 2026-10-22 (làn matter): `team` của `User` bỏ người đã xoá mềm, nên hồ sơ đã kết thúc của
+            // một luật sư đã nghỉ việc hiện "chưa có ai ngoài luật sư phụ trách". Lịch sử ai đã làm vụ là
+            // thứ văn phòng giữ nhiều năm — hiện cả họ (chỉ đọc: không nút nào trên dòng của họ).
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->withTrashed());
     }
 
     /**
@@ -258,7 +267,7 @@ class TeamRelationManager extends RelationManager
             // khi vụ việc đang mở (fix round 1, finding S3) — nhưng ẩn nút ở đây trước để người
             // dùng không bấm vào một lời từ chối có thể đoán trước — hai lớp, không phải một lớp
             // thừa.
-            ->visible(fn (User $record): bool => $record->pivot->role_in_matter !== MatterRole::Lead)
+            ->visible(fn (User $record): bool => $record->pivot->role_in_matter !== MatterRole::Lead && ! $record->trashed())
             ->successNotificationTitle(__('team.tab.actions.remove_success'))
             ->action(function (Action $action, User $record, array $data) use ($matter): void {
                 $choice = $data['task_recipient_id'] ?? null;

@@ -155,7 +155,9 @@ class MatterResource extends Resource
     {
         return parent::getEloquentQuery()
             ->listableBy(Auth::user())
-            ->with(['client', 'matterType.stages', 'leadLawyer', 'team']);
+            // `leadLawyer` kể cả người đã nghỉ việc (xoá mềm): cột "Luật sư phụ trách" của hồ sơ đã kết thúc
+            // còn tên họ (rà soát 2026-10-22, làn matter).
+            ->with(['client', 'matterType.stages', 'leadLawyer' => fn ($query) => $query->withTrashed(), 'team']);
     }
 
     public static function getRecordRouteBindingEloquentQuery(): Builder

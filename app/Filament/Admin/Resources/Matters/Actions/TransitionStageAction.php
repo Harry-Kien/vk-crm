@@ -37,7 +37,9 @@ use Illuminate\Support\Facades\Auth;
  */
 class TransitionStageAction extends Action
 {
-    use BuildsStageUpdateSchema;
+    use BuildsStageUpdateSchema {
+        stageUpdateVisible as baseStageUpdateVisible;
+    }
 
     public static function getDefaultName(): ?string
     {
@@ -102,6 +104,20 @@ class TransitionStageAction extends Action
                 $stage->key => $allowedNext->contains($stage->key) ? $stage->label : $stage->label.$suffix,
             ])
             ->all();
+    }
+
+    /**
+     * Rà soát toàn hệ thống 2026-10-22 (làn matter): không có giai đoạn nào để chọn thì không hiện nút —
+     * trường hợp thường gặp là luật sư trên vụ đã kết thúc (giai đoạn kết thúc không khai báo `allowed_next`,
+     * chỉ quản trị viên mở lại được). Trước đây nút vẫn hiện và mở ra một ô "Giai đoạn mới" trống, không
+     * gửi được gì. "Thêm cập nhật" không đổi.
+     */
+    protected function stageUpdateVisible(Matter $matter): bool
+    {
+        $actor = Auth::user();
+
+        return $this->baseStageUpdateVisible($matter)
+            && static::stageOptions($matter, $actor instanceof User ? $actor : null) !== [];
     }
 
     protected function resolveToStage(Matter $matter, array $data): string
