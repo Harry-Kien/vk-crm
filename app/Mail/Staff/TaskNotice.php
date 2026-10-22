@@ -10,6 +10,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Notifications\Staff\TaskAlert;
 use App\Support\OfficeProfile;
+use App\Support\Tasks\StandIn;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -110,21 +111,26 @@ class TaskNotice extends BrandedMailable
             text: 'emails.staff.task-notice-text',
             with: [
                 'recipientName' => $this->recipient->name,
-                'headline' => __($this->langKey('headline'), ['name' => $this->actorName, 'assigner' => (string) $this->onBehalfOf]),
+                'headline' => __($this->langKey('headline'), [
+                    'name' => $this->actorName,
+                    'assigner' => (string) $this->onBehalfOf,
+                    'code' => (string) $this->task->matter?->code,
+                ]),
                 'details' => $this->details(),
-                'url' => $this->onBehalf()
-                    ? TaskAlert::onBehalfUrl($this->task)
-                    : TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor($this->kind, $this->task)], panel: 'admin'),
+                'url' => $this->standIn() !== null
+                    ? StandIn::url($this->task, (string) $this->standIn())
+                    // Kiểm toán màn hình 2026-10-21 (mục 5): mở thẳng khung "Xem" của đúng việc, trên đúng tab.
+                    : TaskResource::taskUrl($this->task, TaskAlert::tabFor($this->kind, $this->task)),
                 'action' => __($this->langKey('action')),
                 'office' => $office->legalName(),
             ],
         );
     }
 
-    /** Thư này tới người nhận THAY người giao (docblock lớp) — cùng định nghĩa của chuông (`TaskAlert::isOnBehalf()`). */
-    private function onBehalf(): bool
+    /** Vai người nhận thay (kiểm toán 2026-10-21, N1/A7) — cùng định nghĩa của chuông (`TaskAlert::standInRole()`). */
+    private function standIn(): ?string
     {
-        return TaskAlert::isOnBehalf($this->kind, $this->task, $this->onBehalfOf);
+        return TaskAlert::standInRole($this->kind, $this->task, $this->onBehalfOf, $this->recipient);
     }
 
     /**
@@ -134,7 +140,13 @@ class TaskNotice extends BrandedMailable
      */
     private function langKey(string $part): string
     {
-        $kind = $this->kind.($this->onBehalf() ? '_on_behalf' : '');
+        $managed = StandIn::managedKey('email.'.$part, $this->kind, $this->standIn());
+
+        if ($managed !== null) {
+            return $managed;
+        }
+
+        $kind = $this->kind.($this->standIn() !== null ? '_on_behalf' : '');
         $added = 'tasks.notice_email.'.$part.'.'.$kind;
 
         return Lang::has($added) ? $added : 'tasks.email.'.$part.'.'.$kind;
@@ -154,7 +166,7 @@ class TaskNotice extends BrandedMailable
         return array_values(array_filter([
             $line('title', $task->title),
             $task->matter?->code === null ? null : $line('matter', $task->matter->code),
-            $this->onBehalf() ? $line('assigner', (string) $this->onBehalfOf) : null,
+            $this->standIn() !== null ? $line('assigner', (string) $this->onBehalfOf) : null,
             $this->kind === self::KIND_UPDATED && filled($this->extra['changes'] ?? null)
                 ? ['label' => __('tasks.notice_email.fields.changes'), 'value' => (string) $this->extra['changes']]
                 : null,

@@ -113,6 +113,14 @@ class RecentPaymentsWidget extends TableWidget
                 'apply' => __('filament-tables::table.filters.actions.apply.label'),
             ]))
             ->query(fn (): Builder => $this->rowsQuery())
+            // Danh sách chỉ có khoản CHƯA huỷ; lần tìm lại dòng của một hộp thoại "Huỷ khoản thu" đang mở
+            // thì không lọc điều kiện đó (rà soát toàn hệ thống 2026-10-22, làn billing): một kế toán khác huỷ
+            // đúng khoản ấy trong lúc hộp thoại mở thì dòng không còn trong danh sách, Filament không tìm lại
+            // được và bỏ ngang lần bấm mà không nói gì. Tìm lại được (cùng phạm vi `listableBy()`), `VoidPayment`
+            // nói câu của nó — "đã được huỷ từ trước".
+            ->modifyQueryUsing(fn (Builder $query, bool $isResolvingRecord): Builder => $isResolvingRecord
+                ? $query
+                : $query->whereNull('voided_at'))
             ->emptyStateHeading(__('billing.receivables.recent_payments.empty_heading'))
             ->columns([
                 TextColumn::make('matter_code')
@@ -180,9 +188,10 @@ class RecentPaymentsWidget extends TableWidget
             return Payment::query()->whereRaw('1 = 0');
         }
 
+        // "Chưa huỷ" là điều kiện của DANH SÁCH, không của lần tìm lại dòng cho nút "Huỷ khoản thu"
+        // ({@see self::table()}, `modifyQueryUsing`): rà soát toàn hệ thống 2026-10-22 (làn billing).
         return Payment::query()
             ->withoutGlobalScope(ClientPortalScope::class)
-            ->whereNull('voided_at')
             // Làn fa3: kể cả hồ sơ đã huỷ (docblock lớp) — trong điều kiện VÀ trong lần nạp sẵn.
             ->whereHas('instalment.contract.matter', fn (Builder $matter) => $matter->withTrashed()->listableBy($user))
             ->with([

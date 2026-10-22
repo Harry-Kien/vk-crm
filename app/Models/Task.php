@@ -12,6 +12,8 @@ use App\Enums\TaskStatus;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Policies\TaskPolicy;
 use App\Support\Scopes\ClientPortalScope;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Database\Factories\TaskFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -231,18 +233,28 @@ class Task extends Model
             ->orWhereRaw('DATE('.$assigned.') <= DATE('.$this->qualifyColumn('due_date').')'));
     }
 
-    /** "Chờ tôi nhận": giao cho `$user`, chưa ai bấm "Đã nhận". */
+    /**
+     * "Chờ tôi nhận": giao cho `$user`, chưa ai bấm "Đã nhận", và `$user` còn GIỮ ĐƯỢC việc
+     * ({@see self::scopeHeldBySeatedAssignee()}). Kiểm toán 2026-10-21 (N2): MỘT định nghĩa cho tab "Chờ tôi nhận", huy
+     * hiệu menu (`TaskResource::getNavigationBadge()`), ô "Việc chờ tôi nhận" của bảng điều khiển và khối "Chờ tôi nhận"
+     * của "Việc của tôi" — cùng vế với cột "Việc chờ nhận" của Theo dõi đội ngũ (`BuildTaskWorkload`). Trước bản sửa, việc
+     * chờ nhận của người đã sang "Người theo dõi" là 1 ở ô, huy hiệu và tab mà 0 ở Theo dõi đội ngũ, và họ không bấm "Đã
+     * nhận" được (`TaskPolicy::accept`). Việc đó vẫn ở tab "Tất cả" của họ (họ vẫn "Trả lại" được —
+     * `TaskPolicy::decline`) và ở "Cần giao lại" của người giao.
+     */
     public function scopeAwaitingAcceptanceBy(Builder $query, User $user): Builder
     {
         return $query->where($this->qualifyColumn('assignee_id'), $user->getKey())
-            ->where($this->qualifyColumn('status'), TaskStatus::Pending->value);
+            ->where($this->qualifyColumn('status'), TaskStatus::Pending->value)
+            ->heldBySeatedAssignee();
     }
 
-    /** "Đang làm": `$user` đã nhận, chưa xong. */
+    /** "Đang làm": `$user` đã nhận, chưa xong, và còn giữ được việc — cùng lý do {@see self::scopeAwaitingAcceptanceBy()}. */
     public function scopeInProgressFor(Builder $query, User $user): Builder
     {
         return $query->where($this->qualifyColumn('assignee_id'), $user->getKey())
-            ->where($this->qualifyColumn('status'), TaskStatus::Accepted->value);
+            ->where($this->qualifyColumn('status'), TaskStatus::Accepted->value)
+            ->heldBySeatedAssignee();
     }
 
     /**
@@ -377,19 +389,74 @@ class Task extends Model
 
     /**
      * Thứ tự của mọi danh sách việc (làn tk, vòng sửa polish 1 — rà soát Task 1, m8): việc còn mở trước
-     * (chờ nhận, đang làm, bị trả lại), việc đã đóng (hoàn thành, huỷ) sau; trong mỗi nhóm theo hạn, việc
-     * không hạn cuối nhóm, rồi việc mới giao trước. Tab "Công việc" của vụ và cả bốn tab của trang Công việc
-     * dùng chung — một việc đã xong không chen giữa những việc còn phải làm.
+     * (chờ nhận, đang làm, bị trả lại), việc đã đóng (hoàn thành, huỷ) sau. Tab "Công việc" của vụ, cả bốn tab
+     * của trang Công việc và ba khối "Việc của tôi" dùng chung — một việc đã xong không chen giữa những việc còn
+     * phải làm.
+     *
+     * Trong mỗi nhóm (kiểm toán màn hình 2026-10-21, mục 3 — trước đó ưu tiên không có mặt trong thứ tự, nên một
+     * việc Gấp không hạn nằm DƯỚI một việc Thường hạn 30 ngày):
+     *
+     *  1. theo NGÀY CẦN LÀM: hạn của việc; việc **Gấp không hạn** tính như hạn HÔM NAY — "gấp" là làm ngay, nên nó
+     *     đứng cùng những việc hạn hôm nay (và đứng đầu nhóm đó nhờ bước 2), dưới những việc đã quá hạn (đã trễ, mỗi
+     *     ngày trễ thêm một ngày). Cao/Thường không hạn vẫn ở cuối nhóm — không có ngày nào để so;
+     *  2. cùng ngày thì Gấp > Cao > Thường ({@see self::priorityRankSql()}) — cả cho việc không hạn ở cuối nhóm;
+     *  3. rồi việc mới giao trước.
+     *
+     * "Hôm nay" theo `APP_TIMEZONE` lúc truy vấn (`today()`), cùng nghĩa với "Hạn hôm nay" của cột hạn. Bảng việc đặt
+     * scope này làm thứ tự MẶC ĐỊNH (`->defaultSort()`), không trong `modifyQueryUsing()`: một cú bấm lên tiêu đề cột
+     * "Hạn"/"Ưu tiên" sắp trước, thứ tự này chỉ còn phân xử phần hoà.
      */
     public function scopeOrderedForWork(Builder $query): Builder
     {
         $open = TaskStatus::openValues();
+        $workDay = 'COALESCE(DATE(tasks.due_date), CASE WHEN tasks.priority = ? THEN ? END)';
+        $bindings = [TaskPriority::Urgent->value, today()->toDateString()];
 
         return $query
             ->orderByRaw('CASE WHEN tasks.status IN ('.implode(', ', array_fill(0, count($open), '?')).') THEN 0 ELSE 1 END', $open)
-            ->orderByRaw('CASE WHEN tasks.due_date IS NULL THEN 1 ELSE 0 END')
-            ->orderBy('tasks.due_date')
+            ->orderByRaw("CASE WHEN {$workDay} IS NULL THEN 1 ELSE 0 END", $bindings)
+            ->orderByRaw($workDay, $bindings)
+            ->orderByRaw(self::priorityRankSql())
             ->orderByDesc('tasks.id');
+    }
+
+    /**
+     * Hạng của mức ưu tiên trong SQL — Gấp 0, Cao 1, Thường 2 (số nhỏ = làm trước): bước 2 của
+     * {@see self::scopeOrderedForWork()} và cột "Ưu tiên" sắp xếp được (`TaskColumns`: tăng dần = Gấp trước). Không
+     * sắp theo chuỗi của cột: "high" < "normal" < "urgent" theo chữ cái là một thứ tự vô nghĩa.
+     */
+    public static function priorityRankSql(): string
+    {
+        return sprintf(
+            "CASE tasks.priority WHEN '%s' THEN 0 WHEN '%s' THEN 1 ELSE 2 END",
+            TaskPriority::Urgent->value,
+            TaskPriority::High->value,
+        );
+    }
+
+    /**
+     * Việc còn mở có hạn từ hôm nay tới hết `$days` ngày nữa (theo `APP_TIMEZONE`) — bộ lọc "Hạn hôm nay" (`0`) và
+     * "Hạn 7 ngày tới" (`7`) của trang Công việc (kiểm toán màn hình 2026-10-21, mục 8). Việc đã quá hạn không ở đây
+     * (bộ lọc "Chỉ việc quá hạn"), việc đã đóng không ở đây.
+     */
+    public function scopeDueWithinDays(Builder $query, int $days): Builder
+    {
+        return $query->open()
+            ->whereNotNull($this->qualifyColumn('due_date'))
+            ->whereDate($this->qualifyColumn('due_date'), '>=', today()->toDateString())
+            ->whereDate($this->qualifyColumn('due_date'), '<=', today()->addDays($days)->toDateString());
+    }
+
+    /**
+     * Việc `$user` đang GIỮ — chờ nhận hay đang làm: hợp của {@see self::scopeAwaitingAcceptanceBy()} và
+     * {@see self::scopeInProgressFor()} (bộ lọc "Việc của tôi (còn mở)", kiểm toán màn hình 2026-10-21). Việc họ đã
+     * trả lại không ở đây — nó đã về tay người giao.
+     */
+    public function scopeHeldBy(Builder $query, User $user): Builder
+    {
+        return $query->where(fn (Builder $mine): Builder => $mine
+            ->where(fn (Builder $awaiting): Builder => $awaiting->awaitingAcceptanceBy($user))
+            ->orWhere(fn (Builder $active): Builder => $active->inProgressFor($user)));
     }
 
     /**
@@ -608,6 +675,105 @@ class Task extends Model
             ->first();
 
         return TaskStatus::tryFrom((string) $row?->getExtraProperty('from', ''));
+    }
+
+    /**
+     * Các dòng nhật ký ĐẶT LẠI LỊCH của một việc (kiểm toán 2026-10-21, Q5): giao, giao lại (cả bàn giao vụ, chuyển việc
+     * hàng loạt — đều ghi `task_reassigned`), mở lại, khôi phục; cộng `task_updated` có đổi hạn
+     * ({@see self::rescheduledToday()}).
+     */
+    public const RESCHEDULE_EVENTS = ['task_assigned', 'task_reassigned', 'task_reopened', 'task_restored'];
+
+    /**
+     * Mốc BẮT ĐẦU CHỜ NHẬN của lần giao hiện tại (kiểm toán 2026-10-21, Q1) — MỘT định nghĩa cho đồng hồ "chờ nhận" của
+     * lịch nhắc (`RemindPendingWork`: lượt chọn, lần hỏi lại lúc gửi, khoá `awaiting@…`), câu "đã chờ" của lời nhắc
+     * (`SendWorkReminder`) và dòng "Chờ nhận từ …" của bảng việc (`TaskColumns`): mốc giao (`assigned_at`), hay lần
+     * "Khôi phục" gần nhất nếu muộn hơn.
+     *
+     * Vì sao không chỉ `assigned_at`: `RestoreTask` (mục "Mốc giao") GIỮ mốc giao gốc khi khôi phục một việc mà hạn đã
+     * qua — để huỷ rồi khôi phục không đưa một việc đã trễ ra khỏi tỉ lệ đúng hạn (`scopeAssignedByDueDate()`, tỉ lệ vẫn
+     * đọc `assigned_at`). Nhưng người nhận chỉ bắt đầu chờ nhận lại từ lúc khôi phục: đọc `assigned_at` thì 30 phút sau
+     * khôi phục họ nhận "đã chờ 57 giờ" và người giao "chưa nhận sau 57 giờ".
+     *
+     * Lần khôi phục đọc từ dòng nhật ký `task_restored` mới nhất (bảng `tasks` không có cột cho nó) — từ cột phụ
+     * `last_restored_at` khi truy vấn đã nạp ({@see self::scopeWithLastRestoredAt()}), không thì một truy vấn.
+     */
+    public function awaitingSince(): ?CarbonImmutable
+    {
+        if ($this->assigned_at === null) {
+            return null;
+        }
+
+        $assigned = CarbonImmutable::instance($this->assigned_at);
+        $restored = array_key_exists('last_restored_at', $this->attributes)
+            ? ($this->attributes['last_restored_at'] === null ? null : CarbonImmutable::instance($this->asDateTime($this->attributes['last_restored_at'])))
+            : $this->latestRestoredAt();
+
+        return $restored !== null && $restored->greaterThan($assigned) ? $restored : $assigned;
+    }
+
+    /** Nạp sẵn cột phụ `last_restored_at` cho {@see self::awaitingSince()} — một truy vấn con, không một truy vấn mỗi dòng. */
+    public function scopeWithLastRestoredAt(Builder $query): Builder
+    {
+        return $query->addSelect(['last_restored_at' => Activity::query()
+            ->select('created_at')
+            ->where('subject_type', $this->getMorphClass())
+            ->whereColumn('subject_id', $this->qualifyColumn('id'))
+            ->where('event', 'task_restored')
+            ->orderByDesc('id')
+            ->limit(1)]);
+    }
+
+    private function latestRestoredAt(): ?CarbonImmutable
+    {
+        $at = Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('event', 'task_restored')
+            ->latest('id')
+            ->value('created_at');
+
+        return $at === null ? null : CarbonImmutable::instance($this->asDateTime($at));
+    }
+
+    /**
+     * Lịch của việc vừa được ĐẶT LẠI hôm nay (kiểm toán 2026-10-21, Q5): lần giao, giao lại, sửa hạn, mở lại hay khôi
+     * phục gần nhất ({@see self::RESCHEDULE_EVENTS}, và `task_updated` có `due_date` trong `changed`) xảy ra trong ngày của
+     * `$now` (múi giờ văn phòng). MỘT định nghĩa cho lượt chọn và lần hỏi lại lúc gửi của lời nhắc "sắp đến hạn" / "quá
+     * hạn" (`RemindPendingWork::taskReminderHolds()`): người nhận vừa nhận lời báo "được giao" / "đã sửa" / "mở lại" /
+     * "khôi phục" nêu hạn — một lời nhắc hạn nửa giờ sau là tiếng ồn. Ngày làm việc sau lịch nhắc chạy như mọi việc.
+     */
+    public function rescheduledToday(?CarbonInterface $now = null): bool
+    {
+        return $this->eventsOn($now)
+            ->where(fn (Builder $kind): Builder => $kind->whereIn('event', self::RESCHEDULE_EVENTS)->orWhere('event', 'task_updated'))
+            ->get(['event', 'properties'])
+            ->contains(fn (Activity $row): bool => $row->event !== 'task_updated'
+                || in_array('due_date', (array) $row->getExtraProperty('changed', []), true));
+    }
+
+    /**
+     * `$userId` đã thao tác trên việc này trong ngày của `$now` — bất kỳ dòng nhật ký `task_*` nào họ gây ra (kiểm toán
+     * 2026-10-21, Q5): lời báo "quá hạn" cho người giao không tới người vừa làm việc với chính việc đó hôm nay.
+     */
+    public function handledTodayBy(int $userId, ?CarbonInterface $now = null): bool
+    {
+        return $this->eventsOn($now)
+            ->where('causer_id', $userId)
+            ->where('event', 'like', 'task_%')
+            ->exists();
+    }
+
+    /** Dòng nhật ký của việc này trong ngày (múi giờ văn phòng) chứa `$now`. */
+    private function eventsOn(?CarbonInterface $now): Builder
+    {
+        $start = CarbonImmutable::instance($now ?? now())->setTimezone((string) config('app.timezone'))->startOfDay();
+
+        return Activity::query()
+            ->where('subject_type', $this->getMorphClass())
+            ->where('subject_id', $this->getKey())
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<', $start->addDay());
     }
 
     public function isOverdue(): bool

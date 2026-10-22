@@ -206,8 +206,12 @@ it('refuses an actor who may not assign the work, with one generic refusal', fun
         'inactive manager' => tap($this->manager)->forceFill(['is_active' => false])->save() ? $this->manager : null,
     };
 
-    expect(fn () => tkAssign($actor, $general ? null : $this->matter, $general ? $this->accountant : $this->otherAssistant))
-        ->toThrow(AuthorizationException::class, __('tasks.errors.unavailable'));
+    // Sửa sau kiểm toán 2026-10-21 (mục 1): trên một vụ, lời từ chối gắn vào ô "Vụ việc" — vẫn MỘT câu cho mọi nguyên
+    // nhân (không phân biệt "không có quyền" với "không tồn tại").
+    $general
+        ? expect(fn () => tkAssign($actor, null, $this->accountant))->toThrow(AuthorizationException::class, __('tasks.errors.unavailable'))
+        : expect(tkValidationErrors(fn () => tkAssign($actor, $this->matter, $this->otherAssistant)))
+            ->toBe(['matter_id' => [__('tasks.lifecycle.matter_unavailable')]]);
 
     expect(Task::query()->count())->toBe(0);
 })->with([
@@ -221,7 +225,9 @@ it('refuses an actor who may not assign the work, with one generic refusal', fun
 it('refuses to assign work on a closed matter', function () {
     $this->matter->forceFill(['closed_at' => today()])->save();
 
-    expect(fn () => tkAssign($this->lead, $this->matter, $this->assistant))->toThrow(AuthorizationException::class);
+    // Sửa sau kiểm toán 2026-10-21 (mục 1): lời từ chối gắn vào ô "Vụ việc".
+    expect(tkValidationErrors(fn () => tkAssign($this->lead, $this->matter, $this->assistant)))
+        ->toBe(['matter_id' => [__('tasks.lifecycle.matter_unavailable')]]);
 });
 
 it('validates the title, the description and the due date', function (array $input, string $field) {

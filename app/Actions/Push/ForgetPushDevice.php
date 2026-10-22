@@ -31,7 +31,9 @@ use Throwable;
  *    tắt được), và ba lối VĂN PHÒNG gỡ thay (việc sau gộp M12, làn fu4) — mỗi lối mang một lý do:
  *    {@see self::REASON_EMAIL_CHANGED} (`UpdatePortalAccount`, đổi email cổng),
  *    {@see self::REASON_TWO_FACTOR_RESET} (`ResetStaffTwoFactor`, "Đặt lại 2FA"),
- *    {@see self::REASON_OFFICE} (nút "Gỡ mọi máy nhận thông báo" trên trang tài khoản cổng).
+ *    {@see self::REASON_OFFICE} (nút "Gỡ mọi máy nhận thông báo" trên trang tài khoản cổng);
+ *    và ba lối nhân sự mất quyền vào qua `EndStaffSessions`: {@see self::REASON_STAFF_SUSPENDED},
+ *    {@see self::REASON_STAFF_DEACTIVATED}, {@see self::REASON_STAFF_DELETED}.
  *
  * Mỗi dòng gỡ ghi một audit `push_device_removed` mang ĐÚNG `device_label` — không bao giờ endpoint
  * (R8). Người tự gỡ máy của mình: chủ dòng là cả chủ thể lẫn người gây ra, `properties` chỉ có
@@ -46,6 +48,12 @@ class ForgetPushDevice
     /** Văn phòng đổi email cổng: địa chỉ mới là một người giữ mới, chưa xác minh (R10, R12). */
     public const REASON_EMAIL_CHANGED = 'email_changed';
 
+    /** Văn phòng tắt "Đang hoạt động" của tài khoản cổng (`EndPortalSessions`) — rà soát 2026-10-22, làn portal. */
+    public const REASON_PORTAL_DEACTIVATED = 'portal_deactivated';
+
+    /** Văn phòng xoá tài khoản cổng (`DeletePortalAccount`) — "Khôi phục" sau đó không đưa máy cũ trở lại. */
+    public const REASON_PORTAL_DELETED = 'portal_deleted';
+
     /** "Đặt lại 2FA": nhân sự mất điện thoại — máy đó thôi đổ chuông (SPEC §10.7). */
     public const REASON_TWO_FACTOR_RESET = 'two_factor_reset';
 
@@ -54,6 +62,12 @@ class ForgetPushDevice
 
     /** "Khoá truy cập ngay" (`SuspendStaffAccess`, làn fb mục A5): nhân sự nghỉ đột xuất hay bị nghi lộ dữ liệu. */
     public const REASON_STAFF_SUSPENDED = 'staff_suspended';
+
+    /** Tắt "Đang hoạt động" trên trang sửa nhân sự (đường nghỉ việc thường) — rà soát 2026-10-22, làn security. */
+    public const REASON_STAFF_DEACTIVATED = 'staff_deactivated';
+
+    /** Xoá nhân sự (`DeleteStaffMember`) — "Khôi phục" sau đó không đưa máy cũ trở lại (rà soát 2026-10-22). */
+    public const REASON_STAFF_DELETED = 'staff_deleted';
 
     /**
      * R9 — `$owner` vừa đăng xuất khỏi `$guard` trên trình duyệt mang phiên `$session`: gỡ máy của

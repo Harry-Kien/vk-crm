@@ -47,6 +47,11 @@ final class SeatsNeedingReassignment
      * Lọc trong bộ nhớ: tập ghế chờ nhận của một văn phòng nhỏ, và luật "còn nhận được" là `qualifies()`
      * (một cổng Gate), không có bản SQL thứ hai.
      *
+     * Đội ngũ của mỗi vụ nạp sẵn (`matter.team`), để `MatterPolicy::view()` trả lời trong bộ nhớ
+     * (`Matter::isListableBy()`, cùng đáp án với EXISTS của nó) thay vì một truy vấn cho MỖI ghế: ghế chờ nhận
+     * của một văn phòng thật là hàng trăm (rà soát làn ops 2026-10-22 — dữ liệu đo M13, 3.000 vụ: trang
+     * "Theo dõi đội ngũ" khoảng 20 giây, 5.935 truy vấn; `StuckSeatsQueryBudgetTest`).
+     *
      * @return Collection<int, MatterUser>|null
      */
     public function handle(User $viewer): ?Collection
@@ -58,7 +63,7 @@ final class SeatsNeedingReassignment
         return MatterUser::query()
             ->onOpenMattersListableBy($viewer)
             ->awaitingAcceptance()
-            ->with(['matter', 'user' => fn ($user) => $user->withTrashed()])
+            ->with(['matter.team', 'user' => fn ($user) => $user->withTrashed()])
             ->get()
             ->filter(fn (MatterUser $seat): bool => self::stuck($seat, $seat->user, $seat->matter))
             ->sortBy(fn (MatterUser $seat): string => (string) $seat->matter?->code)

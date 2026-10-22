@@ -10,6 +10,7 @@ use App\Filament\Admin\Pages\Receivables;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
+use App\Filament\Admin\Support\ContractScheduleForm;
 use App\Filament\Admin\Widgets\ContractsToEnterWidget;
 use App\Models\Contract;
 use App\Models\Instalment;
@@ -23,6 +24,7 @@ use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Repeater;
 use Filament\Livewire\DatabaseNotifications;
 use Filament\Notifications\Notification as FilamentNotification;
 use Illuminate\Support\Facades\DB;
@@ -369,12 +371,53 @@ it('saves nothing at all when activating in one go fails on the schedule total, 
             'activate_now' => true,
             'signed_at' => today()->toDateString(),
         ]))
-        ->assertNotified(__('actions.failed_title'))
+        ->assertHasActionErrors(['instalments' => __('billing.errors.schedule_mismatch_on_entry', [
+            'schedule' => Money::format(20_000_000),
+            'total' => Money::format(25_000_000),
+            'difference' => Money::format(5_000_000),
+        ])])
+        ->assertNotNotified(__('actions.failed_title'))
         ->assertActionMounted(TestAction::make('enterContract')->table($this->empty));
 
     expect(Contract::query()->where('matter_id', $this->empty->id)->exists())->toBeFalse()
         ->and(DB::table('code_sequences')->where('key', 'contract:'.now()->year)->value('last_number'))->toBe($sequenceBefore)
         ->and($this->lawyer->notifications()->count())->toBe(0);
+});
+
+/**
+ * Sửa 2026-10-21 — đúng ảnh chụp chủ văn phòng gửi: tổng 100.000.000, thuế 4%, KHÔNG có đợt nào, bật
+ * "Khách đã ký — kích hoạt luôn", bấm "Lưu và kích hoạt". Trước bản sửa: thông báo nổi nhắc một mã
+ * `HD-…` không được lưu, và không chỉ ra phải sửa ở đâu (bấm lại sáu lần, sáu thông báo). Nay: lỗi nằm
+ * ngay dưới lịch thu, nói phải thêm đợt; không thông báo nổi "thất bại"; hộp thoại ở lại; không lưu gì.
+ */
+it('tells the accountant to add an instalment, right under the schedule, when activating a contract with no instalment', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    contractPage()
+        ->callAction(TestAction::make('enterContract')->table($this->empty), data: [
+            'total_amount' => '100000000',
+            'vat_rate_percent' => '4',
+            'instalments' => [],
+            'activate_now' => true,
+            'signed_at' => today()->toDateString(),
+        ])
+        ->assertHasActionErrors(['instalments' => __('billing.errors.schedule_empty_on_entry', ['total' => Money::format(100_000_000)])])
+        ->assertNotNotified(__('actions.failed_title'))
+        ->assertActionMounted(TestAction::make('enterContract')->table($this->empty));
+
+    expect(Contract::query()->where('matter_id', $this->empty->id)->exists())->toBeFalse();
+});
+
+it('names the schedule block of the dialog for what it is, and says in the preview that no instalment was entered yet', function () {
+    $repeater = collect(ContractScheduleForm::fields($this->empty))->first(fn ($field): bool => $field instanceof Repeater);
+
+    expect($repeater->getName())->toBe('instalments')
+        ->and($repeater->getLabel())->toBe(__('billing.tab.fields.instalments'))
+        ->and((string) ContractScheduleForm::schedulePreview('100000000', '4', []))
+        ->toContain(e(__('billing.tab.preview.no_instalments', ['total' => Money::format(100_000_000)])))
+        // Có đợt thì không còn câu "chưa có đợt".
+        ->and((string) ContractScheduleForm::schedulePreview('100000000', '4', [['name' => 'Trọn gói', 'amount' => '100.000.000']]))
+        ->not->toContain(e(__('billing.tab.preview.no_instalments', ['total' => Money::format(100_000_000)])));
 });
 
 it('asks for the signing date only when activating in one go', function () {

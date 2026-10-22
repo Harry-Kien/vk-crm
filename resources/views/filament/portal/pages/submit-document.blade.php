@@ -46,6 +46,14 @@
          }">
 
         {{-- 1. CHỌN ĐẦU MỤC ------------------------------------------------------------- --}}
+        {{-- Rà soát 2026-10-22 (làn portal): vụ đã kết thúc không nhận giấy tờ qua cổng — nói NGAY, thay
+             cho bốn bước (SubmitDocument::acceptsSubmissions()). --}}
+        @unless ($this->acceptsSubmissions())
+            <section data-portal-notice="matter-closed" style="{{ $card }}">
+                <p style="font-size:1.0625rem;line-height:1.5;">{{ __('checklist.submit.matter_closed', ['hotline' => App\Support\OfficeProfile::current()->hotline()]) }}</p>
+            </section>
+        @else
+
         <section data-portal-block="1" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('portal_submit.steps.item.heading') }}</h2>
 
@@ -183,6 +191,7 @@
                 </p>
             @endif
         </section>
+        @endunless
 
         <a href="{{ $this->matterUrl() }}" style="{{ $tap }}justify-content:center;border:1px solid color-mix(in srgb, var(--gray-500) 40%, transparent);">
             {{ __('portal_submit.back') }}

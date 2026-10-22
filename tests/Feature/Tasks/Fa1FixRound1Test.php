@@ -342,7 +342,8 @@ it('does not send "accepted" or "completed" of a task the lead holds to every ma
         ->callTableAction('decline', $returned, data: ['reason' => 'Xung đột lợi ích'])
         ->assertHasNoTableActionErrors();
 
-    expect(fr1Bells($this->manager, __('tasks.alert.declined_on_behalf.title')))->toHaveCount(1);
+    // Kiểm toán 2026-10-21 (N1): câu của người quản lý hồ sơ ("… của đội ngũ anh/chị quản lý").
+    expect(fr1Bells($this->manager, __('tasks.managed.alert.declined.title', ['code' => $this->matter->code])))->toHaveCount(1);
 });
 
 // =============================================================================================

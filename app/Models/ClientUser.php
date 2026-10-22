@@ -58,6 +58,7 @@ class ClientUser extends Authenticatable implements FilamentUser, HasEmailAuthen
             'must_change_password' => 'boolean',
             'activated_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'session_epoch' => 'integer',
         ];
     }
 

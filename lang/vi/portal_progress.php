@@ -145,6 +145,15 @@ return [
             'rejected' => 'Cần anh/chị gửi lại',
             'not_applicable' => 'Không cần cho hồ sơ này',
         ],
+        /*
+         * Rà soát 2026-10-22 (làn portal): vụ đã kết thúc không nhận giấy tờ qua cổng nữa, nên hai
+         * trạng thái "đang chờ ở khách" nói điều văn phòng chưa nhận, không giục khách gửi —
+         * `MatterProgress::acceptsSubmissions()`.
+         */
+        'status_closed' => [
+            'missing' => 'Văn phòng chưa nhận giấy tờ này',
+            'rejected' => 'Văn phòng chưa nhận được bản đạt yêu cầu',
+        ],
     ],
 
     'documents' => [

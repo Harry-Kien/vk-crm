@@ -41,8 +41,9 @@ it('counts what waits for me, my overdue work, my seats to accept and my returne
     $other = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
     $other->addTeamMember($this->assistant, MatterRole::Assistant, assignedBy: $this->lead);
 
-    expect(MyWorkQueueWidget::countsFor($this->assistant))->toBe(['awaiting' => 2, 'overdue' => 1, 'seats' => 1, 'returned' => 0])
-        ->and(MyWorkQueueWidget::countsFor($this->lead))->toBe(['awaiting' => 0, 'overdue' => 0, 'seats' => 0, 'returned' => 1, 'approvals' => 0]);
+    // Kiểm toán 2026-10-21 (Q4): ô "Việc tôi giao cần giao lại" (`reassign`) cho người giao được việc.
+    expect(MyWorkQueueWidget::countsFor($this->assistant))->toBe(['awaiting' => 2, 'overdue' => 1, 'seats' => 1, 'returned' => 0, 'reassign' => 0])
+        ->and(MyWorkQueueWidget::countsFor($this->lead))->toBe(['awaiting' => 0, 'overdue' => 0, 'seats' => 0, 'returned' => 1, 'reassign' => 0, 'approvals' => 0]);
 
     $this->actingAs($this->assistant, 'web');
 
@@ -73,7 +74,7 @@ it('never counts a task of a restricted matter I can no longer open', function (
     Task::factory()->forMatter($this->matter)->create(['assignee_id' => $this->assistant->id, 'assigned_by' => $this->lead->id]);
     $this->matter->forceFill(['confidentiality' => Confidentiality::Restricted])->save();
 
-    expect(MyWorkQueueWidget::countsFor($this->assistant))->toBe(['awaiting' => 0, 'overdue' => 0, 'seats' => 0, 'returned' => 0]);
+    expect(MyWorkQueueWidget::countsFor($this->assistant))->toBe(['awaiting' => 0, 'overdue' => 0, 'seats' => 0, 'returned' => 0, 'reassign' => 0]);
 
     // Gộp làn tk (2026-10-16): người có quyền xem việc nhưng hết việc (vụ vừa thành hạn chế, hay vừa nhận
     // xong việc cuối ở tab khác giữa lúc trang chủ vẽ và lúc khối tải trễ) thấy các ô số 0, KHÔNG 404 —

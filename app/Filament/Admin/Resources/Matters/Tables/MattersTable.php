@@ -7,6 +7,7 @@ use App\Enums\Permission;
 use App\Models\Matter;
 use App\Models\MatterTypeStage;
 use App\Models\User;
+use App\Support\ActivityPeople;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
 use App\Support\MatterStaleness;
@@ -63,6 +64,7 @@ class MattersTable
                     ->color(fn (Matter $record): string => $record->currentStage()?->is_terminal ? 'success' : 'info'),
                 TextColumn::make('leadLawyer.name')
                     ->label(__('matters.fields.lead_lawyer'))
+                    ->formatStateUsing(fn (?string $state, Matter $record): ?string => ActivityPeople::name($record->leadLawyer) ?? $state)
                     ->searchable(query: LetterD::searchable('leadLawyer.name'))
                     ->sortable(),
                 // "12 ngày trước", tô vàng khi > 10 ngày, đỏ khi > 14 (SPEC §7.2).

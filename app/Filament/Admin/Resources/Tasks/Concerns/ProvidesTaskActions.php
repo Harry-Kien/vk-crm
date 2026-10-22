@@ -14,10 +14,14 @@ use App\Actions\Task\UpdateTask;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
+use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
+use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\MatterTab;
 use App\Support\Search\LetterD;
 use App\Support\Tasks\ReassignmentDueDate;
+use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
@@ -25,6 +29,7 @@ use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -43,9 +48,17 @@ use Illuminate\Support\Facades\Gate;
  * # Thao tác cho người bận
  *
  * "Đã nhận" là MỘT cú bấm, không hộp xác nhận. "Trả lại" và "Huỷ việc" bắt buộc lý do. "Hoàn thành" mở
- * một khung với ghi chú tuỳ chọn (khung đó cũng là bước xác nhận). Ba nút của người nhận đứng ngoài;
- * các nút của người quản lý (sửa, giao lại, huỷ — và từ làn fa1 "Mở lại" việc đã hoàn thành, "Khôi phục" việc
- * đã huỷ) gom vào một nhóm để dòng không chật.
+ * một khung với ghi chú tuỳ chọn (khung đó cũng là bước xác nhận).
+ *
+ * Kiểm toán màn hình 2026-10-21 (mục 1, 2, 6): MỖI DÒNG MỘT NÚT CHÍNH đứng ngoài — "Đã nhận" khi việc chờ người
+ * xem nhận, "Hoàn thành" khi người xem đang làm, "Giao lại" ({@see self::reassignReturnedTaskAction()}) khi việc bị
+ * trả lại và người xem là người giao (hay người được giao lại thay). Ba trạng thái loại trừ nhau, nên một dòng có
+ * nhiều nhất một nút ngoài. Mọi nút khác — "Xem", "Trả lại", "Sửa", "Giao lại", "Huỷ việc", "Mở lại", "Khôi phục"
+ * — nằm trong "⋮". Trước đó bốn nút đứng ngoài: trên điện thoại 390px nút "Đã nhận" ở x=782 (vuốt ngang hai màn
+ * hình), trên máy 1366px nút "Trả lại" bị cắt còn "Tra". Bấm vào dòng là "Xem" (`->recordAction('view')` của bảng).
+ *
+ * Khung "Xem" có ở chân các nút của dòng ({@see self::viewTaskAction()}) — CHÍNH các hàm dựng nút ở đây, cùng
+ * `->authorize()`: không có luật thứ hai nào về ai bấm được gì.
  *
  * # "Mở lại" và "Khôi phục" trên vụ đã kết thúc (làn fa1)
  *
@@ -55,22 +68,84 @@ use Illuminate\Support\Facades\Gate;
  */
 trait ProvidesTaskActions
 {
-    /** @return list<Action|ActionGroup> */
+    /**
+     * Bố cục nút của một dòng — xem docblock lớp, mục "Thao tác cho người bận".
+     *
+     * @return list<Action|ActionGroup>
+     */
     protected function taskRecordActions(): array
     {
         return [
             $this->acceptTaskAction(),
-            $this->declineTaskAction(),
-            $this->completeTaskAction(),
-            $this->viewTaskAction(),
+            // Nút chính "Hoàn thành" chỉ khi đang làm: việc chờ nhận có "Đã nhận" làm nút chính, còn "nhận và xong một
+            // lượt" (`TaskPolicy::complete` cho phép) nằm trong "⋮" ({@see self::completePendingTaskAction()}).
+            $this->completeTaskAction()
+                ->button()
+                ->size('sm')
+                ->visible(fn (Task $record): bool => $record->status !== TaskStatus::Pending),
+            $this->reassignReturnedTaskAction(),
             ActionGroup::make([
+                $this->viewTaskAction(),
+                $this->completePendingTaskAction(),
+                $this->declineTaskAction(),
                 $this->editTaskAction(),
                 $this->reassignTaskAction(),
                 $this->cancelTaskAction(),
                 $this->reopenTaskAction(),
                 $this->restoreTaskAction(),
-            ]),
+            ])
+                ->label(__('tasks.actions.more'))
+                ->tooltip(__('tasks.actions.more')),
         ];
+    }
+
+    /**
+     * Các nút ở chân khung "Xem" — chính các nút của dòng (cùng hàm dựng, cùng `->authorize()`), chỉ hiện nút người xem
+     * được bấm ("Hoàn thành" cả khi việc còn chờ nhận — đúng như `TaskPolicy::complete`). Mỗi nút đóng khung "Xem" khi xong (`cancelParentActions()`): dòng của bảng đã đổi, khung cũ thì không.
+     *
+     * @return list<Action>
+     */
+    protected function taskViewFooterActions(): array
+    {
+        return array_map(fn (Action $action): Action => $action->cancelParentActions(), [
+            $this->acceptTaskAction(),
+            $this->completeTaskAction()->button(),
+            $this->reassignTaskAction()->button(),
+            $this->declineTaskAction()->button(),
+            $this->editTaskAction()->button(),
+            // `cancel` là tên nút "Đóng" của chính khung (Filament) — trùng tên thì nút "Huỷ việc" bị nút "Đóng" đè mất.
+            $this->cancelTaskAction()->name('cancelTask')->button(),
+            $this->reopenTaskAction()->button(),
+            $this->restoreTaskAction()->button(),
+        ]);
+    }
+
+    /**
+     * "Hoàn thành" một việc CHƯA nhận — nhận và xong một lượt (`TaskPolicy::complete`), trong "⋮" để dòng chờ nhận chỉ
+     * có một nút chính ("Đã nhận"). Đúng hộp thoại và Action của {@see self::completeTaskAction()}; tên riêng vì một tên
+     * chỉ ở một chỗ trên bảng.
+     */
+    protected function completePendingTaskAction(): Action
+    {
+        return $this->completeTaskAction()
+            ->name('completePending')
+            ->visible(fn (Task $record): bool => $record->status === TaskStatus::Pending);
+    }
+
+    /**
+     * Nút chính "Giao lại" của một dòng BỊ TRẢ LẠI (kiểm toán màn hình 2026-10-21, mục 6): đúng hộp thoại của
+     * {@see self::reassignTaskAction()} (cùng cổng `TaskPolicy::reassign`, cùng ô, cùng `ReassignTask`), đứng ngoài
+     * dòng thay vì trong "⋮" — việc bị trả lại chỉ chờ đúng một việc của người giao. Tên riêng vì một tên chỉ ở một chỗ
+     * trên bảng; nút "Giao lại" trong "⋮" vẫn còn cho mọi trạng thái (các bảng và test khác gọi nó theo tên `reassign`).
+     */
+    protected function reassignReturnedTaskAction(): Action
+    {
+        return $this->reassignTaskAction()
+            ->name('reassignReturned')
+            ->button()
+            ->size('sm')
+            ->color('primary')
+            ->visible(fn (Task $record): bool => $record->status === TaskStatus::Declined);
     }
 
     /**
@@ -90,6 +165,8 @@ trait ProvidesTaskActions
             ->modalHeading(fn (Task $record): string => __($own($record) ? 'tasks.reopen.heading_own' : 'tasks.reopen.heading'))
             ->modalDescription(fn (Task $record): string => __($own($record) ? 'tasks.reopen.description_own' : 'tasks.reopen.description'))
             ->modalSubmitActionLabel(__('tasks.reopen.submit'))
+            // Sửa sau kiểm toán 2026-10-21 (mục 5): ô "Hạn" điền sẵn cùng luật "Giao lại"; người tự mở lại thì không có ô.
+            ->fillForm(fn (Task $record): array => $own($record) ? [] : ['due_date' => self::suggestedDueDate($record)])
             ->schema(fn (Task $record): array => self::onClosedMatter($record) ? [] : [
                 Textarea::make('reason')
                     ->label(__('tasks.fields.reason'))
@@ -97,6 +174,7 @@ trait ProvidesTaskActions
                     ->required(fn (): bool => ! $own($record))
                     ->maxLength(Task::REASON_MAX_LENGTH)
                     ->rows(3),
+                ...($own($record) ? [] : [self::followUpDueDateField($record)]),
             ])
             // Làn fa1, vòng sửa 1 (m2): người giữ không còn giữ được việc thì không ai được báo — câu xong nói "Cần giao lại".
             ->successNotificationTitle(fn (Task $record): string => __(Task::query()->whereKey($record->getKey())->needsReassignment()->exists()
@@ -104,7 +182,13 @@ trait ProvidesTaskActions
                 : 'tasks.reopen.success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
                 $action,
-                fn () => app(ReopenTask::class)->handle($record, $this->taskActor(), $data['reason'] ?? null),
+                fn () => app(ReopenTask::class)->handle(
+                    $record,
+                    $this->taskActor(),
+                    $data['reason'] ?? null,
+                    $data['due_date'] ?? null,
+                    setDueDate: ! $own($record),
+                ),
             ));
     }
 
@@ -216,8 +300,11 @@ trait ProvidesTaskActions
     }
 
     /**
-     * "Xem" — khung chỉ đọc: mô tả, các mốc, lý do/ghi chú. Mã vụ, KHÔNG tên khách. Cổng: `TaskPolicy::view`
-     * (mọi dòng của bảng đã qua `visibleTo()`; hỏi lại để nút không bao giờ mở một việc người xem không thấy).
+     * "Xem" — khung: mô tả, các mốc, lý do/ghi chú, mã vụ (liên kết tới tab "Công việc" của hồ sơ khi người xem mở
+     * được hồ sơ), khối "Diễn biến" (`TaskTimeline`), và ở chân các nút người xem được bấm
+     * ({@see self::taskViewFooterActions()}). KHÔNG tên khách. Cổng: `TaskPolicy::view` (mọi dòng của bảng đã qua
+     * `visibleTo()`; hỏi lại để nút không bao giờ mở một việc người xem không thấy). Mọi chuông/thư/lời nhắc về một
+     * việc mở thẳng khung này (`TaskResource::taskUrl()`).
      */
     protected function viewTaskAction(): Action
     {
@@ -227,8 +314,9 @@ trait ProvidesTaskActions
             ->color('gray')
             ->authorize(fn (Task $record): bool => Gate::allows('view', $record))
             ->modalHeading(fn (Task $record): string => $record->title)
-            ->modalContent(fn (Task $record) => view('filament.admin.tasks.task-detail', ['task' => $record]))
+            ->modalContent(fn (Task $record) => view('filament.admin.tasks.task-detail', ['task' => $record, 'viewer' => $this->taskActor()]))
             ->modalSubmitAction(false)
+            ->extraModalFooterActions(fn (): array => $this->taskViewFooterActions())
             ->modalCancelActionLabel(__('tasks.actions.close'));
     }
 
@@ -290,26 +378,16 @@ trait ProvidesTaskActions
             ->authorize(fn (Task $record): bool => Gate::allows('reassign', $record))
             ->modalHeading(__('tasks.actions.reassign_heading'))
             ->modalSubmitActionLabel(__('tasks.actions.reassign_submit'))
-            ->fillForm(fn (Task $record): array => ['due_date' => self::suggestedDueDate($record)])
+            // Sửa sau kiểm toán 2026-10-21 (mục 4): ô ẩn `mounted_updated_at` — `ReassignTask` từ chối khi dòng đã đổi từ
+            // lúc mở (hạn điền sẵn không ghi đè lần sửa của người khác).
+            ->fillForm(fn (Task $record): array => [
+                'due_date' => self::suggestedDueDate($record),
+                'mounted_updated_at' => $record->updated_at?->toDateTimeString(),
+            ])
             ->schema(fn (Task $record): array => [
-                Select::make('assignee_id')
-                    ->label(__('tasks.fields.assignee'))
-                    ->helperText(self::assigneeHelp($record->matter_id === null ? 'tasks.fields.assignee_help_general' : 'tasks.fields.assignee_help_matter'))
-                    ->options(fn (): array => app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record))
-                    ->searchable()
-                    // Gộp integ-fa (làn fa3): "doan" ra "Đoàn" trong ĐÚNG danh sách trên (`ReassignTask` hỏi lại).
-                    // Gộp integ-fa (rà soát chéo, mục 19): chỉ so phần TÊN của nhãn, không phần "đang giữ … việc".
-                    ->getSearchResultsUsing(fn (?string $search): array => TaskAssignees::searchOptions(app(TaskAssignees::class)->options($record->matter, $this->taskActor(), $record), $search))
-                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
-                    ->required()
-                    ->native(false),
-                DatePicker::make('due_date')
-                    ->label(__('tasks.fields.due_date'))
-                    ->helperText(fn (): string => $record->due_date !== null && $record->due_date->toDateString() < today()->toDateString()
-                        ? __('tasks.reassign.due_past_help', ['date' => $record->due_date->format('d/m/Y')])
-                        : __('tasks.fields.due_date_help'))
-                    ->native(false)
-                    ->displayFormat('d/m/Y'),
+                $this->assigneeSelect(fn (): ?Matter => $record->matter, $record),
+                self::followUpDueDateField($record),
+                Hidden::make('mounted_updated_at'),
             ])
             ->successNotificationTitle(__('tasks.actions.reassign_success'))
             ->action(fn (Action $action, Task $record, array $data) => $this->runAction(
@@ -320,8 +398,48 @@ trait ProvidesTaskActions
                     User::query()->withTrashed()->findOrFail($data['assignee_id'] ?? null),
                     $data['due_date'] ?? null,
                     setDueDate: true,
+                    expectedUpdatedAt: $data['mounted_updated_at'] ?? null,
                 ),
             ));
+    }
+
+    /**
+     * Ô "Giao cho" — MỘT bản cho ba hộp thoại ("Giao việc" ở trang Công việc, "Giao việc" ở tab Công việc của hồ sơ,
+     * "Giao lại"): bày đúng {@see TaskAssignees::options()} (Action hỏi lại dưới khoá), tìm không dấu chỉ trên phần
+     * tên ({@see TaskAssignees::searchOptions()} — gộp integ-fa, làn fa3 và rà soát chéo mục 19).
+     *
+     * Sửa 2026-10-21: danh sách RỖNG (việc của một hồ sơ mà đội ngũ giữ việc không còn ai khác) không còn là một ô
+     * trống "Không có kết quả tìm kiếm phù hợp": câu gợi ý dưới ô và câu lỗi khi bấm gửi đều là
+     * {@see TaskAssignees::emptyListReason()} — vì sao rỗng, phải làm gì — và người đổi được đội ngũ có liên kết
+     * "Mở tab Đội ngũ của hồ sơ" ngay cạnh nhãn ô.
+     *
+     * @param  Closure(Get): ?Matter  $matter  hồ sơ của việc (null = việc chung)
+     */
+    protected function assigneeSelect(Closure $matter, ?Task $replacing = null): Select
+    {
+        $options = fn (Get $get): array => app(TaskAssignees::class)->options($matter($get), $this->taskActor(), $replacing);
+        $emptyReason = fn (Get $get): ?string => $options($get) === []
+            ? app(TaskAssignees::class)->emptyListReason($matter($get), $this->taskActor())
+            : null;
+
+        return Select::make('assignee_id')
+            ->label(__('tasks.fields.assignee'))
+            ->helperText(fn (Get $get): string => $emptyReason($get)
+                ?? self::assigneeHelp($matter($get) === null ? 'tasks.fields.assignee_help_general' : 'tasks.fields.assignee_help_matter'))
+            ->hintAction(Action::make('openMatterTeam')
+                ->label(__('tasks.assign.open_team_tab'))
+                ->icon(Heroicon::OutlinedUserGroup)
+                ->url(fn (Get $get): ?string => ($team = $matter($get)) === null ? null : MatterTab::url($team->getKey(), TeamRelationManager::class))
+                ->visible(fn (Get $get): bool => $emptyReason($get) !== null
+                    && ($team = $matter($get)) !== null
+                    && Gate::forUser($this->taskActor())->allows('manageTeam', $team)))
+            ->options($options)
+            ->searchable()
+            ->getSearchResultsUsing(fn (?string $search, Get $get): array => TaskAssignees::searchOptions($options($get), $search))
+            ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
+            ->required()
+            ->validationMessages(['required' => fn (Get $get): ?string => $emptyReason($get)])
+            ->native(false);
     }
 
     /**
@@ -333,6 +451,21 @@ trait ProvidesTaskActions
     protected static function assigneeHelp(string $key): string
     {
         return __($key).' '.__('tasks.assign.workload_scope');
+    }
+
+    /**
+     * Ô "Hạn" của "Giao lại" (làn fa1) và — sửa sau kiểm toán 2026-10-21 (mục 5) — của "Mở lại": điền sẵn
+     * {@see self::suggestedDueDate()}; hạn cũ đã qua thì câu gợi ý nói đã đề xuất một hạn mới.
+     */
+    private static function followUpDueDateField(Task $record): DatePicker
+    {
+        return DatePicker::make('due_date')
+            ->label(__('tasks.fields.due_date'))
+            ->helperText(fn (): string => $record->due_date !== null && $record->due_date->toDateString() < today()->toDateString()
+                ? __('tasks.reassign.due_past_help', ['date' => $record->due_date->format('d/m/Y')])
+                : __('tasks.fields.due_date_help'))
+            ->native(false)
+            ->displayFormat('d/m/Y');
     }
 
     /**
@@ -373,9 +506,13 @@ trait ProvidesTaskActions
      * Bốn ô nội dung của một việc, chung cho "Giao việc" và "Sửa": độ dài = độ dài cột (MariaDB strict).
      * Mặc định người dùng chỉ phải gõ TIÊU ĐỀ — ưu tiên "Thường", không hạn.
      *
+     * Kiểm toán màn hình 2026-10-21 (mục 9): ô "Mức ưu tiên" bắt buộc không có nút xoá ("×"); `$newTask` (hộp "Giao
+     * việc") — lịch hạn không cho chọn ngày đã qua (`AssignTask` vẫn từ chối dưới khoá). "Sửa" thì không: một việc đã
+     * quá hạn vẫn giữ được hạn cũ (`ValidatesTaskInput::cleanDueDate()`).
+     *
      * @return list<TextInput|DatePicker|Select|Textarea>
      */
-    protected function taskDetailFields(): array
+    protected function taskDetailFields(bool $newTask = false): array
     {
         return [
             TextInput::make('title')
@@ -387,6 +524,7 @@ trait ProvidesTaskActions
             DatePicker::make('due_date')
                 ->label(__('tasks.fields.due_date'))
                 ->helperText(__('tasks.fields.due_date_help'))
+                ->minDate($newTask ? fn (): string => today()->toDateString() : null)
                 ->native(false)
                 ->displayFormat('d/m/Y'),
             Select::make('priority')
@@ -394,6 +532,7 @@ trait ProvidesTaskActions
                 ->options(TaskPriority::options())
                 ->default(TaskPriority::Normal->value)
                 ->required()
+                ->selectablePlaceholder(false)
                 ->native(false),
             Textarea::make('description')
                 ->label(__('tasks.fields.description'))

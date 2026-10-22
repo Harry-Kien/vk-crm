@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * "Việc cần xử lý" trên bảng điều khiển (làn tk, Task 2) — của CHÍNH người đang đăng nhập: tối đa bốn ô số,
+ * "Việc cần xử lý" trên bảng điều khiển (làn tk, Task 2) — của CHÍNH người đang đăng nhập: tối đa sáu ô số,
  * mỗi ô một đường tắt tới đúng chỗ bấm:
  *  - việc chờ tôi nhận → tab "Chờ tôi nhận" của trang Công việc;
  *  - việc tôi đang giữ (chờ nhận hay đang làm) đã quá hạn, trên vụ còn mở hay việc chung
@@ -30,6 +30,10 @@ use Illuminate\Support\Facades\Gate;
  *    "Đội ngũ" của vụ, nơi chuông và thư nhắc của họ trỏ tới;
  *  - việc tôi giao bị trả lại → tab "Tôi đã giao" lọc sẵn trạng thái "Bị trả lại" (tab đó còn liệt kê việc
  *    đang mở và việc vừa xong);
+ *  - việc tôi giao cần giao lại (kiểm toán 2026-10-21, Q4 — người giữ bị khoá truy cập, đã nghỉ, rời đội ngũ, trả lại
+ *    hồ sơ…: `Task::assignedBy()->held()->needsReassignment()`) → tab "Tôi đã giao" lọc sẵn "Chờ nhận"/"Đang làm" và
+ *    "Cần giao lại" — CHỈ cho người giao được việc (`TaskPolicy::create`); việc đã bị trả lại ở ô "bị trả lại", không
+ *    đếm hai lần;
  *  - văn bản chờ tôi duyệt (gộp integ-fa, rà soát chéo 2026-10-18, mục 17) → trang "Tài liệu" lọc sẵn "Chờ tôi duyệt"
  *    (`DocumentLibrary::awaitingApprovalIds()` — MỘT định nghĩa cho ô và bộ lọc: văn bản nhóm B đang chờ duyệt mà người
  *    xem qua cổng `DocumentPolicy::publish` của nút duyệt). CHỈ cho người có `document.publish` (người duyệt được) — ô
@@ -52,7 +56,13 @@ use Illuminate\Support\Facades\Gate;
 class MyWorkQueueWidget extends StatsOverviewWidget
 {
     /** Màu của một ô khi số khác không. */
-    private const COLORS = ['awaiting' => 'warning', 'overdue' => 'danger', 'seats' => 'warning', 'returned' => 'danger', 'approvals' => 'warning'];
+    private const COLORS = [
+        'awaiting' => 'warning', 'overdue' => 'danger', 'seats' => 'warning', 'returned' => 'danger', 'reassign' => 'danger',
+        'approvals' => 'warning',
+    ];
+
+    /** Ô của kiểm toán 2026-10-21 — nhãn ở khối riêng `tasks.my_queue` của `lang/vi/tasks.php`. */
+    private const MY_QUEUE_LABELS = ['reassign'];
 
     protected static ?int $sort = 2;
 
@@ -103,8 +113,10 @@ class MyWorkQueueWidget extends StatsOverviewWidget
         $counts = $this->counts ??= self::countsFor($user);
         $links = self::links($user);
 
-        return array_map(fn (string $key): Stat => Stat::make(__('tasks.dashboard.'.$key), (string) $counts[$key])
-            ->description(__('tasks.dashboard.'.$key.'_hint'))
+        $label = fn (string $key): string => (in_array($key, self::MY_QUEUE_LABELS, true) ? 'tasks.my_queue.' : 'tasks.dashboard.').$key;
+
+        return array_map(fn (string $key): Stat => Stat::make(__($label($key)), (string) $counts[$key])
+            ->description(__($label($key).'_hint'))
             ->color($counts[$key] > 0 ? self::COLORS[$key] : 'gray')
             ->url($links[$key]), array_keys($counts));
     }
@@ -127,6 +139,10 @@ class MyWorkQueueWidget extends StatsOverviewWidget
             // Cùng scope của tab "Tôi đã giao" mà ô mở ra (`Task::scopeAssignedBy()` — gồm việc bị trả lại mà người giao
             // cũng là người nhận; gộp integ-fa, rà soát lại 2026-10-18), nên số bằng số dòng.
             'returned' => $mine()->assignedBy($user)->returned()->count(),
+            // Kiểm toán 2026-10-21 (Q4): cùng scope của tab và bộ lọc mà ô mở ra (`links()`), nên số bằng số dòng.
+            ...(Gate::forUser($user)->allows('create', Task::class)
+                ? ['reassign' => $mine()->assignedBy($user)->held()->needsReassignment()->count()]
+                : []),
             ...(self::approves($user) ? ['approvals' => count(DocumentLibrary::awaitingApprovalIds($user))] : []),
         ];
     }
@@ -141,7 +157,7 @@ class MyWorkQueueWidget extends StatsOverviewWidget
      * Đường dẫn của từng ô — tab và bộ lọc (`?filters[…]`, cùng tên bộ lọc của `ListTasks::table()`) để
      * trang mở ra đúng tập dòng của con số (docblock lớp).
      *
-     * @return array{awaiting: string, overdue: string, seats: string, returned: string, approvals: string}
+     * @return array{awaiting: string, overdue: string, seats: string, returned: string, reassign: string, approvals: string}
      */
     public static function links(User $user): array
     {
@@ -159,6 +175,13 @@ class MyWorkQueueWidget extends StatsOverviewWidget
             'returned' => TaskResource::getUrl('index', [
                 'tab' => 'assigned',
                 'filters' => ['status' => ['values' => [TaskStatus::Declined->value]]],
+            ], panel: 'admin'),
+            'reassign' => TaskResource::getUrl('index', [
+                'tab' => 'assigned',
+                'filters' => [
+                    'status' => ['values' => [TaskStatus::Pending->value, TaskStatus::Accepted->value]],
+                    'needs_reassignment' => ['isActive' => true],
+                ],
             ], panel: 'admin'),
             'approvals' => DocumentLibrary::getUrl([
                 'filters' => [DocumentLibrary::AWAITING_MY_APPROVAL => ['isActive' => true]],

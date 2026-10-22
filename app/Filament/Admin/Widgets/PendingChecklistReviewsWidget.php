@@ -4,9 +4,10 @@ namespace App\Filament\Admin\Widgets;
 
 use App\Enums\DocumentGroup;
 use App\Enums\Permission;
-use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
+use App\Support\MatterTab;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -117,11 +118,9 @@ class PendingChecklistReviewsWidget extends TableWidget
             ->recordActions([
                 Action::make('open')
                     ->label(__('widgets.pending_checklist_reviews.open'))
-                    ->url(fn (MatterChecklistItem $record): string => MatterResource::getUrl(
-                        'view',
-                        ['record' => $record->matter_id],
-                        panel: 'admin',
-                    )),
+                    // Tab "Danh mục hồ sơ", nơi duyệt đầu mục — cùng chỗ thông báo đẩy "khách nộp giấy tờ" mở
+                    // (`PushTopic::StaffNewClientDocument`; rà soát làn ops 2026-10-22, `DashboardRowLinksTest`).
+                    ->url(fn (MatterChecklistItem $record): string => MatterTab::url((int) $record->matter_id, ChecklistRelationManager::class)),
             ])
             ->paginated([5, 10, 25]);
     }

@@ -63,6 +63,14 @@ return [
 
     'waiting' => 'Chờ nhận từ :since',
 
+    // Kiểm toán màn hình 2026-10-21 (mục 1): ô tóm tắt của một dòng dưới md (`TaskColumns::renderSummary()`) — ai
+    // giao cho ai, nhìn từ người đang xem. :name, :from, :to là tên người (đã escape khi in).
+    'summary' => [
+        'from' => 'Từ :name',
+        'to' => 'Giao cho :name',
+        'between' => ':from → :to',
+    ],
+
     'filters' => [
         'status' => 'Trạng thái',
         'matter' => 'Vụ việc',
@@ -70,7 +78,16 @@ return [
         'assigner' => 'Người giao',
         'priority' => 'Ưu tiên',
         'overdue' => 'Chỉ việc quá hạn',
-        'needs_reassignment' => 'Cần giao lại (người nhận đã nghỉ, rời đội ngũ, trả lại hay không còn mở được hồ sơ)',
+        // Kiểm toán màn hình 2026-10-21 (mục 8): nhãn ngắn, phần giải thích chuyển vào chú thích dưới công tắc.
+        'needs_reassignment' => 'Cần giao lại',
+        'needs_reassignment_help' => 'Người nhận đã nghỉ, rời đội ngũ hồ sơ, đã trả lại hồ sơ hay không còn mở được hồ sơ — hoặc người giao một việc bị trả lại đã như vậy.',
+        'open_only' => 'Chỉ việc còn mở',
+        'open_only_help' => 'Tắt để xem cả việc đã hoàn thành và đã huỷ.',
+        'open' => 'Còn mở',
+        'due_today' => 'Hạn hôm nay',
+        'due_week' => 'Hạn 7 ngày tới',
+        'mine_open' => 'Việc của tôi (còn mở)',
+        'mine_open_help' => 'Việc anh/chị đang giữ: chờ nhận hoặc đang làm.',
     ],
 
     'empty' => [
@@ -118,6 +135,8 @@ return [
         'complete_success' => 'Đã báo hoàn thành. Người giao được báo nếu còn theo dõi việc này.',
         'view' => 'Xem',
         'view_heading' => 'Chi tiết việc',
+        // Kiểm toán màn hình 2026-10-21 (mục 1): nút "⋮" gom mọi thao tác phụ của một dòng.
+        'more' => 'Thao tác khác',
         'close' => 'Đóng',
         'edit' => 'Sửa',
         'edit_heading' => 'Sửa việc',
@@ -155,6 +174,35 @@ return [
         'completion_note' => 'Ghi chú khi hoàn thành',
         'cancel_reason' => 'Lý do huỷ',
         'none' => '—',
+        // Kiểm toán màn hình 2026-10-21 (mục 5): khối "Diễn biến" — nhật ký của chính việc này (`TaskTimeline`).
+        'history' => 'Diễn biến',
+        'history_empty' => 'Chưa có diễn biến nào được ghi lại.',
+        'open_matter' => 'Mở tab Công việc của hồ sơ',
+    ],
+
+    // Khối "Diễn biến" (`App\Support\Tasks\TaskTimeline`). :who, :assignee, :from, :to là tên người; ghi chú (lý do,
+    // nhận xét, điều đã đổi) in ở dòng dưới. Blade escape khi in.
+    'timeline' => [
+        'system' => 'Hệ thống',
+        'someone' => 'một nhân sự',
+        'assigned' => ':who giao việc cho :assignee',
+        'accepted' => ':who đã nhận việc',
+        'declined' => ':who trả lại việc',
+        'completed' => ':who báo hoàn thành',
+        'cancelled' => ':who huỷ việc',
+        'reassigned' => ':who giao lại việc từ :from cho :to',
+        'taken_over' => ':who tự nhận lại việc từ :from',
+        'reopened' => ':who mở lại việc',
+        'restored' => ':who khôi phục việc',
+        'updated' => ':who sửa việc',
+        'assigner_changed' => 'Người giao đổi từ :from sang :to',
+        'due' => 'Hạn: :date',
+        'due_changed' => 'Hạn: :from → :to',
+        'reason' => 'Lý do: :text',
+        'comment' => 'Nhận xét: :text',
+        'note' => 'Ghi chú: :text',
+        'handover' => 'Do bàn giao hồ sơ',
+        'transfer' => 'Do chuyển việc của nhân sự',
     ],
 
     // "Việc của tôi" (trang của chính mình, M13): ba khối.
@@ -591,6 +639,13 @@ return [
         // `workload_scope` nối sau câu gợi ý của ô "Giao cho" — ProvidesTaskActions::assigneeHelp()).
         'workload' => 'đang giữ :held việc anh/chị thấy được, :overdue quá hạn',
         'workload_none' => 'không có việc nào anh/chị thấy được',
+        // Sửa 2026-10-21: ô "Giao cho" rỗng — TaskAssignees::emptyListReason(). Không dấu hai chấm trong câu (Livewire
+        // đọc dấu hai chấm của câu lỗi như tham số luật khi so trong test).
+        'empty_matter_can_manage' => 'Chưa có ai nhận được việc này — việc của hồ sơ :code chỉ giao được cho người trong đội ngũ giữ việc (luật sư phụ trách, luật sư cộng sự, trợ lý), không tính anh/chị, người đang giữ chính việc này, người theo dõi và người đã trả lại hồ sơ. Thêm người vào tab "Đội ngũ" của hồ sơ rồi giao lại.',
+        'empty_matter_ask' => 'Chưa có ai nhận được việc này — việc của hồ sơ :code chỉ giao được cho người trong đội ngũ giữ việc (luật sư phụ trách, luật sư cộng sự, trợ lý), không tính anh/chị, người đang giữ chính việc này, người theo dõi và người đã trả lại hồ sơ. Nhờ luật sư phụ trách hồ sơ hoặc trưởng phòng thêm người vào đội ngũ rồi giao lại.',
+        'empty_matter_restricted' => 'Chưa có ai nhận được việc này — :code là hồ sơ hạn chế, chỉ luật sư phụ trách và quản trị viên trong đội ngũ của hồ sơ mở được nó, nên chỉ họ nhận được việc (không tính anh/chị và người đang giữ chính việc này). Muốn giao cho người khác, quản trị viên phải được thêm vào đội ngũ của hồ sơ.',
+        'empty_general' => 'Chưa có ai nhận được việc này — không còn nhân sự nào khác đang làm việc.',
+        'open_team_tab' => 'Mở tab Đội ngũ của hồ sơ',
         'workload_scope' => 'Số việc bên mỗi tên chỉ tính những việc anh/chị xem được — người đó có thể còn giữ việc trên hồ sơ khác.',
     ],
 
@@ -635,6 +690,16 @@ return [
         ],
     ],
 
+    // Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn vòng đời (PROGRESS, mục cùng tên).
+    'lifecycle' => [
+        // Mục 5: người nhận tự mở lại (bấm nhầm) không đổi hạn của mình.
+        'reopen_due_own' => 'Anh/chị tự mở lại việc của mình nên không đổi được hạn — nhờ người giao việc nếu cần hạn mới.',
+        // Mục 1: hồ sơ đã chọn không còn nhận việc mới — một câu cho mọi nguyên nhân (SPEC §10.10). Không dấu hai chấm
+        // (Livewire đọc dấu hai chấm của câu lỗi như tham số luật khi so trong test).
+        'matter_unavailable' => 'Không giao được việc trên hồ sơ này — hồ sơ đã kết thúc hay đã huỷ, hoặc anh/chị không còn được giao việc trên hồ sơ. Chưa có việc nào được tạo — chọn hồ sơ khác, hoặc giao như một việc chung nếu việc không thuộc hồ sơ nào.',
+        'matter_unavailable_label' => '(hồ sơ đã chọn không còn nhận việc mới)',
+    ],
+
     // Lời nhắc người giao (chưa được nhận, quá hạn) về một việc "Cần giao lại" vì người nhận. :who đã escape ở chuông.
     'reminder_needs_reassignment' => ':who không còn giữ được việc này (đã nghỉ, rời đội ngũ, trả lại hồ sơ hoặc không còn mở được hồ sơ) — việc hiện "Cần giao lại": hãy giao lại.',
 
@@ -644,6 +709,11 @@ return [
         'updated' => [
             'title' => 'Một việc anh/chị đang giữ vừa được sửa',
             'body' => ':who đã sửa việc ":title": :changes.',
+        ],
+        // Sửa sau kiểm toán 2026-10-21 (mục 2): người khác sửa việc anh/chị giao — chỉ chuông.
+        'updated_by_other' => [
+            'title' => 'Việc anh/chị giao vừa được người khác sửa',
+            'body' => ':who đã sửa việc ":title" anh/chị giao: :changes.',
         ],
         'reopened' => [
             'title' => 'Việc anh/chị đã hoàn thành được mở lại — cần làm tiếp',
@@ -718,5 +788,195 @@ return [
             'changes' => 'Điều đã đổi',
             'reason' => 'Lý do, nhận xét',
         ],
+    ],
+
+    // =============================================================================================================
+    // Kiểm toán luồng Công việc 2026-10-21 — làn nhắc việc và con số (khối riêng của làn; không sửa chuỗi ở trên).
+    // =============================================================================================================
+
+    // Q3 — lời nhắc việc GỘP (App\Jobs\SendTaskReminderDigest): chuông TaskReminderAlert và thư TaskReminder với
+    // `$batch`. :list đã escape ở chuông (mỗi việc: `"tiêu đề" (mã · hạn · …)`, nối bằng "; ").
+    'reminder_digest' => [
+        'due' => 'hạn :date',
+        'no_due' => 'không đặt hạn',
+        'by' => 'do :assigner giao',
+        'reassign' => 'cần giao lại',
+        'detail' => [
+            'awaiting' => 'đã chờ :detail',
+            'unaccepted' => 'chưa nhận sau :detail',
+            'overdue' => 'quá hạn :detail ngày',
+            'overdue_assigner' => 'quá hạn :detail ngày',
+        ],
+        'alert' => [
+            'awaiting' => [
+                'title' => ':count việc đang chờ anh/chị nhận',
+                'body' => 'Các việc đã chờ anh/chị nhận quá 24 giờ làm việc: :list. Bấm "Đã nhận" hoặc "Trả lại" ở mục Công việc.',
+            ],
+            'unaccepted' => [
+                'title' => ':count việc được giao chưa được nhận',
+                'body' => 'Các việc chưa được nhận (tính theo giờ làm việc): :list. Hãy trao đổi với người nhận hoặc giao lại.',
+            ],
+            'due_soon' => [
+                'title' => ':count việc của anh/chị sắp đến hạn',
+                'body' => 'Các việc đến hạn từ hôm nay tới hết ngày làm việc kế tiếp: :list.',
+            ],
+            'overdue' => [
+                'title' => ':count việc của anh/chị đã quá hạn',
+                'body' => 'Các việc đã quá hạn: :list. Hãy hoàn thành, hoặc báo người giao để dời hạn.',
+            ],
+            'overdue_assigner' => [
+                'title' => ':count việc anh/chị giao hoặc theo dõi đã quá hạn',
+                'body' => 'Các việc đã quá hạn: :list.',
+            ],
+            'due_soon_assigner' => [
+                'title' => ':count việc sắp đến hạn mà không còn người làm',
+                'body' => 'Người giữ các việc dưới đây không còn làm được việc — hãy giao lại: :list.',
+            ],
+        ],
+        'email' => [
+            'item' => 'Việc',
+            'subject' => [
+                'awaiting' => ':count việc đang chờ anh/chị nhận',
+                'unaccepted' => ':count việc được giao chưa được nhận',
+                'due_soon' => ':count việc của anh/chị sắp đến hạn',
+                'overdue' => ':count việc của anh/chị đã quá hạn',
+                'overdue_assigner' => ':count việc anh/chị giao hoặc theo dõi đã quá hạn',
+                'due_soon_assigner' => ':count việc sắp đến hạn mà không còn người làm',
+            ],
+            'headline' => [
+                'awaiting' => ':count việc dưới đây đã chờ anh/chị nhận quá 24 giờ làm việc.',
+                'unaccepted' => ':count việc dưới đây chưa được nhận (tính theo giờ làm việc) — hãy trao đổi với người nhận hoặc giao lại.',
+                'due_soon' => ':count việc dưới đây đến hạn từ hôm nay tới hết ngày làm việc kế tiếp.',
+                'overdue' => ':count việc dưới đây đã quá hạn — hãy hoàn thành, hoặc báo người giao để dời hạn.',
+                'overdue_assigner' => ':count việc anh/chị giao (hoặc nhận thay người giao) dưới đây đã quá hạn.',
+                'due_soon_assigner' => ':count việc dưới đây sắp đến hạn mà người giữ không còn làm được việc — hãy giao lại.',
+            ],
+            'action' => [
+                'awaiting' => 'Mở mục Công việc để bấm "Đã nhận" hoặc "Trả lại"',
+                'unaccepted' => 'Mở mục Công việc',
+                'due_soon' => 'Mở mục Công việc — các việc anh/chị đang giữ',
+                'overdue' => 'Mở mục Công việc — các việc quá hạn của anh/chị',
+                'overdue_assigner' => 'Mở mục Công việc',
+                'due_soon_assigner' => 'Mở mục Công việc',
+            ],
+        ],
+    ],
+
+    // N1, A7 — lời báo "cho người giao" tới người nhận THAY không phải luật sư phụ trách (App\Support\Tasks\StandIn):
+    // người quản lý hồ sơ (`<loại>`) hay trưởng phòng / quản trị viên với việc chung (`<loại>_general`). :title, :who,
+    // :reason, :assigner, :detail, :code đã escape ở chuông.
+    'managed' => [
+        'alert' => [
+            'declined' => [
+                'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý bị trả lại',
+                'body' => ':who trả lại việc ":title" do :assigner giao. Lý do: :reason. :assigner không còn theo dõi việc này '
+                    .'và luật sư phụ trách không nhận thay được, nên anh/chị — người quản lý hồ sơ — nhận lời báo: hãy giao '
+                    .'lại hoặc huỷ ở tab "Công việc" của hồ sơ.',
+            ],
+            'declined_general' => [
+                'title' => 'Một việc chung bị trả lại mà người giao không còn theo dõi',
+                'body' => ':who trả lại việc chung ":title" do :assigner giao. Lý do: :reason. :assigner không còn theo dõi '
+                    .'việc này nên anh/chị nhận lời báo: hãy giao lại hoặc huỷ ở trang Công việc.',
+            ],
+        ],
+        'email' => [
+            'subject' => [
+                'declined' => ':name đã trả lại một việc trên hồ sơ của đội ngũ anh/chị quản lý',
+                'declined_general' => ':name đã trả lại một việc chung mà người giao không còn theo dõi',
+            ],
+            'headline' => [
+                'declined' => ':name đã trả lại việc do :assigner giao trên hồ sơ :code của đội ngũ anh/chị quản lý. :assigner '
+                    .'không còn theo dõi việc này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo.',
+                'declined_general' => ':name đã trả lại việc chung do :assigner giao. :assigner không còn theo dõi việc này nên '
+                    .'anh/chị nhận lời báo.',
+            ],
+            'action' => [
+                'declined' => 'Mở tab Công việc của hồ sơ để giao lại hoặc huỷ việc',
+                'declined_general' => 'Mở trang Công việc để giao lại hoặc huỷ việc',
+            ],
+        ],
+        'reminder' => [
+            'alert' => [
+                'unaccepted' => [
+                    'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý chưa được nhận',
+                    'body' => ':who chưa nhận việc ":title" do :assigner giao, sau :detail (tính theo giờ làm việc). :assigner '
+                        .'không còn theo dõi việc này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo: hãy '
+                        .'trao đổi với :who hoặc giao lại.',
+                ],
+                'unaccepted_general' => [
+                    'title' => 'Một việc chung chưa được nhận mà người giao không còn theo dõi',
+                    'body' => ':who chưa nhận việc chung ":title" do :assigner giao, sau :detail (tính theo giờ làm việc). '
+                        .':assigner không còn theo dõi việc này nên anh/chị nhận lời báo: hãy trao đổi với :who hoặc giao lại.',
+                ],
+                'overdue_assigner' => [
+                    'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý đã quá hạn',
+                    'body' => 'Việc ":title" do :assigner giao cho :who đã quá hạn :detail ngày. :assigner không còn theo dõi '
+                        .'việc này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo.',
+                ],
+                'overdue_assigner_general' => [
+                    'title' => 'Một việc chung đã quá hạn mà người giao không còn theo dõi',
+                    'body' => 'Việc chung ":title" do :assigner giao cho :who đã quá hạn :detail ngày. :assigner không còn theo '
+                        .'dõi việc này nên anh/chị nhận lời báo.',
+                ],
+                'due_soon_assigner' => [
+                    'title' => 'Một việc trên hồ sơ :code của đội ngũ anh/chị quản lý sắp đến hạn mà không còn người làm',
+                    'body' => 'Việc ":title" do :assigner giao cho :who đến hạn ngày :detail. :assigner không còn theo dõi việc '
+                        .'này và luật sư phụ trách không nhận thay được, nên anh/chị nhận lời báo.',
+                ],
+                'due_soon_assigner_general' => [
+                    'title' => 'Một việc chung sắp đến hạn mà không còn người làm',
+                    'body' => 'Việc chung ":title" do :assigner giao cho :who đến hạn ngày :detail. :assigner không còn theo '
+                        .'dõi việc này nên anh/chị nhận lời báo.',
+                ],
+            ],
+            'email' => [
+                'subject' => [
+                    'unaccepted' => 'Một việc trên hồ sơ của đội ngũ anh/chị quản lý chưa được nhận',
+                    'unaccepted_general' => 'Một việc chung chưa được nhận mà người giao không còn theo dõi',
+                    'overdue_assigner' => 'Một việc trên hồ sơ của đội ngũ anh/chị quản lý đã quá hạn',
+                    'overdue_assigner_general' => 'Một việc chung đã quá hạn mà người giao không còn theo dõi',
+                    'due_soon_assigner' => 'Một việc trên hồ sơ của đội ngũ anh/chị quản lý sắp đến hạn mà không còn người làm',
+                    'due_soon_assigner_general' => 'Một việc chung sắp đến hạn mà không còn người làm',
+                ],
+                'headline' => [
+                    'unaccepted' => ':name chưa nhận việc do :assigner giao trên hồ sơ :code của đội ngũ anh/chị quản lý, sau '
+                        .':detail (tính theo giờ làm việc). :assigner không còn theo dõi việc này và luật sư phụ trách không '
+                        .'nhận thay được, nên anh/chị nhận lời báo.',
+                    'unaccepted_general' => ':name chưa nhận việc chung do :assigner giao, sau :detail (tính theo giờ làm '
+                        .'việc). :assigner không còn theo dõi việc này nên anh/chị nhận lời báo.',
+                    'overdue_assigner' => 'Việc do :assigner giao cho :name trên hồ sơ :code của đội ngũ anh/chị quản lý đã '
+                        .'quá hạn :detail ngày. :assigner không còn theo dõi việc này và luật sư phụ trách không nhận thay '
+                        .'được, nên anh/chị nhận lời báo.',
+                    'overdue_assigner_general' => 'Việc chung do :assigner giao cho :name đã quá hạn :detail ngày. :assigner '
+                        .'không còn theo dõi việc này nên anh/chị nhận lời báo.',
+                    'due_soon_assigner' => 'Việc do :assigner giao cho :name trên hồ sơ :code của đội ngũ anh/chị quản lý đến '
+                        .'hạn ngày :detail. :assigner không còn theo dõi việc này và luật sư phụ trách không nhận thay được, '
+                        .'nên anh/chị nhận lời báo.',
+                    'due_soon_assigner_general' => 'Việc chung do :assigner giao cho :name đến hạn ngày :detail. :assigner '
+                        .'không còn theo dõi việc này nên anh/chị nhận lời báo.',
+                ],
+                'action' => [
+                    'unaccepted' => 'Mở tab Công việc của hồ sơ',
+                    'unaccepted_general' => 'Mở trang Công việc',
+                    'overdue_assigner' => 'Mở tab Công việc của hồ sơ',
+                    'overdue_assigner_general' => 'Mở trang Công việc',
+                    'due_soon_assigner' => 'Mở tab Công việc của hồ sơ',
+                    'due_soon_assigner_general' => 'Mở trang Công việc',
+                ],
+            ],
+        ],
+    ],
+
+    // Q4 — chuông "người giữ việc vừa bị khoá truy cập" (App\Notifications\Staff\HolderSuspendedAlert). :who, :list đã escape.
+    'holder_suspended' => [
+        'title' => ':count việc cần giao lại: người giữ vừa bị khoá truy cập',
+        'body' => ':who vừa bị khoá truy cập và không còn làm được :count việc anh/chị giao hoặc theo dõi: :list. Các việc '
+            .'này hiện "Cần giao lại" — hãy giao lại cho người khác hoặc huỷ.',
+    ],
+
+    // Q4 — ô mới của "Việc cần xử lý của tôi" (App\Filament\Admin\Widgets\MyWorkQueueWidget).
+    'my_queue' => [
+        'reassign' => 'Việc tôi giao cần giao lại',
+        'reassign_hint' => 'Người giữ đã bị khoá, đã nghỉ hay không còn giữ được việc',
     ],
 ];

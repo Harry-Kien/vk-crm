@@ -9,13 +9,12 @@ use App\Enums\TaskStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Tasks\Concerns\ProvidesTaskActions;
 use App\Filament\Admin\Resources\Tasks\Tables\TaskColumns;
+use App\Filament\Admin\Resources\Tasks\Tables\TaskFilters;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
-use App\Support\Search\LetterD;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Hidden;
-use Filament\Forms\Components\Select;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Filters\SelectFilter;
@@ -80,8 +79,15 @@ class TasksRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('title')
             ->columns(TaskColumns::make(withMatter: false))
-            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query->visibleTo($this->taskActor()))->orderedForWork())
+            ->modifyQueryUsing(fn (Builder $query): Builder => TaskColumns::eagerLoad($query->visibleTo($this->taskActor())))
+            // Kiểm toán màn hình 2026-10-21 (mục 3): thứ tự MẶC ĐỊNH — một cú bấm lên tiêu đề cột sắp trước.
+            ->defaultSort(fn (Builder $query): Builder => $query->orderedForWork())
+            ->recordAction('view')
             ->filters([
+                // Kiểm toán màn hình 2026-10-21 (mục 8): cùng ba bộ lọc của trang Công việc, cùng scope.
+                TaskFilters::overdue(),
+                TaskFilters::needsReassignment(),
+                TaskFilters::open(),
                 SelectFilter::make('status')
                     ->label(__('tasks.filters.status'))
                     ->multiple()
@@ -113,17 +119,8 @@ class TasksRelationManager extends RelationManager
             // Làn fa1 (phán quyết 4): mã một lần của hộp thoại — chống bấm trùng của `AssignTask`, không theo tiêu đề.
             ->fillForm(fn (): array => ['submission_key' => (string) Str::uuid(), 'priority' => TaskPriority::Normal->value])
             ->schema(fn (): array => [
-                Select::make('assignee_id')
-                    ->label(__('tasks.fields.assignee'))
-                    ->helperText(self::assigneeHelp('tasks.fields.assignee_help_matter'))
-                    ->options(fn (): array => app(TaskAssignees::class)->options($this->matter(), $this->taskActor()))
-                    ->searchable()
-                    // Gộp integ-fa (làn fa3): "dinh" ra "Đinh" trong ĐÚNG danh sách trên (`AssignTask` hỏi lại).
-                    ->getSearchResultsUsing(fn (?string $search): array => TaskAssignees::searchOptions(app(TaskAssignees::class)->options($this->matter(), $this->taskActor()), $search))
-                    ->searchDebounce(LetterD::SELECT_SEARCH_DEBOUNCE_MS)
-                    ->required()
-                    ->native(false),
-                ...$this->taskDetailFields(),
+                $this->assigneeSelect(fn (): Matter => $this->matter()),
+                ...$this->taskDetailFields(newTask: true),
                 Hidden::make('submission_key'),
             ])
             ->successNotificationTitle(__('tasks.actions.assign_success'))

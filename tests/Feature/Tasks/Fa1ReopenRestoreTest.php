@@ -221,7 +221,9 @@ it('no longer counts a reopened task as completed on time, until it is completed
 
     $this->actingAs($this->associate, 'web');
     $this->livewire(ListTasks::class, ['activeTab' => 'all'])
-        ->callTableAction('reopen', $task, data: ['reason' => 'Thiếu chữ ký'])
+        // Sửa sau kiểm toán 2026-10-21 (mục 5): hộp thoại gợi ý một hạn mới khi hạn cũ đã qua — ở đây người mở lại GIỮ
+        // hạn cũ 20/10 (được: đó đúng là hạn việc đang mang).
+        ->callTableAction('reopen', $task, data: ['reason' => 'Thiếu chữ ký', 'due_date' => '2026-10-20'])
         ->assertHasNoTableActionErrors();
 
     // Đang mở lại và đã qua hạn: không còn là "xong đúng hạn", và tính là một việc quá hạn còn mở (phán quyết 6).

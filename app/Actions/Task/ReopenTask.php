@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Notifications\Staff\TaskAlert;
 use App\Policies\TaskPolicy;
 use App\Support\Audit;
+use App\Support\Tasks\ReassignmentDueDate;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -47,6 +48,15 @@ use Illuminate\Validation\ValidationException;
  * câu xong của màn hình nói việc hiện "Cần giao lại" (`tasks.reopen.success_needs_reassignment`), không hứa "họ được
  * báo". Chính người giữ mở lại thì họ còn giữ được việc (`TaskPolicy::completedRecentlyBy()` hỏi `stillHolds`).
  *
+ * # Hạn khi mở lại (sửa sau kiểm toán 2026-10-21, mục 5)
+ *
+ * Hạn đã qua thì việc mở lại thành quá hạn ngay và bị nhắc mỗi ngày. Người giao, luật sư phụ trách hay quản lý mở lại
+ * đặt được hạn mới (`$setDueDate`): hộp thoại điền sẵn {@see ReassignmentDueDate::suggest()} — cùng luật ô "Hạn" của
+ * "Giao lại" (hạn còn ở hôm nay hay tương lai thì giữ; đã qua thì hôm nay cộng đúng số ngày người giữ đã có); một ngày
+ * đã qua chỉ được khi đó đúng là hạn cũ (`cleanDueDate()`). Dòng `task_reopened` ghi `due_date_from`/`due_date_to` khi
+ * hạn đổi. Chính người giữ mở lại (bấm nhầm) thì không đổi hạn của mình — hộp thoại không có ô Hạn, Action từ chối
+ * (`tasks.lifecycle.reopen_due_own`). `RestoreTask` không đổi: khôi phục giữ hạn là cố ý (làn fa1).
+ *
  * Số Hiệu suất: một việc mở lại không còn trong tập "đã hoàn thành" ({@see BuildTaskPerformance}, `Task::
  * scopeCompletedWithDueDateBetween()`) cho tới khi xong lần nữa; nếu đã quá hạn, nó vào mẫu số như mọi việc quá hạn
  * còn mở.
@@ -57,11 +67,16 @@ class ReopenTask
     use QueuesTaskNotices;
     use ValidatesTaskInput;
 
-    public function handle(Task $task, User $actor, ?string $reason): Task
+    /**
+     * @param  string|null  $dueDate  sửa sau kiểm toán 2026-10-21 (mục 5): hạn của việc sau khi mở lại, khi `$setDueDate`
+     *                                (docblock lớp, mục "Hạn khi mở lại")
+     * @param  bool  $setDueDate  `false` (gọi từ nơi không có ô hạn): giữ hạn cũ
+     */
+    public function handle(Task $task, User $actor, ?string $reason, ?string $dueDate = null, bool $setDueDate = false): Task
     {
         $reason = $this->cleanText($reason, 'reason', Task::REASON_MAX_LENGTH);
 
-        return DB::transaction(function () use ($task, $actor, $reason): Task {
+        return DB::transaction(function () use ($task, $actor, $reason, $dueDate, $setDueDate): Task {
             $fresh = $this->openTask($task, $actor);
 
             $this->authorizeTransition($fresh, $actor, 'reopen', [TaskStatus::Completed]);
@@ -77,6 +92,14 @@ class ReopenTask
                 throw ValidationException::withMessages(['reason' => [__('tasks.validation.reason_required')]]);
             }
 
+            // Xem docblock lớp, mục "Hạn khi mở lại".
+            $oldDue = $fresh->due_date?->toDateString();
+            $newDue = $setDueDate ? $this->cleanDueDate($dueDate, $oldDue) : $oldDue;
+
+            if ($own && $newDue !== $oldDue) {
+                throw ValidationException::withMessages(['due_date' => [__('tasks.lifecycle.reopen_due_own')]]);
+            }
+
             $completedAt = $fresh->completed_at?->toDateTimeString();
             $note = $fresh->completion_note;
 
@@ -89,6 +112,7 @@ class ReopenTask
                 'accepted_at' => $fresh->accepted_at ?? now(),
                 'completed_at' => null,
                 'completion_note' => null,
+                'due_date' => $newDue,
             ]);
 
             $activity = Audit::record('task_reopened', $fresh, [
@@ -100,6 +124,7 @@ class ReopenTask
                 'completion_note' => $note,
                 'by_holder' => $own,
                 'needs_reassignment' => ! $qualifies,
+                ...($newDue !== $oldDue ? ['due_date_from' => $oldDue, 'due_date_to' => $newDue] : []),
             ], causer: $actor);
 
             if ($own) {

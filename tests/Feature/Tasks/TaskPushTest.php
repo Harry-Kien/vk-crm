@@ -90,7 +90,8 @@ it('buzzes the assignee with one line that names nothing of the task, opening th
     expect($alert->message->topic)->toBe(PushTopic::StaffTaskAssigned->value)
         ->and($alert->message->relatedType)->toBe($task->getMorphClass())
         ->and($alert->message->relatedId)->toBe($task->id)
-        ->and($alert->message->url)->toBe('/admin/tasks?tab=awaiting')
+        // Kiểm toán màn hình 2026-10-21: mở thẳng khung "Xem" của việc — chỉ id việc, không chữ nào của nó.
+        ->and($alert->message->url)->toBe('/admin/tasks?tab=awaiting&tableAction=view&tableActionRecord='.$task->id)
         ->and($payload['body'])->toBe(__('push.alerts.staff.task.assigned'))
         ->and($payload['tag'])->toBe('staff.task.assigned:'.$task->id);
 
@@ -118,7 +119,8 @@ it('does not buzz the assigner when the task is accepted, declined or completed 
 })->with([
     'đã nhận' => ['accept', [], 'accepted'],
     'trả lại' => ['decline', ['reason' => 'Cần thêm tài liệu'], 'declined'],
-    'hoàn thành' => ['complete', [], 'completed'],
+    // Kiểm toán màn hình 2026-10-21: việc chưa nhận thì "Hoàn thành" ở "⋮" (`completePending`), cùng Action.
+    'hoàn thành' => ['completePending', [], 'completed'],
 ]);
 
 it('buzzes the new holder of a reassigned task, and never the person it was taken from', function () {

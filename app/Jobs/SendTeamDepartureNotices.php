@@ -33,9 +33,16 @@ use Illuminate\Foundation\Queue\Queueable;
  *    false)` — dừng ở luật sư phụ trách, không rơi tới người quản lý của vụ); việc để "Cần giao lại" cần người quyết
  *    định nên giữ cả chuỗi.
  *
+ * # Luật sư phụ trách theo dõi thay (sửa sau kiểm toán 2026-10-21, mục 3)
+ *
+ * Người bị gỡ không còn mở được hồ sơ thì `RemoveTeamMember` đổi người giao của các việc còn mở họ đã giao sang luật sư
+ * phụ trách (`$followedTaskIds` — trừ việc thành việc riêng của luật sư phụ trách). Luật sư phụ trách nhận MỘT chuông
+ * {@see TeamDepartureAlert::TASKS_FOLLOWED} nêu số việc nay họ theo dõi — trừ khi chính họ bấm gỡ (hộp thoại đã nói con
+ * số đó).
+ *
  * # Chống trùng khi thử lại
  *
- * Khoá `team@<id dòng nhật ký>` ở `viewData.team_departure_key`.
+ * Khoá `team@<id dòng nhật ký>` ở `viewData.team_departure_key` (`#followed` cho chuông theo dõi thay).
  */
 class SendTeamDepartureNotices implements ShouldQueue
 {
@@ -45,8 +52,19 @@ class SendTeamDepartureNotices implements ShouldQueue
     public int $tries = 5;
 
     /**
+     * Sửa sau kiểm toán 2026-10-21 (mục 3): các việc người bị gỡ đã giao mà `RemoveTeamMember` vừa đổi người giao sang
+     * luật sư phụ trách (docblock lớp, mục "Luật sư phụ trách theo dõi thay"). Không `readonly`, có giá trị mặc định: một
+     * job xếp TRƯỚC bản cập nhật (payload không có thuộc tính này) unserialize bằng giá trị mặc định — cùng cách
+     * `SendMatterAssignmentNotice::$withMail`.
+     *
+     * @var list<int>
+     */
+    public array $followedTaskIds = [];
+
+    /**
      * @param  list<int>  $movedTaskIds
      * @param  list<int>  $leftTaskIds
+     * @param  list<int>  $followedTaskIds
      */
     public function __construct(
         public readonly int $matterId,
@@ -56,7 +74,10 @@ class SendTeamDepartureNotices implements ShouldQueue
         public readonly array $movedTaskIds,
         public readonly array $leftTaskIds,
         public readonly ?int $recipientId,
-    ) {}
+        array $followedTaskIds = [],
+    ) {
+        $this->followedTaskIds = $followedTaskIds;
+    }
 
     /** @return list<int> */
     public function backoff(): array
@@ -124,6 +145,45 @@ class SendTeamDepartureNotices implements ShouldQueue
                 takenOver: $this->recipientId !== null && $this->recipientId === $this->actorId,
             ), $key);
         }
+
+        $this->ringLeadAboutFollowedTasks($matter, $member, $actorName, $key, $recipients);
+    }
+
+    /**
+     * Docblock lớp, mục "Luật sư phụ trách theo dõi thay": các việc trong `$followedTaskIds` còn mở và còn do luật sư phụ
+     * trách HIỆN TẠI giao (đọc lại lúc chạy). Luật sư phụ trách còn hoạt động, mở được hồ sơ, không phải người bấm: MỘT
+     * chuông {@see TeamDepartureAlert::TASKS_FOLLOWED} với số việc. Khoá riêng (`#followed`): họ có thể đã nhận chuông
+     * {@see TeamDepartureAlert::TASKS_HANDLED} của cùng lần gỡ.
+     */
+    private function ringLeadAboutFollowedTasks(Matter $matter, User $member, string $actorName, string $key, ResolveStaffRecipients $recipients): void
+    {
+        $lead = $matter->lead_lawyer_id === null ? null : User::query()->find($matter->lead_lawyer_id);
+
+        if ($this->followedTaskIds === [] || $lead === null || $lead->getKey() === $this->actorId || ! $recipients->qualifies($lead, $matter)) {
+            return;
+        }
+
+        $count = $this->scopelessly(Task::query())
+            ->whereKey($this->followedTaskIds)
+            ->where('assigned_by', $lead->getKey())
+            ->open()
+            ->count();
+
+        if ($count === 0) {
+            return;
+        }
+
+        $this->ring($lead, new TeamDepartureAlert(
+            TeamDepartureAlert::TASKS_FOLLOWED,
+            (int) $matter->getKey(),
+            (string) $matter->code,
+            (string) $member->name,
+            $actorName,
+            $count,
+            0,
+            '',
+            $key.'#followed',
+        ), $key.'#followed');
     }
 
     /**

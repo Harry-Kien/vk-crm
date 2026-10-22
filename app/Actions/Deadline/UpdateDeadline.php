@@ -67,6 +67,11 @@ use Throwable;
  * "chưa tới" (5 > 3) nên XOÁ (sẽ gửi lại khi thật sự còn ≤ 3 ngày). `overdue` giữ khi ngày mới
  * VẪN còn âm (còn quá hạn), xoá khi ngày mới đã về tương lai.
  *
+ * **Ngoại lệ: bậc CUỐI (`d1`) luôn xoá khi ngày mới chưa qua** (rà soát toàn hệ thống 2026-10-22, làn
+ * matter). Giữ một bậc "đã tới" chỉ đúng khi còn một bậc gần hơn sẽ nhắc trước hạn; sau `d1` không còn
+ * bậc nào. Mốc quá hạn được gia hạn tới ngày mai, hay mốc hôm nay dời sang ngày mai, trước đây giữ `d1`
+ * của ngày cũ và không ai được nhắc trước ngày mới — nay lượt nhắc kế tiếp gửi thư "khẩn" cho ngày mới.
+ *
  * **Chỉ chạy khi `due_date` THẬT SỰ đổi**, so theo ngày (`isSameDay()`) — một lượt sửa chỉ đổi tên
  * hay mức độ, gửi lại nguyên `due_date` cũ, không được dọn `reminders_sent` một cách vô cớ.
  *
@@ -316,14 +321,22 @@ class UpdateDeadline
     private function clearedReminders(array $sent, CarbonImmutable $newDueDate): array
     {
         $daysLeft = (int) today()->diffInDays($newDueDate, false);
+        $lastTier = min(CheckDeadlines::TIERS);
 
-        return array_values(array_filter($sent, function (string $tierKey) use ($daysLeft): bool {
+        return array_values(array_filter($sent, function (string $tierKey) use ($daysLeft, $lastTier): bool {
             if ($tierKey === CheckDeadlines::OVERDUE_KEY) {
                 return $daysLeft < 0;
             }
 
             // 'd7' -> 7, 'd14' -> 14, ...
             $tierDays = (int) mb_substr($tierKey, 1);
+
+            // Rà soát 2026-10-22 (làn matter): bậc CUỐI trước hạn (`d1`) không còn bậc nào gần hơn
+            // nhắc thay nó, nên `d1` đã gửi cho ngày CŨ không bao giờ đứng thay cho ngày MỚI còn chưa
+            // qua — xoá để lượt nhắc kế tiếp báo đúng ngày mới. Ngày mới vẫn đã qua thì giữ như cũ.
+            if ($tierDays === $lastTier) {
+                return $daysLeft < 0;
+            }
 
             return $daysLeft <= $tierDays;
         }));

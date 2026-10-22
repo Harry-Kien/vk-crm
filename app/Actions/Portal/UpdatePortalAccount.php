@@ -84,6 +84,10 @@ final class UpdatePortalAccount
                 Audit::record('portal_account_deactivated', $account, [
                     'client_id' => $account->client_id,
                 ], $actor);
+
+                // Rà soát 2026-10-22 (làn portal): cắt phiên và gỡ máy NGAY — bật lại sau đó không
+                // đưa phiên cũ hay máy cũ trở lại.
+                app(EndPortalSessions::class)->handle($account, $actor, ForgetPushDevice::REASON_PORTAL_DEACTIVATED);
             }
 
             if ($emailChanged) {

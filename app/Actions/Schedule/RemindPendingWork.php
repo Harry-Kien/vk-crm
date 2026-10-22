@@ -8,6 +8,7 @@ use App\Actions\Task\TaskAssignees;
 use App\Enums\MatterAssignmentStatus;
 use App\Enums\TaskStatus;
 use App\Jobs\SendSeatReminderDigest;
+use App\Jobs\SendTaskReminderDigest;
 use App\Jobs\SendWorkReminder;
 use App\Models\Matter;
 use App\Models\MatterUser;
@@ -29,17 +30,24 @@ use Throwable;
  *  1. **Chờ nhận quá lâu** — một việc "Chờ nhận", hay một hồ sơ (ghế trong đội ngũ vụ) chưa bấm "Đã nhận
  *     hồ sơ": sau {@see AcceptanceClock::REMIND_AFTER_HOURS} giờ làm việc nhắc người nhận
  *     (`reminder.awaiting`); sau {@see AcceptanceClock::ESCALATE_AFTER_HOURS} giờ làm việc vẫn chưa nhận
- *     thì báo người giao (`reminder.unaccepted`). Khoá: `awaiting@<assigned_at>` — giao lại là một lần
- *     giao mới, đồng hồ chạy lại.
- *  2. **Sắp đến hạn** — việc chờ nhận hay đang làm có hạn là hôm nay hoặc ngày mai: nhắc người nhận MỘT lần
- *     cho mỗi hạn (`reminder.due_soon`, khoá `due-soon@<hạn>`). Cửa sổ hai ngày, không đúng "ngày mai":
- *     tác vụ không chạy ngoài giờ làm việc, nên một hạn Thứ Hai vẫn được nhắc sáng Thứ Hai khi Chủ nhật
- *     không có lượt nào. Dời hạn là một hạn mới — nhắc lại cho hạn mới. Người nhận không còn giữ được việc: người
- *     giao nhận `reminder.due_soon_assigner` thay (xem đoạn "vòng sửa 1" dưới).
+ *     thì báo người giao (`reminder.unaccepted`). Khoá: `awaiting@<mốc bắt đầu chờ nhận>` — giao lại là một lần
+ *     giao mới, đồng hồ chạy lại. Mốc là `Task::awaitingSince()` (kiểm toán 2026-10-21, Q1): `assigned_at`, hay lần
+ *     "Khôi phục" gần nhất khi muộn hơn — `RestoreTask` giữ `assigned_at` gốc của việc đã quá hạn cho tỉ lệ đúng hạn,
+ *     nhưng người nhận chỉ bắt đầu chờ từ lúc khôi phục.
+ *  2. **Sắp đến hạn** — việc chờ nhận hay đang làm có hạn từ hôm nay tới hết NGÀY LÀM VIỆC kế tiếp
+ *     ({@see self::dueSoonUntil()}, kiểm toán 2026-10-21, Q2 — gồm các ngày nghỉ xen giữa: sáng Thứ Sáu nhắc hạn Thứ
+ *     Bảy, Chủ nhật, Thứ Hai): nhắc người nhận MỘT lần cho mỗi hạn (`reminder.due_soon`, khoá `due-soon@<hạn>`). Dời
+ *     hạn là một hạn mới — nhắc lại cho hạn mới. Người nhận không còn giữ được việc: người giao nhận
+ *     `reminder.due_soon_assigner` thay (xem đoạn "vòng sửa 1" dưới).
  *  3. **Quá hạn** — việc chờ nhận hay đang làm đã qua hạn: mỗi ngày làm việc một lần, nhắc người nhận
  *     (`reminder.overdue`) và báo người giao (`reminder.overdue_assigner`), khoá `overdue@<hôm nay>`. Việc riêng (người
  *     giao = người giữ) chỉ có lời nhắc người nhận khi người giữ còn làm được việc — gộp integ-fa, rà soát chéo mục 3; không
  *     còn làm được thì người nhận thay (luật sư phụ trách) được báo ({@see self::ownTaskNeedsNoAssignerReminder()}).
+ *
+ * Kiểm toán 2026-10-21 (Q5): việc mà lần giao, giao lại, sửa hạn, mở lại hay khôi phục gần nhất xảy ra HÔM NAY
+ * (`Task::rescheduledToday()`) không có lời "sắp đến hạn" / "quá hạn" hôm đó — lời báo của chính thao tác đã nêu hạn;
+ * và lời báo "quá hạn" cho người giao không tới người đã thao tác trên việc hôm nay ({@see self::assignerActedToday()}).
+ * Cả hai hỏi ở lượt chọn và lúc gửi.
  *
  * Việc "Bị trả lại" không nhắc (người giao đã được báo, nó nằm ở "Tôi đã giao"); việc của vụ đã kết thúc
  * hay đã huỷ không nhắc (không còn việc gì để làm trên vụ — người giao huỷ hay hoàn tất nó).
@@ -87,13 +95,18 @@ use Throwable;
  * `SendUnansweredIntakeReminderMail`), nên một hộp thư hỏng chỉ có một chuỗi thử mỗi ngày, lượt đầu hôm sau
  * thử lại. `withoutOverlapping(30)` ở lịch. Mỗi việc/hồ sơ một `try`: một lỗi không dừng lượt nhắc.
  *
- * # Lời nhắc hồ sơ gộp theo người (vòng sửa polish 1 — phán quyết controller (3))
+ * # Lời nhắc gộp theo người (vòng sửa polish 1 — phán quyết controller (3); việc: kiểm toán 2026-10-21, Q3)
  *
  * Một lô bàn giao hàng loạt N hồ sơ chạm ngưỡng cùng một lượt. Lời nhắc HỒ SƠ không xếp từng ghế: lượt gom
  * theo (loại nhắc, người nhận) ({@see self::queueSeat()}, {@see self::dispatchSeatReminders()}). Một hồ sơ
  * thì một {@see SendWorkReminder} như cũ; nhiều hồ sơ thì MỘT {@see SendSeatReminderDigest} — một chuông
  * và một thư liệt kê các hồ sơ, cho người được giao ("chờ anh/chị nhận") và cho từng người giao hay quản
- * lý ("chưa được nhận"). Lời nhắc việc không gộp (mỗi việc một tiêu đề, một hạn riêng).
+ * lý ("chưa được nhận"). Lời nhắc VIỆC cũng vậy từ kiểm toán 2026-10-21 (Q3 — sau `TransferStaffWork` 8 việc một lượt
+ * là 8 thư + 8 chuông cho người nhận, 48 giờ sau 8 thư cho người giao; 3 việc quá hạn 10 ngày là 30 thư):
+ * {@see self::queue()} gom theo (loại, người nhận), {@see self::dispatchTaskReminders()} xếp một {@see SendWorkReminder}
+ * cho một việc, MỘT {@see SendTaskReminderDigest} cho nhiều việc — một chuông và một thư liệt kê tiêu đề, hạn, người giữ
+ * của các việc. Khoá và nhịp của từng việc không đổi (chờ nhận một lần mỗi lần giao, sắp đến hạn một lần mỗi hạn, quá hạn
+ * mỗi ngày làm việc một lần); `queued` vẫn đếm (người × việc).
  *
  * Ghế mà người được giao không còn nhận được hồ sơ (đã nghỉ việc, không còn mở được vụ) không nhắc ai:
  * không "hãy nhận" cho người đã nghỉ, không "X chưa nhận" cho người giao —
@@ -128,6 +141,14 @@ class RemindPendingWork
      */
     private array $seatReminders = [];
 
+    /**
+     * Lời nhắc VIỆC của lượt này, gom trước khi xếp: `[loại][id người nhận][id việc] = khoá nhắc` — kiểm toán
+     * 2026-10-21 (Q3), xem docblock lớp, mục "Lời nhắc gộp theo người".
+     *
+     * @var array<string, array<int, array<int, string>>>
+     */
+    private array $taskReminders = [];
+
     public function __invoke(): array
     {
         return $this->handle();
@@ -143,6 +164,7 @@ class RemindPendingWork
         }
 
         $queued = 0;
+        $this->taskReminders = [];
 
         foreach ($this->awaitingTasks($clock) as $task) {
             $queued += $this->guarded(fn (): int => $this->remindAwaitingTask($task, $clock));
@@ -156,12 +178,14 @@ class RemindPendingWork
 
         $this->dispatchSeatReminders();
 
+        // Kiểm toán 2026-10-21 (Q2): cửa sổ tới hết NGÀY LÀM VIỆC kế tiếp (gồm ngày nghỉ xen giữa) — {@see self::dueSoonUntil()}.
         $dueSoon = self::activeTasks()
             ->whereDate('tasks.due_date', '>=', today()->toDateString())
-            ->whereDate('tasks.due_date', '<=', today()->addDay()->toDateString());
+            ->whereDate('tasks.due_date', '<=', self::dueSoonUntil()->toDateString());
 
         // Làn fa1, vòng sửa 1 (I1): người nhận không còn làm được việc thì người giao được báo thay — một lời trong hai.
-        foreach ($dueSoon->get() as $task) {
+        // Kiểm toán 2026-10-21 (Q5): việc vừa đặt lại lịch hôm nay không nhắc hạn ({@see Task::rescheduledToday()}).
+        foreach ($dueSoon->get()->reject(fn (Task $task): bool => $task->rescheduledToday()) as $task) {
             $queued += $this->guarded(fn (): int => self::assigneeCanStillWork($task)
                 ? $this->queueForTask($task, self::DUE_SOON, self::dueSoonKey($task), [$task->assignee])
                 : $this->queueForTask($task, self::DUE_SOON_ASSIGNER, self::dueSoonKey($task), $this->taskAssignerAudience($task)));
@@ -174,10 +198,19 @@ class RemindPendingWork
         // Gộp integ-fa (rà soát chéo, mục 3): việc riêng (người giao = người giữ) mà người giữ còn làm được việc không có
         // lời báo người giao — người giữ đã nhận lời nhắc quá hạn của chính họ. Rà soát lại 2026-10-18: người giữ việc riêng
         // không còn làm được việc thì người nhận thay được báo, như "sắp đến hạn" ({@see self::ownTaskNeedsNoAssignerReminder()}).
-        foreach (self::liveTasks()->held()->overdue()->get() as $task) {
+        // Kiểm toán 2026-10-21 (Q5): việc vừa đặt lại lịch hôm nay không nhắc quá hạn; lời báo người giao không tới người
+        // đã thao tác trên việc hôm nay ({@see self::assignerActedToday()}).
+        foreach (self::liveTasks()->held()->overdue()->get()->reject(fn (Task $task): bool => $task->rescheduledToday()) as $task) {
             $queued += $this->guarded(fn (): int => $this->queueForTask($task, self::OVERDUE, self::overdueKey(), [$task->assignee])
-                + (self::ownTaskNeedsNoAssignerReminder($task) ? 0 : $this->queueForTask($task, self::OVERDUE_ASSIGNER, self::overdueKey(), $this->taskAssignerAudience($task))));
+                + (self::ownTaskNeedsNoAssignerReminder($task) ? 0 : $this->queueForTask(
+                    $task,
+                    self::OVERDUE_ASSIGNER,
+                    self::overdueKey(),
+                    array_values(array_filter($this->taskAssignerAudience($task), fn (User $user): bool => ! self::assignerActedToday($task, self::OVERDUE_ASSIGNER, $user))),
+                )));
         }
+
+        $this->dispatchTaskReminders();
 
         return ['queued' => $queued];
     }
@@ -194,20 +227,26 @@ class RemindPendingWork
             return false;
         }
 
+        // Kiểm toán 2026-10-21 (Q1): đồng hồ chờ nhận từ `Task::awaitingSince()` (lần giao, hay lần khôi phục muộn hơn).
+        $since = $task->awaitingSince();
+
         return match ($kind) {
             self::AWAITING, self::UNACCEPTED => $task->status === TaskStatus::Pending
-                && $task->assigned_at !== null
-                && $key === self::awaitingKey($task->assigned_at)
-                && AcceptanceClock::fromConfig()->reached($task->assigned_at, self::taskThresholdFor($task, $kind), $now),
+                && $since !== null
+                && $key === self::awaitingKey($since)
+                && AcceptanceClock::fromConfig()->reached($since, self::taskThresholdFor($task, $kind), $now),
             self::DUE_SOON, self::DUE_SOON_ASSIGNER => self::isActive($task)
                 && $task->due_date !== null
                 && $key === self::dueSoonKey($task)
                 && $task->due_date->toDateString() >= $now->toDateString()
+                // Kiểm toán 2026-10-21 (Q5): lịch vừa đặt lại hôm nay — không nhắc hạn.
+                && ! $task->rescheduledToday($now)
                 // Làn fa1, vòng sửa 1 (I1): lời báo người giao chỉ khi người nhận VẪN không làm được việc.
                 && ($kind === self::DUE_SOON || ! self::assigneeCanStillWork($task)),
             self::OVERDUE, self::OVERDUE_ASSIGNER => self::isActive($task)
                 && $task->isOverdue()
                 && $key === self::overdueKey($now)
+                && ! $task->rescheduledToday($now)
                 // Gộp integ-fa (rà soát chéo, mục 3; rà soát lại): việc đã thành việc riêng của một người còn làm được việc
                 // giữa lúc xếp và lúc gửi — không báo người giao.
                 && ($kind === self::OVERDUE || ! self::ownTaskNeedsNoAssignerReminder($task)),
@@ -225,8 +264,9 @@ class RemindPendingWork
     public static function stillAddressedTo(Task $task, string $kind, User $recipient): bool
     {
         if (self::isAssignerKind($kind)) {
-            return app(ResolveStaffRecipients::class)->forTaskAssigner($task)
-                ->contains(fn (User $user): bool => $user->is($recipient));
+            return ! self::assignerActedToday($task, $kind, $recipient)
+                && app(ResolveStaffRecipients::class)->forTaskAssigner($task)
+                    ->contains(fn (User $user): bool => $user->is($recipient));
         }
 
         return $task->assignee_id === $recipient->getKey() && self::assigneeHoldsSeat($task);
@@ -283,6 +323,27 @@ class RemindPendingWork
             && SeatsNeedingReassignment::memberCanAccept($seat->user, $seat->matter);
     }
 
+    /**
+     * Kiểm toán 2026-10-21 (Q5): lời báo "quá hạn" cho người giao không tới người đã thao tác trên chính việc đó hôm nay
+     * ({@see Task::handledTodayBy()}) — họ vừa nhìn thấy việc và hạn của nó. Chỉ loại {@see self::OVERDUE_ASSIGNER}: lời báo
+     * chưa được nhận / sắp đến hạn mà không còn người làm báo một điều người thao tác có thể chưa thấy.
+     */
+    public static function assignerActedToday(Task $task, string $kind, User $recipient): bool
+    {
+        return $kind === self::OVERDUE_ASSIGNER && $task->handledTodayBy((int) $recipient->getKey());
+    }
+
+    /**
+     * Ngày cuối của cửa sổ "sắp đến hạn" (kiểm toán 2026-10-21, Q2): hết NGÀY LÀM VIỆC kế tiếp sau hôm nay
+     * (`BusinessHours::nextWorkingDay()`), nên các ngày nghỉ xen giữa nằm trong cửa sổ — lượt sáng Thứ Sáu nhắc hạn Thứ
+     * Bảy, Chủ nhật và Thứ Hai. Trước bản sửa cửa sổ là "hôm nay và ngày mai" theo lịch: hạn Thứ Hai chỉ được nhắc sáng
+     * Thứ Hai, hạn Chủ nhật không bao giờ.
+     */
+    public static function dueSoonUntil(?CarbonInterface $now = null): CarbonImmutable
+    {
+        return AcceptanceClock::fromConfig()->hours->nextWorkingDay($now ?? now());
+    }
+
     public static function awaitingKey(CarbonInterface $assignedAt): string
     {
         return 'awaiting@'.$assignedAt->format('Y-m-d\TH:i:s');
@@ -301,7 +362,7 @@ class RemindPendingWork
     /**
      * Loại nhắc báo NGƯỜI GIAO (chưa được nhận, quá hạn; từ làn fa1 vòng sửa 1 cả "sắp đến hạn" khi người nhận không
      * còn giữ được việc) — người nhận qua {@see self::taskAssignerAudience()}, có thể là luật sư phụ trách nhận thay
-     * (vòng sửa 1 của làn tk, I1: câu chữ, đường dẫn của người nhận thay — `TaskReminderAlert::onBehalf()`).
+     * (vòng sửa 1 của làn tk, I1: câu chữ, đường dẫn của người nhận thay — `TaskReminderAlert::standInRole()`).
      */
     public static function isAssignerKind(string $kind): bool
     {
@@ -345,16 +406,18 @@ class RemindPendingWork
             ->where('tasks.status', TaskStatus::Pending->value)
             ->where('tasks.assigned_at', '<=', $clock->coarseCutoff(AcceptanceClock::REMIND_AFTER_HOURS))
             ->get()
-            ->filter(fn (Task $task): bool => $clock->reached($task->assigned_at, AcceptanceClock::REMIND_AFTER_HOURS));
+            // Kiểm toán 2026-10-21 (Q1): cận thô `assigned_at` vẫn đúng (`awaitingSince()` không bao giờ sớm hơn nó).
+            ->filter(fn (Task $task): bool => $clock->reached($task->awaitingSince(), AcceptanceClock::REMIND_AFTER_HOURS));
     }
 
     private function remindAwaitingTask(Task $task, AcceptanceClock $clock): int
     {
-        $key = self::awaitingKey($task->assigned_at);
+        $since = $task->awaitingSince();
+        $key = self::awaitingKey($since);
         $queued = $this->queueForTask($task, self::AWAITING, $key, [$task->assignee]);
 
         // Làn fa1, vòng sửa 1 (I1): người nhận không còn làm được việc — người giao được báo ngay ở mốc 24 giờ.
-        if ($clock->reached($task->assigned_at, self::taskThresholdFor($task, self::UNACCEPTED))) {
+        if ($clock->reached($since, self::taskThresholdFor($task, self::UNACCEPTED))) {
             $queued += $this->queueForTask($task, self::UNACCEPTED, $key, $this->taskAssignerAudience($task));
         }
 
@@ -485,9 +548,33 @@ class RemindPendingWork
             return 0;
         }
 
-        SendWorkReminder::dispatch($subject, $subjectId, $kind, $recipient->getKey(), $key)->afterCommit();
+        // Kiểm toán 2026-10-21 (Q3): gom, xếp ở cuối lượt ({@see self::dispatchTaskReminders()}).
+        $this->taskReminders[$kind][$recipient->getKey()][$subjectId] = $key;
 
         return 1;
+    }
+
+    /**
+     * Xếp các lời nhắc việc đã gom (kiểm toán 2026-10-21, Q3) — một việc: {@see SendWorkReminder} như trước; nhiều việc
+     * cho cùng (loại, người nhận): MỘT {@see SendTaskReminderDigest}. Cùng khuôn {@see self::dispatchSeatReminders()}.
+     */
+    private function dispatchTaskReminders(): void
+    {
+        foreach ($this->taskReminders as $kind => $byRecipient) {
+            foreach ($byRecipient as $recipientId => $tasks) {
+                $this->guarded(function () use ($kind, $recipientId, $tasks): int {
+                    if (count($tasks) === 1) {
+                        SendWorkReminder::dispatch(self::SUBJECT_TASK, (int) array_key_first($tasks), $kind, $recipientId, (string) reset($tasks))->afterCommit();
+                    } else {
+                        SendTaskReminderDigest::dispatch($kind, $recipientId, $tasks)->afterCommit();
+                    }
+
+                    return 0;
+                });
+            }
+        }
+
+        $this->taskReminders = [];
     }
 
     /** @param  callable(): int  $step */
@@ -508,6 +595,7 @@ class RemindPendingWork
         return Task::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->onLiveMatter()
+            ->withLastRestoredAt()
             ->with(['matter.leadLawyer', 'assignee', 'assigner'])
             ->orderBy('tasks.id');
     }

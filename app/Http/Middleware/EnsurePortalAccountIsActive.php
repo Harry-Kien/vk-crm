@@ -99,13 +99,51 @@ class EnsurePortalAccountIsActive
         // Hai điều kiện ĐỘC LẬP, cả hai cùng dẫn tới cùng một xử lý (Task 2, vòng sửa 1, Important
         // #4): tài khoản cổng bị vô hiệu (is_active = false), HOẶC khách hàng cha đã bị xoá mềm
         // (`$user->client === null` — xem đoạn docblock lớp phân biệt với `$user->trashed()`).
-        if ($user->is_active && $user->client !== null) {
-            return $next($request);
+        if (! $user->is_active || $user->client === null) {
+            self::endSession($request);
+
+            return redirect()->to(Filament::getPanel('portal')->getLoginUrl());
         }
 
-        self::endSession($request);
+        // Rà soát 2026-10-22 (làn portal): phiên có từ TRƯỚC lần văn phòng tắt / xoá tài khoản
+        // (`EndPortalSessions` tăng `session_epoch`) không quay lại khi tài khoản đã được bật lại hay
+        // khôi phục — chỉ hai điều kiện trên thì nó sống lại nếu không request nào chen vào giữa.
+        if (self::outlivedItsEpoch($request, $user)) {
+            self::endStaleSession($request);
 
-        return redirect()->to(Filament::getPanel('portal')->getLoginUrl());
+            return redirect()->to(Filament::getPanel('portal')->getLoginUrl());
+        }
+
+        return $next($request);
+    }
+
+    /** Khoá phiên mang `client_users.session_epoch` của lần đăng nhập (`StampPortalSessionEpoch`). */
+    public const EPOCH_SESSION_KEY = 'portal_session_epoch';
+
+    /**
+     * Phiên này đăng nhập ở một thế hệ cũ hơn của tài khoản. Phiên không mang khoá (có từ trước khi có
+     * cột) đọc là 0 — đúng giá trị mặc định của cột, nên không ai bị đăng xuất lúc triển khai.
+     */
+    public static function outlivedItsEpoch(Request $request, ClientUser $user): bool
+    {
+        $session = $request->hasSession() ? $request->session() : session();
+
+        return (int) $session->get(self::EPOCH_SESSION_KEY, 0) !== (int) $user->session_epoch;
+    }
+
+    /** Đăng xuất phiên đã cũ — tài khoản vẫn dùng được, nên chỉ mời đăng nhập lại, không nói "bị khoá". */
+    public static function endStaleSession(Request $request): void
+    {
+        Auth::guard('client')->logout();
+
+        $session = $request->hasSession() ? $request->session() : session();
+        $session->invalidate();
+        $session->regenerateToken();
+
+        Notification::make()
+            ->title(__('portal.session_ended'))
+            ->warning()
+            ->send();
     }
 
     /**

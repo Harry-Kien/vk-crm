@@ -172,6 +172,8 @@ it('finds the four reason constants of today, each on its event', function () {
         'Deadline/UpdateDeadline.php::HANDOVER_REASON => deadline_responsible_changed.deadline_updated',
         'Matter/ReassignMatter.php::DEADLINE_HANDOVER_REASON => deadline_responsible_changed.matter_reassigned',
         'Matter/ReassignMatter.php::REQUEST_HANDOVER_REASON => client_request_assigned.matter_reassigned',
+        // Sửa sau kiểm toán 2026-10-21 (mục 3): gỡ khỏi đội ngũ — việc người bị gỡ đã giao sang luật sư phụ trách.
+        'Matter/RemoveTeamMember.php::ASSIGNER_REASON => task_assigner_changed.team_member_removed',
         // Làn fa2: "Việc nội bộ và ghế" của Bàn giao hàng loạt đổi người giao việc của nhân sự sắp rời.
         'Matter/TransferStaffWork.php::TRANSFER_REASON => task_assigner_changed.staff_work_transferred',
         // Làn tk, Task 2.
@@ -335,10 +337,16 @@ function m13bRlPushRemovalReasons(): array
 it('has a Vietnamese label for every reason the office can remove a push device for, shown in the log modal', function () {
     expect(m13bRlPushRemovalReasons())->toEqualCanonicalizing([
         'push_device_removed.email_changed',
+        // Rà soát 2026-10-22 (làn portal): tắt / xoá tài khoản cổng (`EndPortalSessions`).
+        'push_device_removed.portal_deactivated',
+        'push_device_removed.portal_deleted',
         'push_device_removed.two_factor_reset',
         'push_device_removed.office',
         // Làn fb, mục A5: "Khoá truy cập ngay" (`SuspendStaffAccess`).
         'push_device_removed.staff_suspended',
+        // Rà soát 2026-10-22 (làn security): tắt "Đang hoạt động" và xoá nhân sự (`EndStaffSessions`).
+        'push_device_removed.staff_deactivated',
+        'push_device_removed.staff_deleted',
     ]);
 
     foreach (m13bRlPushRemovalReasons() as $suffix) {

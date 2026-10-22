@@ -45,6 +45,10 @@ return [
 
     'errors' => [
         'total_mismatch_on_activation' => 'Chưa kích hoạt được hợp đồng :code: tổng các đợt là :schedule, giá trị hợp đồng là :total (lệch :difference). Sửa lịch thu cho khớp đúng từng đồng rồi kích hoạt lại.',
+        // Sửa 2026-10-21 — đường "Khách đã ký — kích hoạt luôn" (App\Actions\Billing\EnterSignedContract):
+        // lỗi gắn vào ô lịch thu, không nhắc mã hợp đồng (chưa có hợp đồng nào được lưu).
+        'schedule_empty_on_entry' => 'Chưa có đợt thanh toán nào. Bấm "Thêm đợt" để nhập lịch thu — tổng các đợt phải bằng đúng giá trị hợp đồng (:total). Khách trả một lần thì thêm một đợt bằng toàn bộ giá trị.',
+        'schedule_mismatch_on_entry' => 'Tổng các đợt là :schedule, giá trị hợp đồng là :total (lệch :difference). Sửa số tiền các đợt cho khớp đúng từng đồng rồi bấm lại.',
         'total_mismatch_on_amendment' => 'Phụ lục không được ghi: sau thay đổi, tổng các đợt là :schedule, giá trị mới của hợp đồng là :total (lệch :difference). Giá trị hợp đồng và lịch thu phải đổi cùng nhau, khớp đúng từng đồng.',
         'total_mismatch_on_write' => 'Không thể lưu: thay đổi này làm tổng các đợt của hợp đồng :code (:schedule) lệch khỏi giá trị hợp đồng (:total). Giá trị và lịch thu của một hợp đồng đã ký chỉ đổi được bằng phụ lục.',
         'billing_model_not_supported' => 'Cách tính phí ":model" chưa được hỗ trợ. Hiện chỉ ghi được hợp đồng trọn gói (giá trị thoả thuận một lần).',
@@ -171,6 +175,8 @@ return [
             'row_by_percent' => ':label «:name»: :percent% → :amount',
             'row_by_amount' => ':label «:name»: :amount',
             'amount_missing' => 'chưa nhập số tiền',
+            // Sửa 2026-10-21: chưa có đợt nào thì khung xem trước nói thẳng, thay vì im lặng về lịch thu.
+            'no_instalments' => 'Chưa có đợt thanh toán nào — bấm "Thêm đợt". Tổng các đợt phải bằng :total thì hợp đồng mới kích hoạt được.',
             'sum_matches' => 'Tổng các đợt: :sum — khớp đúng giá trị hợp đồng.',
             'sum_differs' => 'Tổng các đợt: :sum — giá trị hợp đồng: :total (lệch :difference). Hợp đồng chỉ kích hoạt được khi hai số khớp đúng từng đồng.',
         ],
@@ -179,6 +185,9 @@ return [
             'total_amount_help' => 'Số tiền khách phải trả, đã gồm thuế GTGT nếu có. Ví dụ: 1.250.000.',
             'vat_rate_percent' => 'Thuế suất GTGT (%)',
             'vat_rate_percent_help' => 'Để trống nếu hợp đồng không có dòng thuế.',
+            // Nhãn của cả khối lịch thu (Repeater) trong form soạn/sửa hợp đồng — trước 2026-10-21 khối này
+            // mượn nhãn cột "Tên đợt", nên khi chưa có đợt nào hộp thoại chỉ còn chữ "Tên đợt" trơ trọi cạnh nút.
+            'instalments' => 'Lịch thu (các đợt thanh toán)',
             'instalment_name' => 'Tên đợt',
             'instalment_name_help' => 'Khách hàng sẽ thấy tên này trên cổng.',
             'instalment_amount' => 'Số tiền',

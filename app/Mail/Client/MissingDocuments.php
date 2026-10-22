@@ -88,7 +88,7 @@ class MissingDocuments extends BrandedMailable
                         ? $item->rejection_reason
                         : null,
                 ])->all(),
-                'portalUrl' => PortalUrl::base(),
+                'portalUrl' => PortalUrl::matter($this->matter->getKey(), 'ho-so-giay-to'),
                 'office' => $office->legalName(),
                 'hotline' => $office->hotline(),
             ],

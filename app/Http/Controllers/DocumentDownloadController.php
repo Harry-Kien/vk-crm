@@ -211,6 +211,9 @@ final class DocumentDownloadController extends Controller
 
         if ($client instanceof ClientUser && ($client->is_active !== true || $client->client === null)) {
             EnsurePortalAccountIsActive::endSession($request);
+        } elseif ($client instanceof ClientUser && EnsurePortalAccountIsActive::outlivedItsEpoch($request, $client)) {
+            // Rà soát 2026-10-22 (làn portal): phiên từ trước lần văn phòng tắt / xoá tài khoản.
+            EnsurePortalAccountIsActive::endStaleSession($request);
         }
     }
 

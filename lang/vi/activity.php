@@ -369,10 +369,16 @@ return [
         // máy nhận thông báo đẩy thay chủ máy.
         'push_device_removed' => [
             'email_changed' => 'Đổi email tài khoản cổng: gỡ mọi máy của người giữ địa chỉ cũ',
+            // Rà soát 2026-10-22 (làn portal): ForgetPushDevice::REASON_PORTAL_DEACTIVATED / REASON_PORTAL_DELETED.
+            'portal_deactivated' => 'Tắt tài khoản cổng của khách: gỡ mọi máy của tài khoản đó',
+            'portal_deleted' => 'Xoá tài khoản cổng của khách: gỡ mọi máy của tài khoản đó',
             'two_factor_reset' => 'Đặt lại 2FA: gỡ mọi máy của nhân sự',
             'office' => 'Văn phòng gỡ theo yêu cầu của khách (mất hoặc đổi máy)',
             // Làn fb, mục A5: ForgetPushDevice::REASON_STAFF_SUSPENDED.
             'staff_suspended' => 'Khoá truy cập ngay: gỡ mọi máy của nhân sự',
+            // Rà soát 2026-10-22 (làn security): ForgetPushDevice::REASON_STAFF_DEACTIVATED / REASON_STAFF_DELETED.
+            'staff_deactivated' => 'Tắt "Đang hoạt động" của nhân sự: gỡ mọi máy của người đó',
+            'staff_deleted' => 'Xoá nhân sự: gỡ mọi máy của người đó',
         ],
         // Làn tk, Task 2: MoveTasksOnHandover::HANDOVER_REASON — việc nội bộ của lead cũ chuyển khi bàn giao vụ.
         'task_reassigned' => [
@@ -383,6 +389,8 @@ return [
             'matter_reassigned' => 'Bàn giao vụ việc: việc luật sư cũ đã giao trên vụ nay do luật sư phụ trách mới theo dõi',
             // làn fa2: App\Actions\Matter\TransferStaffWork::TRANSFER_REASON.
             'staff_work_transferred' => 'Chuyển việc của nhân sự: việc người này đã giao nay do người nhận việc (hay người thao tác) theo dõi',
+            // Sửa sau kiểm toán 2026-10-21 (mục 3): App\Actions\Matter\RemoveTeamMember::ASSIGNER_REASON.
+            'team_member_removed' => 'Gỡ khỏi đội ngũ: việc người bị gỡ đã giao trên hồ sơ nay do luật sư phụ trách theo dõi',
         ],
     ],
 ];

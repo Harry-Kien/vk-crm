@@ -432,6 +432,15 @@ class MyMatters extends Page
             default => null,
         };
 
+        // Rà soát 2026-10-22 (làn portal): vụ đã kết thúc không nhận giấy tờ qua cổng
+        // (`MatterClosedForSubmission`) và danh mục của nó chỉ đọc phía văn phòng, nên thẻ không giục
+        // nộp ("Còn N giấy tờ…") cũng không hứa "đang kiểm tra" — cùng luật
+        // `MatterProgress::acceptsSubmissions()`. Thanh tiến độ vẫn là lịch sử đúng; "đã đủ" vẫn đúng.
+        if ($matter->isClosed()) {
+            $outstanding = 0;
+            $tone = $tone === self::TONE_SETTLED ? $tone : null;
+        }
+
         return [
             // `id` và `url` là hai giá trị của chính hồ sơ, không phải một cột nội bộ: `id` là
             // thứ {@see self::mount()} chuyển hướng tới, `url` là lối vào trang tiến độ từ thẻ.

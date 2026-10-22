@@ -411,7 +411,7 @@ it('blocks a sixth attempt on the same email even from a brand-new address', fun
         'data.email' => 'nguoi-khac@example.test',
         'data.password' => 'sai-mat-khau',
     ], '203.0.113.77'))['data.email'][0])
-        ->toBe(__('filament-panels::auth/pages/login.messages.failed'));
+        ->toBe(Login::failureMessage());
 });
 
 it('blocks a sixth attempt from the same address even on a brand-new email', function () {
@@ -435,7 +435,7 @@ it('blocks a sixth attempt from the same address even on a brand-new email', fun
         'data.email' => 'khach-6@example.test',
         'data.password' => 'sai-mat-khau',
     ], '198.51.100.21'))['data.email'][0])
-        ->toBe(__('filament-panels::auth/pages/login.messages.failed'));
+        ->toBe(Login::failureMessage());
 });
 
 it('keeps the lock for fifteen minutes, not for the sixty seconds Filament would use', function () {
@@ -461,7 +461,7 @@ it('keeps the lock for fifteen minutes, not for the sixty seconds Filament would
         'data.email' => 'khoa@example.test',
         'data.password' => 'sai-mat-khau',
     ], '198.51.100.30'))['data.email'][0])
-        ->toBe(__('filament-panels::auth/pages/login.messages.failed'));
+        ->toBe(Login::failureMessage());
 });
 
 it('counts failures, not attempts — signing in clears the count on that email', function () {
@@ -499,7 +499,7 @@ it('counts failures, not attempts — signing in clears the count on that email'
             ->set('data.email', $user->email)
             ->set('data.password', 'sai-mat-khau')
             ->call('authenticate')
-            ->assertHasErrors(['data.email' => __('filament-panels::auth/pages/login.messages.failed')]);
+            ->assertHasErrors(['data.email' => Login::failureMessage()]);
     }
 });
 
@@ -612,7 +612,7 @@ it('answers an unknown email exactly as it answers a wrong password', function (
     ], '198.51.100.41'));
 
     expect($unknown)->toBe($existing)
-        ->and($existing['data.email'][0])->toBe(__('filament-panels::auth/pages/login.messages.failed'))
+        ->and($existing['data.email'][0])->toBe(Login::failureMessage())
         ->and($existing['data.email'][0])->not->toContain($user->email);
 });
 
@@ -1233,7 +1233,7 @@ it('gives one account one lock however the email in the box is spelled', functio
             'data.email' => $value,
             'data.password' => 'sai-mat-khau',
         ], '203.0.113.'.$octet++))['data.email'][0] ?? null)->toBe(
-            __('filament-panels::auth/pages/login.messages.failed'),
+            Login::failureMessage(),
             "Cách viết [{$ten}] bị khoá lây bởi bộ đếm của một tài khoản khác."
         );
     }
@@ -1284,7 +1284,7 @@ it('still folds the typed string when it matches no account at all', function ()
         'data.email' => 'nun@example.test',
         'data.password' => 'sai-mat-khau',
     ], '203.0.113.62'))['data.email'][0])
-        ->toBe(__('filament-panels::auth/pages/login.messages.failed'));
+        ->toBe(Login::failureMessage());
 });
 
 it('spends exactly one extra query on the account lookup', function () {
@@ -1904,7 +1904,7 @@ it('writes a failed sign-in when the account is switched off during the code ste
 
     $component->set(portalCodeStatePath(), $realCode)
         ->call('authenticate')
-        ->assertHasErrors(['data.email' => __('filament-panels::auth/pages/login.messages.failed')]);
+        ->assertHasErrors(['data.email' => Login::failureMessage()]);
 
     expect($lanKiem)->toBe(2, 'Không tới được lần kiểm thứ hai — test đang đo một nhánh khác.')
         ->and(auth('client')->check())->toBeFalse();

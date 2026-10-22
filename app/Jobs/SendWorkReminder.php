@@ -54,7 +54,7 @@ use Throwable;
  * Các loại báo người giao ({@see RemindPendingWork::isAssignerKind()}) tới người không phải `assigned_by`
  * LÚC GỬI — luật sư phụ trách nhận thay người giao đã rời vụ hay nghỉ việc (`ResolveStaffRecipients::
  * forTaskAssigner()`) — mang tên người giao (vòng sửa 1, I1): chuông và thư dùng câu chữ, đường dẫn của
- * người nhận thay ({@see TaskReminderAlert::onBehalf()}).
+ * người nhận thay ({@see TaskReminderAlert::standInRole()}).
  *
  * `ShouldBeUnique` theo (đối tượng, loại, người, khoá): hai lượt lịch liền nhau không xếp hai job cho cùng
  * một lời nhắc khi job đầu còn chờ hàng.
@@ -122,7 +122,8 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
      *
      * Hồ sơ (vòng sửa polish 1): có `$seatId` thì một thư GỘP nhiều hồ sơ cũng tính — thư đó mang khoá
      * {@see SendSeatReminderDigest::ledgerKey()} (`|<khoá đầy đủ của từng ghế>|…`) trên dòng sổ thư của hồ sơ
-     * đầu, nên tìm khoá đầy đủ của ghế này trong đó.
+     * đầu, nên tìm khoá đầy đủ của ghế này trong đó. Việc (kiểm toán 2026-10-21, Q3): cùng cách với thư gộp của
+     * {@see SendTaskReminderDigest} — khoá đầy đủ của việc `$related`.
      */
     public static function alreadyMailed(Task|Matter $related, User $recipient, string $subject, string $kind, string $key, ?int $seatId = null): bool
     {
@@ -144,8 +145,11 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
             return true;
         }
 
-        return $subject === RemindPendingWork::SUBJECT_SEAT && $seatId !== null
-            && $sent()->where('payload->tier', 'like', '%|'.self::fullKey($subject, $seatId, $kind, $key).'|%')->exists();
+        // Kiểm toán 2026-10-21 (Q3): việc cũng có thư gộp (`SendTaskReminderDigest`, cùng mẫu, dòng sổ thư gắn việc đầu).
+        $id = $subject === RemindPendingWork::SUBJECT_SEAT ? $seatId : (int) $related->getKey();
+
+        return $id !== null
+            && $sent()->where('payload->tier', 'like', '%|'.self::fullKey($subject, $id, $kind, $key).'|%')->exists();
     }
 
     /**
@@ -286,12 +290,22 @@ class SendWorkReminder implements ShouldBeUnique, ShouldQueue
         ));
     }
 
-    /** Một cụm chữ cho thân lời nhắc: đã chờ bao lâu, hạn ngày nào, quá hạn mấy ngày. */
+    /** Xem {@see self::detailFor()}. */
     private function taskDetail(Task $task): string
     {
-        return match ($this->kind) {
+        return self::detailFor($this->kind, $task);
+    }
+
+    /**
+     * Một cụm chữ cho thân lời nhắc `$kind` của `$task`: đã chờ bao lâu, hạn ngày nào, quá hạn mấy ngày — một định nghĩa
+     * cho lời nhắc một việc và cho từng dòng của thư gộp ({@see SendTaskReminderDigest}, kiểm toán 2026-10-21, Q3).
+     */
+    public static function detailFor(string $kind, Task $task): string
+    {
+        return match ($kind) {
             RemindPendingWork::AWAITING, RemindPendingWork::UNACCEPTED => FirstResponseClock::formatMinutes(
-                AcceptanceClock::fromConfig()->waitedMinutes($task->assigned_at),
+                // Kiểm toán 2026-10-21 (Q1): từ lần giao, hay lần khôi phục muộn hơn — cùng mốc của lịch nhắc.
+                AcceptanceClock::fromConfig()->waitedMinutes($task->awaitingSince()),
             ),
             RemindPendingWork::DUE_SOON, RemindPendingWork::DUE_SOON_ASSIGNER => (string) $task->due_date?->format('d/m/Y'),
             default => (string) ($task->due_date === null ? 0 : (int) $task->due_date->diffInDays(today())),

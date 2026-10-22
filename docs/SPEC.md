@@ -1470,6 +1470,13 @@ Cài đặt: kế hoạch M10, Task 2. Task 1 chỉ dựng bảng, model, quyề
   Xanh, không còn là bằng chứng), và xác nhận/ghi đè cũ bị xoá khi có khớp mới hoặc danh tính
   đã đổi.
 
+**Đính chính 2026-10-22 (rà soát toàn hệ thống, làn intake) — bước 1, chuẩn hoá tên.** "Bỏ dấu, viết thường, bỏ
+khoảng trắng thừa" nay thêm **bỏ dấu câu**: mọi ký tự không phải chữ hay số thành một khoảng trắng
+(`Normalizer::name()`), để "Công ty TNHH ABC." hay `Công ty TNHH "ABC"` khớp khách hàng "Công ty TNHH ABC" ở tầng tên
+(trước đó kết quả là Xanh, không dòng khớp nào). Tầng tên vẫn tối đa Vàng. Không gộp chữ viết tắt ("Cty"/"Công ty",
+"TNHH"/"trách nhiệm hữu hạn", "&"/"và") — chờ chủ văn phòng quyết. Các cột tên chuẩn hoá đã lưu được tính lại bằng
+migration `2026_10_22_000001_renormalize_party_names_without_punctuation`.
+
 ### 6.11 Bàn giao vụ việc — `ReassignMatter`
 
 Khi luật sư nghỉ việc, nghỉ dài ngày, hoặc vụ việc đổi người phụ trách:
@@ -2621,6 +2628,38 @@ Không migration, tác vụ lịch hay quyền mới.
     `awaitingApprovalIds()` một lần mỗi request của trang (bộ nhớ `private`, không phải trạng thái Livewire).
 
 Không migration, tác vụ lịch hay quyền mới; không mẫu thư mới (chỉ chuông).
+
+**Đính chính 2026-10-21 (kiểm toán luồng Công việc — làn nhắc việc và con số).** Sửa và bổ sung cho các luật ở trên:
+
+1. **Việc chung có người giao không còn hợp lệ (A7).** Câu "Việc chung không có luật sư phụ trách: người giao không còn
+   hợp lệ thì rỗng" của `ResolveStaffRecipients::forTaskAssigner()` được viết khi chỉ quản lý/quản trị giao việc chung;
+   từ luật 1 của 2026-10-16 mọi nhân sự có `matter.view` giao được, nên lời báo cần người quyết định ("bị trả lại",
+   `reminder.unaccepted`, `.due_soon_assigner`, `.overdue_assigner`) của một việc chung mà người giao đã nghỉ / bị khoá /
+   xoá rơi vào khoảng không. Nay: rơi tới mọi trưởng phòng đang hoạt động, không còn ai thì mọi quản trị viên đang hoạt
+   động (qua `forTask()`, trừ người giữ). Tin (`decisionNeeded: false`) vẫn rỗng; việc chung RIÊNG của người giữ còn làm
+   được việc vẫn rỗng (họ tự quyết), người giữ đó đã nghỉ thì trưởng phòng.
+2. **Người nhận thay nói đúng vai (N1).** `App\Support\Tasks\StandIn`: luật sư phụ trách nhận thay — bộ chữ `*_on_behalf`
+   ("hồ sơ anh/chị phụ trách"); người quản lý hồ sơ nhận thay — `tasks.managed.*` ("hồ sơ :code của đội ngũ anh/chị
+   quản lý"); việc chung — `tasks.managed.*_general`, nút về trang Công việc lọc sẵn người giao. "Bị trả lại"
+   (`SendTaskNotice`) tới MỌI người của `forTaskAssigner()` — cùng tập với các lời nhắc người giao — thay vì người đầu
+   tiên.
+3. **Khoá truy cập ngay báo người giao (Q4).** Sau commit `SuspendStaffAccess` xếp `SendSuspendedHolderNotices`: mỗi việc
+   người bị khoá còn giữ, người nhận `forTaskAssigner(decisionNeeded: true)` trừ người bấm — MỘT chuông
+   `HolderSuspendedAlert` mỗi người (số việc, tiêu đề), mở trang Công việc lọc sẵn "Cần giao lại" và người nhận đó. Ô
+   mới "Việc tôi giao cần giao lại" của "Việc cần xử lý của tôi" (người có `TaskPolicy::create`):
+   `Task::assignedBy()->held()->needsReassignment()`, mở tab "Tôi đã giao" với đúng bộ lọc đó.
+4. **Một định nghĩa "chờ tôi nhận" (N2).** `Task::scopeAwaitingAcceptanceBy()` và `scopeInProgressFor()` thêm
+   `heldBySeatedAssignee()` — tab, huy hiệu menu, ô trang chủ, khối "Chờ tôi nhận" và cột Theo dõi đội ngũ cùng một tập.
+5. **Mốc lịch nhắc (Q1, Q2, Q5).** Đồng hồ chờ nhận chạy từ `Task::awaitingSince()` (lần giao, hay lần khôi phục muộn
+   hơn; tỉ lệ đúng hạn vẫn đọc `assigned_at`); "sắp đến hạn" = hạn từ hôm nay tới hết ngày làm việc kế tiếp
+   (`BusinessHours::nextWorkingDay()`) — đính chính câu "đến hạn hôm nay hoặc ngày mai" của làn tk ở trên; không
+   "sắp đến hạn"/"quá hạn" trong ngày của lần giao, giao lại, sửa hạn, mở lại, khôi phục gần nhất (`Task::
+   rescheduledToday()`), không `reminder.overdue_assigner` cho người đã thao tác trên việc hôm đó.
+6. **Lời nhắc việc gộp theo người (Q3).** Nhiều việc cùng (loại, người nhận) trong một lượt `tasks.remind`: MỘT chuông +
+   MỘT thư (`SendTaskReminderDigest`, cùng mẫu `staff.task.reminder.<loại>`, `payload.tier` mang khoá từng việc) —
+   như lời nhắc hồ sơ. Không đẩy. Nhịp và khoá của từng việc không đổi.
+
+Không migration, tác vụ lịch, quyền hay mẫu thư mới.
 
 ---
 

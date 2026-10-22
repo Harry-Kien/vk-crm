@@ -495,8 +495,13 @@ class ResolveStaffRecipients
      * "hồ sơ anh/chị phụ trách" sai với họ. Lời báo cần người quyết định (bị trả lại, chưa được nhận, sắp đến hạn mà
      * không còn người làm, quá hạn) giữ cả ba bước (`$decisionNeeded = true`, mặc định).
      *
-     * Việc chung không có luật sư phụ trách: người giao không còn hợp lệ thì rỗng (việc hiện ở danh sách "Công
-     * việc" của quản lý, và "Cần giao lại" khi việc đã bị trả lại — `Task::scopeNeedsReassignment()`).
+     * Việc chung không có luật sư phụ trách. Kiểm toán 2026-10-21 (A7): người giao không còn hợp lệ và lời báo CẦN người
+     * quyết định ("bị trả lại", chưa được nhận, sắp đến hạn mà không còn người làm, quá hạn) thì rơi tới trưởng phòng đang
+     * hoạt động — không còn ai thì quản trị viên ({@see self::generalTaskSupervisors()}) — qua cùng cổng `forTask()`. Luật
+     * cũ "rỗng" được viết khi chỉ quản lý/quản trị giao việc chung (người giao đi thì người nhận lời báo cũng chính là họ);
+     * từ làn fa1 mọi nhân sự có `matter.view` giao được việc chung, nên rỗng là để lời báo rơi vào khoảng không. Tin
+     * (`$decisionNeeded = false`) vẫn rỗng. Việc chung RIÊNG (người giao = người giữ) của người còn làm được việc vẫn rỗng
+     * (người giữ tự quyết, như việc riêng của hồ sơ); người giữ đó đã nghỉ / bị khoá thì không còn ai quyết — trưởng phòng.
      *
      * Người nhận thay KHÔNG phải người giao (vòng sửa 1 của Task 2, I1): người gửi so người nhận với
      * `assigned_by` và dùng câu chữ "do :assigner giao" ({@see self::assignerName()}), đường dẫn về tab
@@ -521,8 +526,21 @@ class ResolveStaffRecipients
         $own = $task->assigned_by === $task->assignee_id;
         $assigner = $own ? collect() : $this->forTask($task, [$task->assigner]);
 
-        if ($assigner->isNotEmpty() || $task->matter_id === null) {
+        if ($assigner->isNotEmpty()) {
             return $assigner;
+        }
+
+        // Kiểm toán 2026-10-21 (A7) — xem docblock.
+        if ($task->matter_id === null) {
+            $holder = $own ? User::query()->withTrashed()->find($task->assignee_id) : null;
+
+            if (! $decisionNeeded || ($holder !== null && $holder->is_active && ! $holder->trashed())) {
+                return collect();
+            }
+
+            return $this->forTask($task, $this->generalTaskSupervisors()
+                ->reject(fn (User $user): bool => $user->getKey() === $task->assignee_id)
+                ->all());
         }
 
         $matter = $task->matter;
@@ -548,6 +566,21 @@ class ResolveStaffRecipients
         return $this->forTask($task, $this->supervisorsFor($matter)
             ->reject(fn (User $user): bool => $user->getKey() === $task->assignee_id)
             ->all());
+    }
+
+    /**
+     * Người quyết định thay cho một việc CHUNG mà người giao không còn hợp lệ (kiểm toán 2026-10-21, A7 —
+     * {@see self::forTaskAssigner()}): mọi trưởng phòng đang hoạt động, chưa xoá — cùng vai `supervisorsFor()` chọn cho
+     * một vụ thường; không còn trưởng phòng nào thì mọi quản trị viên đang hoạt động (luôn có — M6.5 R7).
+     *
+     * @return Collection<int, User>
+     */
+    private function generalTaskSupervisors(): Collection
+    {
+        $active = fn (Role $role): Collection => User::query()->where('is_active', true)->role($role->value)->orderBy('id')->get();
+        $managers = $active(Role::Manager);
+
+        return $managers->isNotEmpty() ? $managers : $active(Role::Admin);
     }
 
     /**

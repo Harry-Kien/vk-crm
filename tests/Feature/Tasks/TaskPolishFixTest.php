@@ -132,14 +132,16 @@ it('hides "Đã nhận" and "Hoàn thành" from a holder moved to observer, keep
     $this->matter->team()->detach($this->assistant->id);
     $this->matter->addTeamMember($this->assistant, MatterRole::Observer);
 
-    tkPolList($this->assistant, 'awaiting')
-        ->assertCanSeeTableRecords([$pending])
+    // Kiểm toán 2026-10-21 (N2): "Chờ tôi nhận"/"Đang làm" chỉ có việc người đó còn giữ được (cùng định nghĩa ô, huy
+    // hiệu, Theo dõi đội ngũ); việc này ở tab "Tất cả" của họ, nơi họ vẫn "Trả lại" được.
+    tkPolList($this->assistant, 'awaiting')->assertCanNotSeeTableRecords([$pending]);
+    tkPolList($this->assistant, 'active')->assertCanNotSeeTableRecords([$accepted]);
+
+    tkPolList($this->assistant, 'all')
+        ->assertCanSeeTableRecords([$pending, $accepted])
         ->assertTableActionHidden('accept', $pending)
         ->assertTableActionHidden('complete', $pending)
-        ->assertTableActionVisible('decline', $pending);
-
-    tkPolList($this->assistant, 'active')
-        ->assertCanSeeTableRecords([$accepted])
+        ->assertTableActionVisible('decline', $pending)
         ->assertTableActionHidden('complete', $accepted)
         ->assertTableActionVisible('decline', $accepted);
 
@@ -152,7 +154,8 @@ it('hides them too from a holder who returned their own seat on the matter', fun
     $pending = tkPolTask($this->matter, $this->assistant, $this->lead);
     $this->matter->team()->updateExistingPivot($this->assistant->id, ['accepted_at' => null, 'declined_at' => now(), 'decline_reason' => 'Xung đột lợi ích']);
 
-    tkPolList($this->assistant, 'awaiting')
+    // Kiểm toán 2026-10-21 (N2): tab "Tất cả" — xem ca trên.
+    tkPolList($this->assistant, 'all')
         ->assertTableActionHidden('accept', $pending)
         ->assertTableActionHidden('complete', $pending)
         ->assertTableActionVisible('decline', $pending);
@@ -164,7 +167,8 @@ it('still lets a holder on a working seat accept and complete, and a general tas
 
     tkPolList($this->assistant, 'awaiting')
         ->assertTableActionVisible('accept', $pending)
-        ->assertTableActionVisible('complete', $pending)
+        // Kiểm toán màn hình 2026-10-21: "Hoàn thành" việc chưa nhận ở "⋮" (`completePending`).
+        ->assertTableActionVisible('completePending', $pending)
         ->assertTableActionVisible('accept', $general)
         ->callTableAction('accept', $pending)
         ->assertHasNoTableActionErrors();
@@ -174,7 +178,8 @@ it('still lets a holder on a working seat accept and complete, and a general tas
 
 it('refuses a stale "Đã nhận" from a screen opened before the holder became an observer', function () {
     $pending = tkPolTask($this->matter, $this->assistant, $this->lead);
-    $page = tkPolList($this->assistant, 'awaiting')->assertTableActionVisible('accept', $pending);
+    // Kiểm toán 2026-10-21 (N2): tab "Tất cả" — sau khi thành người theo dõi, việc rời "Chờ tôi nhận".
+    $page = tkPolList($this->assistant, 'all')->assertTableActionVisible('accept', $pending);
 
     $this->matter->team()->detach($this->assistant->id);
     $this->matter->addTeamMember($this->assistant, MatterRole::Observer);
@@ -182,7 +187,8 @@ it('refuses a stale "Đã nhận" from a screen opened before the holder became 
     // Lần bấm kế tiếp trên CÙNG màn hình hỏi lại policy phía máy chủ: nút không còn, không gì đổi.
     $page->call('$refresh')
         ->assertTableActionHidden('accept', $pending)
-        ->assertTableActionHidden('complete', $pending);
+        ->assertTableActionHidden('complete', $pending)
+        ->assertTableActionHidden('completePending', $pending);
 
     expect($pending->fresh()->status)->toBe(TaskStatus::Pending);
 });
@@ -200,7 +206,8 @@ it('lists open tasks first by due date (no due date last), then closed ones, on 
 
     $expected = [$openSoon, $returned, $openLate, $openNoDue, $doneEarly];
 
-    tkPolList($this->manager, 'all')->assertCanSeeTableRecords($expected, inOrder: true);
+    // Kiểm toán màn hình 2026-10-21: tab "Tất cả" mặc định chỉ việc còn mở — tắt bộ lọc để thấy cả việc đã đóng.
+    tkPolList($this->manager, 'all')->filterTable('open_only', false)->assertCanSeeTableRecords($expected, inOrder: true);
     tkPolList($this->lead, 'assigned')->assertCanSeeTableRecords($expected, inOrder: true);
 });
 

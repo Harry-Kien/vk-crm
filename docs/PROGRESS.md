@@ -9716,6 +9716,492 @@ Yêu cầu: "các phần biểu đồ phải chọn được các dạng biểu 
 - **Chưa kiểm:** thao tác bằng mắt trên trình duyệt thật (biểu đồ vẽ lại ngay khi chọn) — chờ chủ văn phòng
   bấm thử trên bản xem thử.
 
+### "Lưu và kích hoạt" hợp đồng không có đợt nào báo lỗi khó hiểu (2026-10-21)
+
+Chủ văn phòng gửi ảnh: trang "Hợp đồng", hộp thoại "Nhập hợp đồng đã ký" — tổng 100.000.000, thuế 4%, KHÔNG có đợt
+nào, bật "Khách đã ký — kích hoạt luôn", bấm "Lưu và kích hoạt" sáu lần: sáu thông báo nổi "Chưa kích hoạt được hợp
+đồng HD-2026-0026: tổng các đợt là 0 đ… Sửa lịch thu…", không ký được.
+
+- **Nguyên nhân:** luật đúng (kích hoạt đòi tổng các đợt bằng giá trị, đúng từng đồng — M9), nhưng màn hình nói sai
+  chỗ và sai điều: câu là câu của nút "Kích hoạt" trên một bản nháp CÓ SẴN, kèm một mã `HD-…` mà lần nhập-và-kích-hoạt
+  đã rollback (không hợp đồng nào được lưu); lỗi đi thành thông báo nổi chứ không gắn vào lịch thu; khối lịch thu mượn
+  nhãn cột "Tên đợt", nên khi chưa có đợt nào hộp thoại chỉ còn chữ "Tên đợt" trơ trọi cạnh nút "Thêm đợt"; khung
+  xem trước im lặng về lịch thu trống.
+- **Sửa:** `EnterSignedContract` đổi `ContractTotalMismatch` của lõi kích hoạt thành lỗi gắn vào ô `instalments`
+  (cùng hình dạng lỗi ngày ký `signed_at`), câu riêng: lịch thu trống → `billing.errors.schedule_empty_on_entry`
+  ("Chưa có đợt thanh toán nào. Bấm "Thêm đợt"… Khách trả một lần thì thêm một đợt bằng toàn bộ giá trị."); lệch →
+  `schedule_mismatch_on_entry` (ba con số, không mã). Luật vẫn một chỗ (`ActivateContract`); `ContractTotalMismatch`
+  mang thêm hai con số. Khối lịch thu có nhãn `billing.tab.fields.instalments` "Lịch thu (các đợt thanh toán)" (form
+  dùng chung với tab tiền của vụ); khung xem trước nói `billing.tab.preview.no_instalments` khi chưa có đợt. QUY-TRINH
+  bước 3 của "Kế toán nhập hợp đồng" nói phải có ít nhất một đợt.
+- **Test:** `EnterSignedContractTest` (dataset lệch tổng nay là `ValidationException`; hai ca mới: lịch thu trống, lịch
+  thu lệch — khoá lỗi `instalments`, câu không chứa `HD-`); `ContractEntryPageTest` (đúng ca trong ảnh: lỗi dưới lịch
+  thu, không thông báo "thất bại", hộp thoại ở lại, không lưu gì; ca lệch tổng; nhãn khối và câu xem trước). ĐỎ trước
+  khi sửa: 6 test (câu cũ nhắc `HD-2026-0001`). Hai phép thử ngược đều đỏ: bỏ nhánh "lịch thu trống" (2 test), bỏ câu
+  xem trước (1 test).
+- **Kiểm chứng:** cả bộ `pest --parallel --processes=4` trên container cloud: 10.540 test, 10.491 passed, 42 skipped,
+  7 đỏ — cả 7 là test trần tải tệp, đỏ vì PHP dòng lệnh của container đặt `upload_max_filesize=2M`; chạy lại năm tệp
+  đó với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh. `pint --test` sạch. Chưa chạy MariaDB (không
+  đụng truy vấn hay migration).
+
+### Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn nhắc việc và con số
+
+Nhánh `fix-tasks-b`, song song với làn vòng đời việc (nhánh khác — `TaskPolicy`, giao việc ở `ListTasks`, `ReassignTask`,
+`ReopenTask`, `CancelTask`, `RemoveTeamMember`, `DeclineMatterAssignment`, `UpdateTask` không bị sửa ở đây). Tám phát
+hiện đã tái hiện; mỗi mục TDD (đỏ trước, bằng chứng đỏ lưu ngoài repo), phép thử ngược cho mọi điều kiện mới, giờ Việt
+Nam qua `travelTo()`. Không migration, tác vụ lịch, quyền hay mẫu thư mới; không `.env` mới. SPEC: "Đính chính
+2026-10-21 (kiểm toán luồng Công việc — làn nhắc việc và con số)" (§9, sau đính chính integ-fa). QUY-TRINH: mục giao việc.
+
+- **Q1 — khôi phục việc quá hạn, đồng hồ chờ nhận tính từ lần giao cũ.** *Nguyên nhân:* `RestoreTask` giữ `assigned_at`
+  gốc khi hạn đã qua (CỐ Ý, tỉ lệ đúng hạn), mà lịch nhắc (lượt chọn, lần hỏi lại, khoá `awaiting@…`) và câu "đã chờ"
+  đọc `assigned_at` — 30 phút sau khôi phục: "chưa nhận sau 57 giờ". *Sửa:* `Task::awaitingSince()` = max(`assigned_at`,
+  lần `task_restored` gần nhất; cột phụ `last_restored_at` qua `scopeWithLastRestoredAt()`) — một định nghĩa cho
+  `RemindPendingWork`, `SendWorkReminder::detailFor()` và dòng "Chờ nhận từ …" của `TaskColumns`; tỉ lệ đúng hạn giữ
+  `assigned_at`. *Test:* `ReminderTimingAuditTest` (4 ca). *Thử ngược:* `awaitingSince()` trả `assigned_at`; lượt chọn,
+  lần hỏi lại, câu "đã chờ", cột bảng đọc `assigned_at` — đều đỏ.
+- **Q2 — "sắp đến hạn" theo ngày lịch.** *Nguyên nhân:* cửa sổ `today()`…`today()->addDay()`: hạn Thứ Hai chỉ được nhắc
+  sáng Thứ Hai, hạn Chủ nhật không bao giờ. *Sửa:* `BusinessHours::nextWorkingDay()`, `RemindPendingWork::dueSoonUntil()`
+  — từ hôm nay tới hết ngày làm việc kế tiếp (gồm ngày nghỉ xen giữa); khoá `due-soon@<hạn>` giữ một lần. *Test:* 4 ca.
+  *Thử ngược:* cửa sổ `addDay()`, cửa sổ rộng `addDays(4)`, `nextWorkingDay()` bỏ lịch làm việc — đỏ.
+- **Q3 — lời nhắc việc không gộp theo người.** *Nguyên nhân:* `RemindPendingWork::queue()` xếp mỗi (việc, người) một
+  `SendWorkReminder` — 8 việc chuyển = 8 thư + 8 chuông; trái phán quyết làn tk. *Sửa:* gom theo (loại, người nhận) mỗi
+  lượt; nhiều việc → `SendTaskReminderDigest` (khuôn `SendSeatReminderDigest`: hỏi lại từng việc lúc gửi, còn một việc thì
+  lời nhắc một việc, `failed()` ghi từng việc); `TaskReminderAlert`/`TaskReminder` nhận `$batch` (tiêu đề, mã, hạn, đã
+  chờ/quá hạn, người giữ, "do … giao", "cần giao lại"; cùng mẫu thư, `payload.tier` mang khoá từng việc,
+  `SendWorkReminder::alreadyMailed()` tìm trong đó). Nhịp không đổi. *Test:* `ReminderDigestAuditTest` (7 ca); ba test cũ
+  ghim "mỗi việc một thư" khi cùng người có nhiều việc trong một lượt sửa/tách ca. *Thử ngược:* không gộp, sổ thư không
+  tìm khoá việc, bỏ `taskReminderHolds()`/`stillAddressedTo()` lúc gửi, không escape, `failed()` một việc — đỏ; bỏ
+  `forTask()` lúc gửi là đột biến tương đương (`stillAddressedTo()` đòi cùng điều kiện; giữ cho khớp `SendWorkReminder`).
+- **Q4 — khoá truy cập người giữ việc, người giao không được báo.** *Nguyên nhân:* `SuspendStaffAccess` không báo ai; lời
+  nhắc chỉ đi khi chờ nhận lâu / sắp hạn / quá hạn; ô trang chủ không có số này. *Sửa:* sau commit
+  `SendSuspendedHolderNotices` — một chuông `HolderSuspendedAlert` mỗi người của `forTaskAssigner(decisionNeeded: true)`
+  (trừ người bấm, người bị khoá), khuôn đường "Gỡ thành viên", nút mở đúng các việc; ô "Việc tôi giao cần giao lại" của
+  `MyWorkQueueWidget` (`assignedBy()->held()->needsReassignment()`, tab "Tôi đã giao" lọc sẵn — số = số dòng). *Test:*
+  `HolderNumbersAuditTest` (3 ca). *Thử ngược:* không xếp job, mỗi việc một chuông, không lọc người bấm, đường dẫn luôn
+  tab "Tất cả", ô đếm cả việc bị trả lại, đường dẫn thiếu bộ lọc "Cần giao lại" — đỏ.
+- **Q5 — báo thừa ngay sau thao tác.** *Nguyên nhân:* lịch không biết lần giao / sửa hạn / mở lại / khôi phục vừa xảy ra.
+  *Sửa:* `Task::rescheduledToday()` (nhật ký: `task_assigned`, `task_reassigned`, `task_reopened`, `task_restored`,
+  `task_updated` có đổi hạn — trong ngày, múi giờ văn phòng) chặn `due_soon*`/`overdue*` ở lượt chọn và lúc gửi;
+  `RemindPendingWork::assignerActedToday()` (`Task::handledTodayBy()`) — không `overdue_assigner` cho người đã thao tác
+  trên việc hôm đó. *Test:* 9 ca. *Thử ngược:* bỏ từng vế ở lượt chọn và lúc gửi, tính mọi lần "Sửa" là đặt lại lịch, bỏ
+  ranh giới ngày — đỏ.
+- **N1 — lời báo cho người giao tới trưởng phòng viết "hồ sơ anh/chị phụ trách"; "bị trả lại" chỉ tới trưởng phòng đầu
+  tiên.** *Sửa:* `App\Support\Tasks\StandIn` (vai người nhận thay: luật sư phụ trách / người quản lý hồ sơ / việc chung)
+  cho bốn lớp chuông/thư — trưởng phòng đọc "… hồ sơ :code của đội ngũ anh/chị quản lý" (`tasks.managed.*`);
+  `SendTaskNotice` gửi MỌI người của `forTaskAssigner()` (luật đã có của lời nhắc người giao: người quyết định là cả nhóm
+  quản lý, không thứ tự). *Test:* `AssignerStandInAuditTest` (3 ca); hai test cũ ghim câu cũ sửa theo. *Thử ngược:*
+  `->first()`, vai luôn "luật sư phụ trách", thư/chuông/lời nhắc không dùng bộ chữ mới — đỏ.
+- **N2 — cùng người, hai con số.** *Sửa:* `Task::scopeAwaitingAcceptanceBy()`/`scopeInProgressFor()` thêm
+  `heldBySeatedAssignee()` — tab, huy hiệu menu, ô trang chủ, khối "Chờ tôi nhận" cùng tập với Theo dõi đội ngũ. Việc "cần
+  giao lại vì chính tôi" ở tab "Tất cả" (vẫn "Trả lại" được). **Không** thêm ô riêng: phán quyết làn fa1 ("người không còn
+  giữ được việc không có gì phải xử lý — ô trang chủ ẩn", `Fa1RemindersAndRatioTest`). *Test:* 3 ca; hai test cũ đọc hàng
+  đó ở tab "Tất cả". *Thử ngược:* bỏ vế ở mỗi scope — đỏ.
+- **A7 — việc chung có người giao bị khoá: lời báo cần quyết định rơi vào khoảng không.** *Sửa:* `forTaskAssigner()` với
+  việc chung, người giao không hợp lệ, `decisionNeeded` → trưởng phòng đang hoạt động (không còn ai: quản trị viên); tin vẫn
+  rỗng; việc chung riêng của người còn làm được vẫn rỗng. SPEC đính chính mục 1. *Test:* 5 ca. *Thử ngược:* rỗng như cũ, bỏ
+  vế `decisionNeeded`, bỏ vế việc riêng, bỏ dự phòng quản trị viên, đường dẫn — đỏ.
+
+**Không sửa (phán quyết cố ý, giữ nguyên):** việc "Bị trả lại" không được nhắc; việc không hạn không được nhắc (trừ chờ
+nhận); lời nhắc việc không có thông báo đẩy (họ `staff.task.*`, M12); nhịp nhắc quá hạn mỗi ngày làm việc (không tự
+đổi — câu hỏi dưới).
+
+**Câu hỏi cho chủ văn phòng:** (1) nhịp nhắc quá hạn: giữ mỗi ngày làm việc (nay một thư gộp mỗi người mỗi ngày), hay
+thưa dần (ngày đầu, rồi 3 ngày/lần như nhắc đợt thanh toán quá hạn 7 ngày/lần)? (2) việc "Bị trả lại" có cần nhắc người
+giao nếu nằm lâu (vd. 48 giờ) không? (3) việc không hạn đang làm có cần lời nhắc "đã làm quá N ngày" không? (4) lời nhắc
+việc (quá hạn, chờ nhận) có cần thông báo đẩy câu chung không? (5) người đã rời ghế còn giữ việc: có cần ô riêng "Việc tôi
+không còn giữ được" trên trang chủ (đảo phán quyết làn fa1) không?
+
+**Kiểm chứng:** test giao việc (`tests/Feature/Tasks`) 435 passed; cả bộ `pest --parallel --processes=2`: 10.588 test,
+10.539 passed, 42 skipped, 7 đỏ — cả 7 là test trần tải tệp (PHP dòng lệnh của container `upload_max_filesize=2M`), chạy
+lại năm tệp đó với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh. `pint --test` sạch. Chưa chạy
+MariaDB (không migration; truy vấn mới: truy vấn con `activity_log` theo `subject`/`event`, `LIKE 'task_%'`).
+
+### Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn màn hình
+
+Nhánh `fix-tasks-c`, chạy song song hai làn khác (vòng đời: `TaskPolicy`, `ReassignTask`, `ReopenTask`, `CancelTask`,
+`RemoveTeamMember`, `UpdateTask`, ô `matter_id` của "Giao việc"; nhắc việc: `RemindPendingWork`, `MyWorkQueueWidget`,
+huy hiệu/tab đếm). Làn này chỉ chạm màn hình: bố cục nút, khung "Xem", bộ lọc, cột, thứ tự, đường dẫn thông báo.
+
+- **Mục 1–2 (bố cục).** `TaskColumns`: dưới `TaskColumns::FULL_FROM = 'xl'` một cột tóm tắt (`renderSummary()`: tiêu đề;
+  trạng thái, ưu tiên khi không "Thường", hạn tô màu; mã vụ · ai giao/giao cho ai; dòng đỏ "cần giao lại"), từ `xl` các
+  cột chi tiết (`visibleFrom`/`hiddenFrom` — lớp `xl:fi-visible`/`xl:fi-hidden` có sẵn trong `theme.css`, không lớp
+  Tailwind viết tay). **Lệch đề xuất "dưới md", có chủ ý:** đo trên trình duyệt, từ `lg` thanh menu trái để lại 640–896px
+  cho tám cột, ở 768–1023px cũng không đủ — nên bố cục gọn dùng tới 1279px. Trạng thái (chip + lý do trả lại / ghi chú
+  hoàn thành / chờ nhận từ) nằm dưới tiêu đề việc (`renderStatus()`) thay cột "Trạng thái" riêng; cột "Việc" tối thiểu
+  15rem (16rem làm tab "Tất cả" ở 1280px rộng hơn vùng nội dung 8px); tên người và tiêu đề cột hẹp được xuống dòng. Cột
+  luôn là chính người xem ẩn (closure `hideAssignee`/`hideAssigner` của `TaskColumns::make()`): "Người nhận" ở "Chờ tôi
+  nhận"/"Đang làm", "Người giao" ở "Tôi đã giao" — cả ba khối Việc của tôi. `ProvidesTaskActions::taskRecordActions()`:
+  MỘT nút chính ngoài dòng — "Đã nhận" (chờ nhận), "Hoàn thành" (đang làm; `complete` ẩn khi chờ nhận), "Giao lại" cho
+  việc bị trả lại (mục 6, `reassignReturned` — chính hộp thoại/Action của `reassign`); còn lại trong "⋮": Xem,
+  `completePending` ("Hoàn thành" khi chưa nhận — `TaskPolicy::complete` cho phép nhận và xong một lượt), Trả lại, Sửa,
+  Giao lại, Huỷ, Mở lại, Khôi phục. Bấm dòng = "Xem" (`recordAction('view')`). "Giao lại" trong "⋮" vẫn có cho MỌI trạng
+  thái (một tên chỉ ở một chỗ trên bảng; nút ẩn thì Filament không cho mở — nên dòng bị trả lại có "Giao lại" cả ngoài
+  lẫn trong "⋮"; mọi test và làn khác gọi `reassign` theo tên vẫn chạy).
+- **Mục 3–4 (thứ tự).** `Task::scopeOrderedForWork()`: việc còn mở trước; theo "ngày cần làm" — hạn, việc **Gấp không
+  hạn tính như hôm nay** (dưới việc đã quá hạn, đầu nhóm hạn hôm nay: "gấp" là làm ngay); cùng ngày Gấp > Cao > Thường
+  (`Task::priorityRankSql()`); việc mới giao trước. Bảng việc đặt nó làm `->defaultSort()` thay vì trong
+  `modifyQueryUsing()` — trước đó bấm cột "Hạn" KHÔNG sắp gì (thứ tự cố định đứng trước mọi `ORDER BY` của cột). Cột "Ưu
+  tiên" sắp được (tăng dần = Gấp trước). Khối "Tôi đã giao" của Việc của tôi dùng cùng thứ tự (việc đã xong không còn
+  đứng trên việc còn mở).
+- **Mục 5 (thông báo → khung Xem).** `TaskResource::taskUrl($task, $tab)` = `?tab=…&tableAction=view&tableActionRecord=id`
+  (Filament 5 hỗ trợ sẵn: `InteractsWithActions::$defaultTableAction`, mở bằng `wire:init` và chỉ cho nút CÓ hộp thoại
+  — `mountedFromUrl`). Dùng ở chuông và thư việc (`TaskAlert`, `TaskNotice`), lời nhắc (`TaskReminderAlert` — chuông và thư
+  `TaskReminder`) và thông báo đẩy "được giao" (`PushTopic`, chỉ id việc). Ba tab có `excludeQueryWhenResolvingRecord()`,
+  mọi bộ lọc công tắc `excludeWhenResolvingRecord()`: việc đã đổi tab hay đã đóng vẫn mở; phạm vi `visibleTo()` thì
+  không bao giờ bỏ — người không còn xem được việc chỉ thấy trang. Không đổi: lời báo cho người vừa mất việc (chỉ tab,
+  không id), lời báo cho người nhận THAY người giao (tab "Công việc" của hồ sơ — relation manager không có cơ chế mở nút
+  từ URL của trang), các thông báo nhiều việc (`MatterCancelledTasksAlert`, `StaffWorkTransferAlert`, `TeamDepartureAlert`,
+  `StaffWorkTransferred`). Khung "Xem": chân khung là chính các hàm dựng nút của dòng (`taskViewFooterActions()`, cùng
+  `->authorize()`, mỗi nút `cancelParentActions()`; "Huỷ việc" đổi tên `cancelTask` vì `cancel` là nút "Đóng" của khung —
+  trùng tên thì nút "Đóng" đè mất); mã vụ là liên kết tới tab Công việc của hồ sơ khi `MatterPolicy::view` cho phép; khối
+  "Diễn biến" (`App\Support\Tasks\TaskTimeline`) đọc nhật ký có `subject` là CHÍNH việc đó, in câu tiếng Việt (giao,
+  nhận, trả lại + lý do, giao lại + hạn mới, tự nhận lại, mở lại + nhận xét, sửa + điều đã đổi qua `TaskChangeSummary`,
+  huỷ, khôi phục, đổi người giao khi bàn giao), không bao giờ in thuộc tính thô. **Quyết định cần chủ văn phòng biết:**
+  lý do "Trả lại" của người giữ trước hiện cho người giữ sau (cùng việc, cùng người theo dõi).
+- **Mục 7.** Ô tìm của bảng việc tìm cả tên người nhận/người giao (`LetterD`, kể cả người đã nghỉ — `withTrashed()` trong
+  `whereHas`), chỉ trong `visibleTo()`.
+- **Mục 8.** `Tables/TaskFilters` — mỗi bộ lọc một scope có sẵn: "Chỉ việc còn mở" (bật sẵn, chỉ tab "Tất cả"), "Hạn hôm
+  nay"/"Hạn 7 ngày tới" (`Task::scopeDueWithinDays()` mới — `open()` + khoảng ngày), "Việc của tôi (còn mở)"
+  (`Task::scopeHeldBy()` mới = `awaitingAcceptanceBy` ∪ `inProgressFor`), "Chỉ việc quá hạn" và "Cần giao lại" (chuyển từ
+  `ListTasks`, nhãn ngắn, giải thích ở chú thích dưới công tắc). Tab "Công việc" của hồ sơ thêm "Chỉ việc quá hạn",
+  "Cần giao lại", "Còn mở".
+- **Mục 9.** `TaskResource::getBreadcrumb()` = "Công việc"; ô "Mức ưu tiên" `selectablePlaceholder(false)`; lịch hạn của
+  hai hộp "Giao việc" (trang và tab hồ sơ) `minDate(today())` qua `taskDetailFields(newTask: true)`, "Sửa" giữ nguyên.
+- **Không làm:** thứ tự widget trang chủ (SPEC §7.1, cần chủ văn phòng); năng lực mới.
+- **Cho người gộp:** làn nhắc việc đang thu hẹp "Chờ tôi nhận"/"Đang làm" về việc còn giữ được — đụng `getTabs()` (làn
+  này thêm `excludeQueryWhenResolvingRecord()` vào ba tab). Test của làn khác gọi `complete` trên việc CHỜ NHẬN phải đổi
+  sang `completePending`.
+
+**Đo bố cục** (Playwright, Chromium, dữ liệu mẫu; ảnh `before-*`/`after-*` ở scratchpad `fix-c/`):
+
+| | Trước | Sau |
+|---|---|---|
+| 390px, "Chờ tôi nhận" | bảng 1132px trong khung 358px; cột "Việc" 77px; "Hạn" x=472; "Đã nhận" x=782–881; dòng 297px | bảng 358/358; "Đã nhận" x=227–326; dòng 233px |
+| 390px, "Đang làm" / "Tất cả" / tab Công việc hồ sơ | bảng 1025 / 1154 / — | 358 / 358 / 358; "Hoàn thành" x=204–326 |
+| 1024px | — | bảng 640/640 (bố cục gọn) |
+| 1280px, ba tab | — | bảng 896/896 |
+| 1366px, "Chờ tôi nhận" | bảng 1223 trong 982; "Việc" 83px; "Trả lại" x=1281–1342 (khung tới 1334: bị cắt) | 982/982; "Việc" 338px; "Đã nhận" x=1179–1278; dòng 129px |
+| 1366px, "Tất cả" | bảng 1241; "Trả lại" x=1298–1360; dòng tới 297px | 982/982; "Việc" 295px; dòng 105–130px |
+
+Đường từ thông báo (`?tab=awaiting&tableAction=view&tableActionRecord=2`, 390px): khung "Xem" mở ngay, nút "Đã nhận",
+"Hoàn thành", "Trả lại", "Đóng" trong màn hình; khối "Diễn biến" đo trên một việc tạo qua Action (giao → trả lại → giao
+lại kèm hạn mới) in đủ ba dòng.
+
+**Kiểm chứng.** `TaskScreenAuditFixTest` (31 test) đỏ trước khi sửa (27 đỏ/lỗi, 4 xanh là các phép thử "không lộ" vốn
+đúng). Phép thử ngược: 43 mutant — 40 đỏ; ba mutant sống được làm đỏ bằng test chặt hơn (M26 liên kết mã vụ trong khung,
+M28 "Nhận xét", M29 hạn mới của lần giao lại); M13/M43 là mutant tương đương có ghi: "Chỉ việc còn mở" được giữ ở tab
+"Tất cả" bằng HAI rào (`->visible()` và điều kiện trong `->query()`), bỏ một rào vẫn xanh, bỏ cả hai thì đỏ (M42). Test
+cũ đổi theo hành vi mới: URL thông báo (`AssignerGoneTest`, `TaskFinalFixTest`, `TaskPushTest`, `PushTopicTest`),
+`completePending` (`TaskResourceTest`, `TaskPolishFixTest`, `TaskPushTest`), tab "Tất cả" mặc định chỉ việc còn mở
+(`TaskPolishFixTest`). `tests/Feature/Tasks` 423 passed. Cả bộ `--parallel --processes=2` (tại `84cc553c`, máy chạy chung với hai làn kia): 10.576 test — 10.526 passed, 42 skipped, 8 đỏ: 7 là test trần tải tệp đỏ vì `upload_max_filesize=2M` của PHP dòng lệnh (chạy lại năm tệp với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh) và 1 là `HandoverPackageSectionTest` so giờ `now()->subMinutes(2)` theo phút — máy chậm qua ranh phút; chạy lại tệp: 14/14 xanh (không liên quan làn này). `pint
+--test` sạch. Không migration, không seeder, không lịch, không `.env`. Chưa chạy MariaDB (thứ tự dùng `DATE()` và
+`COALESCE` — cùng nghĩa trên MariaDB và SQLite).
+
+### Sửa sau kiểm toán luồng Công việc 2026-10-21 — làn vòng đời
+
+Đợt kiểm toán luồng "Công việc" 2026-10-21 tái hiện 8 phát hiện về vòng đời một việc (4 quan trọng, 4 nhỏ); làn này
+(nhánh `fix-tasks-a`) sửa cả 8. Phần nhắc việc / thông báo / ô đếm là làn song song khác. Test mới:
+`tests/Feature/Tasks/LifecycleAuditFixTest.php` (19 test, mọi lần bấm có màn hình qua Livewire); mỗi mục: test đỏ
+trước khi sửa, rồi phép thử ngược cho từng điều kiện mới.
+
+1. **(Quan trọng) "Giao việc" ở trang Công việc thành VIỆC CHUNG khi vụ đã chọn vừa kết thúc/huỷ.** Nguyên nhân: ô
+   `matter_id` `->visible(false)` khi `assignableMatters()` rỗng lúc gửi → giá trị bị bỏ; lần lưu đọc vụ qua
+   `assignMatter()` (chỉ trong danh sách) → `null` → `AssignTask` tạo việc chung (vụ hạn chế: tiêu đề lộ cho mọi trưởng
+   phòng); còn vụ khác trong danh sách thì luật "in:" của ô từ chối bằng câu chung. Sửa: ô không ẩn khi đã có giá trị,
+   `getOptionLabelUsing()` cho giá trị ngoài danh sách (luật "in:" không nuốt giá trị), lần lưu qua
+   `ListTasks::submittedMatter()` (không bao giờ `null` cho một vụ đã chọn; id không có vụ → cùng câu); `AssignTask`
+   từ chối dưới khoá bằng `ValidationException` trên `matter_id` — một câu `tasks.lifecycle.matter_unavailable` cho
+   mọi nguyên nhân (SPEC §10.10); tab Công việc của vụ nhận câu đó bằng thông báo. `TaskActionsTest` đổi theo (hai lời
+   từ chối trên vụ nay ở ô `matter_id`). Test: 3 ca (kết thúc, huỷ, bàn giao) + còn vụ khác + id gõ tay. Phép thử
+   ngược (đều đỏ): trả `visible` về cũ; `AssignTask` trả lời từ chối chung; bỏ `getOptionLabelUsing`; lưu qua
+   `assignMatter()`.
+2. **(Quan trọng) Người nhận là luật sư phụ trách/quản lý tự sửa/huỷ/giao lại việc người khác giao cho mình.**
+   Nguyên nhân: `TaskPolicy::manages()` cho vế luật sư phụ trách/quản lý mà không hỏi người đó có phải người nhận.
+   Sửa: người nhận một việc NGƯỜI KHÁC giao không quản lý được nó (mọi trạng thái — cả "Mở lại" ngoài 24 giờ bấm nhầm);
+   việc riêng (người giao = người giữ, sau nhận thay/bàn giao) giữ nguyên. `UpdateTask`: người sửa không phải người
+   giao → chuông `TaskAlert::UPDATED_BY_OTHER` (`tasks.notice.updated_by_other`, nêu điều đã đổi; chỉ chuông). Hai test
+   cũ ghim kịch bản cũ ("luật sư phụ trách tự sửa / chuyển tiếp việc trưởng phòng giao" — `Fa1TaskNoticesTest`,
+   `TaskFollowUpsTest` r1) đổi sang việc riêng. Phép thử ngược: bỏ vế người nhận → 2 test đỏ; bỏ lời báo người giao →
+   đỏ. Vế "việc riêng thì không báo người giao" là mutant tương đương (job `SendTaskNotice` chống trùng theo id dòng
+   nhật ký cho cùng người).
+3. **(Quan trọng) Gỡ luật sư cộng sự làm việc họ ĐÃ GIAO thành mồ côi.** Nguyên nhân: `RemoveTeamMember` chỉ xử lý việc
+   người bị gỡ đang giữ. Sửa: sau khi gỡ, người đó không còn mở được hồ sơ (`MatterPolicy::view`, tài khoản còn hoạt
+   động) thì mọi việc còn mở họ là người giao trên hồ sơ đổi người giao sang luật sư phụ trách (cùng cách
+   `MoveTasksOnHandover::transferAssigner()`: `task_assigner_changed`, `reason = team_member_removed`, `own_task` khi
+   thành việc riêng của luật sư phụ trách); `team_member_removed` ghi `tasks_followed_by_lead`; `SendTeamDepartureNotices`
+   gửi luật sư phụ trách MỘT chuông `TeamDepartureAlert::TASKS_FOLLOWED` nêu số việc (không khi chính họ bấm; thuộc tính
+   job mới có mặc định — job cũ trong hàng đợi vẫn chạy); hộp thoại "Gỡ" nói trước con số
+   (`RemoveTeamMember::assignedTasksLeadWouldFollow()`, hỏi chính `MatterPolicy::view` trên bản sao vụ không có người bị
+   gỡ). `TransferStaffWork` truyền `transferAssigned: false` (nó tự chuyển các việc đó sang người nhận). Phép thử ngược
+   (đều đỏ): bỏ bước đổi người giao; bỏ câu hỏi "còn mở được hồ sơ"; bỏ chuông; chuông cả khi chính luật sư phụ trách
+   bấm; bỏ câu của hộp thoại; bỏ cờ `own_task`.
+4. **(Quan trọng) "Giao lại" ghi đè lặng lẽ hạn người khác vừa sửa.** Nguyên nhân: hộp thoại điền hạn lúc mở,
+   `ReassignTask` `setDueDate: true` không so `updated_at`. Sửa: `ReassignTask(expectedUpdatedAt:)` như `UpdateTask`, ô ẩn
+   `mounted_updated_at` điền lúc mở; lệch → `tasks.validation.changed_meanwhile` dưới ô "Giao cho". Phép thử ngược (đều
+   đỏ): bỏ phép so; màn hình không truyền giá trị.
+5. **(Nhỏ) "Mở lại" việc đã quá hạn không đặt được hạn mới.** Sửa: `ReopenTask(?string $dueDate, bool $setDueDate)`;
+   hộp thoại của người giao/luật sư phụ trách/quản lý có ô Hạn điền sẵn `ReassignmentDueDate::suggest()` (cùng luật
+   "Giao lại", câu gợi ý dùng chung); `task_reopened` ghi `due_date_from`/`due_date_to` khi đổi; người giữ tự mở lại (bấm
+   nhầm) không có ô Hạn và Action từ chối đổi hạn (`tasks.lifecycle.reopen_due_own`). `RestoreTask` không đổi (giữ hạn
+   là cố ý). `Fa1ReopenRestoreTest` (tỉ lệ đúng hạn sau mở lại) nay giữ hạn cũ một cách tường minh. Phép thử ngược (đều
+   đỏ): bỏ ô Hạn; Action bỏ qua hạn; cho người tự mở lại đổi hạn; bỏ dòng nhật ký.
+6. **(Nhỏ) Người đã "Trả lại hồ sơ" vẫn giao việc trên hồ sơ đó.** Sửa: `TaskPolicy::assignOnMatter` từ chối người có
+   ghế `MatterUser::scopeReturned()` (kể cả ghế luật sư phụ trách vừa bàn giao; quản lý/quản trị không đổi);
+   `TaskAssignees::assignableMatters()` lọc trước cùng vế. Phép thử ngược: bỏ vế ở policy → đỏ; bỏ vế lọc trước của
+   danh sách là mutant tương đương (danh sách hỏi lại cổng cho từng vụ).
+7. **(Nhỏ) Người giữ việc trả lại hồ sơ — người GIAO việc không được báo.** Sửa: `DeclineMatterAssignment` xếp
+   `SendSeatReturnedTaskNotices` khi người trả lại còn giữ việc trên hồ sơ: mỗi người giao (trừ người trả lại, trừ người
+   đã nhận lời báo trả lại ghế, chỉ người mở được hồ sơ) một chuông gộp `SeatReturnedTasksAlert` "n việc trên hồ sơ …
+   cần giao lại" (`internal_flow.seat_returned_tasks`). Phép thử ngược (đều đỏ): bỏ lời báo; bỏ vế "đã được báo"; không
+   loại người trả lại.
+8. **(Nhỏ) Tự báo chính mình khi huỷ.** Sửa: `CancelTask` không báo người giữ khi người giữ là người huỷ. Phép thử ngược:
+   bỏ vế đó → đỏ.
+
+Không đụng tệp của làn nhắc việc trừ `TaskAlert` (một hằng số `UPDATED_BY_OTHER`); chuỗi mới của `lang/vi/tasks.php` ở
+khối `lifecycle` riêng và một mục `notice.updated_by_other`. Không migration, không seeder, không lịch, không `.env`.
+QUY-TRINH (phần giao việc) cập nhật. **Kiểm chứng:** `tests/Feature/Tasks` 411 passed; cả bộ `pest --parallel --processes=4` (trước khi thêm nhãn lý do, cùng cây mã): 10.564 test, 10.512 passed, 42 skipped, 10 đỏ — 3 là `ActivityReasonLabelsTest` (hằng số lý do mới `RemoveTeamMember::ASSIGNER_REASON` chưa có nhãn `activity.reasons.task_assigner_changed.team_member_removed`; đã thêm, tệp 8/8 xanh), 7 là test trần tải tệp đỏ vì PHP dòng lệnh của container đặt `upload_max_filesize=2M` (năm tệp chạy lại với `-d upload_max_filesize=64M -d post_max_size=64M`: 117/117 xanh); `pint --test`
+sạch. Chưa chạy MariaDB (không migration; truy vấn mới chỉ `whereDoesntHave`/`whereKey`/`lockForUpdate` theo thành ngữ
+có sẵn).
+
+**Câu hỏi cho chủ văn phòng:** (a) luật sư phụ trách nhận việc trưởng phòng giao nay không tự chuyển tiếp ("Giao lại")
+cho trợ lý được — phải "Trả lại" kèm lý do để trưởng phòng giao; nếu văn phòng muốn luật sư phụ trách được tự phân việc
+đó (người giao vẫn được báo), đó là một ngoại lệ riêng cho "Giao lại". (b) Lời báo "mở lại" cho người giữ chưa nêu hạn
+mới (hạn hiện ở dòng việc) — thêm vào chuông/thư nếu cần.
+
+### Rà soát toàn hệ thống 2026-10-22 — làn portal
+
+Phạm vi: những gì khách thấy (cổng, tài liệu, thư gửi khách). Nhánh `review-portal`.
+
+**Đã sửa (mỗi lỗi một test đỏ trước khi sửa):**
+
+1. **(Cao) Vụ đã kết thúc vẫn mời khách nộp giấy tờ — ngõ cụt.** `SubmitClientDocument` từ chối vụ đã kết thúc từ M7
+   Task 3, nhưng trang hồ sơ vẫn hiện khối "Việc anh/chị cần làm", nút "Gửi giấy tờ này", nhãn "Chúng tôi đang chờ anh/chị
+   gửi"; thẻ hồ sơ mang huy hiệu đỏ "Còn N giấy tờ cần nộp"; trang nộp cho chọn, chụp, tải tệp rồi mới báo ở bước Gửi.
+   Sửa: `MatterProgress::acceptsSubmissions()` / `SubmitDocument::acceptsSubmissions()`, nhãn trung tính
+   `portal_progress.checklist.status_closed.*`, câu `checklist.submit.matter_closed` ngay đầu khối Hồ sơ giấy tờ và thay
+   bốn bước của trang nộp; `MyMatters` bỏ tone "còn thiếu"/"đang kiểm tra" cho vụ đã kết thúc (giữ "đã đủ").
+   `tests/Feature/Portal/ClosedMatterSubmissionTest.php`; `SubmitDocumentTest` (vụ đóng từ trước: lỗi nay ở ô chọn đầu mục).
+2. **(Trung bình) Vụ đã kết thúc vẫn hiện "Mốc thời hạn sắp tới" với chữ đỏ "Đã quá hạn".** Kết thúc vụ khi còn mốc mở là
+   được phép (làn fm A1) và `CheckDeadlines` thôi nhắc, nhưng cổng vẫn vẽ mốc. Sửa: `MatterProgress::deadlines()` rỗng cho
+   vụ đã kết thúc (khối hiện câu trống sẵn có). Cùng tệp test.
+3. **(Trung bình) Gõ sai mật khẩu, khách không biết phải làm gì.** Cổng không có đường tự đặt lại mật khẩu, câu báo là câu
+   chung của Filament; hotline chỉ hiện sau năm lần sai và bị khoá. Sửa: `Login::failureMessage()` (`portal.login.failed`,
+   kèm hotline) — một câu cho mọi lần hỏng, không mở đường dò tài khoản. `LoginFailureGuidanceTest`; `LoginTest` đối
+   chiếu câu mới.
+4. **(Trung bình) Thư "Mở hồ sơ…" về trang danh sách, không về hồ sơ.** Năm thư về một hồ sơ cụ thể
+   (`client.stage_update`, `client.document_published`, `client.document_rejected`, `client.missing_documents`,
+   `client.request_answered`) trỏ `/portal`; khách có nhiều hồ sơ phải tự tìm thẻ (việc hoãn "thư không có liên kết sâu"
+   của M6 Task 8). Sửa: `PortalUrl::matter()` / `matterRequests()` — cùng đích với thông báo đẩy (`PushTopic::url()`),
+   dựng từ cấu hình như `PortalUrl::base()`; đăng nhập xong quay về đúng trang (`DeepLinkSignInTest`).
+   `tests/Feature/Mail/ClientMailDeepLinkTest.php`; `StageUpdateNotificationTest` (PORTAL_DOMAIN) đối chiếu đường mới.
+
+5. **(Cao — việc chuyển từ làn security) Tắt / xoá tài khoản cổng không cắt phiên đang mở.** `EnsurePortalAccountIsActive`
+   chỉ đăng xuất ở request kế tiếp khi tài khoản CÒN tắt, `UpdatePortalAccount` chỉ gỡ máy push khi đổi email: tắt rồi bật
+   lại (hay xoá rồi "Khôi phục") trước request đó thì phiên cũ vào lại không cần mật khẩu và máy cũ vẫn nhận thông báo
+   đẩy. Sửa theo khuôn `EndStaffSessions`: cột `client_users.session_epoch` (migration có `down()`), `EndPortalSessions`
+   (tăng epoch, đổi `remember_token`, gỡ mọi máy sau commit — lý do `portal_deactivated` / `portal_deleted`),
+   `StampPortalSessionEpoch` khi đăng nhập guard `client`, `EnsurePortalAccountIsActive` (và route tải tệp) đăng xuất phiên
+   mang epoch cũ với câu `portal.session_ended`; nút "Xoá" và xoá hàng loạt đi qua `DeletePortalAccount`.
+   `tests/Feature/Portal/PortalDeactivationCutsAccessTest.php` (phiên thật trong bảng `sessions`, cookie ghi nhớ thật, máy
+   push; phép thử ngược: bỏ phép so epoch → 2 đỏ, bỏ đổi `remember_token` → 1 đỏ). Không đổi: tác vụ đêm
+   `ExpireClientAccess` (tắt tài khoản vì hết hạn tra cứu, không phải vì lộ máy) vẫn chỉ tắt.
+
+**Cần chủ văn phòng quyết định:**
+
+- (a) Đầu mục "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" khi vụ chưa có hợp đồng rời nháp: thư nhắc KHÔNG đòi (quyết định
+  7 của làn fb), nhưng trang hồ sơ và thẻ hồ sơ trên cổng vẫn ghi "còn chờ anh/chị gửi" và đếm vào huy hiệu đỏ. Cho cổng
+  theo cùng luật của thư (ẩn khỏi "Việc anh/chị cần làm" tới khi có hợp đồng), hay giữ?
+- (b) Huy hiệu "Văn phòng vừa trả lời một yêu cầu" không có dấu "đã đọc" (R3 của M6 cấm thêm cột): nó ở mãi tới khi khách
+  viết tiếp hoặc văn phòng đóng luồng. Chấp nhận, hay thêm một dấu đã xem theo tài khoản?
+- (c) Nút "Tải về" trên trang hồ sơ là đường dẫn ký 5 phút (SPEC §10.4) nướng lúc vẽ trang: khách đọc quá 5 phút rồi bấm
+  thì gặp trang "liên kết hết hạn". Ký lúc bấm (nút gọi máy chủ rồi chuyển hướng) thì không còn cảnh này — có làm không?
+- (d) Mốc đã công bố mà văn phòng quên đánh dấu xong hiện cho khách chữ đỏ "Đã quá hạn" (vụ còn mở). Giữ, hay hiện câu
+  trung tính ("Văn phòng sẽ cập nhật mốc này")?
+- (e) Nhân sự đổi tay trạng thái yêu cầu sang "Đã trả lời" rồi mới viết câu trả lời: thư `client.request_answered` không đi
+  (thư chỉ đi khi luồng CHUYỂN sang "Đã trả lời"). Gửi thư cho câu trả lời viết đầu tiên sau lần khách viết cuối?
+
+### Rà soát toàn hệ thống 2026-10-22 — làn matter
+
+Vòng đời vụ việc sau khi mở: giai đoạn, đóng/mở lại/huỷ/lưu trữ, đội ngũ, mốc thời hạn, nhắc hạn, liên lạc, chỗ nối
+với Công việc. Test ở `tests/Feature/Review/` (đỏ trước khi sửa, phép thử ngược đã chạy).
+
+**Đã sửa**
+- *Cao* — dời hạn vào bậc nhắc cuối không được nhắc: gia hạn một mốc quá hạn tới ngày mai (hay dời mốc hôm nay sang ngày
+  mai) giữ `d1` của ngày cũ, nên không ai nhận thư "khẩn" nào trước ngày mới. `UpdateDeadline::clearedReminders()` nay xoá
+  `d1` khi ngày mới chưa qua (các bậc xa hơn giữ như cũ). `RedatedDeadlineLastTierTest`.
+- *Thấp* — chuông "Mốc thời hạn đã quá hạn" cắt cụt tên mốc có dạng thẻ (`Nộp đơn <kháng cáo>…` hiện "Nộp đơn") và không
+  có nút mở: `e()` tên, nút "Mở mốc thời hạn của hồ sơ". `DeadlineOverdueAlertTest`.
+- *Thấp* — luật sư trên vụ đã kết thúc thấy nút "Chuyển giai đoạn" mở ra ô "Giai đoạn mới" trống (đường cụt): nút ẩn khi
+  không có giai đoạn nào để chọn; quản trị viên vẫn thấy để mở lại vụ, "Thêm cập nhật" không đổi.
+  `ClosedMatterTransitionButtonTest`; test cũ "still refuses a lawyer…" nay khẳng định nút ẩn (chặt hơn).
+- *Trung bình* — hồ sơ đã kết thúc mất tên người đã xử lý khi họ nghỉ việc (xoá mềm): ô "Luật sư phụ trách" trống, khối và
+  tab "Đội ngũ" nói "chưa có ai ngoài luật sư phụ trách", cột danh sách trống. Nay hiện tên kèm "(đã nghỉ việc)"; tab Đội
+  ngũ không có nút trên dòng của họ. `DepartedLeadOnClosedMatterTest`.
+
+**Cần chủ văn phòng quyết định**
+1. Người đã "Trả lại" hồ sơ (có thể vì xung đột lợi ích) và người "theo dõi" vẫn được chọn làm người phụ trách mốc hạn và vẫn
+   nhận nhắc hạn bậc 3 ngày (nếu là trợ lý); với Công việc thì hai nhóm này đã bị loại (làn tk). Có áp cùng luật cho mốc hạn?
+2. Vụ đã kết thúc còn mốc đã công bố chưa xong: cổng khách vẫn hiện ở "Mốc thời hạn sắp tới", rồi "Đã quá hạn" màu đỏ, trong
+   suốt thời gian tra cứu. Ẩn mốc của vụ đã kết thúc trên cổng, tự gỡ công bố khi đóng vụ, hay chỉ cảnh báo trong hộp thoại
+   kết thúc?
+   → **Đã giải quyết khi gộp:** làn portal (lỗi 2) cho cổng không hiện mốc nào của vụ đã kết thúc (`MatterProgress::deadlines()`
+   trả rỗng) — đúng phương án "ẩn trên cổng"; công bố vẫn giữ nguyên trong hồ sơ nội bộ.
+3. Ngày "xảy ra" của một lần chuyển giai đoạn có thể sớm hơn ngày vào giai đoạn trước (gõ nhầm năm): `stage_entered_at` lùi
+   về quá khứ, dòng thời gian xếp lộn và sổ tiến độ không sửa được. Chặn "không sớm hơn ngày vào giai đoạn hiện tại" thì lại
+   chặn việc nhập lùi lịch sử của vụ đưa vào giữa chừng — cần chọn.
+4. Ai được xoá một dòng nhật ký liên lạc (bằng chứng): hiện mọi người sửa được hồ sơ, kể cả trợ lý xoá dòng của luật sư, và
+   cả trên hồ sơ đã kết thúc/đã ghi quyết định tiêu huỷ. Giới hạn cho người ghi + luật sư phụ trách + quản trị?
+
+### Rà soát toàn hệ thống 2026-10-22 — làn intake
+
+Phạm vi: tiếp nhận, lead của nhân viên kinh doanh, khách hàng, kiểm tra xung đột lợi ích, mở vụ việc (nhánh
+`review-intake`). Mỗi lỗi: test đỏ trước, sửa, phép thử ngược.
+
+- **(Cao) Kiểm tra xung đột bỏ sót khách hàng vì dấu câu trong tên.** Bên đối lập là doanh nghiệp thường gõ không kèm mã
+  số thuế/SĐT, nên chỉ còn tầng tên; "Công ty TNHH ABC." (dấu chấm cuối), `Công ty TNHH "ABC"`, dấu phẩy, gạch nối so với
+  khách hàng "Công ty TNHH ABC" ra **Xanh, không dòng khớp nào**. `Normalizer::name()` nay đổi mọi ký tự không phải chữ/số
+  thành khoảng trắng (tầng tên vẫn tối đa Vàng); migration `2026_10_22_000001_renormalize_party_names_without_punctuation`
+  tính lại `matter_parties.name_normalized`, `intake_parties.name_normalized`, `intake_requests.contact_name_normalized`,
+  `organization_name_normalized`. SPEC §6.10 có đính chính; CAI-DAT có mục nâng cấp (bản ghi tiếp nhận còn mở có tên chứa
+  dấu câu cần bấm "Kiểm tra lại" một lần — dấu vân tay danh tính đổi). Test: `RunConflictCheckTest` (5 ca),
+  `NormalizerTest`, `RenormalizePartyNamesWithoutPunctuationTest`.
+- **(Trung bình) Hai hồ sơ cho cùng một khách.** `CreateClient` chỉ dò trùng trong `matter_parties`, nên khách trợ lý vừa
+  tạo ở màn hình "Khách hàng" (chưa có vụ) không được nhận ra: luật sư gõ cùng SĐT/CCCD vào khối "Tạo khách mới" của form
+  mở vụ tạo hồ sơ thứ hai (trái lời hứa ở docblock `MatterForm::newClientFields()`), người có `client.manage` không thấy
+  cảnh báo trùng. Nay dò tiếp toàn bảng `clients` bằng đúng phép so của ô tra (`FindClientByIdentifier::scan()`), dùng lại
+  hồ sơ theo cùng luật tầm nhìn của ô tra (`ClientVisibility::isOfferableByLookup()` — khách mà mọi vụ đều hạn chế và ngoài
+  tầm vẫn bị từ chối trung lập). Test: `CreateClientTest` (3), `CreateMatterTest` "reuses the client the assistant just
+  created when the lawyer types its phone into the new-client block".
+
+Phát hiện, chưa sửa: (1) xác nhận Vàng ở `OpenMatter`/`AddMatterParty`/`UpdateMatterParty`/tiếp nhận chỉ so **mức**, không
+so tập khớp đã hiện — một khớp Vàng mới xuất hiện giữa lúc hiện bảng và lúc bấm lưu được ghi "đã xác nhận" dù người dùng
+chưa thấy (cửa sổ hẹp; sửa cần mang dấu vân tay tập khớp qua ba màn hình); (2) danh sách Tiếp nhận chạy ~4 truy vấn mỗi
+dòng (`awaitsConflictResolution()` gọi hai lần cho màu và nhãn cột Xung đột, mỗi lần dò "người gọi lại") — chậm dần, chưa
+sai; (3) ô tìm SĐT ở danh sách Khách hàng so chuỗi thô (`0912 345 678` không ra khi gõ `0912345678`); (4)
+`AddMatterParty` chỉ hỏi `MatterPartyPolicy::create` (quyền chung), không hỏi quyền trên vụ — màn hình đã chặn bằng
+`MatterPolicy::update`, test hiện có ghi rõ là cố ý.
+
+**Đã sửa sau khi gộp (trên nhánh chính):** (2) cột "Kết quả kiểm tra" tính "chờ trưởng phòng" MỘT lần cho cả trang qua
+`scopeAwaitingConflictResolution` (cùng định nghĩa) — test `tests/Feature/Review/IntakeListQueryCountTest.php` (5 dòng
+và 20 dòng tốn gần như cùng số truy vấn; trước: thêm 2 truy vấn mỗi dòng). (3) ô tìm của danh sách Khách hàng so số
+điện thoại sau khi bỏ dấu cách/chấm/gạch/ngoặc/"+" và tiền tố 0/84 (`ClientsTable::searchPhone`), vẫn tìm chuỗi thô như
+cũ — test `tests/Feature/Review/ClientPhoneSearchTest.php`, xanh cả SQLite lẫn MariaDB.
+
+**Cần chủ văn phòng quyết định:** (a) tầng tên có coi các cách viết tắt là một không — "Cty"/"Công ty", "TNHH"/"trách
+nhiệm hữu hạn", "CP"/"Cổ phần", "&"/"và", danh xưng "Ông/Bà/Anh/Chị" đứng đầu tên (hôm nay không — khớp thừa chỉ thêm
+Vàng, khớp thiếu là bỏ sót); (b) mã số thuế **chi nhánh** (`0101234567-001`) có nên khớp công ty mẹ (`0101234567`) ở tầng
+"chắc chắn" không — chi nhánh không có tư cách pháp nhân riêng, hôm nay ra Xanh; (c) số hộ chiếu có chữ (`B1234567`) bị
+bỏ chữ trước khi băm theo SPEC §6.10 — hai hộ chiếu chỉ khác chữ cái đầu sẽ trùng (Đỏ thừa, quản lý ghi đè được).
+
+### Rà soát toàn hệ thống 2026-10-22 — làn billing
+
+Hợp đồng, đợt thu, khoản thu, công nợ, doanh thu, nhắc thanh toán cho khách, vai trò kế toán. Lõi tiền (khoá,
+bất biến tổng, một định nghĩa "quá hạn"/"còn phải thu", tầm nhìn `listableBy`) không tìm thấy lỗi; các lỗi dưới đây
+đều ở tầng màn hình, mỗi lỗi có test đỏ trước (phép thử ngược: gỡ bản sửa thì test đỏ lại).
+
+1. **(Trung bình) Lỗi của một dòng "Lịch thu"/phụ lục không hiện dưới ô của dòng đó.** Trình duyệt giữ dòng của
+   Repeater bằng UUID, Action báo bằng vị trí (`instalments.1.amount`) — lỗi trôi thành thông báo chung không nói dòng
+   nào (test cũ điền mảng số nên không thấy). Sửa: `ReportsActionFailures::stateKeyOf()` đổi khoá vị trí thành khoá
+   thật của dữ liệu hộp thoại. Test: `ContractScheduleRowErrorsTest` (trang Hợp đồng, tab tiền — phụ lục).
+2. **(Trung bình) Trang Công nợ: huỷ một khoản thu người khác vừa huỷ trong lúc hộp thoại mở — bấm "Gửi" không có gì
+   xảy ra.** Tab của hồ sơ đã sửa ca này ở làn fb, trang của kế toán thì chưa. Sửa: hộp thoại đã mở giữ nút, ô chọn giữ
+   khoản đang chọn của chính đợt, khoản đó tới `VoidPayment` (câu "đã được huỷ từ trước"); "Khoản thu gần đây" tìm lại
+   dòng không qua điều kiện "chưa huỷ" (`modifyQueryUsing`, `isResolvingRecord`). Test: `ReceivablesVoidRaceTest`.
+3. **(Trung bình) Trang Công nợ: "Ghi khoản thu" trên đợt người khác vừa thu đủ trong lúc hộp thoại mở — hộp thoại đóng
+   im lặng, người bấm tưởng đã ghi.** Sửa: `Receivables::resolveTableRecord()` — có hộp thoại đang mở mà dòng đã rời tập
+   đợt còn phải thu thì tìm lại trong cùng phạm vi `listableBy()`; `RecordPayment` nói lý do. Test: `ReceivablesVoidRaceTest`.
+4. **(Thấp) Trang Doanh thu, kỳ "Tuỳ chọn" chọn "Đến ngày" trước "Từ ngày" — mọi ô số 0 ₫, không giải thích.** Sửa:
+   `RevenueFilters` đọc hai đầu đảo là cùng một khoảng. Test: `RevenueCustomPeriodOrderTest`.
+
+**Cần chủ văn phòng quyết định:**
+- (a) **Tách thuế GTGT làm tròn xuống** (`Vat`, quyết định của kế hoạch M9) lệch 1 đồng so với hoá đơn điện tử ở khoảng
+  một nửa số giá trị: hợp đồng 50.000.000 ₫, 8% — hệ thống in "chưa thuế 46.296.297, thuế 3.703.703", nhưng hoá đơn lập
+  từ giá chưa thuế đó tính thuế 3.703.704 (tổng 50.000.001). Làm tròn THÔNG THƯỜNG cho "thuế 3.703.704, chưa thuế
+  46.296.296" — khớp hoá đơn và khớp tổng. Đổi là một dòng ở `Vat` (và test `VatTest` đang ghim làm tròn xuống); chỉ ảnh
+  hưởng con số hiển thị, không đổi tiền đã lưu.
+- (b) Nhãn trạng thái "Đến hạn" (nội bộ) / "Đến hạn thanh toán" (cổng khách) dùng cho MỌI đợt có hạn chưa qua — kể cả đợt
+  hạn năm sau. Khách đọc "Đến hạn thanh toán" là "phải trả ngay". Đề xuất: "Chưa đến hạn" khi hạn sau hôm nay, "Đến hạn
+  hôm nay" khi đúng hôm nay.
+- (c) Không có cảnh báo khi ghi một khoản thu trùng mã giao dịch đã ghi (ghi hai lần cùng một lần chuyển khoản từ tab hồ
+  sơ và từ trang Công nợ). Có muốn hệ thống hỏi lại "mã giao dịch này đã ghi ngày …" trước khi lưu không?
+- (d) Thư "đã nhận thanh toán" (khi công tắc nhắc khách bật) đi cho cả khoản ghi lùi ngày (nhập hợp đồng đang chạy,
+  ghi bù khoản cũ) — có thể là nhiều thư một lúc cho cùng khách. Có giới hạn theo ngày tiền về không?
+
+### Rà soát toàn hệ thống 2026-10-22 — làn security
+
+Phạm vi: ma trận phân quyền §5 trên panel admin, vụ `restricted`, tài khoản nhân sự (tạo, 2FA, khoá, nghỉ việc), MCP §16,
+§10. Đã đo bằng lượt quét động (không chỉ đọc mã): mọi route GET không tham số, mọi widget, ô tìm của tám danh sách và
+trang Tìm kiếm với trưởng phòng / luật sư và trợ lý có tên trong đội ngũ / kế toán trên một vụ `restricted` mang kim ở
+mọi ô — sạch; kế toán và nhân viên kinh doanh trên vụ thường (mọi route kể cả `/admin/matters/{id}`, mọi widget) — sạch;
+trợ lý với tài liệu nhóm D (trang Tài liệu, Tìm kiếm, tab Tài liệu/Giấy tờ, widget) — sạch; chuông và thư của năm lịch nhắc
+cùng yêu cầu mới của khách trên vụ `restricted` — chỉ luật sư phụ trách và quản trị nhận.
+
+Lỗi đã sửa:
+1. **(Trung bình) Tắt "Đang hoạt động" / xoá nhân sự không cắt phiên và máy nhận thông báo như "Khoá truy cập ngay".**
+   Hai đường này chỉ dựa vào `EndDisabledStaffSessions` (đăng xuất ở request kế tiếp KHI tài khoản còn tắt): bật lại tài
+   khoản (bấm nhầm, người đó quay lại làm) hay "Khôi phục" người đã xoá trước request đó trả lại nguyên phiên cũ trên một
+   trình duyệt có thể đã không còn trong tay họ; điện thoại cũ giữ đăng ký thông báo đẩy và lại nhận chuông về hồ sơ ngay
+   khi tài khoản được bật lại (kể cả nhiều tháng sau). Sửa: Action `App\Actions\User\EndStaffSessions` (tăng
+   `session_epoch`, đổi `remember_token`, gỡ mọi máy sau commit) — một định nghĩa cho `SuspendStaffAccess`, `EditUser`
+   (tắt `is_active`) và `DeleteStaffMember`; hai lý do gỡ máy mới `staff_deactivated`/`staff_deleted` có nhãn
+   `activity.reasons.push_device_removed.*`. Test: `tests/Feature/Security/StaffDeactivationCutsAccessTest.php` (phiên
+   thật trong bảng `sessions`, cookie thật; 3 đỏ trước bản sửa, cặp dương "lưu form không tắt thì không cắt" xanh).
+   Phép thử ngược: bỏ lời gọi ở `EditUser` / `DeleteStaffMember` → đỏ.
+2. **(Bảo vệ hồi quy, không phải lỗi)** `tests/Feature/Security/RestrictedAdminSweepTest.php` — lượt quét vụ `restricted`
+   ở trên, tự gồm mọi trang/widget thêm sau; phép thử ngược: bỏ `listableBy()` ở `UpcomingDeadlinesWidget` hay
+   `StaleMattersWidget` → đỏ.
+
+Phát hiện, chưa sửa (ngoài làn): tài khoản cổng khách bị vô hiệu rồi bật lại có thể có cùng khe hở với mục 1 (máy nhận
+thông báo đẩy chỉ gỡ khi đổi email — `UpdatePortalAccount`); chưa viết test, chuyển làn portal.
+
+**Cần chủ văn phòng quyết định:** (a) Nút "Cho phép AI truy cập" của một hồ sơ (kèm ô "Khách đã đồng ý bằng văn bản")
+hôm nay mở cho mọi người có `matter.update` trên vụ — kể cả **trợ lý** và luật sư cộng sự (đúng chữ SPEC §4.6). Xác nhận
+khách đã đồng ý là một phán đoán pháp lý; nếu văn phòng muốn chỉ luật sư phụ trách / trưởng phòng / quản trị bật (như đổi
+mức bảo mật, `updateConfidentiality`), đó là một ability riêng. (b) Cờ AI của vụ giữ nguyên qua một lần chuyển
+thường → hạn chế → thường: khi vụ trở lại "thường", AI truy cập lại ngay không cần xác nhận lại sự đồng ý của khách —
+có muốn hạ cờ về "Không cho AI truy cập" mỗi khi vụ chuyển sang hạn chế không?
+
+### Rà soát toàn hệ thống 2026-10-22 — làn ops
+
+Phạm vi: trang chủ theo vai, thông báo/thư/đẩy, lịch chạy định kỳ, trang M13, cài đặt, sao lưu, dữ liệu mẫu, chuỗi
+tiếng Việt, menu. Đo lại M13 trên MariaDB với `tests/Benchmark/TeamPerformanceBenchmarkTest.php` (dữ liệu R11, máy dùng
+chung nên số dao động 20–40 %).
+
+**Đã sửa (TDD, đỏ trước):**
+- **Cao — "Theo dõi đội ngũ" mất 17–20 giây** trên dữ liệu đo (5.935 truy vấn, ngân sách 300 ms): dòng "Hồ sơ cần phân
+  công lại" (`SeatsNeedingReassignment`) hỏi `Gate::view()` cho TỪNG ghế chờ nhận, mỗi lần một EXISTS. Nạp sẵn
+  `matter.team` để policy trả lời trong bộ nhớ: 86 truy vấn, 6–9 giây trên dữ liệu đo (mọi ghế ở đó đều "chờ nhận" vì
+  benchmark chèn thẳng, không qua lần điền `accepted_at` của migration; văn phòng thật có ít ghế chờ hơn nhiều). Phần còn
+  lại là chi phí PHP của mỗi lần hỏi quyền Spatie (khoảng 0,2 ms một lần `can()`), không phải truy vấn.
+  `StuckSeatsQueryBudgetTest` (số truy vấn không tăng theo số ghế; đỏ trước 17 ≠ 7; kết quả giữ nguyên, kể cả vụ hạn chế).
+- **Trung bình — "Hiệu suất theo kỳ" mở lạnh khoảng 2 giây**: `Deadline::outcomeAt()` dựng 4–5 Carbon cho mỗi mốc
+  (khoảng 80 µs/mốc). Nay so bằng dấu thời gian (`dueEndTimestamp()`, cột lưu tới giây), chỉ dựng Carbon khi vụ đã có
+  `closed_at`; `DeadlineHolderAtDue` dùng cùng dấu thời gian; `ClientRequest::answeredBy()` đọc cột một lần. `outcomeAt`
+  cho 4.650 mốc 400 → 40 ms; `BuildPerformanceReport` một quý: trưởng phòng 1.726 → 1.348 ms, admin 2.138 → 1.397 ms
+  (trung vị 7 lần). `OutcomeAtParityTest`: 784 ca (ngày ghi × ngày xong × ngày kết thúc vụ × mốc cắt, cả mốc cắt mang
+  micro giây) bằng đúng bản so Carbon của M13; ba phép thử ngược đều đỏ; chạy SQLite và MariaDB.
+- **Thấp — nút "Mở" của ba danh sách trang chủ** ("Mốc thời hạn 7 ngày tới", "Tài liệu chờ duyệt", "Hồ sơ thiếu giấy
+  tờ") mở tab Tổng quan, trong khi thư/chuông/đẩy của cùng việc mở đúng tab. Nay mở tab "Mốc thời hạn" / "Danh mục hồ sơ"
+  (`MatterTab::url`). `DashboardRowLinksTest` (đỏ trước 3/3).
+
+**Đã kiểm, không thấy lỗi:** đi hết 36 trang admin và mọi widget với sáu tài khoản mẫu (admin, quản lý, luật sư, trợ lý,
+kế toán, kinh doanh) trên `DatabaseSeeder` — không trang 5xx, không khoá lang thô hiện ra (chỉ `mcp.enabled` /
+`mcp.write_enabled` là tên cấu hình cố ý in ra trên trang Kết nối AI); mỗi widget trang chủ 1–9 truy vấn, không N+1.
+`migrate:fresh --seed` (môi trường local) rồi `db:seed` lần hai đều chạy sạch. Mọi Action `app/Actions/Schedule` đều có
+lịch; người nhận theo vai đều lọc `is_active` (qua `ResolveStaffRecipients::qualify()` hoặc truy vấn).
+
+**Còn lại, không sửa ở làn này:**
+- `BusinessHours::minutesBetween()` (định nghĩa giờ làm việc M10 dùng chung) chiếm khoảng 200 ms của báo cáo quý; nạp mốc
+  và yêu cầu khoảng 400 ms. Lần mở lạnh một quý vẫn khoảng 1,3–1,4 giây trên máy đo — vẫn vượt 500 ms (mục 8 dưới "Cần chủ
+  văn phòng quyết định" của M13 vẫn mở).
+- `tests/Benchmark/TeamPerformanceBenchmarkTest.php` chèn mọi ghế `matter_user` với `accepted_at` rỗng (ghế "chờ nhận"),
+  nên trần 3.000 ms của nó cho "Theo dõi đội ngũ" vẫn đỏ (6–9 giây). Đây là ca xấu nhất có chủ đích để lại; muốn dữ liệu
+  sát thực tế thì điền `accepted_at` như migration `2026_10_14_100002`.
+
+**Cần chủ văn phòng quyết định:**
+- Nút "Mở" của "Hồ sơ quá hạn cập nhật" và "Khách chưa xem cập nhật" nên vào tab nào: "Tiến độ" (đăng cập nhật mới) hay
+  "Liên lạc" (ghi cuộc gọi cho khách)? Hiện vẫn mở tab Tổng quan.
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm

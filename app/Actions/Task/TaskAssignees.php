@@ -3,6 +3,7 @@
 namespace App\Actions\Task;
 
 use App\Actions\Performance\BuildTeamWorkload;
+use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -99,6 +100,31 @@ class TaskAssignees
             ->all();
     }
 
+    /**
+     * Câu nói VÌ SAO {@see self::options()} rỗng và PHẢI LÀM GÌ (sửa 2026-10-21 — chủ văn phòng gặp ô "Giao cho" rỗng
+     * trong hộp thoại "Giao lại", không một lời giải thích). Không phải một luật thứ hai: chỉ gọi khi chính danh sách
+     * đã rỗng. Việc của một hồ sơ: chỉ người trong đội ngũ giữ việc nhận được, nên lối ra là thêm người vào đội ngũ —
+     * người đổi được đội ngũ (`MatterPolicy::manageTeam`) được chỉ tới tab "Đội ngũ", người khác được bảo nhờ luật
+     * sư phụ trách hoặc trưởng phòng. Việc chung: không còn nhân sự nào khác đang làm việc.
+     */
+    public function emptyListReason(?Matter $matter, User $actor): string
+    {
+        if ($matter === null) {
+            return __('tasks.assign.empty_general');
+        }
+
+        // Hồ sơ hạn chế: chỉ luật sư phụ trách và quản trị viên trong đội ngũ mở được hồ sơ — "thêm người vào đội ngũ"
+        // không giúp gì với nhân sự khác. `!== Normal` (không `=== Restricted`): không rõ thì coi là hạn chế, cùng thành
+        // ngữ đóng-khi-không-chắc của `Matter`.
+        if ($matter->confidentiality !== Confidentiality::Normal) {
+            return __('tasks.assign.empty_matter_restricted', ['code' => $matter->code]);
+        }
+
+        return __(Gate::forUser($actor)->allows('manageTeam', $matter) ? 'tasks.assign.empty_matter_can_manage' : 'tasks.assign.empty_matter_ask', [
+            'code' => $matter->code,
+        ]);
+    }
+
     /** Giữa tên và câu khối lượng việc trong nhãn của {@see self::options()}. */
     public const LABEL_SEPARATOR = ' — ';
 
@@ -119,7 +145,8 @@ class TaskAssignees
      * Các vụ `$actor` giao việc được (làn fa1, phán quyết 3 — ô "Vụ việc" của nút "Giao việc" trên trang "Công
      * việc"): vụ đang mở mà `TaskPolicy::assignOnMatter` cho phép (luật sư phụ trách/cộng sự của vụ, quản lý, quản
      * trị; không trợ lý), theo mã. Truy vấn lọc trước đúng các vế của cổng đó (vụ mở, xem được, có `matter.update`,
-     * ghế luật sư phụ trách/cộng sự với người không phải quản lý/quản trị); rồi mọi vụ còn lại hỏi cổng — một luật.
+     * ghế luật sư phụ trách/cộng sự chưa trả lại với người không phải quản lý/quản trị); rồi mọi vụ còn lại hỏi cổng —
+     * một luật.
      * Nhãn: mã — tiêu đề vụ (người giao xem được vụ). `AssignTask` hỏi lại dưới khoá.
      *
      * @return array<int, string>
@@ -138,7 +165,11 @@ class TaskAssignees
                 ->where('matters.lead_lawyer_id', $actor->getKey())
                 ->orWhereHas('team', fn (Builder $team): Builder => $team
                     ->whereKey($actor->getKey())
-                    ->whereIn('matter_user.role_in_matter', [MatterRole::Lead->value, MatterRole::Associate->value]))))
+                    ->whereIn('matter_user.role_in_matter', [MatterRole::Lead->value, MatterRole::Associate->value])))
+                // Sửa sau kiểm toán 2026-10-21 (mục 6): ghế đã "Trả lại" — vế mới của `assignOnMatter`.
+                ->whereDoesntHave('team', fn (Builder $team): Builder => $team
+                    ->whereKey($actor->getKey())
+                    ->where(fn (Builder $returned): Builder => self::returned($returned))))
             ->orderBy('matters.code')
             ->get()
             ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('assignOnMatter', [Task::class, $matter]))
@@ -173,6 +204,12 @@ class TaskAssignees
             ->where(fn (Builder $seat): Builder => self::notDeclined($seat))
             ->exists()
             && Gate::forUser($member)->allows('view', $matter);
+    }
+
+    /** Ghế đã "Trả lại" — `MatterUser::scopeReturned()` trên bảng `matter_user` của quan hệ `team`. */
+    private static function returned(Builder $seat): Builder
+    {
+        return $seat->whereNull('matter_user.accepted_at')->whereNotNull('matter_user.declined_at');
     }
 
     /** Ghế chưa "Trả lại" — phủ định của `MatterUser::scopeReturned()` trên bảng `matter_user` của quan hệ `team`. */

@@ -93,7 +93,9 @@ use InvalidArgumentException;
  *  - gói bàn giao đã sinh: trang vụ việc, tab "Tài liệu" (`DocumentsRelationManager`), nơi luật sư xem
  *    lại và công bố gói — cùng chỗ thư `staff.handover_ready` và chuông trong hệ thống chỉ tới;
  *  - việc được giao (làn tk): trang "Công việc", tab "Chờ tôi nhận" — cùng chỗ chuông "được giao" mở
- *    ({@see TaskAlert::tabFor()}); URL không mang id vụ (việc chung không có vụ);
+ *    ({@see TaskAlert::tabFor()}), và từ kiểm toán màn hình 2026-10-21 mở thẳng khung "Xem" của việc đó
+ *    (`TaskResource::taskUrl()`: id VIỆC, trang đích tự tìm dòng trong phạm vi người nhận); URL không mang id vụ
+ *    (việc chung không có vụ);
  *  - "Gửi thử": trang "Thông báo trên điện thoại" của panel người nhận.
  * Trang đích tự hỏi quyền như mọi request (SPEC §10.10): người không xem được vụ nhận 404.
  *
@@ -285,7 +287,10 @@ enum PushTopic: string
                 ? AdminPushDevices::getUrl(panel: 'admin')
                 : PortalPushDevices::getUrl(panel: 'portal'),
             // Trước nhánh "mồ côi": việc chung không có vụ, và trang đích không mang id vụ nào.
-            $this === self::StaffTaskAssigned => TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor(TaskAlert::ASSIGNED)], panel: 'admin'),
+            // Kiểm toán màn hình 2026-10-21 (mục 5): mở thẳng khung "Xem" của việc vừa giao — chỉ id việc, không id vụ.
+            $this === self::StaffTaskAssigned => $related instanceof Task
+                ? TaskResource::taskUrl($related, TaskAlert::tabFor(TaskAlert::ASSIGNED))
+                : TaskResource::getUrl('index', ['tab' => TaskAlert::tabFor(TaskAlert::ASSIGNED)], panel: 'admin'),
             // Bản ghi mồ côi (vụ việc đã bị xoá cứng): về trang chính của app — trang chính tự hỏi quyền.
             $matterId === null => PwaPanels::path($panel),
             $this === self::ClientStageUpdate => MatterProgress::getUrl(['record' => $matterId], panel: 'portal'),
