@@ -24,6 +24,8 @@ use App\Enums\IntakeStatus;
 use App\Enums\IntakeSummaryBlocker;
 use App\Enums\PartyRole;
 use App\Enums\Permission;
+use App\Exceptions\ConflictAcknowledgementRequired;
+use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\IntakeRequests\Concerns\TranslatesIntakeFailures;
 use App\Filament\Admin\Resources\IntakeRequests\IntakeRequestResource;
@@ -35,6 +37,7 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\Money;
+use App\Support\ConflictCheckResult;
 use App\Support\Intake\PrivacyNotice;
 use App\Support\Normalizer;
 use Filament\Actions\Action;
@@ -160,6 +163,18 @@ class EditIntakeRequest extends EditRecord
      */
     #[Locked]
     public ?string $summaryVersion = null;
+
+    /**
+     * Rà soát 2026-10-22, làn harden: dấu vân tay ({@see ConflictCheckResult::displayFingerprintOf()}) của
+     * bảng kết quả kiểm tra mà khối "Kiểm tra xung đột" đã vẽ GẦN NHẤT — gửi kèm "Xác nhận đã xem", để
+     * `AcknowledgeIntakeConflict` từ chối khi lần chạy lại cho ra một khớp người bấm chưa thấy. Đặt trong
+     * {@see self::checkPanelViewData()}, tức đúng lúc bảng được vẽ: không đọc lại bản ghi lúc bấm (bản ghi
+     * nạp lại mỗi request — một lần "Kiểm tra lại" của người khác giữa hai lượt sẽ lọt), cũng không ở hook
+     * `rendering` (Filament chỉ vẽ hộp thoại khi một hành động bị dừng giữa chừng; hook vẫn chạy trong khi
+     * bảng trên trang vẫn là bảng cũ). `#[Locked]`: chỉ máy chủ ghi.
+     */
+    #[Locked]
+    public ?string $shownConflictFingerprint = null;
 
     public function mount(int|string $record): void
     {
@@ -419,9 +434,20 @@ class EditIntakeRequest extends EditRecord
             ->action(function (Action $action): void {
                 $intake = $this->intake();
 
-                $this->runAction($action, fn () => app(AcknowledgeIntakeConflict::class)->handle(
-                    $this->actor(), $intake, $intake->conflict_level ?? ConflictLevel::Green,
-                ));
+                $this->runAction($action, function () use ($action, $intake): void {
+                    try {
+                        app(AcknowledgeIntakeConflict::class)->handle(
+                            $this->actor(), $intake, $intake->conflict_level ?? ConflictLevel::Green, $this->shownConflictFingerprint,
+                        );
+                    } catch (ConflictAcknowledgementRequired|ConflictBlocked $exception) {
+                        // Rà soát 2026-10-22, làn harden: lần chạy lại đã ghi một kết quả KHÁC bảng đang hiện.
+                        // Nạp lại bản ghi và ĐÓNG hộp thoại để cả trang vẽ lại với bảng mới — `halt()` thường
+                        // lệ chỉ vẽ lại hộp thoại, để bảng cũ (nạp lúc đầu request) nằm nguyên phía sau.
+                        $intake->refresh();
+                        $this->sendFailureNotification($exception->getMessage());
+                        $action->cancel();
+                    }
+                });
 
                 $this->afterIntakeAction(__('intake.actions.acknowledged'));
             });
@@ -797,6 +823,8 @@ class EditIntakeRequest extends EditRecord
     {
         $intake = $this->intake();
         $result = is_array($intake->conflict_result) ? $intake->conflict_result : null;
+        // Bảng sắp vẽ chính là bảng người bấm "Xác nhận đã xem" sẽ thấy (xem `$shownConflictFingerprint`).
+        $this->shownConflictFingerprint = $result === null ? null : ConflictCheckResult::displayFingerprintOf($result);
         $mayResolve = Gate::allows('resolveConflict', $intake);
         $hidden = Gate::denies('viewConflictMatches', $intake);
         $awaiting = $intake->awaitsConflictResolution();

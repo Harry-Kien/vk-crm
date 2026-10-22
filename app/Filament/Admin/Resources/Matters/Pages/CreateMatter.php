@@ -511,6 +511,12 @@ class CreateMatter extends CreateRecord
         // không phụ thuộc vào một chi tiết dehydrate của framework.
         $overrideReason = $this->redResultShown() ? ($data['override_reason'] ?? null) : null;
 
+        // Rà soát 2026-10-22, làn harden: bảng mà người dùng ĐANG nhìn — Action từ chối xác nhận/ghi đè
+        // nếu lần kiểm tra lúc lưu cho ra bảng khác (một khớp mới xuất hiện trong lúc đọc).
+        $shownFingerprint = $this->conflictResult !== null
+            ? ConflictCheckResult::displayFingerprintOf($this->conflictResult)
+            : null;
+
         try {
             $opening = app(OpenMatter::class)->handle(
                 actor: $actor,
@@ -519,6 +525,7 @@ class CreateMatter extends CreateRecord
                 overrideReason: $overrideReason,
                 acknowledged: $acknowledged,
                 newClient: $this->pendingNewClient,
+                shownFingerprint: $shownFingerprint,
             );
         } catch (ConflictBlocked $exception) {
             // Mức đỏ không phải thứ "thử lại là qua": xoá mức đang chờ để một ô xác nhận còn tích
@@ -526,17 +533,30 @@ class CreateMatter extends CreateRecord
             $this->pendingConflictLevel = null;
             $this->conflictResult = $exception->result->toArray();
 
+            // Bảng đổi: lý do viết cho bảng CŨ không sống sót sang bảng mới (cùng lý do `forgetConflictResult()`).
+            if ($exception->resultChanged) {
+                $this->data['override_reason'] = null;
+            }
+
             throw ValidationException::withMessages([
-                $this->errorKey('override_reason') => [$this->canOverrideRedConflict()
-                    ? __('matters.conflict.blocked_retry')
-                    : __('matters.conflict.blocked_retry_denied')],
+                $this->errorKey('override_reason') => [match (true) {
+                    $exception->resultChanged => $exception->getMessage(),
+                    $this->canOverrideRedConflict() => __('matters.conflict.blocked_retry'),
+                    default => __('matters.conflict.blocked_retry_denied'),
+                }],
             ]);
         } catch (ConflictAcknowledgementRequired $exception) {
             $this->pendingConflictLevel = $exception->result->level->value;
             $this->conflictResult = $exception->result->toArray();
 
+            if ($exception->resultChanged) {
+                $this->data['acknowledge_conflict'] = false;
+            }
+
             throw ValidationException::withMessages([
-                $this->errorKey('acknowledge_conflict') => [__('matters.conflict.ack_retry')],
+                $this->errorKey('acknowledge_conflict') => [$exception->resultChanged
+                    ? $exception->getMessage()
+                    : __('matters.conflict.ack_retry')],
             ]);
         } catch (DomainException $exception) {
             // Lưới an toàn cho mọi luật nghiệp vụ còn lại của tầng Action — hôm nay chỉ có

@@ -278,6 +278,14 @@ class OpenMatter
      *                                    mang tên người liên hệ và các bên đối lập nhưng không mang mã
      *                                    `TN-…` của bản ghi (`$excludeIntakeId`), nên việc ẩn danh bản ghi
      *                                    (`AnonymiseProspect`) chỉ tìm được nó theo chủ thể.
+     * @param  string|null  $shownFingerprint  (Rà soát 2026-10-22, làn harden) `ConflictCheckResult::displayFingerprint()`
+     *                                         của BẢNG mà màn hình đã hiện cho người xác nhận/ghi đè. So
+     *                                         mức thôi thì một khớp mới cùng mức, xuất hiện giữa lúc hiện bảng
+     *                                         và lúc bấm lưu, được ghi vào `confirmed_pairs` như đã xác nhận
+     *                                         dù chưa ai thấy. Có giá trị mà lần kiểm tra này cho ra bảng khác
+     *                                         ⟹ `ConflictAcknowledgementRequired::changed()` /
+     *                                         `ConflictBlocked::changed()` mang bảng mới. `null` (seeder, lệnh,
+     *                                         lời gọi không qua màn hình) giữ hợp đồng cũ chỉ so mức.
      */
     public function handle(
         User $actor,
@@ -289,6 +297,7 @@ class OpenMatter
         ?int $excludeIntakeId = null,
         ?Closure $beforeCommit = null,
         ?Model $checkSubject = null,
+        ?string $shownFingerprint = null,
     ): OpenMatterResult {
         if ($newClient !== null && $newClient->exists) {
             $attributes['client_id'] = $newClient->getKey();
@@ -340,7 +349,7 @@ class OpenMatter
         // là đủ. Round 0 cố ý KHÔNG bắt lỗi này; chủ nhiệm đã đảo phán quyết đó ở round 1.
         try {
             return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
-                $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged, $newClient, $excludeIntakeId, $beforeCommit, $checkSubject,
+                $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged, $newClient, $excludeIntakeId, $beforeCommit, $checkSubject, $shownFingerprint,
             ): OpenMatterResult {
                 // Bước 3.
                 /** @var array{0: ConflictCheckResult, 1: Collection<int, MatterParty>} $checked */
@@ -390,9 +399,21 @@ class OpenMatter
                         throw ConflictBlocked::make($result);
                     }
 
+                    // Rà soát 2026-10-22, làn harden: lý do ghi đè viết cho bảng ĐÃ hiện; có khớp mới thì
+                    // không phủ được nó — xem docblock tham số `$shownFingerprint`.
+                    if ($result->differsFromShown($shownFingerprint)) {
+                        throw ConflictBlocked::changed($result);
+                    }
+
                     $isOverridden = true;
-                } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
-                    throw ConflictAcknowledgementRequired::make($result);
+                } elseif ($result->requiresAcknowledgement()) {
+                    if ($result->differsFromShown($shownFingerprint)) {
+                        throw ConflictAcknowledgementRequired::changed($result);
+                    }
+
+                    if ($acknowledged !== $result->level) {
+                        throw ConflictAcknowledgementRequired::make($result);
+                    }
                 }
 
                 // Bước 5.

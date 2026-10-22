@@ -19,8 +19,19 @@ class ConflictAcknowledgementRequired extends DomainException
     public function __construct(
         string $message,
         public readonly ConflictCheckResult $result,
+        public readonly bool $resultChanged = false,
     ) {
         parent::__construct($message);
+    }
+
+    /**
+     * Bảng caller đã hiện (`ConflictCheckResult::differsFromShown()`) khác bảng của lần kiểm tra lúc lưu
+     * — cùng mức nhưng có khớp người dùng chưa thấy. Xác nhận cũ không phủ được nó (rà soát 2026-10-22,
+     * làn harden).
+     */
+    public static function changed(ConflictCheckResult $result): self
+    {
+        return new self(__('exceptions.conflict_result_changed'), $result, true);
     }
 
     public static function make(ConflictCheckResult $result): self

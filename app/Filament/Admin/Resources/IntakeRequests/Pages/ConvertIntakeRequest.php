@@ -21,6 +21,7 @@ use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\ConflictCheckResult;
 use App\Support\ConflictOverride;
 use DomainException;
 use Filament\Actions\Action;
@@ -345,6 +346,8 @@ class ConvertIntakeRequest extends Page
                 $overrideReason,
                 $acknowledged,
                 $confirmedClientId,
+                // Rà soát 2026-10-22, làn harden: bảng đang hiện — xem `CreateMatter::handleRecordCreation()`.
+                $this->conflictResult !== null ? ConflictCheckResult::displayFingerprintOf($this->conflictResult) : null,
             );
         } catch (ExistingClientConfirmationRequired $exception) {
             if ($this->matchedClientId !== $exception->client->getKey()) {
@@ -365,17 +368,27 @@ class ConvertIntakeRequest extends Page
             $this->pendingConflictLevel = null;
             $this->conflictResult = $exception->result->toArray();
 
+            if ($exception->resultChanged) {
+                $this->data['override_reason'] = null;
+            }
+
             throw ValidationException::withMessages([
-                'data.override_reason' => [$this->canOverrideRedConflict()
-                    ? __('matters.conflict.blocked_retry')
-                    : __('matters.conflict.blocked_retry_denied')],
+                'data.override_reason' => [match (true) {
+                    $exception->resultChanged => $exception->getMessage(),
+                    $this->canOverrideRedConflict() => __('matters.conflict.blocked_retry'),
+                    default => __('matters.conflict.blocked_retry_denied'),
+                }],
             ]);
         } catch (ConflictAcknowledgementRequired $exception) {
             $this->pendingConflictLevel = $exception->result->level->value;
             $this->conflictResult = $exception->result->toArray();
 
+            if ($exception->resultChanged) {
+                $this->data['acknowledge_conflict'] = false;
+            }
+
             throw ValidationException::withMessages([
-                'data.acknowledge_conflict' => [__('matters.conflict.ack_retry')],
+                'data.acknowledge_conflict' => [$exception->resultChanged ? $exception->getMessage() : __('matters.conflict.ack_retry')],
             ]);
         } catch (ClientLookupThrottled|DuplicateClientNotVisible|DuplicateClientDetected $exception) {
             // Lời từ chối của bước tra/tạo khách: gắn vào khối "Khách hàng". Câu của

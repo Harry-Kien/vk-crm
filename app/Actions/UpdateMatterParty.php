@@ -133,6 +133,8 @@ class UpdateMatterParty
      * @param  ConflictLevel|null  $acknowledged  Cùng hợp đồng `AddMatterParty`/`OpenMatter`: phải
      *                                            khớp CHÍNH XÁC `$result->level` của lần kiểm tra
      *                                            NÀY.
+     * @param  string|null  $shownFingerprint  Bảng đã hiện cho người dùng — cùng hợp đồng tham số cùng tên
+     *                                         của `OpenMatter::handle()` (rà soát 2026-10-22, làn harden).
      */
     public function handle(
         MatterParty $party,
@@ -140,6 +142,7 @@ class UpdateMatterParty
         array $partyData,
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
+        ?string $shownFingerprint = null,
     ): UpdateMatterPartyResult {
         $overrideReason = $overrideReason !== null ? trim($overrideReason) : null;
         $matterId = $party->matter_id;
@@ -147,7 +150,7 @@ class UpdateMatterParty
 
         try {
             return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
-                $matterId, $partyId, $actor, $partyData, $overrideReason, $acknowledged,
+                $matterId, $partyId, $actor, $partyData, $overrideReason, $acknowledged, $shownFingerprint,
             ): UpdateMatterPartyResult {
                 // Bước 5.
                 /** @var array{0: ConflictCheckResult, 1: MatterParty, 2: Matter, 3: bool} $checked */
@@ -207,9 +210,20 @@ class UpdateMatterParty
                         throw ConflictBlocked::make($result);
                     }
 
+                    // Rà soát 2026-10-22, làn harden — xem `OpenMatter::handle()` tham số `$shownFingerprint`.
+                    if ($result->differsFromShown($shownFingerprint)) {
+                        throw ConflictBlocked::changed($result);
+                    }
+
                     $isOverridden = true;
-                } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
-                    throw ConflictAcknowledgementRequired::make($result);
+                } elseif ($result->requiresAcknowledgement()) {
+                    if ($result->differsFromShown($shownFingerprint)) {
+                        throw ConflictAcknowledgementRequired::changed($result);
+                    }
+
+                    if ($acknowledged !== $result->level) {
+                        throw ConflictAcknowledgementRequired::make($result);
+                    }
                 }
 
                 // Bước 7.
