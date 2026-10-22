@@ -11,6 +11,7 @@ use App\Models\Matter;
 use App\Models\MatterUser;
 use App\Models\Task;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
@@ -45,12 +46,16 @@ final class SeatsNeedingReassignment
      * cùng người xem của Theo dõi đội ngũ).
      *
      * Lọc trong bộ nhớ: tập ghế chờ nhận của một văn phòng nhỏ, và luật "còn nhận được" là `qualifies()`
-     * (một cổng Gate), không có bản SQL thứ hai.
+     * (một cổng Gate), không có bản SQL thứ hai — lối tắt SQL bên dưới là chính câu EXISTS của
+     * `MatterPolicy::view()`, chỉ dùng theo chiều "chắc chắn xem được".
      *
-     * Đội ngũ của mỗi vụ nạp sẵn (`matter.team`), để `MatterPolicy::view()` trả lời trong bộ nhớ
-     * (`Matter::isListableBy()`, cùng đáp án với EXISTS của nó) thay vì một truy vấn cho MỖI ghế: ghế chờ nhận
-     * của một văn phòng thật là hàng trăm (rà soát làn ops 2026-10-22 — dữ liệu đo M13, 3.000 vụ: trang
-     * "Theo dõi đội ngũ" khoảng 20 giây, 5.935 truy vấn; `StuckSeatsQueryBudgetTest`).
+     * Không hỏi Gate cho MỖI ghế: ghế chờ nhận của một văn phòng thật là hàng trăm (rà soát làn ops
+     * 2026-10-22 — dữ liệu đo M13, 3.000 vụ: trang "Theo dõi đội ngũ" khoảng 20 giây, 5.935 truy vấn;
+     * `StuckSeatsQueryBudgetTest`). Làn perf2: sau khi nạp sẵn `matter.team`, mỗi ghế vẫn là khoảng bốn lần hỏi
+     * quyền Spatie (6–9 giây trên dữ liệu đo). Nay mỗi NGƯỜI ngồi ghế một truy vấn: ghế trên vụ thuộc
+     * `ResolveStaffRecipients::surelyQualifyingMatters()` (đúng câu EXISTS của `MatterPolicy::view()`, người
+     * còn hoạt động) chắc chắn không "kẹt" và bị bỏ qua; mọi ghế còn lại — thường chỉ những ghế thật sự kẹt —
+     * đi qua {@see self::stuck()} như cũ. `StuckSeatsBatchParityTest` ghim cùng danh sách với lọc từng ghế.
      *
      * @return Collection<int, MatterUser>|null
      */
@@ -60,9 +65,34 @@ final class SeatsNeedingReassignment
             return null;
         }
 
-        return MatterUser::query()
+        $pending = fn (): Builder => MatterUser::query()
             ->onOpenMattersListableBy($viewer)
-            ->awaitingAcceptance()
+            ->awaitingAcceptance();
+        $recipients = app(ResolveStaffRecipients::class);
+
+        // Ghế mà người ngồi CHẮC CHẮN còn nhận được: một truy vấn cho mỗi người ngồi ghế (xem docblock).
+        $accepting = [];
+
+        foreach (User::withTrashed()->whereIn('id', $pending()->select('matter_user.user_id'))->get() as $member) {
+            $matters = $recipients->surelyQualifyingMatters($member);
+
+            if ($matters !== null) {
+                foreach ($pending()->where('matter_user.user_id', $member->getKey())->whereIn('matter_user.matter_id', $matters->select('matters.id'))->toBase()->pluck('matter_user.id') as $id) {
+                    $accepting[(int) $id] = true;
+                }
+            }
+        }
+
+        $candidates = $pending()->toBase()->pluck('matter_user.id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->reject(fn (int $id): bool => isset($accepting[$id]))
+            ->values()
+            ->all();
+
+        // Phần còn lại hỏi đúng định nghĩa từng ghế; đội ngũ nạp sẵn để `MatterPolicy::view()` trả lời trong bộ nhớ.
+        return MatterUser::query()
+            ->whereIntegerInRaw('matter_user.id', $candidates)
+            ->orderBy('matter_user.id')
             ->with(['matter.team', 'user' => fn ($user) => $user->withTrashed()])
             ->get()
             ->filter(fn (MatterUser $seat): bool => self::stuck($seat, $seat->user, $seat->matter))

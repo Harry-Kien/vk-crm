@@ -4,6 +4,7 @@ namespace App\Support;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use DateTimeZone;
 use InvalidArgumentException;
 use LogicException;
 
@@ -113,8 +114,74 @@ final readonly class BusinessHours
     /**
      * Số PHÚT làm việc trọn vẹn giữa `$from` và `$to` (phần lẻ dưới một phút bỏ đi). `$to` không sau
      * `$from` thì 0.
+     *
+     * **Hai cách tính, một đáp án** (rà soát 2026-10-22, làn perf2 — trang "Hiệu suất theo kỳ" gọi hàm này
+     * cho mọi luồng đã trả lời của kỳ, khoảng 200 ms một quý trên dữ liệu đo M13 khi mỗi ngày dựng bốn,
+     * năm đối tượng Carbon). Khi múi giờ văn phòng giữ MỘT độ lệch suốt khoảng cần tính (Asia/Ho_Chi_Minh
+     * từ 1975, mọi múi giờ không đổi giờ mùa hè trong khoảng đó), ngày làm việc và khung giờ tính bằng số
+     * nguyên trên dấu thời gian ({@see self::minutesBetweenAtFixedOffset()}): cùng từng bước của cách tính
+     * theo lịch (cùng ngày bắt đầu, cùng trần {@see self::MAX_DAYS} ngày, cùng phép bỏ phần lẻ dưới giây
+     * của `getTimestamp()` ở hai đầu mỗi khúc). Khoảng có đổi giờ, hay múi giờ dạng độ lệch (`+07:00`, không
+     * có bảng chuyển đổi), đi đường lịch cũ ({@see self::minutesBetweenByCalendar()}).
+     * `BusinessHoursFastPathParityTest` so hai cách trên hàng nghìn cặp mốc ngẫu nhiên và các biên.
      */
     public function minutesBetween(CarbonInterface $from, CarbonInterface $to): int
+    {
+        $fromSecond = $from->getTimestamp();
+        $toSecond = $to->getTimestamp();
+
+        if ($toSecond <= $fromSecond) {
+            // Cách tính theo lịch cũng ra 0: cùng một giây (dù khác phần lẻ) không có giây trọn nào ở giữa.
+            return 0;
+        }
+
+        $offset = $this->fixedOffsetBetween($fromSecond, $toSecond);
+
+        return $offset === null
+            ? $this->minutesBetweenByCalendar($from, $to)
+            : $this->minutesBetweenAtFixedOffset($fromSecond, $toSecond, $offset);
+    }
+
+    /**
+     * Độ lệch (giây) của múi giờ văn phòng nếu nó không đổi suốt khoảng từ hai ngày trước `$fromSecond` tới
+     * hai ngày sau `$toSecond`; `null` khi có lần chuyển giờ trong khoảng đó hoặc múi giờ không có bảng
+     * chuyển đổi.
+     */
+    private function fixedOffsetBetween(int $fromSecond, int $toSecond): ?int
+    {
+        $transitions = (new DateTimeZone($this->timezone))->getTransitions($fromSecond - 2 * 86400, $toSecond + 2 * 86400);
+
+        return is_array($transitions) && count($transitions) === 1 ? (int) $transitions[0]['offset'] : null;
+    }
+
+    /**
+     * {@see self::minutesBetweenByCalendar()} khi độ lệch múi giờ không đổi: nửa đêm giờ văn phòng của ngày
+     * thứ `n` (tính từ 1970-01-01, một Thứ Năm) là `n * 86400 - $offset`. `$toSecond > $fromSecond`.
+     */
+    private function minutesBetweenAtFixedOffset(int $fromSecond, int $toSecond, int $offset): int
+    {
+        $workingDays = array_fill_keys($this->days, true);
+        $opens = self::minuteOfDay($this->opensAt) * 60;
+        $closes = self::minuteOfDay($this->closesAt) * 60;
+        $day = intdiv($fromSecond + $offset - (($fromSecond + $offset) % 86400 + 86400) % 86400, 86400);
+        $cursor = $fromSecond;
+        $seconds = 0;
+
+        for ($i = 0; $i < self::MAX_DAYS && $cursor < $toSecond; $i++, $day++) {
+            $midnight = $day * 86400 - $offset;
+
+            if (isset($workingDays[(($day % 7) + 10) % 7 + 1])) {
+                $seconds += max(0, min($toSecond, $midnight + $closes) - max($cursor, $midnight + $opens));
+            }
+
+            $cursor = $midnight + 86400;
+        }
+
+        return intdiv($seconds, 60);
+    }
+
+    /** Cách tính theo lịch, từng ngày bằng Carbon — xem {@see self::minutesBetween()}. */
+    private function minutesBetweenByCalendar(CarbonInterface $from, CarbonInterface $to): int
     {
         $from = $this->local($from);
         $to = $this->local($to);
