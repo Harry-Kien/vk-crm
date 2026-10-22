@@ -84,5 +84,5 @@ it('tells the accountant that the instalment was settled by someone else while t
     $page->callMountedAction();
 
     Notification::assertNotified(__('actions.failed_title'));
-    expect($this->instalment->payments()->whereNull('voided_at')->sum('amount'))->toBe(10_000_000);
+    expect((int) $this->instalment->payments()->whereNull('voided_at')->sum('amount'))->toBe(10_000_000);
 });
