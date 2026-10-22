@@ -79,7 +79,7 @@ final class DeadlineHolderAtDue
     /** @param  list<array{at: int, hasFrom: bool, from: mixed}>  $changes  cũ trước, `at` là dấu thời gian Unix */
     private static function holderOf(Deadline $deadline, array $changes): ?int
     {
-        $dueEnd = $deadline->dueEnd()->getTimestamp();
+        $dueEnd = $deadline->dueEndTimestamp();
 
         foreach ($changes as $change) {
             if ($change['at'] > $dueEnd) {

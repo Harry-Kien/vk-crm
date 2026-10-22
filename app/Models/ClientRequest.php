@@ -186,7 +186,11 @@ class ClientRequest extends Model
      */
     public function answeredBy(CarbonInterface $cutoff): bool
     {
-        return $this->answered_at !== null && $this->answered_at->lte($cutoff);
+        // Đọc cột MỘT lần: mỗi lần đọc cast dựng một Carbon mới, và "Hiệu suất theo kỳ" hỏi câu này cho mọi
+        // luồng của kỳ (rà soát làn ops 2026-10-22).
+        $answeredAt = $this->answered_at;
+
+        return $answeredAt !== null && $answeredAt->lte($cutoff);
     }
 
     public function matter(): BelongsTo
