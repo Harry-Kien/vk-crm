@@ -101,13 +101,18 @@ final class RevenueFilters
      */
     private static function period(string $period, array $pageFilters): array
     {
+        if ($period === 'custom') {
+            $from = self::parseDate($pageFilters['date_from'] ?? null) ?? today()->startOfMonth();
+            $to = self::parseDate($pageFilters['date_to'] ?? null) ?? today()->endOfMonth();
+
+            // Rà soát toàn hệ thống 2026-10-22 (làn billing): hai đầu chọn đảo ("Đến ngày" trước "Từ ngày")
+            // là CÙNG một khoảng — không đảo lại thì mọi ô số ra 0 ₫ mà không dòng nào nói vì sao.
+            return $from->greaterThan($to) ? [$to, $from] : [$from, $to];
+        }
+
         return match ($period) {
             'this_quarter' => [today()->startOfQuarter(), today()->endOfQuarter()],
             'this_year' => [today()->startOfYear(), today()->endOfYear()],
-            'custom' => [
-                self::parseDate($pageFilters['date_from'] ?? null) ?? today()->startOfMonth(),
-                self::parseDate($pageFilters['date_to'] ?? null) ?? today()->endOfMonth(),
-            ],
             default => [today()->startOfMonth(), today()->endOfMonth()],
         };
     }
