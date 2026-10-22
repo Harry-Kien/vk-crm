@@ -351,6 +351,35 @@ class PartiesRelationManager extends RelationManager
     }
 
     /**
+     * Dấu vân tay của bảng kết quả modal đang hiện (rà soát 2026-10-22, làn harden) — Action từ chối xác
+     * nhận/ghi đè nếu lần kiểm tra lúc lưu cho ra bảng khác. `null` khi chưa hiện bảng nào.
+     */
+    private function shownConflictFingerprint(): ?string
+    {
+        return $this->conflictResult !== null ? ConflictCheckResult::displayFingerprintOf($this->conflictResult) : null;
+    }
+
+    /**
+     * Bảng vừa đổi dưới tay người dùng (có khớp mới): gỡ dấu tích và lý do ghi đè viết cho bảng CŨ, trả
+     * câu của Action. `null` khi đây là một lời từ chối thường.
+     */
+    private function changedResultMessage(ConflictBlocked|ConflictAcknowledgementRequired $exception): ?string
+    {
+        if (! $exception->resultChanged) {
+            return null;
+        }
+
+        $acknowledgeKey = $this->errorKey('acknowledge_conflict');
+
+        if ($acknowledgeKey !== 'acknowledge_conflict') {
+            data_set($this, $acknowledgeKey, false);
+            data_set($this, $this->errorKey('override_reason'), null);
+        }
+
+        return $exception->getMessage();
+    }
+
+    /**
      * Quên kết quả kiểm tra đang giữ, mức đang chờ xác nhận, VÀ dấu tích "đã xem xét".
      *
      * Kết quả kiểm tra là một ẢNH CHỤP của dữ liệu tại lúc bấm lưu, nhưng nó nằm im trong khi
@@ -647,6 +676,7 @@ class PartiesRelationManager extends RelationManager
                 ],
                 overrideReason: $overrideReason,
                 acknowledged: $acknowledged,
+                shownFingerprint: $this->shownConflictFingerprint(),
             );
         } catch (ConflictBlocked $exception) {
             // Mức đỏ không phải thứ "thử lại là qua": xoá mức đang chờ để một ô xác nhận còn tích
@@ -656,9 +686,9 @@ class PartiesRelationManager extends RelationManager
             static::notifyConflictBlocked($exception->result);
 
             throw ValidationException::withMessages([
-                $this->errorKey('override_reason') => [$this->canOverrideRedConflict()
+                $this->errorKey('override_reason') => [$this->changedResultMessage($exception) ?? ($this->canOverrideRedConflict()
                     ? __('matters.parties.conflict_blocked_retry')
-                    : __('matters.parties.conflict_blocked_retry_denied')],
+                    : __('matters.parties.conflict_blocked_retry_denied'))],
             ]);
         } catch (ConflictAcknowledgementRequired $exception) {
             $this->pendingConflictLevel = $exception->result->level->value;
@@ -666,7 +696,7 @@ class PartiesRelationManager extends RelationManager
             static::notifyAcknowledgementRequired($exception->result);
 
             throw ValidationException::withMessages([
-                $this->errorKey('acknowledge_conflict') => [__('matters.parties.conflict_ack_retry')],
+                $this->errorKey('acknowledge_conflict') => [$this->changedResultMessage($exception) ?? __('matters.parties.conflict_ack_retry')],
             ]);
         } catch (DomainException $exception) {
             // Lưới an toàn cho MỌI luật nghiệp vụ còn lại của tầng Action (hôm nay chỉ có
@@ -742,6 +772,7 @@ class PartiesRelationManager extends RelationManager
                 ],
                 overrideReason: $overrideReason,
                 acknowledged: $acknowledged,
+                shownFingerprint: $this->shownConflictFingerprint(),
             );
         } catch (ConflictBlocked $exception) {
             $this->pendingConflictLevel = null;
@@ -749,9 +780,9 @@ class PartiesRelationManager extends RelationManager
             static::notifyUpdateConflictBlocked($exception->result);
 
             throw ValidationException::withMessages([
-                $this->errorKey('override_reason') => [$this->canOverrideRedConflict()
+                $this->errorKey('override_reason') => [$this->changedResultMessage($exception) ?? ($this->canOverrideRedConflict()
                     ? __('matters.update_parties.conflict_blocked_retry')
-                    : __('matters.update_parties.conflict_blocked_retry_denied')],
+                    : __('matters.update_parties.conflict_blocked_retry_denied'))],
             ]);
         } catch (ConflictAcknowledgementRequired $exception) {
             $this->pendingConflictLevel = $exception->result->level->value;
@@ -759,7 +790,7 @@ class PartiesRelationManager extends RelationManager
             static::notifyAcknowledgementRequired($exception->result);
 
             throw ValidationException::withMessages([
-                $this->errorKey('acknowledge_conflict') => [__('matters.parties.conflict_ack_retry')],
+                $this->errorKey('acknowledge_conflict') => [$this->changedResultMessage($exception) ?? __('matters.parties.conflict_ack_retry')],
             ]);
         } catch (MatterPartyAlreadyRemoved $exception) {
             // Fix round 1, C1: bên đã bị GỠ (tab khác) trong lúc modal SỬA này còn mở. Không còn ô

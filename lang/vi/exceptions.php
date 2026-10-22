@@ -18,6 +18,9 @@ return [
     'matter_stage_changed' => 'Giai đoạn của vụ việc :code đã đổi trong lúc anh/chị thao tác. Hãy tải lại trang để xem giai đoạn mới nhất rồi thử lại.',
     'conflict_blocked' => 'Không thể lưu vụ việc: phát hiện xung đột lợi ích mức đỏ với hồ sơ :codes. Chỉ trưởng phòng hoặc quản trị mới được ghi đè, và phải nhập lý do.',
     'conflict_acknowledgement_required' => 'Phát hiện cảnh báo xung đột lợi ích mức vàng: hãy xem lại danh sách bản ghi trùng và tích xác nhận trước khi lưu vụ việc.',
+    // Rà soát 2026-10-22, làn harden: bảng lúc lưu khác bảng đã hiện. Không dấu hai chấm (Livewire đọc nó như tham số luật).
+    'conflict_result_changed' => 'Có kết quả kiểm tra xung đột lợi ích mới từ lúc bảng được hiện — xem lại bảng vừa cập nhật rồi xác nhận lại.',
+    'conflict_result_changed_override' => 'Có kết quả kiểm tra xung đột lợi ích mới từ lúc bảng được hiện — xem lại bảng vừa cập nhật, rồi viết lại lý do ghi đè nếu vẫn ghi đè.',
     'our_client_party_needs_client' => 'Bên ":name" được đánh dấu là khách hàng của văn phòng nhưng chưa chọn hồ sơ khách hàng. Hãy chọn đúng hồ sơ ở ô "Khách hàng", hoặc tắt công tắc "Là khách hàng của văn phòng" — tên và số căn cước của một bên như vậy phải lấy từ hồ sơ thật thì lần kiểm tra xung đột sau mới nhìn thấy bên này.',
     'unnamed_party' => 'chưa nhập tên',
     'matter_not_published_to_portal' => 'Không thể công bố dòng tiến độ cho vụ việc :code: vụ việc chưa bật "Công bố portal". Bật công tắc này trước khi công bố tiến độ cho khách.',

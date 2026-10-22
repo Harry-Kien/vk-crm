@@ -138,6 +138,8 @@ class ConvertIntakeToMatter
      *                                       `ExistingClientConfirmationRequired` của một lượt trước) và
      *                                       xác nhận đúng người. Chỉ có nghĩa khi bước 4 tìm ra ĐÚNG hồ
      *                                       sơ đó; khác đi thì hỏi lại.
+     * @param  string|null  $shownFingerprint  Bảng kết quả kiểm tra đã hiện cho người bấm — chuyển nguyên
+     *                                         cho `OpenMatter` (rà soát 2026-10-22, làn harden).
      */
     public function handle(
         User $actor,
@@ -146,6 +148,7 @@ class ConvertIntakeToMatter
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
         ?int $confirmedClientId = null,
+        ?string $shownFingerprint = null,
     ): IntakeConversionResult {
         // Bước 1.
         Gate::forUser($actor)->authorize('convert', $intake);
@@ -190,6 +193,7 @@ class ConvertIntakeToMatter
             beforeCommit: fn (Matter $matter) => $this->link($actor, $locked->getKey(), $matter, $clientCreated),
             // Lần chuyển đổi không thành để dòng kiểm tra của nó ở lại với bản ghi — xem bước 5.
             checkSubject: $locked,
+            shownFingerprint: $shownFingerprint,
         );
 
         return new IntakeConversionResult(

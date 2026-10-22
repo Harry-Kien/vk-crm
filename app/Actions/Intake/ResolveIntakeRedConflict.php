@@ -3,10 +3,12 @@
 namespace App\Actions\Intake;
 
 use App\Actions\Intake\Concerns\HoldsConflictCheckLock;
+use App\Exceptions\ConflictBlocked;
 use App\Models\IntakeRequest;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConflictOverride;
+use App\Support\Intake\ShownConflictFingerprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -45,7 +47,16 @@ class ResolveIntakeRedConflict
 
     private const REASON_MAX_LENGTH = 2000;
 
-    public function handle(User $actor, IntakeRequest $intake, string $reason): IntakeRequest
+    /**
+     * @param  string|null  $shownFingerprint  `ShownConflictFingerprint::of()` của bảng mà trang đã
+     *                                         hiện cho người ghi đè (rà soát 2026-10-22, làn harden — cùng hợp
+     *                                         đồng `OpenMatter::handle()`): lần chạy lại ra bảng khác (một khớp
+     *                                         Đỏ mới xuất hiện sau khi trang hiện bảng) thì lý do viết cho bảng
+     *                                         cũ không phủ được nó — `ConflictBlocked::changed()`. Đỏ dính mà
+     *                                         bảng không đổi (lần chạy vẫn ra Xanh như lúc hiện) vẫn ghi đè được.
+     *                                         `null` giữ hợp đồng cũ (seeder, test cũ).
+     */
+    public function handle(User $actor, IntakeRequest $intake, string $reason, ?string $shownFingerprint = null): IntakeRequest
     {
         Gate::forUser($actor)->authorize('resolveConflict', $intake);
 
@@ -59,14 +70,21 @@ class ResolveIntakeRedConflict
             throw ValidationException::withMessages(['reason' => [__('intake.errors.override_reason_too_long')]]);
         }
 
-        return $this->underConflictCheckLock(function () use ($actor, $intake, $reason): IntakeRequest {
+        return $this->underConflictCheckLock(function () use ($actor, $intake, $reason, $shownFingerprint): IntakeRequest {
+            // Dạng của bảng đã hiện ("bị giữ như một cuộc gọi lại" hay không) đọc TRƯỚC lần chạy lại — xem
+            // `ShownConflictFingerprint`.
+            $heldWhenShown = IntakeRequest::query()->findOrFail($intake->getKey())->isHeldByRepeatCallLock();
             $result = $this->checkAndRecord($actor, $intake);
 
-            return DB::transaction(function () use ($actor, $intake, $reason, $result): IntakeRequest {
+            return DB::transaction(function () use ($actor, $intake, $reason, $result, $shownFingerprint, $heldWhenShown): IntakeRequest {
                 $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
 
                 if (! $locked->hasUnresolvedRed()) {
                     throw ValidationException::withMessages(['reason' => [__('intake.errors.override_not_red')]]);
+                }
+
+                if ($shownFingerprint !== null && ! hash_equals(ShownConflictFingerprint::of($locked, $result->toArray(), $heldWhenShown), $shownFingerprint)) {
+                    throw ConflictBlocked::changed($result);
                 }
 
                 $locked->fill([

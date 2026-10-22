@@ -10,6 +10,8 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\Task;
 use App\Models\User;
+use App\Policies\MatterPolicy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 
@@ -208,6 +210,24 @@ class ResolveStaffRecipients
     public function qualifies(User $user, Matter $matter): bool
     {
         return $this->qualify(collect([$user]), $matter)->isNotEmpty();
+    }
+
+    /**
+     * Những vụ mà `$user` CHẮC CHẮN qua {@see self::qualifies()}, dạng truy vấn — để lọc cả lô bằng SQL thay vì
+     * hỏi Gate cho từng cặp (rà soát 2026-10-22, làn perf2: "Hồ sơ cần phân công lại" của Theo dõi đội ngũ hỏi
+     * mọi ghế chờ nhận, mỗi lần `qualifies()` là khoảng bốn lần hỏi quyền Spatie). `null` khi không có vụ nào
+     * chắc chắn: tài khoản đã vô hiệu hay xoá mềm, hoặc không có `matter.view`.
+     *
+     * Cùng ba điều kiện của {@see self::qualify()}: `is_active`, chưa xoá mềm, và `MatterPolicy::view()` qua
+     * `MatterPolicy::staffViewableQuery()` — đúng câu EXISTS của policy. Chỉ là chiều "chắc chắn": Gate có
+     * thể nới thêm (`before`), nên vụ NGOÀI tập này người gọi vẫn phải hỏi {@see self::qualifies()}.
+     * `StuckSeatsBatchParityTest` so tập này với `qualifies()` từng cặp.
+     *
+     * @return Builder<Matter>|null
+     */
+    public function surelyQualifyingMatters(User $user): ?Builder
+    {
+        return $user->is_active && ! $user->trashed() ? MatterPolicy::staffViewableQuery($user) : null;
     }
 
     /**

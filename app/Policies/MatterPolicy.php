@@ -11,6 +11,7 @@ use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksPortalVisibility;
 use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Database\Eloquent\Builder;
 
 class MatterPolicy
 {
@@ -72,12 +73,34 @@ class MatterPolicy
         // thật qua `ClientPortalScope::actingAs()`.
         return $matter->relationLoaded('team')
             ? $matter->isListableBy($user)
-            : Matter::query()
-                ->withoutGlobalScope(ClientPortalScope::class)
-                ->withTrashed()
-                ->listableBy($user)
-                ->whereKey($matter->getKey())
-                ->exists();
+            : self::staffVisible($user)->whereKey($matter->getKey())->exists();
+    }
+
+    /**
+     * Truy vấn những vụ {@see self::view()} cho nhân sự `$user` xem — đúng câu EXISTS của nhánh nhân sự ở trên
+     * (cùng {@see self::staffVisible()}, cùng điều kiện `matter.view`), dạng tập để lọc cả lô bằng một truy
+     * vấn thay vì một lần hỏi Gate cho mỗi vụ (rà soát 2026-10-22, làn perf2:
+     * `ResolveStaffRecipients::surelyQualifyingMatters()` cho "Hồ sơ cần phân công lại" của Theo dõi đội
+     * ngũ). `null` khi không có `matter.view` (không vụ nào). Không phải một ability (không ai gọi qua Gate);
+     * người gọi chỉ dùng nó theo chiều "chắc chắn xem được" — Gate còn có thể nới thêm qua `before`.
+     *
+     * @return Builder<Matter>|null
+     */
+    public static function staffViewableQuery(User $user): ?Builder
+    {
+        return $user->can(Permission::MatterView->value) ? self::staffVisible($user) : null;
+    }
+
+    /**
+     * Vụ nhân sự `$user` được liệt kê, kể cả vụ đã xoá mềm (admin còn thao tác được), KHÔNG qua scope cổng
+     * khách — xem docblock {@see self::view()} về `withoutGlobalScope(ClientPortalScope::class)`.
+     */
+    private static function staffVisible(User $user): Builder
+    {
+        return Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->listableBy($user);
     }
 
     /**
