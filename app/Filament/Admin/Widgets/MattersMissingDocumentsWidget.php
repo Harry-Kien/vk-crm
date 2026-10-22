@@ -4,9 +4,10 @@ namespace App\Filament\Admin\Widgets;
 
 use App\Actions\Document\ChecklistProgress;
 use App\Enums\Permission;
-use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\MatterTab;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -130,7 +131,8 @@ class MattersMissingDocumentsWidget extends TableWidget
             ->recordActions([
                 Action::make('open')
                     ->label(__('widgets.matters_missing_documents.open'))
-                    ->url(fn (Matter $record): string => MatterResource::getUrl('view', ['record' => $record], panel: 'admin')),
+                    // Tab "Danh mục hồ sơ" — đầu mục còn thiếu nằm ở đó (rà soát làn ops 2026-10-22, `DashboardRowLinksTest`).
+                    ->url(fn (Matter $record): string => MatterTab::url((int) $record->getKey(), ChecklistRelationManager::class)),
             ])
             ->paginated([5, 10, 25]);
     }
