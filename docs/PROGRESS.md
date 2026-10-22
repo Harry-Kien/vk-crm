@@ -9968,6 +9968,36 @@ cho trợ lý được — phải "Trả lại" kèm lý do để trưởng phò
 đó (người giao vẫn được báo), đó là một ngoại lệ riêng cho "Giao lại". (b) Lời báo "mở lại" cho người giữ chưa nêu hạn
 mới (hạn hiện ở dòng việc) — thêm vào chuông/thư nếu cần.
 
+### Rà soát toàn hệ thống 2026-10-22 — làn matter
+
+Vòng đời vụ việc sau khi mở: giai đoạn, đóng/mở lại/huỷ/lưu trữ, đội ngũ, mốc thời hạn, nhắc hạn, liên lạc, chỗ nối
+với Công việc. Test ở `tests/Feature/Review/` (đỏ trước khi sửa, phép thử ngược đã chạy).
+
+**Đã sửa**
+- *Cao* — dời hạn vào bậc nhắc cuối không được nhắc: gia hạn một mốc quá hạn tới ngày mai (hay dời mốc hôm nay sang ngày
+  mai) giữ `d1` của ngày cũ, nên không ai nhận thư "khẩn" nào trước ngày mới. `UpdateDeadline::clearedReminders()` nay xoá
+  `d1` khi ngày mới chưa qua (các bậc xa hơn giữ như cũ). `RedatedDeadlineLastTierTest`.
+- *Thấp* — chuông "Mốc thời hạn đã quá hạn" cắt cụt tên mốc có dạng thẻ (`Nộp đơn <kháng cáo>…` hiện "Nộp đơn") và không
+  có nút mở: `e()` tên, nút "Mở mốc thời hạn của hồ sơ". `DeadlineOverdueAlertTest`.
+- *Thấp* — luật sư trên vụ đã kết thúc thấy nút "Chuyển giai đoạn" mở ra ô "Giai đoạn mới" trống (đường cụt): nút ẩn khi
+  không có giai đoạn nào để chọn; quản trị viên vẫn thấy để mở lại vụ, "Thêm cập nhật" không đổi.
+  `ClosedMatterTransitionButtonTest`; test cũ "still refuses a lawyer…" nay khẳng định nút ẩn (chặt hơn).
+- *Trung bình* — hồ sơ đã kết thúc mất tên người đã xử lý khi họ nghỉ việc (xoá mềm): ô "Luật sư phụ trách" trống, khối và
+  tab "Đội ngũ" nói "chưa có ai ngoài luật sư phụ trách", cột danh sách trống. Nay hiện tên kèm "(đã nghỉ việc)"; tab Đội
+  ngũ không có nút trên dòng của họ. `DepartedLeadOnClosedMatterTest`.
+
+**Cần chủ văn phòng quyết định**
+1. Người đã "Trả lại" hồ sơ (có thể vì xung đột lợi ích) và người "theo dõi" vẫn được chọn làm người phụ trách mốc hạn và vẫn
+   nhận nhắc hạn bậc 3 ngày (nếu là trợ lý); với Công việc thì hai nhóm này đã bị loại (làn tk). Có áp cùng luật cho mốc hạn?
+2. Vụ đã kết thúc còn mốc đã công bố chưa xong: cổng khách vẫn hiện ở "Mốc thời hạn sắp tới", rồi "Đã quá hạn" màu đỏ, trong
+   suốt thời gian tra cứu. Ẩn mốc của vụ đã kết thúc trên cổng, tự gỡ công bố khi đóng vụ, hay chỉ cảnh báo trong hộp thoại
+   kết thúc?
+3. Ngày "xảy ra" của một lần chuyển giai đoạn có thể sớm hơn ngày vào giai đoạn trước (gõ nhầm năm): `stage_entered_at` lùi
+   về quá khứ, dòng thời gian xếp lộn và sổ tiến độ không sửa được. Chặn "không sớm hơn ngày vào giai đoạn hiện tại" thì lại
+   chặn việc nhập lùi lịch sử của vụ đưa vào giữa chừng — cần chọn.
+4. Ai được xoá một dòng nhật ký liên lạc (bằng chứng): hiện mọi người sửa được hồ sơ, kể cả trợ lý xoá dòng của luật sư, và
+   cả trên hồ sơ đã kết thúc/đã ghi quyết định tiêu huỷ. Giới hạn cho người ghi + luật sư phụ trách + quản trị?
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
