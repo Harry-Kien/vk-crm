@@ -8,6 +8,8 @@ use App\Enums\MatterAiAccess;
 use App\Enums\MatterRole;
 use App\Models\Matter;
 use App\Models\MatterArchive;
+use App\Models\User;
+use App\Support\ActivityPeople;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -33,7 +35,13 @@ class MatterInfolist
                         TextEntry::make('code')->label(__('matters.fields.code')),
                         TextEntry::make('client.name')->label(__('matters.fields.client')),
                         TextEntry::make('matterType.name')->label(__('matters.fields.matter_type')),
-                        TextEntry::make('leadLawyer.name')->label(__('matters.fields.lead_lawyer')),
+                        // Rà soát 2026-10-22 (làn matter): luật sư phụ trách đã nghỉ việc (xoá mềm) vẫn hiện tên,
+                        // kèm "(đã nghỉ việc)" — hồ sơ đã kết thúc phải còn nói ai đã xử lý nó.
+                        TextEntry::make('leadLawyer.name')
+                            ->label(__('matters.fields.lead_lawyer'))
+                            ->state(fn (Matter $record): ?string => ActivityPeople::name(
+                                User::query()->withTrashed()->find($record->lead_lawyer_id)
+                            )),
                         TextEntry::make('title')->label(__('matters.fields.title'))->columnSpanFull(),
                         TextEntry::make('summary_for_client')
                             ->label(__('matters.fields.summary_for_client'))
@@ -213,14 +221,17 @@ class MatterInfolist
                         // "Role in matter" — tức trang này ĐANG đọc tiếng Anh cho người khiếm thị
                         // giữa một phần mềm tiếng Việt, ngay màn hình hiện ra sau mỗi lần mở vụ
                         // việc. Vẫn giữ `hiddenLabel()` vì bố cục hai cột tự nói lên nội dung.
+                        // Rà soát 2026-10-22 (làn matter): kể cả thành viên đã nghỉ việc (xoá mềm), có nhãn.
                         RepeatableEntry::make('team')
                             ->label(__('matters.team_fields.members'))
                             ->hiddenLabel()
+                            ->state(fn (Matter $record) => $record->team()->withTrashed()->get())
                             ->columns(2)
                             ->schema([
                                 TextEntry::make('name')
                                     ->label(__('matters.team_fields.name'))
-                                    ->hiddenLabel(),
+                                    ->hiddenLabel()
+                                    ->state(fn (User $record): ?string => ActivityPeople::name($record)),
                                 TextEntry::make('pivot.role_in_matter')
                                     ->label(__('matters.team_fields.role_in_matter'))
                                     ->hiddenLabel()

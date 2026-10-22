@@ -176,6 +176,10 @@ it('lets an admin transition out of a terminal stage through the form, and recor
  * Cặp âm của test trên: một LUẬT SƯ (không phải admin) không thấy 'mediation' trong danh sách của
  * cùng vụ việc ở 'closed' — gửi form vẫn báo lỗi ngay trên `to_stage`, không lọt qua bằng cách gõ
  * tay giá trị vào request (Select validate 'in' theo đúng options mà `stageOptions()` trả về).
+ *
+ * Rà soát toàn hệ thống 2026-10-22 (làn matter): danh sách đó RỖNG với luật sư trên vụ ở 'closed', nên
+ * nút giờ ẩn hẳn (trước đây hiện một ô trống không gửi được gì), và Filament không chạy một action ẩn.
+ * `ClosedMatterTransitionButtonTest` giữ phần còn lại của luật.
  */
 it('still refuses a lawyer trying the same out-of-allowed_next stage through the form', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
@@ -186,11 +190,7 @@ it('still refuses a lawyer trying the same out-of-allowed_next stage through the
     $this->livewire(StageLogsRelationManager::class, [
         'ownerRecord' => $matter,
         'pageClass' => ViewMatter::class,
-    ])->callTableAction('transitionStage', data: [
-        'to_stage' => 'mediation',
-        'occurred_at' => today()->toDateString(),
-        'publish' => false,
-    ])->assertHasTableActionErrors(['to_stage']);
+    ])->assertTableActionHidden('transitionStage');
 
     expect($matter->refresh()->stage)->toBe('closed');
 });
