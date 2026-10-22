@@ -16,6 +16,21 @@ final class Normalizer
     /** Dài nhất: 10 chữ số — cố định hiện hành, và di động 11 số của kế hoạch trước 2018. */
     private const SUBSCRIBER_MAX_DIGITS = 10;
 
+    /**
+     * Tên để so khớp (SPEC §6.10 bước 1): bỏ dấu, viết thường, gộp khoảng trắng — và **bỏ dấu câu**.
+     *
+     * **Dấu câu (rà soát toàn hệ thống 2026-10-22, làn intake).** Mọi ký tự không phải chữ hay số (dấu
+     * chấm, phẩy, ngoặc đơn/kép — cả ngoặc kép cong của Word —, gạch nối, gạch chéo, `&`…) thành MỘT
+     * khoảng trắng. Bên đối lập là doanh nghiệp thường được gõ không kèm mã số thuế hay số điện thoại,
+     * nên tầng TÊN là tầng duy nhất còn lại; trước bản sửa "Công ty TNHH ABC." không khớp khách hàng
+     * "Công ty TNHH ABC" và kiểm tra ra Xanh. Tầng tên chỉ lên tối đa Vàng (người xem xét), nên chuẩn
+     * hoá thừa ở đây rẻ hơn hẳn bỏ sót — cùng hướng với {@see self::phone()}. Đổi thành khoảng trắng chứ
+     * không xoá hẳn để "Nguyễn-Văn" khớp "Nguyễn Văn"; cái giá là "A.B.C" thành "a b c", không khớp
+     * "ABC". Viết tắt ("Cty" / "Công ty", "TNHH" / "trách nhiệm hữu hạn", "&" / "và") KHÔNG gộp — chờ
+     * chủ văn phòng quyết. Cột `*_name_normalized` đã lưu được tính lại bằng migration
+     * `2026_10_22_000001_renormalize_party_names_without_punctuation`, sao chép đúng phép này.
+     * Chuỗi không còn chữ hay số nào trả `null`, như chuỗi rỗng.
+     */
     public static function name(?string $value): ?string
     {
         if ($value === null || trim($value) === '') {
@@ -24,7 +39,7 @@ final class Normalizer
 
         $ascii = Str::ascii(mb_strtolower(trim($value), 'UTF-8'));
 
-        return trim(preg_replace('/\s+/u', ' ', $ascii)) ?: null;
+        return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', $ascii)) ?: null;
     }
 
     /**

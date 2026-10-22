@@ -11,6 +11,18 @@ it('normalizes vietnamese names to lowercase ascii with single spaces', function
         ->and(Normalizer::name("\u{00A0}Lê Văn Cường\u{00A0}"))->toBe('le van cuong');
 });
 
+it('ignores punctuation in names, so the same company typed two ways still matches', function () {
+    expect(Normalizer::name('Công ty TNHH ABC.'))->toBe('cong ty tnhh abc')
+        ->and(Normalizer::name('“ABC” Co., Ltd'))->toBe('abc co ltd')
+        ->and(Normalizer::name('Nguyễn-Văn A (anh A)'))->toBe('nguyen van a anh a')
+        ->and(Normalizer::name('Ông/Bà Nguyễn'))->toBe('ong ba nguyen')
+        // Không còn chữ hay số nào: không có tên để so, như chuỗi rỗng.
+        ->and(Normalizer::name('!!! ...'))->toBeNull()
+        // Luỹ đẳng: chuẩn hoá lần hai không đổi gì.
+        ->and(Normalizer::name(Normalizer::name('Công ty TNHH “A.B.C”, chi nhánh 1')))
+        ->toBe(Normalizer::name('Công ty TNHH “A.B.C”, chi nhánh 1'));
+});
+
 it('normalizes phones to 84 prefix digits only', function () {
     expect(Normalizer::phone('0901 234 567'))->toBe('84901234567')
         ->and(Normalizer::phone('+84 901-234-567'))->toBe('84901234567')

@@ -41,6 +41,9 @@ use Illuminate\Support\Facades\DB;
  * Phạm vi dò trùng này HẸP HƠN một dò trùng toàn bảng `clients` thật (một khách hàng CHƯA từng có
  * vụ việc không để lại dấu vết ở đây) — có chủ đích: dò trùng liên hệ đầy đủ trên toàn bảng
  * `clients` đã được lên kế hoạch riêng, sau M6.5 (M10, `intake-07` bản rà soát cuối).
+ * **Sửa 2026-10-22 (rà soát toàn hệ thống, làn intake):** lượt dò trên `matter_parties` trượt thì dò
+ * tiếp trên toàn bảng `clients` bằng `FindClientByIdentifier::scan()` — khách chưa có vụ việc nào
+ * không còn lọt qua.
  *
  * **Ba nhánh khi tìm thấy trùng, theo quyền của actor VÀ tầm nhìn (R4, fix round 1 C1):**
  *  - Không `client.manage`, hồ sơ trùng THẤY ĐƯỢC (`ClientVisibility::isVisibleTo()`): DÙNG hồ sơ
@@ -106,10 +109,13 @@ class CreateClient
 
         if ($existing !== null) {
             if (! $canManage) {
-                // Fix round 1, C1: chỉ dùng lại khi actor THẤY ĐƯỢC hồ sơ trùng — một khách hàng
-                // mà vụ DUY NHẤT là `restricted` do người khác phụ trách không được gắn thẳng vào
-                // một vụ việc mới, tên không được lộ ra (xem docblock lớp).
-                if (ClientVisibility::isVisibleTo($actor, $existing->getKey())) {
+                // Fix round 1, C1: một khách hàng mà vụ DUY NHẤT là `restricted` do người khác phụ
+                // trách không được gắn thẳng vào một vụ việc mới, tên không được lộ ra (xem docblock
+                // lớp). Rà soát 2026-10-22 (làn intake): cùng luật với ô tra
+                // (`ClientVisibility::isOfferableByLookup()`), không chặt hơn — khách chưa có vụ nào
+                // thì ô tra đưa ra được, nên gõ cùng định danh vào khối "Tạo khách mới" cũng phải dùng
+                // lại hồ sơ đó thay vì báo "nhờ trưởng phòng".
+                if (ClientVisibility::isOfferableByLookup($actor, $existing->getKey())) {
                     return $existing;
                 }
 
@@ -211,10 +217,20 @@ class CreateClient
             ->matchingIdentity($idNumberHash, $phoneNormalized)
             ->first();
 
-        if ($party === null) {
-            return null;
+        $fromParty = $party?->client()->withoutGlobalScope(ClientPortalScope::class)->first();
+
+        if ($fromParty !== null) {
+            return $fromParty;
         }
 
-        return $party->client()->withoutGlobalScope(ClientPortalScope::class)->first();
+        // Rà soát toàn hệ thống 2026-10-22, làn intake: khách CHƯA có vụ việc nào (trợ lý vừa tạo ở
+        // màn hình "Khách hàng") không để lại dòng `matter_parties` nào, nên lượt trên trượt và văn
+        // phòng có hai hồ sơ cho cùng một người. Dò tiếp trên toàn bảng `clients` bằng ĐÚNG phép so
+        // của ô tra (`FindClientByIdentifier::scan()`), rồi nạp đủ hồ sơ.
+        $scanned = FindClientByIdentifier::scan($phoneNormalized, $idNumberHash);
+
+        return $scanned === null
+            ? null
+            : Client::query()->withoutGlobalScope(ClientPortalScope::class)->find($scanned->getKey());
     }
 }

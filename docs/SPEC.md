@@ -1470,6 +1470,13 @@ Cài đặt: kế hoạch M10, Task 2. Task 1 chỉ dựng bảng, model, quyề
   Xanh, không còn là bằng chứng), và xác nhận/ghi đè cũ bị xoá khi có khớp mới hoặc danh tính
   đã đổi.
 
+**Đính chính 2026-10-22 (rà soát toàn hệ thống, làn intake) — bước 1, chuẩn hoá tên.** "Bỏ dấu, viết thường, bỏ
+khoảng trắng thừa" nay thêm **bỏ dấu câu**: mọi ký tự không phải chữ hay số thành một khoảng trắng
+(`Normalizer::name()`), để "Công ty TNHH ABC." hay `Công ty TNHH "ABC"` khớp khách hàng "Công ty TNHH ABC" ở tầng tên
+(trước đó kết quả là Xanh, không dòng khớp nào). Tầng tên vẫn tối đa Vàng. Không gộp chữ viết tắt ("Cty"/"Công ty",
+"TNHH"/"trách nhiệm hữu hạn", "&"/"và") — chờ chủ văn phòng quyết. Các cột tên chuẩn hoá đã lưu được tính lại bằng
+migration `2026_10_22_000001_renormalize_party_names_without_punctuation`.
+
 ### 6.11 Bàn giao vụ việc — `ReassignMatter`
 
 Khi luật sư nghỉ việc, nghỉ dài ngày, hoặc vụ việc đổi người phụ trách:

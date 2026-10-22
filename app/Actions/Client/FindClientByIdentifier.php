@@ -103,9 +103,19 @@ class FindClientByIdentifier
 
     private function searchClients(string $identifier): ?Client
     {
-        $phoneNormalized = Normalizer::phone($identifier);
-        $idNumberHash = Normalizer::idNumberHash($identifier);
+        return self::scan(Normalizer::phone($identifier), Normalizer::idNumberHash($identifier));
+    }
 
+    /**
+     * Phép so khớp trên TOÀN bảng `clients` (chưa xoá mềm), không ghi nhật ký, không giới hạn tần
+     * suất, không lọc tầm nhìn — người gọi tự lo ba việc đó. Trả về hồ sơ đầu tiên (theo `id`) có số
+     * điện thoại chuẩn hoá bằng `$phoneNormalized` HOẶC số CCCD/mã số thuế băm ra `$idNumberHash`;
+     * model chỉ mang các cột tối thiểu ở dưới. Dùng chung với `CreateClient` (rà soát toàn hệ thống
+     * 2026-10-22, làn intake): dò trùng lúc tạo khách phải thấy cả khách CHƯA có vụ việc nào, đúng như
+     * ô tra này.
+     */
+    public static function scan(?string $phoneNormalized, ?string $idNumberHash): ?Client
+    {
         if ($phoneNormalized === null && $idNumberHash === null) {
             return null;
         }

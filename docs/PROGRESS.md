@@ -10039,6 +10039,41 @@ với Công việc. Test ở `tests/Feature/Review/` (đỏ trước khi sửa, 
 4. Ai được xoá một dòng nhật ký liên lạc (bằng chứng): hiện mọi người sửa được hồ sơ, kể cả trợ lý xoá dòng của luật sư, và
    cả trên hồ sơ đã kết thúc/đã ghi quyết định tiêu huỷ. Giới hạn cho người ghi + luật sư phụ trách + quản trị?
 
+### Rà soát toàn hệ thống 2026-10-22 — làn intake
+
+Phạm vi: tiếp nhận, lead của nhân viên kinh doanh, khách hàng, kiểm tra xung đột lợi ích, mở vụ việc (nhánh
+`review-intake`). Mỗi lỗi: test đỏ trước, sửa, phép thử ngược.
+
+- **(Cao) Kiểm tra xung đột bỏ sót khách hàng vì dấu câu trong tên.** Bên đối lập là doanh nghiệp thường gõ không kèm mã
+  số thuế/SĐT, nên chỉ còn tầng tên; "Công ty TNHH ABC." (dấu chấm cuối), `Công ty TNHH "ABC"`, dấu phẩy, gạch nối so với
+  khách hàng "Công ty TNHH ABC" ra **Xanh, không dòng khớp nào**. `Normalizer::name()` nay đổi mọi ký tự không phải chữ/số
+  thành khoảng trắng (tầng tên vẫn tối đa Vàng); migration `2026_10_22_000001_renormalize_party_names_without_punctuation`
+  tính lại `matter_parties.name_normalized`, `intake_parties.name_normalized`, `intake_requests.contact_name_normalized`,
+  `organization_name_normalized`. SPEC §6.10 có đính chính; CAI-DAT có mục nâng cấp (bản ghi tiếp nhận còn mở có tên chứa
+  dấu câu cần bấm "Kiểm tra lại" một lần — dấu vân tay danh tính đổi). Test: `RunConflictCheckTest` (5 ca),
+  `NormalizerTest`, `RenormalizePartyNamesWithoutPunctuationTest`.
+- **(Trung bình) Hai hồ sơ cho cùng một khách.** `CreateClient` chỉ dò trùng trong `matter_parties`, nên khách trợ lý vừa
+  tạo ở màn hình "Khách hàng" (chưa có vụ) không được nhận ra: luật sư gõ cùng SĐT/CCCD vào khối "Tạo khách mới" của form
+  mở vụ tạo hồ sơ thứ hai (trái lời hứa ở docblock `MatterForm::newClientFields()`), người có `client.manage` không thấy
+  cảnh báo trùng. Nay dò tiếp toàn bảng `clients` bằng đúng phép so của ô tra (`FindClientByIdentifier::scan()`), dùng lại
+  hồ sơ theo cùng luật tầm nhìn của ô tra (`ClientVisibility::isOfferableByLookup()` — khách mà mọi vụ đều hạn chế và ngoài
+  tầm vẫn bị từ chối trung lập). Test: `CreateClientTest` (3), `CreateMatterTest` "reuses the client the assistant just
+  created when the lawyer types its phone into the new-client block".
+
+Phát hiện, chưa sửa: (1) xác nhận Vàng ở `OpenMatter`/`AddMatterParty`/`UpdateMatterParty`/tiếp nhận chỉ so **mức**, không
+so tập khớp đã hiện — một khớp Vàng mới xuất hiện giữa lúc hiện bảng và lúc bấm lưu được ghi "đã xác nhận" dù người dùng
+chưa thấy (cửa sổ hẹp; sửa cần mang dấu vân tay tập khớp qua ba màn hình); (2) danh sách Tiếp nhận chạy ~4 truy vấn mỗi
+dòng (`awaitsConflictResolution()` gọi hai lần cho màu và nhãn cột Xung đột, mỗi lần dò "người gọi lại") — chậm dần, chưa
+sai; (3) ô tìm SĐT ở danh sách Khách hàng so chuỗi thô (`0912 345 678` không ra khi gõ `0912345678`); (4)
+`AddMatterParty` chỉ hỏi `MatterPartyPolicy::create` (quyền chung), không hỏi quyền trên vụ — màn hình đã chặn bằng
+`MatterPolicy::update`, test hiện có ghi rõ là cố ý.
+
+**Cần chủ văn phòng quyết định:** (a) tầng tên có coi các cách viết tắt là một không — "Cty"/"Công ty", "TNHH"/"trách
+nhiệm hữu hạn", "CP"/"Cổ phần", "&"/"và", danh xưng "Ông/Bà/Anh/Chị" đứng đầu tên (hôm nay không — khớp thừa chỉ thêm
+Vàng, khớp thiếu là bỏ sót); (b) mã số thuế **chi nhánh** (`0101234567-001`) có nên khớp công ty mẹ (`0101234567`) ở tầng
+"chắc chắn" không — chi nhánh không có tư cách pháp nhân riêng, hôm nay ra Xanh; (c) số hộ chiếu có chữ (`B1234567`) bị
+bỏ chữ trước khi băm theo SPEC §6.10 — hai hộ chiếu chỉ khác chữ cái đầu sẽ trùng (Đỏ thừa, quản lý ghi đè được).
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm

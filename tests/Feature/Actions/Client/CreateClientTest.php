@@ -4,6 +4,8 @@ use App\Actions\Client\CreateClient;
 use App\Enums\ClientType;
 use App\Enums\Role;
 use App\Exceptions\ClientLookupThrottled;
+use App\Exceptions\DuplicateClientDetected;
+use App\Models\Client;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\RateLimiter;
@@ -55,4 +57,78 @@ it('hashes the id_number instead of an explicit blank phone string once the look
     expect($throttled)->not->toBeNull()
         ->and($throttled->properties->get('identifier_hash'))->toBe(hash_hmac('sha256', '079088776655', config('app.key')))
         ->and($throttled->properties->get('identifier_hash'))->not->toBe(hash('sha256', '079088776655'));
+});
+
+/**
+ * Rà soát toàn hệ thống 2026-10-22, làn intake. Trợ lý vừa tạo hồ sơ khách ở màn hình "Khách hàng"
+ * (khách CHƯA có vụ việc nào); luật sư mở vụ đầu tiên bằng khối "Tạo khách mới" và gõ đúng số điện
+ * thoại đó mà không dùng ô tra. Docblock `MatterForm::newClientFields()` hứa: KHÔNG tạo hồ sơ thứ hai.
+ * Trước bản sửa, `CreateClient` chỉ dò trùng trong `matter_parties` — khách chưa có vụ không để lại
+ * dòng nào ở đó, nên văn phòng có hai hồ sơ cho cùng một người.
+ */
+it('reuses a client that has no matter yet when a lawyer types the same phone as a new client', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $existing = app(CreateClient::class)->handle($assistant, [
+        'type' => ClientType::Individual->value,
+        'name' => 'Khách trợ lý vừa tạo',
+        'phone' => '0912 345 678',
+    ]);
+
+    $resolved = app(CreateClient::class)->resolve($lawyer, [
+        'type' => ClientType::Individual->value,
+        'name' => 'Tên gõ hơi khác',
+        'phone' => '+84912345678',
+    ]);
+
+    expect($resolved->exists)->toBeTrue()
+        ->and($resolved->getKey())->toBe($existing->getKey());
+});
+
+it('reuses a client that has no matter yet when a lawyer types the same id number as a new client', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $existing = app(CreateClient::class)->handle($assistant, [
+        'type' => ClientType::Organization->value,
+        'name' => 'Công ty TNHH Trùng Mã Số Thuế',
+        'id_number' => '0101234567',
+    ]);
+
+    $resolved = app(CreateClient::class)->resolve($lawyer, [
+        'type' => ClientType::Organization->value,
+        'name' => 'Cty TNHH Trùng MST',
+        'id_number' => '0101 234 567',
+    ]);
+
+    expect($resolved->exists)->toBeTrue()
+        ->and($resolved->getKey())->toBe($existing->getKey());
+});
+
+it('warns a client manager about a duplicate of a client that has no matter yet', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $existing = app(CreateClient::class)->handle($assistant, [
+        'type' => ClientType::Individual->value,
+        'name' => 'Khách chưa có vụ',
+        'phone' => '0912345678',
+    ]);
+
+    $thrown = null;
+
+    try {
+        app(CreateClient::class)->handle($manager, [
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách chưa có vụ',
+            'phone' => '0912345678',
+        ]);
+    } catch (DuplicateClientDetected $exception) {
+        $thrown = $exception;
+    }
+
+    expect($thrown)->not->toBeNull()
+        ->and($thrown->client->getKey())->toBe($existing->getKey())
+        ->and(Client::count())->toBe(1);
 });

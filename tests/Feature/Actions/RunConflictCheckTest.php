@@ -124,6 +124,35 @@ it('warns at yellow level for a normalized-name match even when id number and ph
         ->and($result->matches->first()->tier)->toBe(ConflictMatchTier::Name);
 });
 
+/**
+ * Rà soát toàn hệ thống 2026-10-22 (làn intake). Bên đối lập là doanh nghiệp thường được gõ không kèm
+ * mã số thuế hay số điện thoại — tầng TÊN là tầng duy nhất còn lại. Trước bản sửa, một dấu chấm cuối
+ * tên, cặp ngoặc kép hay dấu phẩy ("Công ty TNHH ABC." so với khách hàng "Công ty TNHH ABC") làm kiểm
+ * tra ra XANH, không một dòng khớp nào: văn phòng nhận việc chống lại chính khách hàng của mình mà
+ * không ai được cảnh báo.
+ */
+it('still finds an existing client company by name when the opposing party is typed with punctuation', function (string $typed) {
+    $company = Client::factory()->create(['name' => 'Công ty TNHH Xây dựng Hòa Bình', 'id_number' => '0101234567']);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($company, PartyRole::Plaintiff)->create();
+
+    $result = app(RunConflictCheck::class)->handle(collect([
+        proposedParty(PartyRole::Plaintiff, 'Khách hàng mới', isOurClient: true),
+        proposedParty(PartyRole::Defendant, $typed),
+    ]));
+
+    expect($result->level)->toBe(ConflictLevel::Yellow)
+        ->and($result->matches)->toHaveCount(1)
+        ->and($result->matches->first()->matterCode)->toBe($otherMatter->code)
+        ->and($result->matches->first()->tier)->toBe(ConflictMatchTier::Name);
+})->with([
+    'dấu chấm cuối' => ['Công ty TNHH Xây dựng Hòa Bình.'],
+    'ngoặc kép' => ['Công ty TNHH "Xây dựng Hoà Bình"'],
+    'ngoặc kép cong' => ['Công ty TNHH “Xây dựng Hoà Bình”'],
+    'dấu phẩy' => ['Công ty TNHH Xây dựng, Hòa Bình'],
+    'gạch nối' => ['Công ty TNHH Xây dựng - Hòa Bình'],
+]);
+
 it('treats related, third-party and opposing-counsel roles as never opposing, so a matching client only warns yellow', function () {
     $existingClient = Client::factory()->create(['id_number' => '055566677788']);
     $otherMatter = Matter::factory()->create();
