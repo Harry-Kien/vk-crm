@@ -9968,6 +9968,40 @@ cho trợ lý được — phải "Trả lại" kèm lý do để trưởng phò
 đó (người giao vẫn được báo), đó là một ngoại lệ riêng cho "Giao lại". (b) Lời báo "mở lại" cho người giữ chưa nêu hạn
 mới (hạn hiện ở dòng việc) — thêm vào chuông/thư nếu cần.
 
+### Rà soát toàn hệ thống 2026-10-22 — làn security
+
+Phạm vi: ma trận phân quyền §5 trên panel admin, vụ `restricted`, tài khoản nhân sự (tạo, 2FA, khoá, nghỉ việc), MCP §16,
+§10. Đã đo bằng lượt quét động (không chỉ đọc mã): mọi route GET không tham số, mọi widget, ô tìm của tám danh sách và
+trang Tìm kiếm với trưởng phòng / luật sư và trợ lý có tên trong đội ngũ / kế toán trên một vụ `restricted` mang kim ở
+mọi ô — sạch; kế toán và nhân viên kinh doanh trên vụ thường (mọi route kể cả `/admin/matters/{id}`, mọi widget) — sạch;
+trợ lý với tài liệu nhóm D (trang Tài liệu, Tìm kiếm, tab Tài liệu/Giấy tờ, widget) — sạch; chuông và thư của năm lịch nhắc
+cùng yêu cầu mới của khách trên vụ `restricted` — chỉ luật sư phụ trách và quản trị nhận.
+
+Lỗi đã sửa:
+1. **(Trung bình) Tắt "Đang hoạt động" / xoá nhân sự không cắt phiên và máy nhận thông báo như "Khoá truy cập ngay".**
+   Hai đường này chỉ dựa vào `EndDisabledStaffSessions` (đăng xuất ở request kế tiếp KHI tài khoản còn tắt): bật lại tài
+   khoản (bấm nhầm, người đó quay lại làm) hay "Khôi phục" người đã xoá trước request đó trả lại nguyên phiên cũ trên một
+   trình duyệt có thể đã không còn trong tay họ; điện thoại cũ giữ đăng ký thông báo đẩy và lại nhận chuông về hồ sơ ngay
+   khi tài khoản được bật lại (kể cả nhiều tháng sau). Sửa: Action `App\Actions\User\EndStaffSessions` (tăng
+   `session_epoch`, đổi `remember_token`, gỡ mọi máy sau commit) — một định nghĩa cho `SuspendStaffAccess`, `EditUser`
+   (tắt `is_active`) và `DeleteStaffMember`; hai lý do gỡ máy mới `staff_deactivated`/`staff_deleted` có nhãn
+   `activity.reasons.push_device_removed.*`. Test: `tests/Feature/Security/StaffDeactivationCutsAccessTest.php` (phiên
+   thật trong bảng `sessions`, cookie thật; 3 đỏ trước bản sửa, cặp dương "lưu form không tắt thì không cắt" xanh).
+   Phép thử ngược: bỏ lời gọi ở `EditUser` / `DeleteStaffMember` → đỏ.
+2. **(Bảo vệ hồi quy, không phải lỗi)** `tests/Feature/Security/RestrictedAdminSweepTest.php` — lượt quét vụ `restricted`
+   ở trên, tự gồm mọi trang/widget thêm sau; phép thử ngược: bỏ `listableBy()` ở `UpcomingDeadlinesWidget` hay
+   `StaleMattersWidget` → đỏ.
+
+Phát hiện, chưa sửa (ngoài làn): tài khoản cổng khách bị vô hiệu rồi bật lại có thể có cùng khe hở với mục 1 (máy nhận
+thông báo đẩy chỉ gỡ khi đổi email — `UpdatePortalAccount`); chưa viết test, chuyển làn portal.
+
+**Cần chủ văn phòng quyết định:** (a) Nút "Cho phép AI truy cập" của một hồ sơ (kèm ô "Khách đã đồng ý bằng văn bản")
+hôm nay mở cho mọi người có `matter.update` trên vụ — kể cả **trợ lý** và luật sư cộng sự (đúng chữ SPEC §4.6). Xác nhận
+khách đã đồng ý là một phán đoán pháp lý; nếu văn phòng muốn chỉ luật sư phụ trách / trưởng phòng / quản trị bật (như đổi
+mức bảo mật, `updateConfidentiality`), đó là một ability riêng. (b) Cờ AI của vụ giữ nguyên qua một lần chuyển
+thường → hạn chế → thường: khi vụ trở lại "thường", AI truy cập lại ngay không cần xác nhận lại sự đồng ý của khách —
+có muốn hạ cờ về "Không cho AI truy cập" mỗi khi vụ chuyển sang hạn chế không?
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
