@@ -9968,6 +9968,40 @@ cho trợ lý được — phải "Trả lại" kèm lý do để trưởng phò
 đó (người giao vẫn được báo), đó là một ngoại lệ riêng cho "Giao lại". (b) Lời báo "mở lại" cho người giữ chưa nêu hạn
 mới (hạn hiện ở dòng việc) — thêm vào chuông/thư nếu cần.
 
+### Rà soát toàn hệ thống 2026-10-22 — làn billing
+
+Hợp đồng, đợt thu, khoản thu, công nợ, doanh thu, nhắc thanh toán cho khách, vai trò kế toán. Lõi tiền (khoá,
+bất biến tổng, một định nghĩa "quá hạn"/"còn phải thu", tầm nhìn `listableBy`) không tìm thấy lỗi; các lỗi dưới đây
+đều ở tầng màn hình, mỗi lỗi có test đỏ trước (phép thử ngược: gỡ bản sửa thì test đỏ lại).
+
+1. **(Trung bình) Lỗi của một dòng "Lịch thu"/phụ lục không hiện dưới ô của dòng đó.** Trình duyệt giữ dòng của
+   Repeater bằng UUID, Action báo bằng vị trí (`instalments.1.amount`) — lỗi trôi thành thông báo chung không nói dòng
+   nào (test cũ điền mảng số nên không thấy). Sửa: `ReportsActionFailures::stateKeyOf()` đổi khoá vị trí thành khoá
+   thật của dữ liệu hộp thoại. Test: `ContractScheduleRowErrorsTest` (trang Hợp đồng, tab tiền — phụ lục).
+2. **(Trung bình) Trang Công nợ: huỷ một khoản thu người khác vừa huỷ trong lúc hộp thoại mở — bấm "Gửi" không có gì
+   xảy ra.** Tab của hồ sơ đã sửa ca này ở làn fb, trang của kế toán thì chưa. Sửa: hộp thoại đã mở giữ nút, ô chọn giữ
+   khoản đang chọn của chính đợt, khoản đó tới `VoidPayment` (câu "đã được huỷ từ trước"); "Khoản thu gần đây" tìm lại
+   dòng không qua điều kiện "chưa huỷ" (`modifyQueryUsing`, `isResolvingRecord`). Test: `ReceivablesVoidRaceTest`.
+3. **(Trung bình) Trang Công nợ: "Ghi khoản thu" trên đợt người khác vừa thu đủ trong lúc hộp thoại mở — hộp thoại đóng
+   im lặng, người bấm tưởng đã ghi.** Sửa: `Receivables::resolveTableRecord()` — có hộp thoại đang mở mà dòng đã rời tập
+   đợt còn phải thu thì tìm lại trong cùng phạm vi `listableBy()`; `RecordPayment` nói lý do. Test: `ReceivablesVoidRaceTest`.
+4. **(Thấp) Trang Doanh thu, kỳ "Tuỳ chọn" chọn "Đến ngày" trước "Từ ngày" — mọi ô số 0 ₫, không giải thích.** Sửa:
+   `RevenueFilters` đọc hai đầu đảo là cùng một khoảng. Test: `RevenueCustomPeriodOrderTest`.
+
+**Cần chủ văn phòng quyết định:**
+- (a) **Tách thuế GTGT làm tròn xuống** (`Vat`, quyết định của kế hoạch M9) lệch 1 đồng so với hoá đơn điện tử ở khoảng
+  một nửa số giá trị: hợp đồng 50.000.000 ₫, 8% — hệ thống in "chưa thuế 46.296.297, thuế 3.703.703", nhưng hoá đơn lập
+  từ giá chưa thuế đó tính thuế 3.703.704 (tổng 50.000.001). Làm tròn THÔNG THƯỜNG cho "thuế 3.703.704, chưa thuế
+  46.296.296" — khớp hoá đơn và khớp tổng. Đổi là một dòng ở `Vat` (và test `VatTest` đang ghim làm tròn xuống); chỉ ảnh
+  hưởng con số hiển thị, không đổi tiền đã lưu.
+- (b) Nhãn trạng thái "Đến hạn" (nội bộ) / "Đến hạn thanh toán" (cổng khách) dùng cho MỌI đợt có hạn chưa qua — kể cả đợt
+  hạn năm sau. Khách đọc "Đến hạn thanh toán" là "phải trả ngay". Đề xuất: "Chưa đến hạn" khi hạn sau hôm nay, "Đến hạn
+  hôm nay" khi đúng hôm nay.
+- (c) Không có cảnh báo khi ghi một khoản thu trùng mã giao dịch đã ghi (ghi hai lần cùng một lần chuyển khoản từ tab hồ
+  sơ và từ trang Công nợ). Có muốn hệ thống hỏi lại "mã giao dịch này đã ghi ngày …" trước khi lưu không?
+- (d) Thư "đã nhận thanh toán" (khi công tắc nhắc khách bật) đi cho cả khoản ghi lùi ngày (nhập hợp đồng đang chạy,
+  ghi bù khoản cũ) — có thể là nhiều thư một lúc cho cùng khách. Có giới hạn theo ngày tiền về không?
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
