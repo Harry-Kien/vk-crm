@@ -37,8 +37,8 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\Money;
-use App\Support\ConflictCheckResult;
 use App\Support\Intake\PrivacyNotice;
+use App\Support\Intake\ShownConflictFingerprint;
 use App\Support\Normalizer;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
@@ -165,7 +165,7 @@ class EditIntakeRequest extends EditRecord
     public ?string $summaryVersion = null;
 
     /**
-     * Rà soát 2026-10-22, làn harden: dấu vân tay ({@see ConflictCheckResult::displayFingerprintOf()}) của
+     * Rà soát 2026-10-22, làn harden: dấu vân tay ({@see ShownConflictFingerprint::of()}) của
      * bảng kết quả kiểm tra mà khối "Kiểm tra xung đột" đã vẽ GẦN NHẤT — gửi kèm "Xác nhận đã xem", để
      * `AcknowledgeIntakeConflict` từ chối khi lần chạy lại cho ra một khớp người bấm chưa thấy. Đặt trong
      * {@see self::checkPanelViewData()}, tức đúng lúc bảng được vẽ: không đọc lại bản ghi lúc bấm (bản ghi
@@ -837,7 +837,7 @@ class EditIntakeRequest extends EditRecord
         $intake = $this->intake();
         $result = is_array($intake->conflict_result) ? $intake->conflict_result : null;
         // Bảng sắp vẽ chính là bảng người bấm "Xác nhận đã xem" sẽ thấy (xem `$shownConflictFingerprint`).
-        $this->shownConflictFingerprint = $result === null ? null : ConflictCheckResult::displayFingerprintOf($result);
+        $this->shownConflictFingerprint = $result === null ? null : ShownConflictFingerprint::of($intake, $result, $intake->isHeldByRepeatCallLock());
         $mayResolve = Gate::allows('resolveConflict', $intake);
         $hidden = Gate::denies('viewConflictMatches', $intake);
         $awaiting = $intake->awaitsConflictResolution();

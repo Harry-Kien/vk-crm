@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
+use App\Support\Intake\ShownConflictFingerprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -54,7 +55,7 @@ class AcknowledgeIntakeConflict
     use HoldsConflictCheckLock;
 
     /**
-     * @param  string|null  $shownFingerprint  `ConflictCheckResult::displayFingerprintOf()` của bảng mà trang
+     * @param  string|null  $shownFingerprint  `ShownConflictFingerprint::of()` của bảng mà trang
      *                                         đã hiện (rà soát 2026-10-22, làn harden): lần chạy lại ra bảng
      *                                         khác — một khớp mới cùng mức — thì từ chối bằng
      *                                         `ConflictAcknowledgementRequired::changed()`. `null` giữ hợp đồng
@@ -65,6 +66,8 @@ class AcknowledgeIntakeConflict
         Gate::forUser($actor)->authorize('update', $intake);
 
         return $this->underConflictCheckLock(function () use ($actor, $intake, $acknowledged, $shownFingerprint): IntakeRequest {
+            // Dạng của bảng đã hiện đọc TRƯỚC lần chạy lại — xem `ShownConflictFingerprint`.
+            $heldWhenShown = IntakeRequest::query()->findOrFail($intake->getKey())->isHeldByRepeatCallLock();
             $result = $this->checkAndRecord($actor, $intake);
 
             if ($result->level !== ConflictLevel::Green && Gate::forUser($actor)->denies('viewConflictMatches', $intake)) {
@@ -79,7 +82,8 @@ class AcknowledgeIntakeConflict
                 throw ValidationException::withMessages(['acknowledged' => [__('intake.errors.acknowledgement_not_needed')]]);
             }
 
-            if ($result->differsFromShown($shownFingerprint)) {
+            if ($shownFingerprint !== null
+                && ! hash_equals(ShownConflictFingerprint::of(IntakeRequest::query()->findOrFail($intake->getKey()), $result->toArray(), $heldWhenShown), $shownFingerprint)) {
                 throw ConflictAcknowledgementRequired::changed($result);
             }
 
