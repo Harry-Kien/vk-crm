@@ -16,6 +16,8 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+use WeakMap;
 
 /**
  * Danh sách tiếp nhận (M10 Task 3). Hàng đã lọc theo người xem ở `IntakeRequestResource::getEloquentQuery()`.
@@ -38,6 +40,43 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class IntakeRequestsTable
 {
+    /**
+     * Kết quả {@see IntakeRequest::awaitsConflictResolution()} của cả trang đang hiện, tính MỘT lần cho
+     * mỗi lần vẽ bảng (rà soát toàn hệ thống 2026-10-22): hỏi từng dòng thì mỗi dòng tốn thêm truy vấn
+     * dò "người gọi lại", hai lần (màu và nhãn). Khoá theo đúng đối tượng danh sách bản ghi mà bảng giữ
+     * trong lần vẽ đó, nên lần vẽ sau (lọc, sang trang, làm mới) tính lại.
+     *
+     * @var WeakMap<object, array<int|string, true>>|null
+     */
+    private static ?WeakMap $awaitingByPage = null;
+
+    /**
+     * Cùng câu trả lời với `$record->awaitsConflictResolution()`, nhưng cho cả trang qua
+     * {@see IntakeRequest::scopeAwaitingConflictResolution()} (MỘT định nghĩa: phạm vi đó lọc tập ứng viên
+     * bằng chính hàm này). Dòng không thuộc trang đang giữ thì hỏi thẳng như trước.
+     */
+    private static function awaitsConflictResolution(IntakeRequest $record, HasTable $livewire): bool
+    {
+        $records = $livewire->getTableRecords();
+        $page = $records instanceof Collection ? $records->all() : $records->items();
+        $keys = array_map(fn (IntakeRequest $row): int|string => $row->getKey(), $page);
+
+        if (! in_array($record->getKey(), $keys, true)) {
+            return $record->awaitsConflictResolution();
+        }
+
+        self::$awaitingByPage ??= new WeakMap;
+
+        if (! isset(self::$awaitingByPage[$records])) {
+            self::$awaitingByPage[$records] = $keys === [] ? [] : array_fill_keys(
+                IntakeRequest::query()->whereKey($keys)->awaitingConflictResolution()->pluck('id')->all(),
+                true,
+            );
+        }
+
+        return isset(self::$awaitingByPage[$records][$record->getKey()]);
+    }
+
     /** Ít nhất chừng này chữ số mới tìm theo SĐT — ít hơn thì khớp gần như mọi số. */
     private const PHONE_SEARCH_MIN_DIGITS = 4;
 
@@ -100,13 +139,13 @@ class IntakeRequestsTable
                 TextColumn::make('conflict_level')
                     ->label(__('intake.fields.conflict_level'))
                     ->badge()
-                    ->color(fn (?ConflictLevel $state, IntakeRequest $record): string => match (true) {
-                        $state === ConflictLevel::Red, $record->awaitsConflictResolution() => 'danger',
+                    ->color(fn (?ConflictLevel $state, IntakeRequest $record, HasTable $livewire): string => match (true) {
+                        $state === ConflictLevel::Red, self::awaitsConflictResolution($record, $livewire) => 'danger',
                         $state === ConflictLevel::Yellow => 'warning',
                         $state === ConflictLevel::Green => 'success',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn (?ConflictLevel $state, IntakeRequest $record): string => $record->awaitsConflictResolution()
+                    ->formatStateUsing(fn (?ConflictLevel $state, IntakeRequest $record, HasTable $livewire): string => self::awaitsConflictResolution($record, $livewire)
                         ? __('intake.check.badge_red_pending')
                         : ($state?->label() ?? '—')),
                 TextColumn::make('assignee.name')
