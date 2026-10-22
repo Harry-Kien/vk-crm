@@ -1719,6 +1719,18 @@ Sau khi lên bản:
    lại như cũ. Gộp integ-fa: sau khi huỷ, mỗi người đang giữ hay đã giao một việc như vậy nhận một chuông nói điều đó.
    Không có gì phải chạy trên máy chủ.
 
+### Bản cập nhật rà soát toàn hệ thống 2026-10-22 — làn tiếp nhận (intake)
+
+Một migration mới, `2026_10_22_000001_renormalize_party_names_without_punctuation`: kiểm tra xung đột lợi ích nay so
+tên **bỏ qua dấu câu** ("Công ty TNHH ABC." khớp "Công ty TNHH ABC"), nên migration tính lại tên chuẩn hoá đã lưu của
+các bên trong vụ việc, các bên đối lập và người liên hệ / tổ chức của bản ghi tiếp nhận. Chạy trong chuỗi lệnh nâng
+cấp ở trên (`php artisan migrate --force`), không seeder, không tác vụ lịch, không biến `.env` mới. `down()` đưa các
+cột đó về cách so cũ.
+
+Sau khi lên bản: bản ghi tiếp nhận **còn mở** mà tên người liên hệ, tổ chức hay một bên đối lập có dấu câu sẽ hiện ô
+câu chuyện ở trạng thái "chưa kiểm tra cho danh tính hiện tại" — bấm **"Kiểm tra lại"** trên bản ghi đó (kết quả có
+thể thêm khớp mới mà trước đây bị bỏ sót vì dấu câu).
+
 ### Nâng cấp hỏng: quay lại bản trước
 
 Dùng khi một dòng của khối thứ hai trong "Nâng cấp lên bản mới" hỏng và không sửa được ngay. Đưa máy
