@@ -53,11 +53,18 @@ class AcknowledgeIntakeConflict
 {
     use HoldsConflictCheckLock;
 
-    public function handle(User $actor, IntakeRequest $intake, ConflictLevel $acknowledged): IntakeRequest
+    /**
+     * @param  string|null  $shownFingerprint  `ConflictCheckResult::displayFingerprintOf()` của bảng mà trang
+     *                                         đã hiện (rà soát 2026-10-22, làn harden): lần chạy lại ra bảng
+     *                                         khác — một khớp mới cùng mức — thì từ chối bằng
+     *                                         `ConflictAcknowledgementRequired::changed()`. `null` giữ hợp đồng
+     *                                         cũ chỉ so mức (seeder).
+     */
+    public function handle(User $actor, IntakeRequest $intake, ConflictLevel $acknowledged, ?string $shownFingerprint = null): IntakeRequest
     {
         Gate::forUser($actor)->authorize('update', $intake);
 
-        return $this->underConflictCheckLock(function () use ($actor, $intake, $acknowledged): IntakeRequest {
+        return $this->underConflictCheckLock(function () use ($actor, $intake, $acknowledged, $shownFingerprint): IntakeRequest {
             $result = $this->checkAndRecord($actor, $intake);
 
             if ($result->level !== ConflictLevel::Green && Gate::forUser($actor)->denies('viewConflictMatches', $intake)) {
@@ -70,6 +77,10 @@ class AcknowledgeIntakeConflict
 
             if (! $result->requiresAcknowledgement()) {
                 throw ValidationException::withMessages(['acknowledged' => [__('intake.errors.acknowledgement_not_needed')]]);
+            }
+
+            if ($result->differsFromShown($shownFingerprint)) {
+                throw ConflictAcknowledgementRequired::changed($result);
             }
 
             if ($acknowledged !== $result->level) {

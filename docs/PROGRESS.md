@@ -10202,6 +10202,48 @@ lịch; người nhận theo vai đều lọc `is_active` (qua `ResolveStaffReci
 - Nút "Mở" của "Hồ sơ quá hạn cập nhật" và "Khách chưa xem cập nhật" nên vào tab nào: "Tiến độ" (đăng cập nhật mới) hay
   "Liên lạc" (ghi cuộc gọi cho khách)? Hiện vẫn mở tab Tổng quan.
 
+### Rà soát toàn hệ thống 2026-10-22 — làn harden
+
+Ba việc chuyển từ làn intake và làn billing (nhánh `review-harden`). Mỗi lỗi: test đỏ trước, sửa, phép thử ngược
+(gỡ bản sửa thì test đỏ lại).
+
+- **(Cao) Xác nhận/ghi đè xung đột chỉ so MỨC, không so bảng đã hiện.** Một khớp mới cùng mức xuất hiện giữa lúc
+  màn hình hiện bảng kết quả và lúc bấm lưu (người khác vừa thêm một bên trùng tên ở vụ khác) được ghi vào
+  `confirmed_pairs` như "đã xem xét" — dù chưa ai thấy nó; với Đỏ, lý do ghi đè viết cho bảng cũ phủ luôn khớp Đỏ
+  mới. Sửa: `ConflictCheckResult::displayFingerprint()`/`displayFingerprintOf()` (mức + khớp mới theo đúng các
+  trường hiển thị + bên thiếu định danh, không kể thứ tự); `OpenMatter`, `AddMatterParty`, `UpdateMatterParty`,
+  `ConvertIntakeToMatter`, `AcknowledgeIntakeConflict` nhận thêm `?string $shownFingerprint` — khác bảng lúc lưu
+  thì từ chối bằng `ConflictAcknowledgementRequired::changed()` / `ConflictBlocked::changed()` ("Có kết quả kiểm
+  tra xung đột lợi ích mới từ lúc bảng được hiện — xem lại bảng vừa cập nhật rồi xác nhận lại"), màn hình hiện
+  bảng mới, gỡ dấu tích / lý do ghi đè cũ. Năm màn hình gửi dấu vân tay: mở vụ, tab Các bên (thêm, sửa), chuyển
+  tiếp nhận thành vụ, nút "Xác nhận đã xem" của tiếp nhận (dấu lấy lúc vẽ khối kiểm tra; bị từ chối thì đóng hộp
+  thoại và vẽ lại cả trang với bảng mới). `null` (seeder, test cũ, lời gọi không qua màn hình — hôm nay không có
+  job/MCP nào gọi các Action này) giữ hợp đồng cũ chỉ so mức. Test: `tests/Feature/Review/ConflictShownResultTest.php`
+  (7 ca, đỏ trước ở cả năm màn hình).
+- **(Trung bình) `AddMatterParty` không hỏi quyền trên chính vụ việc.** Chỉ `MatterPartyPolicy::create` (có
+  `matter.update` nói chung) — một luật sư thêm được bên vào vụ của người khác, kể cả vụ `restricted`, nếu gọi
+  thẳng Action. Ghi chú "cố ý" cũ chỉ nói policy không nhận `Matter` (hạn chế đã biết) và màn hình đã chặn; không
+  có đường hợp lệ nào cần bỏ qua (mở vụ và chuyển tiếp nhận đi qua `OpenMatter`, không qua Action này; MCP không
+  gọi nó). Action nay hỏi thêm `MatterPolicy::update` trên `$matter`. Test:
+  `tests/Feature/Review/AddMatterPartyMatterAuthorizationTest.php` (vụ thường, vụ hạn chế; luật sư phụ trách và
+  trưởng phòng vẫn thêm được).
+- **(Trung bình) Tab "Hợp đồng và thanh toán": hợp đồng hiện hành bị thay (huỷ rồi soạn bản mới) trong lúc hộp
+  thoại trên một dòng đợt thu đang mở — bấm "Gửi" không có gì xảy ra.** Đúng suy luận của làn billing: dòng rời
+  bảng (bảng chỉ có đợt của bản mới nhất), Filament không tìm lại được bản ghi. Sửa cùng khuôn
+  `Receivables::resolveTableRecord()`: `BillingRelationManager::resolveTableRecord()` — có hộp thoại đang mở thì
+  tìm lại trong mọi hợp đồng của CHÍNH vụ này, cùng phạm vi tầm nhìn; "Ghi khoản thu" nói câu của `RecordPayment`
+  (hợp đồng không còn hiệu lực), "Huỷ khoản thu" vẫn huỷ được (hợp lệ trên hợp đồng đã huỷ). Test:
+  `tests/Feature/Review/BillingTabContractReplacedRaceTest.php` (2 đỏ trước; ca thứ ba canh không tìm ra đợt của
+  vụ khác).
+
+- **(Cao) Ghi đè Đỏ ở tiếp nhận (`ResolveIntakeRedConflict`) không so bảng đã hiện** — chạy lại kiểm tra rồi ghi
+  đè mọi khớp đang có, kể cả một khớp Đỏ mới xuất hiện sau khi trang hiện bảng (lý do viết cho bảng cũ thành quyết
+  định về khớp chưa ai xem). Nay nhận `?string $shownFingerprint` như năm Action trên: khác thì
+  `ConflictBlocked::changed()` (câu "…viết lại lý do ghi đè nếu vẫn ghi đè"); nút "Xử lý Đỏ" gửi dấu lấy lúc vẽ
+  khối kiểm tra, bị từ chối thì nạp lại bản ghi và đóng hộp thoại để cả trang vẽ bảng mới. Đỏ dính mà bảng không
+  đổi vẫn ghi đè được, hộp thoại giữ câu riêng "Đỏ dính". Test: `ConflictShownResultTest` (3 ca thêm: màn hình,
+  Action, Đỏ dính).
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
