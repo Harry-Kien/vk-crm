@@ -21,9 +21,8 @@ use Illuminate\Support\Facades\Auth;
  */
 class StaleMattersWidget extends TableWidget
 {
-    // SPEC §7.1: "widget quan trọng nhất, đặt trên cùng". Filament\Widgets\AccountWidget (đăng
-    // ký sẵn trong AdminPanelProvider) có $sort = -3, nên phải thấp hơn -3 mới thực sự đứng trên
-    // cùng (review fix round 1, minor D).
+    // SPEC §7.1: "widget quan trọng nhất, đặt trên cùng" — số thấp hơn mọi widget danh sách khác.
+    // (Ô AccountWidget của Filament không còn trên trang chủ từ 2026-10-21.)
     protected static ?int $sort = -4;
 
     public static function canView(): bool

@@ -34,6 +34,39 @@ final class MoneyChart
     /** Đường dẫn của script trong `public/`. */
     public const SCRIPT = 'charts/money.js';
 
+    /** Số ký tự tối đa một dòng của nhãn trục biểu đồ ({@see self::wrapLabel()}). */
+    public const LABEL_LINE_WIDTH = 28;
+
+    /**
+     * Ngắt một nhãn dài thành các dòng ngắn theo từ — Chart.js vẽ một mảng chuỗi thành nhiều dòng. Không có
+     * bước này, nhãn dài của trục chữ (cột ngang) bị cắt mất phần ĐẦU (2026-10-21). Một từ dài hơn một dòng
+     * không bị chặt đôi.
+     *
+     * @return list<string>
+     */
+    public static function wrapLabel(string $label, int $width = self::LABEL_LINE_WIDTH): array
+    {
+        $lines = [];
+        $current = '';
+
+        foreach (preg_split('/\s+/u', trim($label)) ?: [] as $word) {
+            if ($current !== '' && mb_strlen($current.' '.$word) > $width) {
+                $lines[] = $current;
+                $current = $word;
+
+                continue;
+            }
+
+            $current = $current === '' ? $word : $current.' '.$word;
+        }
+
+        if ($current !== '') {
+            $lines[] = $current;
+        }
+
+        return $lines === [] ? [''] : $lines;
+    }
+
     /**
      * Cờ cho `options.plugins` của một biểu đồ có trục tiền.
      *

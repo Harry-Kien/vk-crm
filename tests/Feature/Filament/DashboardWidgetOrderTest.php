@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Role;
 use App\Filament\Admin\Widgets\MattersByStageWidget;
 use App\Filament\Admin\Widgets\MattersMissingDocumentsWidget;
 use App\Filament\Admin\Widgets\MyWorkQueueWidget;
@@ -8,6 +9,9 @@ use App\Filament\Admin\Widgets\StaleMattersWidget;
 use App\Filament\Admin\Widgets\UnansweredIntakesWidget;
 use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
 use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
+use App\Models\User;
+use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Facades\Filament;
 use Filament\Widgets\AccountWidget;
 
 /**
@@ -54,9 +58,21 @@ it('orders the dashboard widgets the way SPEC 7.1 numbers them', function () {
 });
 
 /**
- * SPEC §7.1: mục 1 "đặt trên cùng". `Filament\Widgets\AccountWidget` do AdminPanelProvider đăng
- * ký có `$sort = -3`, nên "trên cùng" chỉ đúng khi số của mục 1 nhỏ hơn số đó.
+ * Chủ văn phòng (2026-10-21, kèm ảnh): ô "Xin chào … Đăng xuất" mặc định của Filament (`AccountWidget`) bị xếp
+ * lẫn giữa các bảng trên trang chủ và để trống nửa hàng — trông như lỗi. Trang chủ không đăng ký ô đó nữa; tên
+ * người dùng và nút Đăng xuất vẫn ở menu tài khoản góc trên bên phải (Filament user menu).
  */
-it('puts the most important widget above the account card Filament registers', function () {
-    expect(StaleMattersWidget::getSort())->toBeLessThan(AccountWidget::getSort());
+it('does not put the Filament account card on the dashboard, while logout stays in the user menu', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    Filament::setCurrentPanel('admin');
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $this->actingAs($admin, 'web');
+
+    expect(collect(Filament::getWidgets())->map(fn ($widget): string => is_string($widget) ? $widget : $widget->widget))
+        ->not->toContain(AccountWidget::class);
+
+    $this->get(route('filament.admin.pages.dashboard'))
+        ->assertOk()
+        ->assertDontSeeLivewire(AccountWidget::class)
+        ->assertSee(route('filament.admin.auth.logout'), false);
 });

@@ -1094,6 +1094,8 @@ function widgetRowsAs(User $user, string $class, array $pageFilters = []): array
 // M7 (cơ cấu lĩnh vực bỏ hợp đồng đã huỷ, cùng quần thể với biểu đồ vành khuyên).
 // =================================================================================================
 
+// 2026-10-21: biểu đồ xu hướng chia từ đầu năm ({@see RevenueFilters::trendWindow()}), nên kỳ 01/07 – 30/09 theo quý ra
+// Quý 1–3, Quý 1 và 2 bằng 0. Test vẫn chứng minh điều cũ: nhãn quý đọc từ tệp ngôn ngữ, không chữ "Q" viết cứng.
 it('labels a quarter bucket of the over-time chart in vietnamese, from the language file', function () {
     $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
     $contract = signedContract($matter, 10_000_000);
@@ -1109,8 +1111,10 @@ it('labels a quarter bucket of the over-time chart in vietnamese, from the langu
     $method = new ReflectionMethod($instance, 'getData');
 
     expect($method->invoke($instance)['labels'])->toBe([
+        __('widgets.revenue_dashboard.over_time.quarter_label', ['quarter' => 1, 'year' => 2026]),
+        __('widgets.revenue_dashboard.over_time.quarter_label', ['quarter' => 2, 'year' => 2026]),
         __('widgets.revenue_dashboard.over_time.quarter_label', ['quarter' => 3, 'year' => 2026]),
-    ]);
+    ])->and($method->invoke($instance)['datasets'][0]['data'])->toBe([0, 0, 1_000_000]);
 });
 
 it('paints the values of the number table in a colour that follows light and dark mode, not a fixed near-black', function () {
@@ -1198,8 +1202,11 @@ it('still leaves out a contract signed and money collected on the first day of t
 
     $signedRow = collect(widgetRows(ReceivablesDonutWidget::class))->firstWhere('label', __('widgets.revenue_dashboard.donut.table.signed_total'));
 
+    // 2026-10-21: biểu đồ xu hướng còn vẽ các tháng trước của năm; cột của THÁNG MỚI (cột cuối) là 0.
+    $overTime = widgetData(RevenueOverTimeWidget::class)['datasets'][0]['data'];
+
     expect($signedRow['value'])->toBe(Money::format(0))
-        ->and(array_sum(widgetData(RevenueOverTimeWidget::class)['datasets'][0]['data']))->toBe(0);
+        ->and(end($overTime))->toBe(0);
 });
 
 // =================================================================================================

@@ -83,8 +83,8 @@ it('counts collected money exactly like the revenue-over-time chart, and compare
 
     $this->actingAs($this->admin, 'web');
 
-    $chartTotal = collect(Livewire::test(RevenueOverTimeWidget::class, ['pageFilters' => []])->instance()->numberTableRows())
-        ->sum(fn (array $row): int => Money::parse(trim(str_replace('₫', '', $row['value']))));
+    // 2026-10-21: biểu đồ là xu hướng từ đầu năm; ô "Đã thu" (kỳ "Tháng này") bằng đúng cột của tháng này — cột cuối.
+    $chartTotal = Money::parse(trim(str_replace('₫', '', collect(Livewire::test(RevenueOverTimeWidget::class, ['pageFilters' => []])->instance()->numberTableRows())->last()['value'])));
 
     $card = rvCards()['collected'];
 

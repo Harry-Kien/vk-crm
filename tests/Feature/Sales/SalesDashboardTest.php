@@ -17,7 +17,6 @@ use App\Models\IntakeRequest;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
-use Filament\Widgets\AccountWidget;
 
 /*
  * Làn kd, Task 1 — bảng điều khiển của nhân viên kinh doanh: chỉ widget về lead của mình (số lead theo
@@ -123,7 +122,7 @@ it('puts the system-health band first and the two sales widgets in fixed slots r
     // Mọi widget nhân viên kinh doanh thấy có một số riêng: không thứ tự nào do tình cờ.
     expect($sorts->values()->all())->toBe($sorts->unique()->values()->all())
         ->and($sorts->keys()->take(4)->all())->toBe([
-            SystemHealthWidget::class, MyLeadsWidget::class, LeadFollowUpsDueWidget::class, AccountWidget::class,
+            SystemHealthWidget::class, MyLeadsWidget::class, LeadFollowUpsDueWidget::class, UnansweredIntakesWidget::class,
         ]);
 
     // Và đúng thứ đó trên trang thật: vị trí của từng widget trong HTML trang chủ.

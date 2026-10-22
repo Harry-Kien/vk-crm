@@ -182,7 +182,8 @@ return [
                 'year' => 'năm',
             ],
             'description' => 'Tiền về :range',
-            'explanation' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
+            // 2026-10-21: biểu đồ xu hướng — khoảng vẽ khác kỳ đầu trang (RevenueFilters::trendWindow()).
+            'explanation' => 'Biểu đồ xu hướng: tiền về từ :range, chia theo tháng hoặc quý từ đầu năm, hoặc 5 năm gần nhất khi xem theo năm; kỳ chưa có tiền hiện cột 0. Các ô số đầu trang chỉ tính kỳ đang chọn (:period). Số tiền tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ; số tiền đã gồm thuế GTGT nếu hợp đồng có thuế. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
             'filter_month' => 'Theo tháng',
             'filter_quarter' => 'Theo quý',
             'filter_year' => 'Theo năm',
