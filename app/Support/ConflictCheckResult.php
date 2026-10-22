@@ -133,7 +133,7 @@ final class ConflictCheckResult implements Arrayable
     /** @param  array<string, mixed>  $result  Hình dạng `toArray()` (kể cả bản đã lưu trên bản ghi tiếp nhận). */
     public static function displayFingerprintOf(array $result): string
     {
-        $fields = ['matter_code', 'party_role', 'party_name', 'level', 'tier', 'our_party_role', 'our_party_name', 'contacted_on'];
+        $fields = ['matter_code', 'matter_type_name', 'party_role', 'party_name', 'level', 'tier', 'our_party_role', 'our_party_name', 'contacted_on'];
 
         $rows = array_map(
             fn (array $match): string => json_encode(array_map(fn (string $field) => $match[$field] ?? null, $fields), JSON_THROW_ON_ERROR),

@@ -288,6 +288,9 @@ it('refuses the intake yellow acknowledgement when a new match appeared after th
         Notification::make()->title(__('actions.failed_title'))->body(__('exceptions.conflict_result_changed'))->danger()->persistent(),
     );
 
+    // Lượt bị từ chối không báo "đã xác nhận" (Filament `cancel()` dừng cả hành động — rà soát Sourcery PR #3).
+    Notification::assertNotNotified(__('intake.actions.acknowledged'));
+
     // Trang hiện lại bảng MỚI ngay trong lượt bị từ chối.
     $page->assertSee($second->code);
 
@@ -296,6 +299,65 @@ it('refuses the intake yellow acknowledgement when a new match appeared after th
     $page->callAction(TestAction::make('acknowledge')->schemaComponent('checkActions'))->assertHasNoErrors();
 
     expect($intake->fresh()->conflict_acknowledged_by)->toBe($assistant->id);
+});
+
+it('reloads the intake table instead of a stale "not needed" error when the shown yellow table reruns green', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $namesake = csrNamesake('Phạm Văn Vàng');
+
+    $intake = app(RecordIntake::class)->handle($assistant, [
+        'contact_name' => 'Người Gọi Mẫu',
+        'contact_phone' => '0832270898',
+        'contact_role' => PartyRole::Plaintiff,
+        'source' => IntakeSource::Phone,
+    ], [['name' => 'Phạm Văn Vàng', 'role' => PartyRole::Defendant, 'phone' => '0977111222', 'id_number' => null]])->intake;
+    app(RecordPrivacyNotice::class)->handle($assistant, $intake, true);
+
+    expect($intake->fresh()->conflict_level)->toBe(ConflictLevel::Yellow);
+
+    $this->actingAs($assistant, 'web');
+
+    $page = $this->livewire(EditIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->assertSee($namesake->code);
+
+    // Trong lúc trợ lý đọc bảng, dòng trùng tên duy nhất bị gỡ khỏi vụ kia: lần chạy lại ra Xanh.
+    $namesake->parties()->delete();
+
+    $page->callAction(TestAction::make('acknowledge')->schemaComponent('checkActions'));
+
+    // Rà soát Sourcery PR #3: trước bản sửa, Action ném "không cần xác nhận" TRƯỚC khi so bảng, nên trang
+    // giữ bảng Vàng cũ kèm một lỗi khó hiểu. Nay nó đi đường "kết quả đã đổi": báo và vẽ lại bảng mới.
+    Notification::assertNotified(
+        Notification::make()->title(__('actions.failed_title'))->body(__('exceptions.conflict_result_changed'))->danger()->persistent(),
+    );
+    Notification::assertNotNotified(__('intake.actions.acknowledged'));
+    $page->assertDontSee($namesake->code);
+
+    expect($intake->fresh()->conflict_level)->toBe(ConflictLevel::Green)
+        ->and($intake->fresh()->conflict_acknowledged_by)->toBeNull();
+});
+
+it('refuses an acknowledgement when a shown match changed its matter type, a column the table displays', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = csrClientVisibleTo($lawyer);
+    $type = MatterType::factory()->withStages()->create();
+    $namesake = csrNamesake('Võ Thị Hành');
+
+    $attributes = ['client_id' => $client->id, 'client_role' => PartyRole::Plaintiff, 'matter_type_id' => $type->id, 'title' => 'Vụ đổi loại', 'lead_lawyer_id' => $lawyer->id];
+    $parties = [['role' => PartyRole::Defendant, 'name' => 'Võ Thị Hành', 'phone' => '0977444555']];
+
+    try {
+        app(OpenMatter::class)->handle($lawyer, $attributes, $parties);
+        $this->fail('Vàng phải đòi xác nhận.');
+    } catch (ConflictAcknowledgementRequired $exception) {
+        $shown = $exception->result->displayFingerprint();
+    }
+
+    // Rà soát Sourcery PR #3: bảng có cột "loại vụ việc" — dấu vân tay phải theo đúng mọi cột bảng hiện.
+    $namesake->update(['matter_type_id' => MatterType::factory()->withStages()->create()->id]);
+
+    expect(fn () => app(OpenMatter::class)->handle($lawyer, $attributes, $parties, acknowledged: ConflictLevel::Yellow, shownFingerprint: $shown))
+        ->toThrow(ConflictAcknowledgementRequired::class, __('exceptions.conflict_result_changed'));
 });
 
 it('refuses an acknowledgement at the Action when the caller says which table it showed and the table changed', function () {
@@ -388,6 +450,8 @@ it('refuses the intake red override when a new red match appeared after the page
     Notification::assertNotified(
         Notification::make()->title(__('actions.failed_title'))->body(__('exceptions.conflict_result_changed_override'))->danger()->persistent(),
     );
+
+    Notification::assertNotNotified(__('intake.actions.red_resolved'));
 
     expect($intake->fresh()->conflict_overridden_by)->toBeNull()
         ->and($intake->fresh()->hasUnresolvedRed())->toBeTrue()

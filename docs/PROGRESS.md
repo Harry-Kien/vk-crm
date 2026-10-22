@@ -10251,6 +10251,12 @@ Ba việc chuyển từ làn intake và làn billing (nhánh `review-harden`). M
   dòng của chính bản ghi (trừ dòng chỉ về lần gọi đang khoá), bên thiếu định danh của nó và dấu các khoá đang giữ
   — khớp mới trên bên của chính bản ghi hay một khoá mới vẫn bị từ chối. Test thêm 2 ca "held call".
 
+*Sau rà soát Sourcery trên PR #3:* (1) dấu vân tay bảng đã hiện thêm cột `matter_type_name` (bảng có hiện loại vụ việc);
+(2) `AcknowledgeIntakeConflict` so bảng đã hiện TRƯỚC câu "không cần xác nhận" — bảng Vàng đã hiện mà lần chạy lại ra Xanh
+nay đi đường "kết quả đã đổi" (trang nạp lại, vẽ bảng mới) thay vì giữ bảng cũ kèm lỗi khó hiểu; (3) góp ý "bị từ chối mà
+vẫn báo thành công" không tái hiện — `Action::cancel()` ném `Cancel`, `runAction` không bắt, nên `afterIntakeAction()` không
+chạy; test nay khẳng định không có thông báo thành công. Test: `ConflictShownResultTest` (+2 ca, 15 ca).
+
 ### Rà soát toàn hệ thống 2026-10-22 — làn perf2
 
 Phạm vi: hai trang của trưởng phòng/quản trị còn vượt ngân sách sau làn ops — "Theo dõi đội ngũ" và "Hiệu suất theo

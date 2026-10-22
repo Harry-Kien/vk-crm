@@ -78,13 +78,16 @@ class AcknowledgeIntakeConflict
                 throw ConflictBlocked::make($result);
             }
 
-            if (! $result->requiresAcknowledgement()) {
-                throw ValidationException::withMessages(['acknowledged' => [__('intake.errors.acknowledgement_not_needed')]]);
-            }
-
+            // So bảng đã hiện TRƯỚC câu "không cần xác nhận" (rà soát Sourcery PR #3): bảng Vàng đã hiện mà lần
+            // chạy lại ra Xanh cũng là "kết quả đã đổi" — trang đi đường nạp lại và vẽ bảng mới, không giữ bảng cũ
+            // kèm một lỗi khó hiểu.
             if ($shownFingerprint !== null
                 && ! hash_equals(ShownConflictFingerprint::of(IntakeRequest::query()->findOrFail($intake->getKey()), $result->toArray(), $heldWhenShown), $shownFingerprint)) {
                 throw ConflictAcknowledgementRequired::changed($result);
+            }
+
+            if (! $result->requiresAcknowledgement()) {
+                throw ValidationException::withMessages(['acknowledged' => [__('intake.errors.acknowledgement_not_needed')]]);
             }
 
             if ($acknowledged !== $result->level) {
