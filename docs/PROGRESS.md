@@ -9968,6 +9968,47 @@ cho trợ lý được — phải "Trả lại" kèm lý do để trưởng phò
 đó (người giao vẫn được báo), đó là một ngoại lệ riêng cho "Giao lại". (b) Lời báo "mở lại" cho người giữ chưa nêu hạn
 mới (hạn hiện ở dòng việc) — thêm vào chuông/thư nếu cần.
 
+### Rà soát toàn hệ thống 2026-10-22 — làn portal
+
+Phạm vi: những gì khách thấy (cổng, tài liệu, thư gửi khách). Nhánh `review-portal`.
+
+**Đã sửa (mỗi lỗi một test đỏ trước khi sửa):**
+
+1. **(Cao) Vụ đã kết thúc vẫn mời khách nộp giấy tờ — ngõ cụt.** `SubmitClientDocument` từ chối vụ đã kết thúc từ M7
+   Task 3, nhưng trang hồ sơ vẫn hiện khối "Việc anh/chị cần làm", nút "Gửi giấy tờ này", nhãn "Chúng tôi đang chờ anh/chị
+   gửi"; thẻ hồ sơ mang huy hiệu đỏ "Còn N giấy tờ cần nộp"; trang nộp cho chọn, chụp, tải tệp rồi mới báo ở bước Gửi.
+   Sửa: `MatterProgress::acceptsSubmissions()` / `SubmitDocument::acceptsSubmissions()`, nhãn trung tính
+   `portal_progress.checklist.status_closed.*`, câu `checklist.submit.matter_closed` ngay đầu khối Hồ sơ giấy tờ và thay
+   bốn bước của trang nộp; `MyMatters` bỏ tone "còn thiếu"/"đang kiểm tra" cho vụ đã kết thúc (giữ "đã đủ").
+   `tests/Feature/Portal/ClosedMatterSubmissionTest.php`; `SubmitDocumentTest` (vụ đóng từ trước: lỗi nay ở ô chọn đầu mục).
+2. **(Trung bình) Vụ đã kết thúc vẫn hiện "Mốc thời hạn sắp tới" với chữ đỏ "Đã quá hạn".** Kết thúc vụ khi còn mốc mở là
+   được phép (làn fm A1) và `CheckDeadlines` thôi nhắc, nhưng cổng vẫn vẽ mốc. Sửa: `MatterProgress::deadlines()` rỗng cho
+   vụ đã kết thúc (khối hiện câu trống sẵn có). Cùng tệp test.
+3. **(Trung bình) Gõ sai mật khẩu, khách không biết phải làm gì.** Cổng không có đường tự đặt lại mật khẩu, câu báo là câu
+   chung của Filament; hotline chỉ hiện sau năm lần sai và bị khoá. Sửa: `Login::failureMessage()` (`portal.login.failed`,
+   kèm hotline) — một câu cho mọi lần hỏng, không mở đường dò tài khoản. `LoginFailureGuidanceTest`; `LoginTest` đối
+   chiếu câu mới.
+4. **(Trung bình) Thư "Mở hồ sơ…" về trang danh sách, không về hồ sơ.** Năm thư về một hồ sơ cụ thể
+   (`client.stage_update`, `client.document_published`, `client.document_rejected`, `client.missing_documents`,
+   `client.request_answered`) trỏ `/portal`; khách có nhiều hồ sơ phải tự tìm thẻ (việc hoãn "thư không có liên kết sâu"
+   của M6 Task 8). Sửa: `PortalUrl::matter()` / `matterRequests()` — cùng đích với thông báo đẩy (`PushTopic::url()`),
+   dựng từ cấu hình như `PortalUrl::base()`; đăng nhập xong quay về đúng trang (`DeepLinkSignInTest`).
+   `tests/Feature/Mail/ClientMailDeepLinkTest.php`; `StageUpdateNotificationTest` (PORTAL_DOMAIN) đối chiếu đường mới.
+
+**Cần chủ văn phòng quyết định:**
+
+- (a) Đầu mục "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" khi vụ chưa có hợp đồng rời nháp: thư nhắc KHÔNG đòi (quyết định
+  7 của làn fb), nhưng trang hồ sơ và thẻ hồ sơ trên cổng vẫn ghi "còn chờ anh/chị gửi" và đếm vào huy hiệu đỏ. Cho cổng
+  theo cùng luật của thư (ẩn khỏi "Việc anh/chị cần làm" tới khi có hợp đồng), hay giữ?
+- (b) Huy hiệu "Văn phòng vừa trả lời một yêu cầu" không có dấu "đã đọc" (R3 của M6 cấm thêm cột): nó ở mãi tới khi khách
+  viết tiếp hoặc văn phòng đóng luồng. Chấp nhận, hay thêm một dấu đã xem theo tài khoản?
+- (c) Nút "Tải về" trên trang hồ sơ là đường dẫn ký 5 phút (SPEC §10.4) nướng lúc vẽ trang: khách đọc quá 5 phút rồi bấm
+  thì gặp trang "liên kết hết hạn". Ký lúc bấm (nút gọi máy chủ rồi chuyển hướng) thì không còn cảnh này — có làm không?
+- (d) Mốc đã công bố mà văn phòng quên đánh dấu xong hiện cho khách chữ đỏ "Đã quá hạn" (vụ còn mở). Giữ, hay hiện câu
+  trung tính ("Văn phòng sẽ cập nhật mốc này")?
+- (e) Nhân sự đổi tay trạng thái yêu cầu sang "Đã trả lời" rồi mới viết câu trả lời: thư `client.request_answered` không đi
+  (thư chỉ đi khi luồng CHUYỂN sang "Đã trả lời"). Gửi thư cho câu trả lời viết đầu tiên sau lần khách viết cuối?
+
 ### Còn chờ (đã có quyết định của chủ văn phòng, chưa làm)
 
 - Các làn sửa lỗi của đợt kiểm tra nghiệp vụ 2026-10-09: **fb, fc, fa, fm ĐÃ GỘP** (2026-10-14/15, các mục "Sửa sau kiểm
