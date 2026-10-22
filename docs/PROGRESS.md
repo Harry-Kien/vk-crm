@@ -9995,6 +9995,17 @@ Phạm vi: những gì khách thấy (cổng, tài liệu, thư gửi khách). N
    dựng từ cấu hình như `PortalUrl::base()`; đăng nhập xong quay về đúng trang (`DeepLinkSignInTest`).
    `tests/Feature/Mail/ClientMailDeepLinkTest.php`; `StageUpdateNotificationTest` (PORTAL_DOMAIN) đối chiếu đường mới.
 
+5. **(Cao — việc chuyển từ làn security) Tắt / xoá tài khoản cổng không cắt phiên đang mở.** `EnsurePortalAccountIsActive`
+   chỉ đăng xuất ở request kế tiếp khi tài khoản CÒN tắt, `UpdatePortalAccount` chỉ gỡ máy push khi đổi email: tắt rồi bật
+   lại (hay xoá rồi "Khôi phục") trước request đó thì phiên cũ vào lại không cần mật khẩu và máy cũ vẫn nhận thông báo
+   đẩy. Sửa theo khuôn `EndStaffSessions`: cột `client_users.session_epoch` (migration có `down()`), `EndPortalSessions`
+   (tăng epoch, đổi `remember_token`, gỡ mọi máy sau commit — lý do `portal_deactivated` / `portal_deleted`),
+   `StampPortalSessionEpoch` khi đăng nhập guard `client`, `EnsurePortalAccountIsActive` (và route tải tệp) đăng xuất phiên
+   mang epoch cũ với câu `portal.session_ended`; nút "Xoá" và xoá hàng loạt đi qua `DeletePortalAccount`.
+   `tests/Feature/Portal/PortalDeactivationCutsAccessTest.php` (phiên thật trong bảng `sessions`, cookie ghi nhớ thật, máy
+   push; phép thử ngược: bỏ phép so epoch → 2 đỏ, bỏ đổi `remember_token` → 1 đỏ). Không đổi: tác vụ đêm
+   `ExpireClientAccess` (tắt tài khoản vì hết hạn tra cứu, không phải vì lộ máy) vẫn chỉ tắt.
+
 **Cần chủ văn phòng quyết định:**
 
 - (a) Đầu mục "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" khi vụ chưa có hợp đồng rời nháp: thư nhắc KHÔNG đòi (quyết định

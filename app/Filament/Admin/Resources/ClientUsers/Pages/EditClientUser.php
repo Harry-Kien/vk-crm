@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
 use App\Actions\Client\IssuePortalAccess;
+use App\Actions\Portal\DeletePortalAccount;
 use App\Actions\Portal\UnlockPortalLogin;
 use App\Actions\Portal\UnlockPortalLoginResult;
 use App\Actions\Portal\UpdatePortalAccount;
@@ -116,7 +117,16 @@ class EditClientUser extends EditRecord
                 }),
             $this->reissueAccessAction(),
             $this->forgetPushDevicesAction(),
-            DeleteAction::make(),
+            // Rà soát 2026-10-22 (làn portal): xoá qua `DeletePortalAccount` — cắt phiên, gỡ máy ngay.
+            DeleteAction::make()
+                ->using(function (ClientUser $record): bool {
+                    $actor = Auth::user();
+                    abort_unless($actor instanceof User, 403);
+
+                    app(DeletePortalAccount::class)->handle($record, $actor);
+
+                    return true;
+                }),
         ];
     }
 

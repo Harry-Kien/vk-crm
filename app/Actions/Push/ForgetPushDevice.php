@@ -46,6 +46,12 @@ class ForgetPushDevice
     /** Văn phòng đổi email cổng: địa chỉ mới là một người giữ mới, chưa xác minh (R10, R12). */
     public const REASON_EMAIL_CHANGED = 'email_changed';
 
+    /** Văn phòng tắt "Đang hoạt động" của tài khoản cổng (`EndPortalSessions`) — rà soát 2026-10-22, làn portal. */
+    public const REASON_PORTAL_DEACTIVATED = 'portal_deactivated';
+
+    /** Văn phòng xoá tài khoản cổng (`DeletePortalAccount`) — "Khôi phục" sau đó không đưa máy cũ trở lại. */
+    public const REASON_PORTAL_DELETED = 'portal_deleted';
+
     /** "Đặt lại 2FA": nhân sự mất điện thoại — máy đó thôi đổ chuông (SPEC §10.7). */
     public const REASON_TWO_FACTOR_RESET = 'two_factor_reset';
 

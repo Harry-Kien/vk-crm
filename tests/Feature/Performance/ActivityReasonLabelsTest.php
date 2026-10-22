@@ -337,6 +337,9 @@ function m13bRlPushRemovalReasons(): array
 it('has a Vietnamese label for every reason the office can remove a push device for, shown in the log modal', function () {
     expect(m13bRlPushRemovalReasons())->toEqualCanonicalizing([
         'push_device_removed.email_changed',
+        // Rà soát 2026-10-22 (làn portal): tắt / xoá tài khoản cổng (`EndPortalSessions`).
+        'push_device_removed.portal_deactivated',
+        'push_device_removed.portal_deleted',
         'push_device_removed.two_factor_reset',
         'push_device_removed.office',
         // Làn fb, mục A5: "Khoá truy cập ngay" (`SuspendStaffAccess`).

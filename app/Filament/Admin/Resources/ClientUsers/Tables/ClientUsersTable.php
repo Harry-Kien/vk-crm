@@ -2,7 +2,10 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers\Tables;
 
+use App\Actions\Portal\DeletePortalAccount;
 use App\Filament\Admin\Support\VisibleClientOptions;
+use App\Models\ClientUser;
+use App\Models\User;
 use App\Support\Search\LetterD;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -15,6 +18,8 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Support\Facades\Auth;
 
 class ClientUsersTable
 {
@@ -67,8 +72,16 @@ class ClientUsersTable
                     // thêm) chỉ quyết định nút có bấm được không; Filament vẫn xoá mọi dòng đã chọn
                     // mà không hỏi lại `ClientUserPolicy::delete()` cho từng dòng — nên một luật sư
                     // (không admin) xoá hàng loạt trót lọt tài khoản cổng của khách bất kỳ.
+                    // Rà soát 2026-10-22 (làn portal): từng dòng qua `DeletePortalAccount` — cắt phiên,
+                    // gỡ máy ngay, như nút "Xoá" của trang sửa.
                     DeleteBulkAction::make()
-                        ->authorizeIndividualRecords('delete'),
+                        ->authorizeIndividualRecords('delete')
+                        ->using(function (DeleteBulkAction $action, EloquentCollection $records): void {
+                            $actor = Auth::user();
+                            abort_unless($actor instanceof User, 403);
+
+                            $records->each(fn (ClientUser $record) => app(DeletePortalAccount::class)->handle($record, $actor));
+                        }),
                     ForceDeleteBulkAction::make()
                         ->authorizeIndividualRecords('forceDelete'),
                     RestoreBulkAction::make()
